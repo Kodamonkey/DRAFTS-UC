@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from typing import List
 
+import cv2
+
 import numpy as np
 import torch
 
@@ -135,8 +137,9 @@ def run_pipeline() -> None:
                         with csv_file.open("a", newline="") as f_csv:
                             writer = csv.writer(f_csv)
                             writer.writerow(cand.to_row())
+                        x1, y1, x2, y2 = map(int, box)
+                        cv2.rectangle(img_rgb, (x1, y1), (x2, y2), (0, 220, 0), 1)
                     out_img_path = save_path / f"{fits_path.stem}_slice{j}_{band_suffix}.png"
-                    cv2 = __import__('cv2')
                     cv2.imwrite(str(out_img_path), img_rgb)
             runtime = time.time() - t_start
             summary[fits_path.name] = {

@@ -97,3 +97,137 @@ def compute_snr(slice_band: np.ndarray, box: Tuple[int, int, int, int]) -> float
     noise = np.median(slice_band)
     std = slice_band.std(ddof=1)
     return (signal - noise) / (std + 1e-6)
+
+
+def save_detection_plot(
+    img_rgb: np.ndarray,
+    top_conf: list,
+    top_boxes: list | None,
+    out_path: Path,
+    slice_idx: int,
+    time_slice: int,
+    band_name: str,
+    band_suffix: str,
+    det_prob: float,
+    fits_stem: str,
+) -> None:
+    """Save a labelled detection plot similar to the original pipeline."""
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+    im = ax.imshow(img_rgb, origin="lower", aspect="auto")
+
+    # Time axis labels
+    n_time_ticks = 6
+    time_positions = np.linspace(0, 512, n_time_ticks)
+    time_start_slice = slice_idx * config.SLICE_LEN * config.TIME_RESO * config.DOWN_TIME_RATE
+    time_values = time_start_slice + (
+        time_positions / 512.0
+    ) * config.SLICE_LEN * config.TIME_RESO * config.DOWN_TIME_RATE
+    ax.set_xticks(time_positions)
+    ax.set_xticklabels([f"{t:.3f}" for t in time_values])
+    ax.set_xlabel("Time (s)", fontsize=12, fontweight="bold")
+
+    # DM axis labels
+    n_dm_ticks = 8
+    dm_positions = np.linspace(0, 512, n_dm_ticks)
+    dm_values = config.DM_min + (dm_positions / 512.0) * (config.DM_max - config.DM_min)
+    ax.set_yticks(dm_positions)
+    ax.set_yticklabels([f"{dm:.0f}" for dm in dm_values])
+    ax.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=12, fontweight="bold")
+
+    # Title
+    if config.FREQ is not None:
+        freq_range = f"{config.FREQ.min():.1f}\u2013{config.FREQ.max():.1f} MHz"
+    else:
+        freq_range = ""
+    title = (
+        f"{fits_stem} - {band_name} ({freq_range})\n"
+        f"Slice {slice_idx + 1}/{time_slice} | "
+        f"Time Resolution: {config.TIME_RESO * config.DOWN_TIME_RATE * 1e6:.1f} \u03bcs | "
+        f"DM Range: {config.DM_min}\u2013{config.DM_max} pc cm⁻\u00b3"
+    )
+    ax.set_title(title, fontsize=11, fontweight="bold", pad=20)
+
+    # Detection info
+    if top_boxes is not None and len(top_boxes) > 0:
+        detection_info = f"Detections: {len(top_boxes)}"
+        ax.text(
+            0.02,
+            0.98,
+            detection_info,
+            transform=ax.transAxes,
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8),
+            fontsize=10,
+            verticalalignment="top",
+            fontweight="bold",
+        )
+
+    tech_info = (
+        f"Model: {config.MODEL_NAME.upper()}\n"
+        f"Confidence: {det_prob:.1f}\n"
+        f"Channels: {config.FREQ_RESO}\u2192{config.FREQ_RESO // config.DOWN_FREQ_RATE}\n"
+        f"Time samples: {config.FILE_LENG}\u2192{config.FILE_LENG // config.DOWN_TIME_RATE}"
+    )
+    ax.text(
+        0.98,
+        0.02,
+        tech_info,
+        transform=ax.transAxes,
+        bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgray", alpha=0.8),
+        fontsize=8,
+        verticalalignment="bottom",
+        horizontalalignment="right",
+    )
+
+    # Bounding boxes
+    if top_boxes is not None:
+        for idx, (conf, box) in enumerate(zip(top_conf, top_boxes)):
+            x1, y1, x2, y2 = map(int, box)
+            rect = plt.Rectangle(
+                (x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor="lime", facecolor="none"
+            )
+            ax.add_patch(rect)
+            center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
+            dm_val, t_sec, _ = pixel_to_physical(center_x, center_y, config.SLICE_LEN)
+            label = f"#{idx+1}\nDM: {dm_val:.1f}\nP: {conf:.2f}"
+            ax.annotate(
+                label,
+                xy=(center_x, center_y),
+                xytext=(center_x, y2 + 15),
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="lime", alpha=0.8),
+                fontsize=8,
+                ha="center",
+                fontweight="bold",
+                arrowprops=dict(arrowstyle="->", color="lime", lw=1),
+            )
+
+    ax.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
+    plt.close()
+
+    if band_suffix == "fullband":
+        fig_cb, ax_cb = plt.subplots(figsize=(13, 8))
+        img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
+        im_cb = ax_cb.imshow(img_gray, origin="lower", aspect="auto", cmap="mako")
+        ax_cb.set_xticks(time_positions)
+        ax_cb.set_xticklabels([f"{t:.3f}" for t in time_values])
+        ax_cb.set_xlabel("Time (s)", fontsize=12, fontweight="bold")
+        ax_cb.set_yticks(dm_positions)
+        ax_cb.set_yticklabels([f"{dm:.0f}" for dm in dm_values])
+        ax_cb.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=12, fontweight="bold")
+        ax_cb.set_title(title, fontsize=11, fontweight="bold", pad=20)
+        if top_boxes is not None:
+            for box in top_boxes:
+                x1, y1, x2, y2 = map(int, box)
+                rect = plt.Rectangle(
+                    (x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor="cyan", facecolor="none"
+                )
+                ax_cb.add_patch(rect)
+        cbar = plt.colorbar(im_cb, ax=ax_cb, shrink=0.8, pad=0.02)
+        cbar.set_label("Normalized Intensity", fontsize=10, fontweight="bold")
+        ax_cb.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
+        plt.tight_layout()
+        cb_path = out_path.parent / f"{out_path.stem}_colorbar{out_path.suffix}"
+        plt.savefig(cb_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
+        plt.close()

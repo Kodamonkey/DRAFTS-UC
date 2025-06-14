@@ -7,13 +7,22 @@ import time
 from pathlib import Path
 from typing import List
 
+import cv2
+
 import numpy as np
 import torch
+import cv2
 
 from . import config
 from .candidate import Candidate
 from .dedispersion import d_dm_time_g
-from .image_utils import compute_snr, pixel_to_physical, postprocess_img, preprocess_img
+from .image_utils import (
+    compute_snr,
+    pixel_to_physical,
+    postprocess_img,
+    preprocess_img,
+    save_detection_plot,
+)
 from .io import get_obparams, load_fits_file
 from ObjectDet.centernet_utils import get_res
 from ObjectDet.centernet_model import centernet
@@ -30,7 +39,7 @@ def run_pipeline() -> None:
 
     summary: dict[str, dict] = {}
 
-    for frb in ["B0355+54"]:
+    for frb in config.FRB_TARGETS:
         file_list = sorted([f for f in config.DATA_DIR.glob("*.fits") if frb in f.name])
         if not file_list:
             continue
@@ -103,8 +112,8 @@ def run_pipeline() -> None:
             ] if config.USE_MULTI_BAND else [(0, "fullband", "Full Band")]
 
             for j in range(time_slice):
-                slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
-                for band_idx, band_suffix, _ in band_configs:
+                slice_cube = dm_time[:, :, config.SLICE_LEN * j : config.SLICE_LEN * (j + 1)]
+                for band_idx, band_suffix, band_name in band_configs:
                     band_img = slice_cube[band_idx]
                     img_tensor = preprocess_img(band_img)
                     with torch.no_grad():
@@ -133,9 +142,24 @@ def run_pipeline() -> None:
                         with csv_file.open("a", newline="") as f_csv:
                             writer = csv.writer(f_csv)
                             writer.writerow(cand.to_row())
+                        x1, y1, x2, y2 = map(int, box)
+                        cv2.rectangle(img_rgb, (x1, y1), (x2, y2), (0, 220, 0), 1)
                     out_img_path = save_path / f"{fits_path.stem}_slice{j}_{band_suffix}.png"
-                    cv2 = __import__('cv2')
                     cv2.imwrite(str(out_img_path), img_rgb)
+                    if config.PLOT_DETAILED:
+                        detailed_path = out_img_path.with_name(f"{out_img_path.stem}_detailed{out_img_path.suffix}")
+                        save_detection_plot(
+                            img_rgb,
+                            list(top_conf),
+                            top_boxes.tolist() if hasattr(top_boxes, 'tolist') else top_boxes,
+                            detailed_path,
+                            j,
+                            time_slice,
+                            band_name,
+                            band_suffix,
+                            det_prob,
+                            fits_path.stem,
+                        )
             runtime = time.time() - t_start
             summary[fits_path.name] = {
                 "n_candidates": cand_counter,

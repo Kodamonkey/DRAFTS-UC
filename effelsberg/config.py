@@ -26,8 +26,16 @@ DET_PROB: float = 0.5
 DM_min: int = 0
 DM_max: int = 129
 
+# Plotting --------------------------------------------------------------------
+PLOT_DETAILED: bool = False
+
 # Paths -----------------------------------------------------------------------
 DATA_DIR = Path("./Data")
 RESULTS_DIR = Path("./Results/ObjectDetection")
 MODEL_NAME = "resnet50"
 MODEL_PATH = Path(f"cent_{MODEL_NAME}.pth")
+
+# Default FRB targets --------------------------------------------------------
+# List of substrings used to select FITS files corresponding to specific
+# observations. Update this list to search for other FRBs.
+FRB_TARGETS = ["B0355+54"]

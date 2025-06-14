@@ -59,6 +59,19 @@ Training data and pre-trained models are available on HuggingFace:
 - [DRAFTS-Data](https://huggingface.co/datasets/TorchLight/DRAFTS)
 - [DRAFTS-Model](https://huggingface.co/TorchLight/DRAFTS)
 
+### Pipeline Steps
+
+1. **Preprocessing** – Edit configuration variables such as `DM_range`,
+   `block_size`, `data_path` and `save_path` in `d-center-main.py` or
+   `d-resnet-main.py`. These scripts load FITS files and perform GPU-accelerated
+   de-dispersion.
+2. **Object detection** – Run `d-center-main.py` with a trained CenterNet model.
+   Detected candidates are saved as images with bounding boxes and optional
+   `.npy` arrays for subsequent analysis.
+3. **Binary classification** – Execute `d-resnet-main.py` with the classification
+   model path configured. The script outputs probability scores for each
+   candidate and stores cropped bursts in the specified save directory.
+
 ### Models
 
 #### Object Detection
@@ -112,7 +125,8 @@ For complete FAST observation data:
 
 1. Refer to `d-center-main.py` and `d-resnet-main.py`
 2. Modify the `data path` and `save path`
-3. Run the file
+3. Set `FRB_TARGETS` in `effelsberg/config.py` to match the FRB names in your FITS files
+4. Run the file
 
 **Note:** The current search program automatically adapts to FAST and GBT observation data. For other telescopes, modify the `load_fits_file` function and related data reading functions.
 

@@ -112,7 +112,8 @@ For complete FAST observation data:
 
 1. Refer to `d-center-main.py` and `d-resnet-main.py`
 2. Modify the `data path` and `save path`
-3. Run the file
+3. Set `FRB_TARGETS` in `effelsberg/config.py` to match the FRB names in your FITS files
+4. Run the file
 
 **Note:** The current search program automatically adapts to FAST and GBT observation data. For other telescopes, modify the `load_fits_file` function and related data reading functions.
 

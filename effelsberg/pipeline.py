@@ -64,17 +64,15 @@ def run_pipeline() -> None:
             width_total = config.FILE_LENG // config.DOWN_TIME_RATE
             dm_time = d_dm_time_g(data, height=height, width=width_total)
 
+            slice_len = min(config.SLICE_LEN, width_total)
+
             if width_total == 0:
                 time_slice = 0
-            elif width_total < config.SLICE_LEN:
-                config.SLICE_LEN = width_total
-                time_slice = 1
             else:
-                time_slice = width_total // config.SLICE_LEN
-            if time_slice == 0 and width_total > 0:
-                time_slice = 1
-                config.SLICE_LEN = width_total
-            print(f"Análisis de {fits_path.name} con {time_slice} slices de {config.SLICE_LEN} muestras")
+                time_slice = width_total // slice_len
+                if time_slice == 0:
+                    time_slice = 1
+            print(f"Análisis de {fits_path.name} con {time_slice} slices de {slice_len} muestras")
 
             csv_file = save_path / f"{fits_path.stem}.candidates.csv"
             if not csv_file.exists():
@@ -105,7 +103,7 @@ def run_pipeline() -> None:
             ] if config.USE_MULTI_BAND else [(0, "fullband", "Full Band")]
 
             for j in range(time_slice):
-                slice_cube = dm_time[:, :, config.SLICE_LEN * j : config.SLICE_LEN * (j + 1)]
+                slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
                 for band_idx, band_suffix, _ in band_configs:
                     band_img = slice_cube[band_idx]
                     img_tensor = preprocess_img(band_img)
@@ -116,7 +114,7 @@ def run_pipeline() -> None:
                         continue
                     img_rgb = postprocess_img(img_tensor)
                     for conf, box in zip(top_conf, top_boxes):
-                        dm_val, t_sec, t_sample = pixel_to_physical((box[0] + box[2]) / 2, (box[1] + box[3]) / 2, config.SLICE_LEN)
+                        dm_val, t_sec, t_sample = pixel_to_physical((box[0] + box[2]) / 2, (box[1] + box[3]) / 2, slice_len)
                         snr_val = compute_snr(band_img, tuple(map(int, box)))
                         snr_list.append(snr_val)
                         cand = Candidate(

@@ -9,6 +9,7 @@ from typing import List
 
 import numpy as np
 import torch
+import cv2
 
 from . import config
 from .candidate import Candidate
@@ -136,7 +137,6 @@ def run_pipeline() -> None:
                             writer = csv.writer(f_csv)
                             writer.writerow(cand.to_row())
                     out_img_path = save_path / f"{fits_path.stem}_slice{j}_{band_suffix}.png"
-                    cv2 = __import__('cv2')
                     cv2.imwrite(str(out_img_path), img_rgb)
             runtime = time.time() - t_start
             summary[fits_path.name] = {

@@ -30,7 +30,7 @@ def run_pipeline() -> None:
 
     summary: dict[str, dict] = {}
 
-    for frb in ["B0355+54"]:
+    for frb in config.FRB_TARGETS:
         file_list = sorted([f for f in config.DATA_DIR.glob("*.fits") if frb in f.name])
         if not file_list:
             continue

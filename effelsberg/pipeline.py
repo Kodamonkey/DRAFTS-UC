@@ -11,6 +11,7 @@ import cv2
 
 import numpy as np
 import torch
+import cv2
 
 from . import config
 from .candidate import Candidate

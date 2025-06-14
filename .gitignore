@@ -25,6 +25,8 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+data/
+**/venv_drafts/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -172,3 +174,41 @@ cython_debug/
 
 Hug*/
 hugg*/
+
+scripts/
+# Ignore all .json files
+*.json
+# Ignore all .yaml files
+*.yaml
+
+Utils/
+utils/
+RawData/
+#models/
+scripts/
+venv_drafts/
+*.pdf
+src/data/cent_data/
+
+#Ignore all .pth
+#*.pth
+#Ignore all files in source directory
+*.sh
+# Ignore all .csv files
+*.log
+
+# Ignorar archivos CUDA e instaladores
+*.run
+*.deb
+
+# Ignorar archivos de documentación
+*.txt
+LICENSE
+
+# Ignorar instaladores y scripts
+*.sh
+*.1
+*.2
+
+# Ignorar archivos de registro
+*.log

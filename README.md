@@ -59,6 +59,19 @@ Training data and pre-trained models are available on HuggingFace:
 - [DRAFTS-Data](https://huggingface.co/datasets/TorchLight/DRAFTS)
 - [DRAFTS-Model](https://huggingface.co/TorchLight/DRAFTS)
 
+### Pipeline Steps
+
+1. **Preprocessing** – Edit configuration variables such as `DM_range`,
+   `block_size`, `data_path` and `save_path` in `d-center-main.py` or
+   `d-resnet-main.py`. These scripts load FITS files and perform GPU-accelerated
+   de-dispersion.
+2. **Object detection** – Run `d-center-main.py` with a trained CenterNet model.
+   Detected candidates are saved as images with bounding boxes and optional
+   `.npy` arrays for subsequent analysis.
+3. **Binary classification** – Execute `d-resnet-main.py` with the classification
+   model path configured. The script outputs probability scores for each
+   candidate and stores cropped bursts in the specified save directory.
+
 ### Models
 
 #### Object Detection

@@ -15,7 +15,13 @@ import torch
 from . import config
 from .candidate import Candidate
 from .dedispersion import d_dm_time_g
-from .image_utils import compute_snr, pixel_to_physical, postprocess_img, preprocess_img
+from .image_utils import (
+    compute_snr,
+    pixel_to_physical,
+    postprocess_img,
+    preprocess_img,
+    save_detection_plot,
+)
 from .io import get_obparams, load_fits_file
 from ObjectDet.centernet_utils import get_res
 from ObjectDet.centernet_model import centernet
@@ -108,7 +114,7 @@ def run_pipeline() -> None:
 
             for j in range(time_slice):
                 slice_cube = dm_time[:, :, config.SLICE_LEN * j : config.SLICE_LEN * (j + 1)]
-                for band_idx, band_suffix, _ in band_configs:
+                for band_idx, band_suffix, band_name in band_configs:
                     band_img = slice_cube[band_idx]
                     img_tensor = preprocess_img(band_img)
                     with torch.no_grad():
@@ -141,6 +147,20 @@ def run_pipeline() -> None:
                         cv2.rectangle(img_rgb, (x1, y1), (x2, y2), (0, 220, 0), 1)
                     out_img_path = save_path / f"{fits_path.stem}_slice{j}_{band_suffix}.png"
                     cv2.imwrite(str(out_img_path), img_rgb)
+                    if config.PLOT_DETAILED:
+                        detailed_path = out_img_path.with_name(f"{out_img_path.stem}_detailed{out_img_path.suffix}")
+                        save_detection_plot(
+                            img_rgb,
+                            list(top_conf),
+                            top_boxes.tolist() if hasattr(top_boxes, 'tolist') else top_boxes,
+                            detailed_path,
+                            j,
+                            time_slice,
+                            band_name,
+                            band_suffix,
+                            det_prob,
+                            fits_path.stem,
+                        )
             runtime = time.time() - t_start
             summary[fits_path.name] = {
                 "n_candidates": cand_counter,

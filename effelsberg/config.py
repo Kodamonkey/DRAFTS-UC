@@ -26,6 +26,9 @@ DET_PROB: float = 0.5
 DM_min: int = 0
 DM_max: int = 129
 
+# Plotting --------------------------------------------------------------------
+PLOT_DETAILED: bool = False
+
 # Paths -----------------------------------------------------------------------
 DATA_DIR = Path("./Data")
 RESULTS_DIR = Path("./Results/ObjectDetection")

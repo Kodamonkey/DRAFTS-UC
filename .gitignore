@@ -212,3 +212,9 @@ LICENSE
 
 # Ignorar archivos de registro
 *.log
+
+# Resultados de pruebas
+Results/
+
+# modelos de Hugging Face
+models/

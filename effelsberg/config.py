@@ -33,7 +33,7 @@ PLOT_DETAILED: bool = False
 DATA_DIR = Path("./Data")
 RESULTS_DIR = Path("./Results/ObjectDetection")
 MODEL_NAME = "resnet50"
-MODEL_PATH = Path(f"cent_{MODEL_NAME}.pth")
+MODEL_PATH = Path(f"./models/cent_{MODEL_NAME}.pth")
 
 # Default FRB targets --------------------------------------------------------
 # List of substrings used to select FITS files corresponding to specific

@@ -6,10 +6,18 @@ from typing import Tuple
 
 import cv2
 import matplotlib.pyplot as plt
+import seaborn as sns
 import numpy as np
 from matplotlib import gridspec
+from matplotlib.colors import ListedColormap
 
 from . import config
+
+if "mako" not in plt.colormaps():
+    plt.register_cmap(
+        name="mako",
+        cmap=ListedColormap(sns.color_palette("mako", as_cmap=True)(np.linspace(0, 1, 256)))
+    )
 
 
 def preprocess_img(img: np.ndarray) -> np.ndarray:

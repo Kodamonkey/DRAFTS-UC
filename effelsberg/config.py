@@ -7,35 +7,31 @@ from typing import Optional
 import numpy as np
 import torch
 
-# Device selection -------------------------------------------------------------
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# Configuracion del dispositivo ---------------------------------------------------
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu") # Uso de GPU si está disponible, de lo contrario usa CPU.
 
-# Observation parameters -------------------------------------------------------
-FREQ: np.ndarray | None = None
-FREQ_RESO: int = 0
-TIME_RESO: float = 0.0
-FILE_LENG: int = 0
-DOWN_FREQ_RATE: int = 1
-DOWN_TIME_RATE: int = 1
-DATA_NEEDS_REVERSAL: bool = False
+# Parametros de observacion -------------------------------------------------------
+FREQ: np.ndarray | None = None # Frecuencia de observación, puede ser None si no se especifica.
+FREQ_RESO: int = 0 # Resolución de frecuencia, en MHz.
+TIME_RESO: float = 0.0 # Resolución de tiempo, en segundos.
+FILE_LENG: int = 0 # Longitud del archivo, en muestras.
+DOWN_FREQ_RATE: int = 1 # Tasa de reducción de frecuencia, factor por el cual se reduce la frecuencia.
+DOWN_TIME_RATE: int = 1 # Tasa de reducción de tiempo, factor por el cual se reduce el tiempo. 
+DATA_NEEDS_REVERSAL: bool = False # Indica si los datos necesitan ser revertidos (invertidos) en el eje de frecuencia.
 
-# Pipeline configuration ------------------------------------------------------
-USE_MULTI_BAND: bool = False
-SLICE_LEN: int = 512
-DET_PROB: float = 0.5
-DM_min: int = 0
-DM_max: int = 129
+# Configuracion del pipeline  ------------------------------------------------------
+USE_MULTI_BAND: bool = False # Indica si se utiliza procesamiento de múltiples bandas.
+SLICE_LEN: int = 512 # Longitud de cada slice, en muestras.
+DET_PROB: float = 0.5 # Probabilidad de detección mínima para considerar un evento como válido.
+DM_min: int = 0 # DM mínimo, en pc cm⁻³. 
+DM_max: int = 129 # DM máximo, en pc cm⁻³.
 
-# Plotting --------------------------------------------------------------------
-PLOT_DETAILED: bool = False
-
-# Paths -----------------------------------------------------------------------
-DATA_DIR = Path("./Data")
-RESULTS_DIR = Path("./Results/ObjectDetection")
-MODEL_NAME = "resnet50"
-MODEL_PATH = Path(f"./models/cent_{MODEL_NAME}.pth")
+# Rutas de archivos y modelos ---------------------------------------------------
+DATA_DIR = Path("./Data") # Directorio donde se almacenan los datos de entrada.
+RESULTS_DIR = Path("./Results/ObjectDetection") # Directorio donde se guardan los resultados del procesamiento.
+MODEL_NAME = "resnet50" # Nombre del modelo utilizado para la detección de eventos.
+MODEL_PATH = Path(f"./models/cent_{MODEL_NAME}.pth") # Ruta al modelo preentrenado para la detección de eventos.
 
 # Default FRB targets --------------------------------------------------------
-# List of substrings used to select FITS files corresponding to specific
-# observations. Update this list to search for other FRBs.
+#Objetivos de FRB predeterminados. Esta lista se utiliza para buscar archivos FITS
 FRB_TARGETS = ["B0355+54"]

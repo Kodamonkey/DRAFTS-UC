@@ -23,6 +23,7 @@ from .image_utils import (
     postprocess_img,
     preprocess_img,
     save_detection_plot,
+    plot_waterfall_block,
 )
 from .io import get_obparams, load_fits_file
 
@@ -132,6 +133,38 @@ def _write_summary(summary: dict, save_path: Path) -> None:
     logger.info("Resumen global escrito en %s", summary_path)
 
 
+def _plot_waterfalls(
+    data: np.ndarray,
+    slice_len: int,
+    time_slice: int,
+    fits_stem: str,
+    out_dir: Path,
+) -> None:
+    """Save frequency--time waterfall plots for each time block."""
+
+    freq_ds = np.mean(
+        config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
+        axis=1,
+    )
+    time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for j in range(time_slice):
+        t0, t1 = j * slice_len, (j + 1) * slice_len
+        block = data[t0:t1]
+        if block.size == 0:
+            continue
+        plot_waterfall_block(
+            data_block=block,
+            freq=freq_ds,
+            time_reso=time_reso_ds,
+            block_size=block.shape[0],
+            block_idx=j,
+            save_dir=out_dir,
+            filename=fits_stem,
+        )
+
+
 def _process_file(model: torch.nn.Module, fits_path: Path, save_dir: Path) -> dict:
     """Process a single FITS file and return summary information."""
 
@@ -163,9 +196,14 @@ def _process_file(model: torch.nn.Module, fits_path: Path, save_dir: Path) -> di
 
     height = config.DM_max - config.DM_min + 1
     width_total = config.FILE_LENG // config.DOWN_TIME_RATE
-    dm_time = d_dm_time_g(data, height=height, width=width_total)
 
     slice_len, time_slice = _slice_parameters(width_total, config.SLICE_LEN)
+
+    waterfall_dir = save_dir / "Waterfalls" / fits_path.stem
+    _plot_waterfalls(data, slice_len, time_slice, fits_path.stem, waterfall_dir)
+
+    dm_time = d_dm_time_g(data, height=height, width=width_total)
+
     slice_duration = slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
     logger.info(
         "Análisis de %s con %d slices de %d muestras (%.3f s cada uno)",

@@ -8,7 +8,6 @@ import time
 from pathlib import Path
 from typing import Iterable, List
 
-import cv2
 import numpy as np
 import torch
 
@@ -169,7 +168,7 @@ def _process_file(model: torch.nn.Module, fits_path: Path, save_dir: Path) -> di
     slice_len, time_slice = _slice_parameters(width_total, config.SLICE_LEN)
     slice_duration = slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
     logger.info(
-        "An\xc3\xa1lisis de %s con %d slices de %d muestras (%.3f s cada uno)",
+        "Análisis de %s con %d slices de %d muestras (%.3f s cada uno)",
         fits_path.name,
         time_slice,
         slice_len,
@@ -281,4 +280,3 @@ def run_pipeline() -> None:
             summary[fits_path.name] = _process_file(model, fits_path, save_dir)
 
     _write_summary(summary, save_dir)
-

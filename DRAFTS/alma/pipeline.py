@@ -199,8 +199,8 @@ def _process_file(model: torch.nn.Module, fits_path: Path, save_dir: Path) -> di
 
     slice_len, time_slice = _slice_parameters(width_total, config.SLICE_LEN)
 
-    waterfall_dir = save_dir / "Waterfalls" / fits_path.stem
-    _plot_waterfalls(data, slice_len, time_slice, fits_path.stem, waterfall_dir)
+    #waterfall_dir = save_dir / "Waterfalls" / fits_path.stem
+    #_plot_waterfalls(data, slice_len, time_slice, fits_path.stem, waterfall_dir)
 
     dm_time = d_dm_time(data, height=height, width=width_total)
 
@@ -237,36 +237,17 @@ def _process_file(model: torch.nn.Module, fits_path: Path, save_dir: Path) -> di
             img_tensor = preprocess_img(band_img)
 
             top_conf, top_boxes = _detect(model, img_tensor)
-            if top_boxes is None:
-                continue
-
+            
+            # Generate plot regardless of detections
             img_rgb = postprocess_img(img_tensor)
-            for conf, box in zip(top_conf, top_boxes):
-                dm_val, t_sec, t_sample = pixel_to_physical(
-                    (box[0] + box[2]) / 2,
-                    (box[1] + box[3]) / 2,
-                    slice_len,
-                )
-                snr_val = compute_snr(band_img, tuple(map(int, box)))
-                snr_list.append(snr_val)
-                cand = Candidate(
-                    fits_path.name,
-                    j,
-                    band_idx,
-                    float(conf),
-                    dm_val,
-                    t_sec,
-                    t_sample,
-                    tuple(map(int, box)),
-                    snr_val,
-                )
-                cand_counter += 1
-                prob_max = max(prob_max, float(conf))
-                with csv_file.open("a", newline="") as f_csv:
-                    writer = csv.writer(f_csv)
-                    writer.writerow(cand.to_row())
-
             out_img_path = save_dir / f"{fits_path.stem}_slice{j}_{band_suffix}.png"
+            
+            # If no detections, use empty lists for plotting
+            if top_boxes is None or len(top_boxes) == 0:
+                top_conf, top_boxes = [], []
+                logger.info("No se detectaron candidatos en slice %d, banda %s - generando plot vacío", j, band_name)
+            
+            # Save plot (will show empty image if no detections)
             _save_plot(
                 img_rgb,
                 top_conf,
@@ -279,6 +260,33 @@ def _process_file(model: torch.nn.Module, fits_path: Path, save_dir: Path) -> di
                 fits_path.stem,
                 slice_len,
             )
+            
+            # Process detections if they exist
+            if top_boxes is not None and len(top_boxes) > 0:  # Check for actual detections
+                for conf, box in zip(top_conf, top_boxes):
+                    dm_val, t_sec, t_sample = pixel_to_physical(
+                        (box[0] + box[2]) / 2,
+                        (box[1] + box[3]) / 2,
+                        slice_len,
+                    )
+                    snr_val = compute_snr(band_img, tuple(map(int, box)))
+                    snr_list.append(snr_val)
+                    cand = Candidate(
+                        fits_path.name,
+                        j,
+                        band_idx,
+                        float(conf),
+                        dm_val,
+                        t_sec,
+                        t_sample,
+                        tuple(map(int, box)),
+                        snr_val,
+                    )
+                    cand_counter += 1
+                    prob_max = max(prob_max, float(conf))
+                    with csv_file.open("a", newline="") as f_csv:
+                        writer = csv.writer(f_csv)
+                        writer.writerow(cand.to_row())
 
     runtime = time.time() - t_start
     logger.info(

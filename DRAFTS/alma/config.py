@@ -20,11 +20,11 @@ DOWN_TIME_RATE: int = 1  # Keep original time resolution for ALMA
 DATA_NEEDS_REVERSAL: bool = False
 
 # Pipeline configuration -------------------------------------------------------
-USE_MULTI_BAND: bool = False
-SLICE_LEN: int = 512
-DET_PROB: float = 0.5
+USE_MULTI_BAND: bool = True
+SLICE_LEN: int = 2
+DET_PROB: float = 0.1
 DM_min: int = 0
-DM_max: int = 129
+DM_max: int = 0
 
 # Paths to data and models -----------------------------------------------------
 DATA_DIR = Path("./Data")
@@ -33,4 +33,4 @@ MODEL_NAME = "resnet50"
 MODEL_PATH = Path(f"./models/cent_{MODEL_NAME}.pth")
 
 # Default FRB targets ----------------------------------------------------------
-FRB_TARGETS = ["B0355+54", "FRB20121102", "FRB20201124", "FRB20180301"]
+FRB_TARGETS = ["2017-04-03-08"]

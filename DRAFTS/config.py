@@ -32,6 +32,11 @@ RESULTS_DIR = Path("./Results/ObjectDetection") # Directorio donde se guardan lo
 MODEL_NAME = "resnet50" # Nombre del modelo utilizado para la detección de eventos.
 MODEL_PATH = Path(f"./models/cent_{MODEL_NAME}.pth") # Ruta al modelo preentrenado para la detección de eventos.
 
+# Configuración del modelo de clasificación binaria
+CLASS_MODEL_NAME = "resnet18"
+CLASS_MODEL_PATH = Path(f"./models/class_{CLASS_MODEL_NAME}.pth")
+CLASS_PROB = 0.5
+
 # Default FRB targets --------------------------------------------------------
 #Objetivos de FRB predeterminados. Esta lista se utiliza para buscar archivos FITS
 FRB_TARGETS = ["B0355+54", "FRB20121102", "FRB20201124", "FRB20180301"]

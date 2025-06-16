@@ -35,6 +35,7 @@ MODEL_PATH = Path(f"./models/cent_{MODEL_NAME}.pth") # Ruta al modelo preentrena
 # Configuración del modelo de clasificación binaria
 CLASS_MODEL_NAME = "resnet18"
 CLASS_MODEL_PATH = Path(f"./models/class_{CLASS_MODEL_NAME}.pth")
+# Probabilidad mínima para considerar que un parche corresponde a un burst
 CLASS_PROB = 0.5
 
 # Default FRB targets --------------------------------------------------------

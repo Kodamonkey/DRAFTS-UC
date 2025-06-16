@@ -40,6 +40,18 @@ def _load_model() -> torch.nn.Module:
     return model
 
 
+def _load_class_model() -> torch.nn.Module:
+    """Load the binary classification model configured in :mod:`config`."""
+
+    from BinaryClass.binary_model import BinaryNet
+
+    model = BinaryNet(config.CLASS_MODEL_NAME, num_classes=2).to(config.DEVICE)
+    state = torch.load(config.CLASS_MODEL_PATH, map_location=config.DEVICE)
+    model.load_state_dict(state)
+    model.eval()
+    return model
+
+
 def _find_fits_files(frb: str) -> List[Path]:
     """Return FITS files matching ``frb`` within ``config.DATA_DIR``."""
 
@@ -68,6 +80,7 @@ def _ensure_csv_header(csv_path: Path) -> None:
                 "x2",
                 "y2",
                 "snr",
+                "class_prob",
             ]
         )
 
@@ -165,7 +178,65 @@ def _plot_waterfalls(
         )
 
 
-def _process_file(model: torch.nn.Module, fits_path: Path, save_dir: Path) -> dict:
+def _dedisperse_patch(
+    data: np.ndarray,
+    freq_down: np.ndarray,
+    dm: float,
+    sample: int,
+    patch_len: int = 512,
+) -> np.ndarray:
+    """Dedisperse ``data`` at ``dm`` around ``sample`` and return a patch."""
+
+    delays = (
+        4.15
+        * dm
+        * (freq_down ** -2 - freq_down.max() ** -2)
+        * 1e3
+        / config.TIME_RESO
+        / config.DOWN_TIME_RATE
+    ).astype(np.int64)
+    max_delay = int(delays.max())
+    start = sample - patch_len // 2
+    if start < 0:
+        start = 0
+    if start + patch_len + max_delay > data.shape[0]:
+        start = max(0, data.shape[0] - (patch_len + max_delay))
+    segment = data[start : start + patch_len + max_delay]
+    patch = np.zeros((patch_len, freq_down.size), dtype=np.float32)
+    for idx in range(freq_down.size):
+        patch[:, idx] = segment[delays[idx] : delays[idx] + patch_len, idx]
+    return patch
+
+
+def _prep_patch(patch: np.ndarray) -> np.ndarray:
+    """Normalize patch for classification."""
+
+    patch = patch.copy()
+    patch += 1
+    patch /= np.mean(patch, axis=0)
+    vmin, vmax = np.nanpercentile(patch, [5, 95])
+    patch = np.clip(patch, vmin, vmax)
+    patch = (patch - patch.min()) / (patch.max() - patch.min())
+    return patch
+
+
+def _classify_patch(model: torch.nn.Module, patch: np.ndarray) -> float:
+    """Return probability from binary model for ``patch``."""
+
+    proc = _prep_patch(patch)
+    tensor = torch.from_numpy(proc[None, None, :, :]).float().to(config.DEVICE)
+    with torch.no_grad():
+        out = model(tensor)
+        prob = out.softmax(dim=1)[0, 1].item()
+    return prob
+
+
+def _process_file(
+    det_model: torch.nn.Module,
+    cls_model: torch.nn.Module,
+    fits_path: Path,
+    save_dir: Path,
+) -> dict:
     """Process a single FITS file and return summary information."""
 
     t_start = time.time()
@@ -192,6 +263,11 @@ def _process_file(model: torch.nn.Module, fits_path: Path, save_dir: Path) -> di
         )
         .mean(axis=1)
         .astype(np.float32)
+    )
+
+    freq_down = np.mean(
+        config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
+        axis=1,
     )
 
     height = config.DM_max - config.DM_min + 1
@@ -236,7 +312,7 @@ def _process_file(model: torch.nn.Module, fits_path: Path, save_dir: Path) -> di
             band_img = slice_cube[band_idx]
             img_tensor = preprocess_img(band_img)
 
-            top_conf, top_boxes = _detect(model, img_tensor)
+            top_conf, top_boxes = _detect(det_model, img_tensor)
             if top_boxes is None:
                 continue
 
@@ -249,6 +325,9 @@ def _process_file(model: torch.nn.Module, fits_path: Path, save_dir: Path) -> di
                 )
                 snr_val = compute_snr(band_img, tuple(map(int, box)))
                 snr_list.append(snr_val)
+                global_sample = j * slice_len + int(t_sample)
+                patch = _dedisperse_patch(data, freq_down, dm_val, global_sample)
+                class_prob = _classify_patch(cls_model, patch)
                 cand = Candidate(
                     fits_path.name,
                     j,
@@ -259,6 +338,7 @@ def _process_file(model: torch.nn.Module, fits_path: Path, save_dir: Path) -> di
                     t_sample,
                     tuple(map(int, box)),
                     snr_val,
+                    class_prob,
                 )
                 cand_counter += 1
                 prob_max = max(prob_max, float(conf))
@@ -305,7 +385,8 @@ def run_pipeline() -> None:
     save_dir = config.RESULTS_DIR / config.MODEL_NAME
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    model = _load_model()
+    det_model = _load_model()
+    cls_model = _load_class_model()
 
     summary: dict[str, dict] = {}
     for frb in config.FRB_TARGETS:
@@ -315,6 +396,6 @@ def run_pipeline() -> None:
 
         get_obparams(str(file_list[0]))
         for fits_path in file_list:
-            summary[fits_path.name] = _process_file(model, fits_path, save_dir)
+            summary[fits_path.name] = _process_file(det_model, cls_model, fits_path, save_dir)
 
     _write_summary(summary, save_dir)

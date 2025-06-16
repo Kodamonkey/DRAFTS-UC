@@ -52,6 +52,18 @@ def _load_class_model() -> torch.nn.Module:
     return model
 
 
+def _load_class_model() -> torch.nn.Module:
+    """Load the binary classification model configured in :mod:`config`."""
+
+    from BinaryClass.binary_model import BinaryNet
+
+    model = BinaryNet(config.CLASS_MODEL_NAME, num_classes=2).to(config.DEVICE)
+    state = torch.load(config.CLASS_MODEL_PATH, map_location=config.DEVICE)
+    model.load_state_dict(state)
+    model.eval()
+    return model
+
+
 def _find_fits_files(frb: str) -> List[Path]:
     """Return FITS files matching ``frb`` within ``config.DATA_DIR``."""
 
@@ -85,7 +97,6 @@ def _ensure_csv_header(csv_path: Path) -> None:
                 "patch_file",
             ]
         )
-
 
 def _slice_parameters(width_total: int, slice_len: int) -> tuple[int, int]:
     """Return adjusted ``slice_len`` and number of slices for ``width_total``."""
@@ -153,7 +164,6 @@ def _save_patch_plot(patch: np.ndarray, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=150)
     plt.close()
-
 
 def _write_summary(summary: dict, save_path: Path) -> None:
     summary_path = save_path / "summary.json"
@@ -286,6 +296,11 @@ def _process_file(
         axis=1,
     )
 
+    freq_down = np.mean(
+        config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
+        axis=1,
+    )
+
     height = config.DM_max - config.DM_min + 1
     width_total = config.FILE_LENG // config.DOWN_TIME_RATE
 
@@ -327,7 +342,6 @@ def _process_file(
         for band_idx, band_suffix, band_name in band_configs:
             band_img = slice_cube[band_idx]
             img_tensor = preprocess_img(band_img)
-
             top_conf, top_boxes = _detect(det_model, img_tensor)
             if top_boxes is None:
                 continue
@@ -414,7 +428,6 @@ def run_pipeline() -> None:
 
     save_dir = config.RESULTS_DIR / config.MODEL_NAME
     save_dir.mkdir(parents=True, exist_ok=True)
-
     det_model = _load_model()
     cls_model = _load_class_model()
 

@@ -235,7 +235,6 @@ def _prep_patch(patch: np.ndarray) -> np.ndarray:
     patch = (patch - patch.min()) / (patch.max() - patch.min())
     return patch
 
-
 def _classify_patch(model: torch.nn.Module, patch: np.ndarray) -> tuple[float, np.ndarray]:
     """Return probability from binary model for ``patch`` along with the processed patch."""
 

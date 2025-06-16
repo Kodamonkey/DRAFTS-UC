@@ -16,9 +16,12 @@ class Candidate:
     t_sample: int
     box: Tuple[int, int, int, int]
     snr: float
+    class_prob: float | None = None
+    is_burst: bool | None = None
+    patch_file: str | None = None
 
     def to_row(self) -> List:
-        return [
+        row = [
             self.file,
             self.slice_id,
             self.band_id,
@@ -29,3 +32,10 @@ class Candidate:
             *self.box,
             f"{self.snr:.2f}",
         ]
+        if self.class_prob is not None:
+            row.append(f"{self.class_prob:.3f}")
+        if self.is_burst is not None:
+            row.append("burst" if self.is_burst else "no_burst")
+        if self.patch_file is not None:
+            row.append(self.patch_file)
+        return row

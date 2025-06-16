@@ -16,9 +16,10 @@ class Candidate:
     t_sample: int
     box: Tuple[int, int, int, int]
     snr: float
+    class_prob: float | None = None
 
     def to_row(self) -> List:
-        return [
+        row = [
             self.file,
             self.slice_id,
             self.band_id,
@@ -29,3 +30,6 @@ class Candidate:
             *self.box,
             f"{self.snr:.2f}",
         ]
+        if self.class_prob is not None:
+            row.append(f"{self.class_prob:.3f}")
+        return row

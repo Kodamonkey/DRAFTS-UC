@@ -10,9 +10,12 @@ from typing import Iterable, List
 
 import numpy as np
 import torch
+import matplotlib.pyplot as plt
+from matplotlib import gridspec
 
 from ObjectDet.centernet_model import centernet
 from ObjectDet.centernet_utils import get_res
+from BinaryClass.binary_model import BinaryNet
 
 from . import config
 from .candidate import Candidate
@@ -43,26 +46,11 @@ def _load_model() -> torch.nn.Module:
 def _load_class_model() -> torch.nn.Module:
     """Load the binary classification model configured in :mod:`config`."""
 
-    from BinaryClass.binary_model import BinaryNet
-
     model = BinaryNet(config.CLASS_MODEL_NAME, num_classes=2).to(config.DEVICE)
     state = torch.load(config.CLASS_MODEL_PATH, map_location=config.DEVICE)
     model.load_state_dict(state)
     model.eval()
     return model
-
-
-def _load_class_model() -> torch.nn.Module:
-    """Load the binary classification model configured in :mod:`config`."""
-
-    from BinaryClass.binary_model import BinaryNet
-
-    model = BinaryNet(config.CLASS_MODEL_NAME, num_classes=2).to(config.DEVICE)
-    state = torch.load(config.CLASS_MODEL_PATH, map_location=config.DEVICE)
-    model.load_state_dict(state)
-    model.eval()
-    return model
-
 
 def _find_fits_files(frb: str) -> List[Path]:
     """Return FITS files matching ``frb`` within ``config.DATA_DIR``."""
@@ -155,8 +143,6 @@ def _save_plot(
 def _save_patch_plot(patch: np.ndarray, out_path: Path) -> None:
     """Save a visualization of the classification patch."""
 
-    import matplotlib.pyplot as plt
-
     plt.imshow(patch.T, origin="lower", aspect="auto", cmap="mako")
     plt.xlabel("Time samples")
     plt.ylabel("Frequency")
@@ -181,9 +167,6 @@ def _save_slice_summary(
     slice_len: int,
 ) -> None:
     """Save a composite figure with waterfall, detection and patch."""
-
-    import matplotlib.pyplot as plt
-    from matplotlib import gridspec
 
     freq_ds = np.mean(
         config.FREQ.reshape(

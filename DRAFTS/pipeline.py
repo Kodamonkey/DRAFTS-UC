@@ -31,6 +31,8 @@ from .image_utils import (
 )
 from .io import get_obparams, load_fits_file
 
+logger = logging.getLogger(__name__)
+
 def _load_model() -> torch.nn.Module:
     """Load the CenterNet model configured in :mod:`config`."""
 
@@ -187,7 +189,7 @@ def _save_slice_summary(
     waterfall_block: np.ndarray,
     img_rgb: np.ndarray,
     patch_img: np.ndarray,
-    patch_start: float,
+    patch_start: float, # This is the absolute start time of the patch in seconds
     top_conf: Iterable,
     top_boxes: Iterable | None,
     out_path: Path,
@@ -198,7 +200,8 @@ def _save_slice_summary(
     fits_stem: str,
     slice_len: int,
 ) -> None:
-    """Save a composite figure with waterfall, detection and patch."""
+    """Save a composite figure with detection plot as main,
+    and waterfall and patch plots below."""
 
     freq_ds = np.mean(
         config.FREQ.reshape(
@@ -211,61 +214,31 @@ def _save_slice_summary(
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    fig = plt.figure(figsize=(14, 8))
-    gs = gridspec.GridSpec(
-        2,
-        2,
-        width_ratios=[1.3, 1],
-        height_ratios=[1.3, 1],
-        wspace=0.3,
-        hspace=0.3,
-    )
+    fig = plt.figure(figsize=(12, 10)) # Adjusted figsize for new layout
 
-    # Waterfall with profile
-    gs_left = gridspec.GridSpecFromSubplotSpec(2, 1, subplot_spec=gs[:, 0], height_ratios=[1, 4], hspace=0.05)
-    ax_prof = fig.add_subplot(gs_left[0, 0])
-    profile = waterfall_block.mean(axis=1)
-    ax_prof.plot(profile, color="royalblue", alpha=0.8, lw=1)
-    block_size = waterfall_block.shape[0]
-    ax_prof.set_xlim(0, block_size)
-    ax_prof.set_xticks([])
-    ax_prof.set_yticks([])
+    # Main GridSpec: 2 rows. Top row for detection, bottom row for waterfall & patch
+    # height_ratios can be adjusted. e.g., [1.5, 1] gives more height to detection
+    gs_main = gridspec.GridSpec(2, 1, height_ratios=[1.5, 1], hspace=0.3, figure=fig)
 
-    ax_wf = fig.add_subplot(gs_left[1, 0])
-    ax_wf.imshow(
-        waterfall_block.T,
-        origin="lower",
-        cmap="mako",
-        aspect="auto",
-        vmin=np.nanpercentile(waterfall_block, 1),
-        vmax=np.nanpercentile(waterfall_block, 99),
-    )
-    nchan = waterfall_block.shape[1]
-    time_start = slice_idx * block_size * time_reso_ds
-    ax_wf.set_yticks(np.linspace(0, nchan, 6))
-    ax_wf.set_yticklabels(np.round(np.linspace(freq_ds.min(), freq_ds.max(), 6)).astype(int))
-    ax_wf.set_xticks(np.linspace(0, block_size, 6))
-    ax_wf.set_xticklabels(np.round(time_start + np.linspace(0, block_size, 6) * time_reso_ds, 2))
-    ax_wf.set_xlabel("Time (s)")
-    ax_wf.set_ylabel("Frequency (MHz)")
-
-    # Detection image
-    ax_det = fig.add_subplot(gs[0, 1])
+    # --- Top Row: Detection Plot ---
+    ax_det = fig.add_subplot(gs_main[0, 0])
     ax_det.imshow(img_rgb, origin="lower", aspect="auto")
 
-    prev_len = config.SLICE_LEN
+    prev_len_config = config.SLICE_LEN
     config.SLICE_LEN = slice_len
 
-    n_time_ticks = 6
-    time_positions = np.linspace(0, 512, n_time_ticks)
-    time_start_slice = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
-    time_values = time_start_slice + (time_positions / 512.0) * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
-    ax_det.set_xticks(time_positions)
-    ax_det.set_xticklabels([f"{t:.3f}" for t in time_values])
+    n_time_ticks_det = 8 # Increased ticks for larger plot
+    time_positions_det = np.linspace(0, 512, n_time_ticks_det) # Assuming detection image is 512 wide
+    # Absolute time for the start of the current detection image slice
+    time_start_det_slice_abs = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    # Time values for x-axis ticks, relative to the start of the FITS file
+    time_values_det = time_start_det_slice_abs + (time_positions_det / 512.0) * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    ax_det.set_xticks(time_positions_det)
+    ax_det.set_xticklabels([f"{t:.3f}" for t in time_values_det])
     ax_det.set_xlabel("Time (s)", fontsize=10, fontweight="bold")
 
     n_dm_ticks = 8
-    dm_positions = np.linspace(0, 512, n_dm_ticks)
+    dm_positions = np.linspace(0, 512, n_dm_ticks) # Assuming detection image is 512 high
     dm_values = config.DM_min + (dm_positions / 512.0) * (config.DM_max - config.DM_min)
     ax_det.set_yticks(dm_positions)
     ax_det.set_yticklabels([f"{dm:.0f}" for dm in dm_values])
@@ -279,37 +252,81 @@ def _save_slice_summary(
             )
             ax_det.add_patch(rect)
             center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
-            dm_val, _, _ = pixel_to_physical(center_x, center_y, slice_len)
-            label = f"#{idx+1}\nDM: {dm_val:.1f}\nP: {conf:.2f}"
+            # dm_val_cand, t_sec_cand_rel_to_slice_start, _ = pixel_to_physical(center_x, center_y, slice_len)
+            # t_sec_cand_abs = time_start_det_slice_abs + t_sec_cand_rel_to_slice_start # Absolute time of candidate
+            dm_val_cand, _, _ = pixel_to_physical(center_x, center_y, slice_len)
+            label = f"#{idx+1}\nDM: {dm_val_cand:.1f}\nP: {conf:.2f}"
             ax_det.annotate(
                 label,
                 xy=(center_x, center_y),
-                xytext=(center_x, y2 + 15),
+                xytext=(center_x, y2 + 20), # Adjusted y2 offset
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="lime", alpha=0.8),
                 fontsize=7,
                 ha="center",
                 fontweight="bold",
-                arrowprops=dict(arrowstyle="->", color="lime", lw=1),
+                arrowprops=dict(arrowstyle="->", color="lime", lw=1.5),
             )
-
-    title = (
-        f"{fits_stem} - {band_name}\nSlice {slice_idx + 1}/{time_slice}"
+    title_det = (
+        f"{fits_stem} - {band_name}\nSlice {slice_idx + 1}/{time_slice} - Detections"
     )
-    ax_det.set_title(title, fontsize=9, fontweight="bold")
+    ax_det.set_title(title_det, fontsize=11, fontweight="bold")
+    config.SLICE_LEN = prev_len_config
 
-    # Patch image with profile
-    gs_patch = gridspec.GridSpecFromSubplotSpec(
-        2, 1, subplot_spec=gs[1, 1], height_ratios=[1, 4], hspace=0.05
+    # --- Bottom Row: Waterfall and Patch Plots ---
+    # Nested GridSpec for the bottom row: 1 row, 2 columns
+    gs_bottom_row = gridspec.GridSpecFromSubplotSpec(
+        1, 2, subplot_spec=gs_main[1, 0], width_ratios=[1, 1], wspace=0.25
     )
-    ax_patch_prof = fig.add_subplot(gs_patch[0, 0])
-    patch_prof = patch_img.mean(axis=1)
-    ax_patch_prof.plot(patch_prof, color="royalblue", alpha=0.8, lw=1)
-    block_patch = patch_img.shape[0]
-    ax_patch_prof.set_xlim(0, block_patch)
+
+    # --- Bottom Row, Left Column: Waterfall with profile ---
+    gs_waterfall_nested = gridspec.GridSpecFromSubplotSpec(
+        2, 1, subplot_spec=gs_bottom_row[0, 0], height_ratios=[1, 4], hspace=0.05
+    )
+    ax_prof_wf = fig.add_subplot(gs_waterfall_nested[0, 0])
+    profile_wf = waterfall_block.mean(axis=1)
+    ax_prof_wf.plot(profile_wf, color="royalblue", alpha=0.8, lw=1)
+    block_size_wf_samples = waterfall_block.shape[0] # Number of time samples in this waterfall block
+    ax_prof_wf.set_xlim(0, block_size_wf_samples)
+    ax_prof_wf.set_xticks([])
+    ax_prof_wf.set_yticks([])
+    ax_prof_wf.set_title(f"Waterfall (Slice {slice_idx+1})", fontsize=9, fontweight="bold")
+
+    ax_wf = fig.add_subplot(gs_waterfall_nested[1, 0])
+    ax_wf.imshow(
+        waterfall_block.T,
+        origin="lower",
+        cmap="mako",
+        aspect="auto",
+        vmin=np.nanpercentile(waterfall_block, 1),
+        vmax=np.nanpercentile(waterfall_block, 99),
+    )
+    nchan_wf = waterfall_block.shape[1]
+    # Absolute time for the start of this waterfall block
+    time_start_wf_abs = slice_idx * block_size_wf_samples * time_reso_ds
+    time_positions_wf_samples = np.linspace(0, block_size_wf_samples, 6) # Positions in samples
+    # Time values for x-axis ticks, relative to the start of the FITS file
+    time_values_wf = time_start_wf_abs + time_positions_wf_samples * time_reso_ds
+    ax_wf.set_yticks(np.linspace(0, nchan_wf, 6))
+    ax_wf.set_yticklabels(np.round(np.linspace(freq_ds.min(), freq_ds.max(), 6)).astype(int))
+    ax_wf.set_xticks(time_positions_wf_samples)
+    ax_wf.set_xticklabels([f"{t:.3f}" for t in time_values_wf])
+    ax_wf.set_xlabel("Time (s)", fontsize=9)
+    ax_wf.set_ylabel("Frequency (MHz)", fontsize=9)
+
+    # --- Bottom Row, Right Column: Patch image with profile ---
+    gs_patch_nested = gridspec.GridSpecFromSubplotSpec(
+        2, 1, subplot_spec=gs_bottom_row[0, 1], height_ratios=[1, 4], hspace=0.05
+    )
+    ax_patch_prof = fig.add_subplot(gs_patch_nested[0, 0])
+    patch_prof_val = patch_img.mean(axis=1)
+    ax_patch_prof.plot(patch_prof_val, color="royalblue", alpha=0.8, lw=1)
+    block_patch_samples = patch_img.shape[0] # Number of time samples in the patch
+    ax_patch_prof.set_xlim(0, block_patch_samples)
     ax_patch_prof.set_xticks([])
     ax_patch_prof.set_yticks([])
+    ax_patch_prof.set_title("Candidate Patch", fontsize=9, fontweight="bold")
 
-    ax_patch = fig.add_subplot(gs_patch[1, 0])
+    ax_patch = fig.add_subplot(gs_patch_nested[1, 0])
     ax_patch.imshow(
         patch_img.T,
         origin="lower",
@@ -318,24 +335,24 @@ def _save_slice_summary(
         vmin=np.nanpercentile(patch_img, 1),
         vmax=np.nanpercentile(patch_img, 99),
     )
-    nchan_patch = patch_img.shape[1]
-    ax_patch.set_yticks(np.linspace(0, nchan_patch, 6))
+    nchan_patch_val = patch_img.shape[1]
+    time_positions_patch_samples = np.linspace(0, block_patch_samples, 6) # Positions in samples
+    # Time values for x-axis ticks, using the provided patch_start (absolute time)
+    time_values_patch = patch_start + time_positions_patch_samples * time_reso_ds
+    ax_patch.set_yticks(np.linspace(0, nchan_patch_val, 6))
     ax_patch.set_yticklabels(
         np.round(np.linspace(freq_ds.min(), freq_ds.max(), 6)).astype(int)
     )
-    ax_patch.set_xticks(np.linspace(0, block_patch, 6))
-    ax_patch.set_xticklabels(
-        np.round(
-            patch_start + np.linspace(0, block_patch, 6) * time_reso_ds, 2
-        )
-    )
-    ax_patch.set_xlabel("Time (s)")
-    ax_patch.set_ylabel("Frequency (MHz)")
+    ax_patch.set_xticks(time_positions_patch_samples)
+    ax_patch.set_xticklabels([f"{t:.3f}" for t in time_values_patch])
+    ax_patch.set_xlabel("Time (s)", fontsize=9)
+    ax_patch.set_ylabel("Frequency (MHz)", fontsize=9)
 
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.97]) # Adjust rect to prevent main title overlap if any
+    fig.suptitle(f"Composite Summary: {fits_stem} - {band_name} - Slice {slice_idx + 1}", fontsize=14, fontweight='bold')
     plt.savefig(out_path, dpi=200)
     plt.close()
-    config.SLICE_LEN = prev_len
+    # config.SLICE_LEN = prev_len_config # This was moved up
 
 def _write_summary(summary: dict, save_path: Path) -> None:
     summary_path = save_path / "summary.json"

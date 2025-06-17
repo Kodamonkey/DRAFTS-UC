@@ -19,19 +19,17 @@ from BinaryClass.binary_model import BinaryNet
 
 from . import config
 from .candidate import Candidate
-from .dedispersion import d_dm_time_g
+from .dedispersion import d_dm_time_g, dedisperse_patch
+from .metrics import compute_snr
+from .astro_conversions import pixel_to_physical
+from .preprocessing import downsample_data
 from .image_utils import (
-    compute_snr,
-    pixel_to_physical,
     postprocess_img,
     preprocess_img,
     save_detection_plot,
     plot_waterfall_block,
 )
 from .io import get_obparams, load_fits_file
-
-logger = logging.getLogger(__name__)
-
 
 def _load_model() -> torch.nn.Module:
     """Load the CenterNet model configured in :mod:`config`."""
@@ -378,35 +376,6 @@ def _plot_waterfalls(
         )
 
 
-def _dedisperse_patch(
-    data: np.ndarray,
-    freq_down: np.ndarray,
-    dm: float,
-    sample: int,
-    patch_len: int = 512,
-) -> tuple[np.ndarray, int]:
-    """Dedisperse ``data`` at ``dm`` around ``sample`` and return a patch and
-    the start sample used."""
-
-    delays = (
-        4.15
-        * dm
-        * (freq_down ** -2 - freq_down.max() ** -2)
-        * 1e3
-        / config.TIME_RESO
-        / config.DOWN_TIME_RATE
-    ).astype(np.int64)
-    max_delay = int(delays.max())
-    start = sample - patch_len // 2
-    if start < 0:
-        start = 0
-    if start + patch_len + max_delay > data.shape[0]:
-        start = max(0, data.shape[0] - (patch_len + max_delay))
-    segment = data[start : start + patch_len + max_delay]
-    patch = np.zeros((patch_len, freq_down.size), dtype=np.float32)
-    for idx in range(freq_down.size):
-        patch[:, idx] = segment[delays[idx] : delays[idx] + patch_len, idx]
-    return patch, start
 
 
 def _prep_patch(patch: np.ndarray) -> np.ndarray:
@@ -448,33 +417,13 @@ def _process_file(
         data = np.repeat(data, 2, axis=1)
     data = np.vstack([data, data[::-1, :]])
 
-    n_time = (data.shape[0] // config.DOWN_TIME_RATE) * config.DOWN_TIME_RATE
-    n_freq = (data.shape[2] // config.DOWN_FREQ_RATE) * config.DOWN_FREQ_RATE
-    data = data[:n_time, :, :n_freq]
-    data = (
-        np.mean(
-            data.reshape(
-                n_time // config.DOWN_TIME_RATE,
-                config.DOWN_TIME_RATE,
-                2,
-                n_freq // config.DOWN_FREQ_RATE,
-                config.DOWN_FREQ_RATE,
-            ),
-            axis=(1, 4),
-        )
-        .mean(axis=1)
-        .astype(np.float32)
-    )
+    data = downsample_data(data)
 
     freq_down = np.mean(
         config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
         axis=1,
     )
 
-    freq_down = np.mean(
-        config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
-        axis=1,
-    )
 
     height = config.DM_max - config.DM_min + 1
     width_total = config.FILE_LENG // config.DOWN_TIME_RATE
@@ -537,7 +486,7 @@ def _process_file(
                 snr_val = compute_snr(band_img, tuple(map(int, box)))
                 snr_list.append(snr_val)
                 global_sample = j * slice_len + int(t_sample)
-                patch, start_sample = _dedisperse_patch(
+                patch, start_sample = dedisperse_patch(
                     data, freq_down, dm_val, global_sample
                 )
                 class_prob, proc_patch = _classify_patch(cls_model, patch)

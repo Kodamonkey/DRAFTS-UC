@@ -154,9 +154,11 @@ def _save_patch_plot(
     fig = plt.figure(figsize=(5, 5))
     gs = gridspec.GridSpec(2, 1, height_ratios=[1, 4], hspace=0.05)
 
+    time_axis = start_time + np.arange(patch.shape[0]) * time_reso
+
     ax0 = fig.add_subplot(gs[0, 0])
-    ax0.plot(profile, color="royalblue", alpha=0.8, lw=1)
-    ax0.set_xlim(0, patch.shape[0])
+    ax0.plot(time_axis, profile, color="royalblue", alpha=0.8, lw=1)
+    ax0.set_xlim(time_axis[0], time_axis[-1])
     ax0.set_xticks([])
     ax0.set_yticks([])
 
@@ -168,14 +170,13 @@ def _save_patch_plot(
         cmap="mako",
         vmin=np.nanpercentile(patch, 1),
         vmax=np.nanpercentile(patch, 99),
+        extent=[time_axis[0], time_axis[-1], freq.min(), freq.max()],
     )
     nchan = patch.shape[1]
     ax1.set_yticks(np.linspace(0, nchan, 6))
     ax1.set_yticklabels(np.round(np.linspace(freq.min(), freq.max(), 6)).astype(int))
-    ax1.set_xticks(np.linspace(0, patch.shape[0], 6))
-    ax1.set_xticklabels(
-        np.round(start_time + np.linspace(0, patch.shape[0], 6) * time_reso, 2)
-    )
+    ax1.set_xticks(np.linspace(time_axis[0], time_axis[-1], 6))
+    ax1.set_xticklabels(np.round(np.linspace(time_axis[0], time_axis[-1], 6), 2))
     ax1.set_xlabel("Time (s)")
     ax1.set_ylabel("Frequency (MHz)")
 
@@ -284,9 +285,12 @@ def _save_slice_summary(
     )
     ax_prof_wf = fig.add_subplot(gs_waterfall_nested[0, 0])
     profile_wf = waterfall_block.mean(axis=1)
-    ax_prof_wf.plot(profile_wf, color="royalblue", alpha=0.8, lw=1)
-    block_size_wf_samples = waterfall_block.shape[0] # Number of time samples in this waterfall block
-    ax_prof_wf.set_xlim(0, block_size_wf_samples)
+    block_size_wf_samples = waterfall_block.shape[0]
+    slice_start_abs = slice_idx * block_size_wf_samples * time_reso_ds
+    slice_end_abs = slice_start_abs + block_size_wf_samples * time_reso_ds
+    time_axis_wf = slice_start_abs + np.arange(block_size_wf_samples) * time_reso_ds
+    ax_prof_wf.plot(time_axis_wf, profile_wf, color="royalblue", alpha=0.8, lw=1)
+    ax_prof_wf.set_xlim(slice_start_abs, slice_end_abs)
     ax_prof_wf.set_xticks([])
     ax_prof_wf.set_yticks([])
     ax_prof_wf.set_title(f"Waterfall (Slice {slice_idx+1})", fontsize=9, fontweight="bold")
@@ -299,17 +303,14 @@ def _save_slice_summary(
         aspect="auto",
         vmin=np.nanpercentile(waterfall_block, 1),
         vmax=np.nanpercentile(waterfall_block, 99),
+        extent=[slice_start_abs, slice_end_abs, freq_ds.min(), freq_ds.max()],
     )
     nchan_wf = waterfall_block.shape[1]
-    # Absolute time for the start of this waterfall block
-    time_start_wf_abs = slice_idx * block_size_wf_samples * time_reso_ds
-    time_positions_wf_samples = np.linspace(0, block_size_wf_samples, 6) # Positions in samples
-    # Time values for x-axis ticks, relative to the start of the FITS file
-    time_values_wf = time_start_wf_abs + time_positions_wf_samples * time_reso_ds
+    tick_times_wf = np.linspace(slice_start_abs, slice_end_abs, 6)
     ax_wf.set_yticks(np.linspace(0, nchan_wf, 6))
     ax_wf.set_yticklabels(np.round(np.linspace(freq_ds.min(), freq_ds.max(), 6)).astype(int))
-    ax_wf.set_xticks(time_positions_wf_samples)
-    ax_wf.set_xticklabels([f"{t:.3f}" for t in time_values_wf])
+    ax_wf.set_xticks(tick_times_wf)
+    ax_wf.set_xticklabels([f"{t:.3f}" for t in tick_times_wf])
     ax_wf.set_xlabel("Time (s)", fontsize=9)
     ax_wf.set_ylabel("Frequency (MHz)", fontsize=9)
 
@@ -319,9 +320,10 @@ def _save_slice_summary(
     )
     ax_patch_prof = fig.add_subplot(gs_patch_nested[0, 0])
     patch_prof_val = patch_img.mean(axis=1)
-    ax_patch_prof.plot(patch_prof_val, color="royalblue", alpha=0.8, lw=1)
-    block_patch_samples = patch_img.shape[0] # Number of time samples in the patch
-    ax_patch_prof.set_xlim(0, block_patch_samples)
+    block_patch_samples = patch_img.shape[0]
+    patch_time_axis = patch_start + np.arange(block_patch_samples) * time_reso_ds
+    ax_patch_prof.plot(patch_time_axis, patch_prof_val, color="royalblue", alpha=0.8, lw=1)
+    ax_patch_prof.set_xlim(slice_start_abs, slice_end_abs)
     ax_patch_prof.set_xticks([])
     ax_patch_prof.set_yticks([])
     ax_patch_prof.set_title("Candidate Patch", fontsize=9, fontweight="bold")
@@ -334,17 +336,15 @@ def _save_slice_summary(
         cmap="mako",
         vmin=np.nanpercentile(patch_img, 1),
         vmax=np.nanpercentile(patch_img, 99),
+        extent=[patch_time_axis[0], patch_time_axis[-1], freq_ds.min(), freq_ds.max()],
     )
     nchan_patch_val = patch_img.shape[1]
-    time_positions_patch_samples = np.linspace(0, block_patch_samples, 6) # Positions in samples
-    # Time values for x-axis ticks, using the provided patch_start (absolute time)
-    time_values_patch = patch_start + time_positions_patch_samples * time_reso_ds
     ax_patch.set_yticks(np.linspace(0, nchan_patch_val, 6))
-    ax_patch.set_yticklabels(
-        np.round(np.linspace(freq_ds.min(), freq_ds.max(), 6)).astype(int)
-    )
-    ax_patch.set_xticks(time_positions_patch_samples)
-    ax_patch.set_xticklabels([f"{t:.3f}" for t in time_values_patch])
+    ax_patch.set_yticklabels(np.round(np.linspace(freq_ds.min(), freq_ds.max(), 6)).astype(int))
+    ax_patch.set_xlim(slice_start_abs, slice_end_abs)
+    tick_times_patch = np.linspace(slice_start_abs, slice_end_abs, 6)
+    ax_patch.set_xticks(tick_times_patch)
+    ax_patch.set_xticklabels([f"{t:.3f}" for t in tick_times_patch])
     ax_patch.set_xlabel("Time (s)", fontsize=9)
     ax_patch.set_ylabel("Frequency (MHz)", fontsize=9)
 

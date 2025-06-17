@@ -13,6 +13,7 @@ import torch
 
 from ObjectDet.centernet_model import centernet
 from ObjectDet.centernet_utils import get_res
+from BinaryClass.binary_model import BinaryNet
 
 from . import config
 from .candidate import Candidate
@@ -42,20 +43,6 @@ def _load_model() -> torch.nn.Module:
 
 def _load_class_model() -> torch.nn.Module:
     """Load the binary classification model configured in :mod:`config`."""
-
-    from BinaryClass.binary_model import BinaryNet
-
-    model = BinaryNet(config.CLASS_MODEL_NAME, num_classes=2).to(config.DEVICE)
-    state = torch.load(config.CLASS_MODEL_PATH, map_location=config.DEVICE)
-    model.load_state_dict(state)
-    model.eval()
-    return model
-
-
-def _load_class_model() -> torch.nn.Module:
-    """Load the binary classification model configured in :mod:`config`."""
-
-    from BinaryClass.binary_model import BinaryNet
 
     model = BinaryNet(config.CLASS_MODEL_NAME, num_classes=2).to(config.DEVICE)
     state = torch.load(config.CLASS_MODEL_PATH, map_location=config.DEVICE)

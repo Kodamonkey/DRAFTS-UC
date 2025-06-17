@@ -80,3 +80,39 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
         return result
     except cuda.cudadrv.driver.CudaAPIError:
         return _d_dm_time_cpu(data, height, width)
+
+def dedisperse_patch(
+    data: np.ndarray,
+    freq_down: np.ndarray,
+    dm: float,
+    sample: int,
+    patch_len: int = 512,
+) -> tuple[np.ndarray, int]:
+    """Dedisperse ``data`` at ``dm`` around ``sample`` and return the patch.
+
+    Returns
+    -------
+    patch : np.ndarray
+        Dedispersed patch of shape (patch_len, n_freq).
+    start : int
+        Start sample used on the original data array.
+    """
+    delays = (
+        4.15
+        * dm
+        * (freq_down ** -2 - freq_down.max() ** -2)
+        * 1e3
+        / config.TIME_RESO
+        / config.DOWN_TIME_RATE
+    ).astype(np.int64)
+    max_delay = int(delays.max())
+    start = sample - patch_len // 2
+    if start < 0:
+        start = 0
+    if start + patch_len + max_delay > data.shape[0]:
+        start = max(0, data.shape[0] - (patch_len + max_delay))
+    segment = data[start : start + patch_len + max_delay]
+    patch = np.zeros((patch_len, freq_down.size), dtype=np.float32)
+    for idx in range(freq_down.size):
+        patch[:, idx] = segment[delays[idx] : delays[idx] + patch_len, idx]
+    return patch, start

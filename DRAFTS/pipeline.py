@@ -165,6 +165,127 @@ def _save_patch_plot(patch: np.ndarray, out_path: Path) -> None:
     plt.savefig(out_path, dpi=150)
     plt.close()
 
+
+def _save_slice_summary(
+    waterfall_block: np.ndarray,
+    img_rgb: np.ndarray,
+    patch_img: np.ndarray,
+    top_conf: Iterable,
+    top_boxes: Iterable | None,
+    out_path: Path,
+    slice_idx: int,
+    time_slice: int,
+    band_name: str,
+    band_suffix: str,
+    fits_stem: str,
+    slice_len: int,
+) -> None:
+    """Save a composite figure with waterfall, detection and patch."""
+
+    import matplotlib.pyplot as plt
+    from matplotlib import gridspec
+
+    freq_ds = np.mean(
+        config.FREQ.reshape(
+            config.FREQ_RESO // config.DOWN_FREQ_RATE,
+            config.DOWN_FREQ_RATE,
+        ),
+        axis=1,
+    )
+    time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig = plt.figure(figsize=(14, 8))
+    gs = gridspec.GridSpec(2, 2, width_ratios=[1.3, 1], height_ratios=[1, 1], wspace=0.3, hspace=0.3)
+
+    # Waterfall with profile
+    gs_left = gridspec.GridSpecFromSubplotSpec(2, 1, subplot_spec=gs[:, 0], height_ratios=[1, 4], hspace=0.05)
+    ax_prof = fig.add_subplot(gs_left[0, 0])
+    profile = waterfall_block.mean(axis=1)
+    ax_prof.plot(profile, color="royalblue", alpha=0.8, lw=1)
+    block_size = waterfall_block.shape[0]
+    ax_prof.set_xlim(0, block_size)
+    ax_prof.set_xticks([])
+    ax_prof.set_yticks([])
+
+    ax_wf = fig.add_subplot(gs_left[1, 0])
+    ax_wf.imshow(
+        waterfall_block.T,
+        origin="lower",
+        cmap="mako",
+        aspect="auto",
+        vmin=np.nanpercentile(waterfall_block, 1),
+        vmax=np.nanpercentile(waterfall_block, 99),
+    )
+    nchan = waterfall_block.shape[1]
+    time_start = slice_idx * block_size * time_reso_ds
+    ax_wf.set_yticks(np.linspace(0, nchan, 6))
+    ax_wf.set_yticklabels(np.round(np.linspace(freq_ds.min(), freq_ds.max(), 6)).astype(int))
+    ax_wf.set_xticks(np.linspace(0, block_size, 6))
+    ax_wf.set_xticklabels(np.round(time_start + np.linspace(0, block_size, 6) * time_reso_ds, 2))
+    ax_wf.set_xlabel("Time (s)")
+    ax_wf.set_ylabel("Frequency (MHz)")
+
+    # Detection image
+    ax_det = fig.add_subplot(gs[0, 1])
+    ax_det.imshow(img_rgb, origin="lower", aspect="auto")
+
+    prev_len = config.SLICE_LEN
+    config.SLICE_LEN = slice_len
+
+    n_time_ticks = 6
+    time_positions = np.linspace(0, 512, n_time_ticks)
+    time_start_slice = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    time_values = time_start_slice + (time_positions / 512.0) * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    ax_det.set_xticks(time_positions)
+    ax_det.set_xticklabels([f"{t:.3f}" for t in time_values])
+    ax_det.set_xlabel("Time (s)", fontsize=10, fontweight="bold")
+
+    n_dm_ticks = 8
+    dm_positions = np.linspace(0, 512, n_dm_ticks)
+    dm_values = config.DM_min + (dm_positions / 512.0) * (config.DM_max - config.DM_min)
+    ax_det.set_yticks(dm_positions)
+    ax_det.set_yticklabels([f"{dm:.0f}" for dm in dm_values])
+    ax_det.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=10, fontweight="bold")
+
+    if top_boxes is not None:
+        for idx, (conf, box) in enumerate(zip(top_conf, top_boxes)):
+            x1, y1, x2, y2 = map(int, box)
+            rect = plt.Rectangle(
+                (x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor="lime", facecolor="none"
+            )
+            ax_det.add_patch(rect)
+            center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
+            dm_val, _, _ = pixel_to_physical(center_x, center_y, slice_len)
+            label = f"#{idx+1}\nDM: {dm_val:.1f}\nP: {conf:.2f}"
+            ax_det.annotate(
+                label,
+                xy=(center_x, center_y),
+                xytext=(center_x, y2 + 15),
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="lime", alpha=0.8),
+                fontsize=7,
+                ha="center",
+                fontweight="bold",
+                arrowprops=dict(arrowstyle="->", color="lime", lw=1),
+            )
+
+    title = (
+        f"{fits_stem} - {band_name}\nSlice {slice_idx + 1}/{time_slice}"
+    )
+    ax_det.set_title(title, fontsize=9, fontweight="bold")
+
+    # Patch image
+    ax_patch = fig.add_subplot(gs[1, 1])
+    ax_patch.imshow(patch_img.T, origin="lower", aspect="auto", cmap="mako")
+    ax_patch.set_xlabel("Time samples")
+    ax_patch.set_ylabel("Frequency")
+
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=200)
+    plt.close()
+    config.SLICE_LEN = prev_len
+
 def _write_summary(summary: dict, save_path: Path) -> None:
     summary_path = save_path / "summary.json"
     with summary_path.open("w") as f_json:
@@ -306,8 +427,7 @@ def _process_file(
 
     slice_len, time_slice = _slice_parameters(width_total, config.SLICE_LEN)
 
-    waterfall_dir = save_dir / "Waterfalls" / fits_path.stem
-    _plot_waterfalls(data, slice_len, time_slice, fits_path.stem, waterfall_dir)
+    # Waterfalls will be generated as part of the slice summaries
 
     dm_time = d_dm_time_g(data, height=height, width=width_total)
 
@@ -339,6 +459,7 @@ def _process_file(
 
     for j in range(time_slice):
         slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
+        waterfall_block = data[j * slice_len : (j + 1) * slice_len]
         for band_idx, band_suffix, band_name in band_configs:
             band_img = slice_cube[band_idx]
             img_tensor = preprocess_img(band_img)
@@ -388,6 +509,25 @@ def _process_file(
                     conf,
                     class_prob,
                     "BURST" if is_burst else "no burst",
+                )
+
+                composite_dir = save_dir / "Composite" / fits_path.stem
+                comp_path = composite_dir / (
+                    f"slice{j}_band{band_idx}_cand{cand_counter}.png"
+                )
+                _save_slice_summary(
+                    waterfall_block,
+                    img_rgb,
+                    proc_patch,
+                    top_conf,
+                    top_boxes,
+                    comp_path,
+                    j,
+                    time_slice,
+                    band_name,
+                    band_suffix,
+                    fits_path.stem,
+                    slice_len,
                 )
 
             out_img_path = save_dir / f"{fits_path.stem}_slice{j}_{band_suffix}.png"

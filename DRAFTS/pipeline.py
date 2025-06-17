@@ -376,8 +376,6 @@ def _plot_waterfalls(
         )
 
 
-
-
 def _prep_patch(patch: np.ndarray) -> np.ndarray:
     """Normalize patch for classification."""
 

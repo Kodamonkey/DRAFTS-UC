@@ -12,6 +12,7 @@ from matplotlib import gridspec
 from matplotlib.colors import ListedColormap
 
 from . import config
+from .astro_conversions import pixel_to_physical
 
 if "mako" not in plt.colormaps():
     plt.register_cmap(
@@ -85,26 +86,6 @@ def plot_waterfall_block(
     plt.close()
 
 
-def pixel_to_physical(px: float, py: float, slice_len: int) -> Tuple[float, float, int]:
-    dm_range = config.DM_max - config.DM_min + 1
-    scale_dm = dm_range / 512.0
-    scale_time = slice_len / 512.0
-    dm_val = config.DM_min + py * scale_dm
-    sample_off = px * scale_time
-    t_sample = int(sample_off)
-    t_seconds = t_sample * config.TIME_RESO * config.DOWN_TIME_RATE
-    return dm_val, t_seconds, t_sample
-
-
-def compute_snr(slice_band: np.ndarray, box: Tuple[int, int, int, int]) -> float:
-    x1, y1, x2, y2 = map(int, box)
-    box_data = slice_band[y1:y2, x1:x2]
-    if box_data.size == 0:
-        return 0.0
-    signal = box_data.mean()
-    noise = np.median(slice_band)
-    std = slice_band.std(ddof=1)
-    return (signal - noise) / (std + 1e-6)
 
 
 def save_detection_plot(

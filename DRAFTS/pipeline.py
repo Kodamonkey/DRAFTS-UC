@@ -376,8 +376,6 @@ def _plot_waterfalls(
         )
 
 
-
-
 def _prep_patch(patch: np.ndarray) -> np.ndarray:
     """Normalize patch for classification."""
 
@@ -463,6 +461,7 @@ def _process_file(
     for j in range(time_slice):
         slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
         waterfall_block = data[j * slice_len : (j + 1) * slice_len]
+
         for band_idx, band_suffix, band_name in band_configs:
             band_img = slice_cube[band_idx]
             img_tensor = preprocess_img(band_img)
@@ -562,6 +561,7 @@ def _process_file(
                 fits_path.stem,
                 slice_len,
             )
+
 
     runtime = time.time() - t_start
     logger.info(

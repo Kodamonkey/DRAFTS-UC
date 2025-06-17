@@ -140,14 +140,47 @@ def _save_plot(
     config.SLICE_LEN = prev_len
 
 
-def _save_patch_plot(patch: np.ndarray, out_path: Path) -> None:
-    """Save a visualization of the classification patch."""
+def _save_patch_plot(
+    patch: np.ndarray,
+    out_path: Path,
+    freq: np.ndarray,
+    time_reso: float,
+    start_time: float,
+) -> None:
+    """Save a visualization of the classification patch with a profile and
+    axes in physical units."""
 
-    plt.imshow(patch.T, origin="lower", aspect="auto", cmap="mako")
-    plt.xlabel("Time samples")
-    plt.ylabel("Frequency")
-    plt.tight_layout()
+    profile = patch.mean(axis=1)
+    fig = plt.figure(figsize=(5, 5))
+    gs = gridspec.GridSpec(2, 1, height_ratios=[1, 4], hspace=0.05)
+
+    ax0 = fig.add_subplot(gs[0, 0])
+    ax0.plot(profile, color="royalblue", alpha=0.8, lw=1)
+    ax0.set_xlim(0, patch.shape[0])
+    ax0.set_xticks([])
+    ax0.set_yticks([])
+
+    ax1 = fig.add_subplot(gs[1, 0])
+    im = ax1.imshow(
+        patch.T,
+        origin="lower",
+        aspect="auto",
+        cmap="mako",
+        vmin=np.nanpercentile(patch, 1),
+        vmax=np.nanpercentile(patch, 99),
+    )
+    nchan = patch.shape[1]
+    ax1.set_yticks(np.linspace(0, nchan, 6))
+    ax1.set_yticklabels(np.round(np.linspace(freq.min(), freq.max(), 6)).astype(int))
+    ax1.set_xticks(np.linspace(0, patch.shape[0], 6))
+    ax1.set_xticklabels(
+        np.round(start_time + np.linspace(0, patch.shape[0], 6) * time_reso, 2)
+    )
+    ax1.set_xlabel("Time (s)")
+    ax1.set_ylabel("Frequency (MHz)")
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.tight_layout()
     plt.savefig(out_path, dpi=150)
     plt.close()
 
@@ -156,6 +189,7 @@ def _save_slice_summary(
     waterfall_block: np.ndarray,
     img_rgb: np.ndarray,
     patch_img: np.ndarray,
+    patch_start: float,
     top_conf: Iterable,
     top_boxes: Iterable | None,
     out_path: Path,
@@ -180,7 +214,14 @@ def _save_slice_summary(
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     fig = plt.figure(figsize=(14, 8))
-    gs = gridspec.GridSpec(2, 2, width_ratios=[1.3, 1], height_ratios=[1, 1], wspace=0.3, hspace=0.3)
+    gs = gridspec.GridSpec(
+        2,
+        2,
+        width_ratios=[1.3, 1],
+        height_ratios=[1.3, 1],
+        wspace=0.3,
+        hspace=0.3,
+    )
 
     # Waterfall with profile
     gs_left = gridspec.GridSpecFromSubplotSpec(2, 1, subplot_spec=gs[:, 0], height_ratios=[1, 4], hspace=0.05)
@@ -258,11 +299,40 @@ def _save_slice_summary(
     )
     ax_det.set_title(title, fontsize=9, fontweight="bold")
 
-    # Patch image
-    ax_patch = fig.add_subplot(gs[1, 1])
-    ax_patch.imshow(patch_img.T, origin="lower", aspect="auto", cmap="mako")
-    ax_patch.set_xlabel("Time samples")
-    ax_patch.set_ylabel("Frequency")
+    # Patch image with profile
+    gs_patch = gridspec.GridSpecFromSubplotSpec(
+        2, 1, subplot_spec=gs[1, 1], height_ratios=[1, 4], hspace=0.05
+    )
+    ax_patch_prof = fig.add_subplot(gs_patch[0, 0])
+    patch_prof = patch_img.mean(axis=1)
+    ax_patch_prof.plot(patch_prof, color="royalblue", alpha=0.8, lw=1)
+    block_patch = patch_img.shape[0]
+    ax_patch_prof.set_xlim(0, block_patch)
+    ax_patch_prof.set_xticks([])
+    ax_patch_prof.set_yticks([])
+
+    ax_patch = fig.add_subplot(gs_patch[1, 0])
+    ax_patch.imshow(
+        patch_img.T,
+        origin="lower",
+        aspect="auto",
+        cmap="mako",
+        vmin=np.nanpercentile(patch_img, 1),
+        vmax=np.nanpercentile(patch_img, 99),
+    )
+    nchan_patch = patch_img.shape[1]
+    ax_patch.set_yticks(np.linspace(0, nchan_patch, 6))
+    ax_patch.set_yticklabels(
+        np.round(np.linspace(freq_ds.min(), freq_ds.max(), 6)).astype(int)
+    )
+    ax_patch.set_xticks(np.linspace(0, block_patch, 6))
+    ax_patch.set_xticklabels(
+        np.round(
+            patch_start + np.linspace(0, block_patch, 6) * time_reso_ds, 2
+        )
+    )
+    ax_patch.set_xlabel("Time (s)")
+    ax_patch.set_ylabel("Frequency (MHz)")
 
     plt.tight_layout()
     plt.savefig(out_path, dpi=200)
@@ -314,8 +384,9 @@ def _dedisperse_patch(
     dm: float,
     sample: int,
     patch_len: int = 512,
-) -> np.ndarray:
-    """Dedisperse ``data`` at ``dm`` around ``sample`` and return a patch."""
+) -> tuple[np.ndarray, int]:
+    """Dedisperse ``data`` at ``dm`` around ``sample`` and return a patch and
+    the start sample used."""
 
     delays = (
         4.15
@@ -335,7 +406,7 @@ def _dedisperse_patch(
     patch = np.zeros((patch_len, freq_down.size), dtype=np.float32)
     for idx in range(freq_down.size):
         patch[:, idx] = segment[delays[idx] : delays[idx] + patch_len, idx]
-    return patch
+    return patch, start
 
 
 def _prep_patch(patch: np.ndarray) -> np.ndarray:
@@ -451,6 +522,12 @@ def _process_file(
                 continue
 
             img_rgb = postprocess_img(img_tensor)
+
+            first_patch: np.ndarray | None = None
+            first_start: float | None = None
+            patch_dir = save_dir / "Patches" / fits_path.stem
+            patch_path = patch_dir / f"patch_slice{j}_band{band_idx}.png"
+
             for conf, box in zip(top_conf, top_boxes):
                 dm_val, t_sec, t_sample = pixel_to_physical(
                     (box[0] + box[2]) / 2,
@@ -460,12 +537,14 @@ def _process_file(
                 snr_val = compute_snr(band_img, tuple(map(int, box)))
                 snr_list.append(snr_val)
                 global_sample = j * slice_len + int(t_sample)
-                patch = _dedisperse_patch(data, freq_down, dm_val, global_sample)
+                patch, start_sample = _dedisperse_patch(
+                    data, freq_down, dm_val, global_sample
+                )
                 class_prob, proc_patch = _classify_patch(cls_model, patch)
                 is_burst = class_prob >= config.CLASS_PROB
-                patch_dir = save_dir / "Patches" / fits_path.stem
-                patch_path = patch_dir / f"patch_slice{j}_band{band_idx}_cand{cand_counter+1}.png"
-                _save_patch_plot(proc_patch, patch_path)
+                if first_patch is None:
+                    first_patch = proc_patch
+                    first_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
                 cand = Candidate(
                     fits_path.name,
                     j,
@@ -494,14 +573,22 @@ def _process_file(
                     "BURST" if is_burst else "no burst",
                 )
 
-                composite_dir = save_dir / "Composite" / fits_path.stem
-                comp_path = composite_dir / (
-                    f"slice{j}_band{band_idx}_cand{cand_counter}.png"
+            if first_patch is not None:
+                _save_patch_plot(
+                    first_patch,
+                    patch_path,
+                    freq_down,
+                    config.TIME_RESO * config.DOWN_TIME_RATE,
+                    first_start,
                 )
+
+                composite_dir = save_dir / "Composite" / fits_path.stem
+                comp_path = composite_dir / f"slice{j}_band{band_idx}.png"
                 _save_slice_summary(
                     waterfall_block,
                     img_rgb,
-                    proc_patch,
+                    first_patch,
+                    first_start,
                     top_conf,
                     top_boxes,
                     comp_path,

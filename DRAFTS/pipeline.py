@@ -19,7 +19,7 @@ from BinaryClass.binary_model import BinaryNet
 
 from . import config
 from .candidate import Candidate
-from .dedispersion import d_dm_time_g, dedisperse_patch
+from .dedispersion import d_dm_time_g, dedisperse_patch, dedisperse_block
 from .metrics import compute_snr
 from .astro_conversions import pixel_to_physical
 from .preprocessing import downsample_data
@@ -390,6 +390,40 @@ def _plot_waterfalls(
             block_idx=j,
             save_dir=out_dir,
             filename=fits_stem,
+        )
+
+
+def _plot_dedispersed_waterfalls(
+    data: np.ndarray,
+    freq_down: np.ndarray,
+    dm: float,
+    slice_len: int,
+    time_slice: int,
+    fits_stem: str,
+    out_dir: Path,
+) -> None:
+    """Save dedispersed frequency--time waterfall plots for each time block.
+
+    The dedispersion is performed at ``dm`` while preserving the original
+    slice boundaries.
+    """
+
+    time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for j in range(time_slice):
+        start = j * slice_len
+        block = dedisperse_block(data, freq_down, dm, start, slice_len)
+        if block.size == 0:
+            continue
+        plot_waterfall_block(
+            data_block=block,
+            freq=freq_down,
+            time_reso=time_reso_ds,
+            block_size=block.shape[0],
+            block_idx=j,
+            save_dir=out_dir,
+            filename=f"{fits_stem}_dm{dm:.2f}",
         )
 
 def _prep_patch(patch: np.ndarray) -> np.ndarray:

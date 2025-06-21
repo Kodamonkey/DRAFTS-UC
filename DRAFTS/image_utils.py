@@ -4,7 +4,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Tuple
 
-import cv2
+try:
+    import cv2
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    cv2 = None  # type: ignore
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
@@ -22,6 +25,8 @@ if "mako" not in plt.colormaps():
 
 
 def preprocess_img(img: np.ndarray) -> np.ndarray:
+    if cv2 is None:
+        raise ImportError("cv2 is required for image preprocessing")
     img = (img - img.min()) / np.ptp(img)
     img = (img - img.mean()) / img.std()
     img = cv2.resize(img, (512, 512))
@@ -34,6 +39,8 @@ def preprocess_img(img: np.ndarray) -> np.ndarray:
 
 
 def postprocess_img(img_tensor: np.ndarray) -> np.ndarray:
+    if cv2 is None:
+        raise ImportError("cv2 is required for image postprocessing")
     img = img_tensor.transpose(1, 2, 0)
     img *= [0.229, 0.224, 0.225]
     img += [0.485, 0.456, 0.406]
@@ -197,6 +204,8 @@ def save_detection_plot(
 
     if band_suffix == "fullband":
         fig_cb, ax_cb = plt.subplots(figsize=(13, 8))
+        if cv2 is None:
+            raise ImportError("cv2 is required for visualization")
         img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
         im_cb = ax_cb.imshow(img_gray, origin="lower", aspect="auto", cmap="mako")
         ax_cb.set_xticks(time_positions)

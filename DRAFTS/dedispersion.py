@@ -2,33 +2,46 @@
 from __future__ import annotations
 
 import numpy as np
-from numba import cuda, njit, prange
+try:
+    from numba import cuda, njit, prange
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    cuda = None  # type: ignore
+    def njit(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    def prange(*args, **kwargs):
+        return range(*args)
 
 from . import config
 
 
-@cuda.jit
-def _de_disp_gpu(dm_time, data, freq, index, start_offset, mid_channel):
-    x, y = cuda.grid(2)
-    if x < dm_time.shape[1] and y < dm_time.shape[2]:
-        td_i = 0.0
-        DM = x + start_offset
-        for idx in index:
-            delay = (
-                4.15
-                * DM
-                * ((freq[idx]) ** -2 - (freq[-1] ** -2))
-                * 1e3
-                / config.TIME_RESO
-                / config.DOWN_TIME_RATE
-            )
-            pos = int(delay + y)
-            if 0 <= pos < data.shape[0]:
-                td_i += data[pos, idx]
-                if idx == mid_channel:
-                    dm_time[1, x, y] = td_i
-        dm_time[2, x, y] = td_i - dm_time[1, x, y]
-        dm_time[0, x, y] = td_i
+if cuda is not None:
+    @cuda.jit
+    def _de_disp_gpu(dm_time, data, freq, index, start_offset, mid_channel):
+        x, y = cuda.grid(2)
+        if x < dm_time.shape[1] and y < dm_time.shape[2]:
+            td_i = 0.0
+            DM = x + start_offset
+            for idx in index:
+                delay = (
+                    4.15
+                    * DM
+                    * ((freq[idx]) ** -2 - (freq[-1] ** -2))
+                    * 1e3
+                    / config.TIME_RESO
+                    / config.DOWN_TIME_RATE
+                )
+                pos = int(delay + y)
+                if 0 <= pos < data.shape[0]:
+                    td_i += data[pos, idx]
+                    if idx == mid_channel:
+                        dm_time[1, x, y] = td_i
+            dm_time[2, x, y] = td_i - dm_time[1, x, y]
+            dm_time[0, x, y] = td_i
+else:
+    def _de_disp_gpu(*args, **kwargs):
+        raise ImportError("CUDA support requires numba")
 
 
 @njit(parallel=True)

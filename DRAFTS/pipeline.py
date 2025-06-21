@@ -61,30 +61,58 @@ def _find_fits_files(frb: str) -> List[Path]:
 def _ensure_csv_header(csv_path: Path) -> None:
     """Create ``csv_path`` with the standard candidate header if needed."""
 
+    # Verificar si el directorio padre existe y crearlo si no
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    
     if csv_path.exists():
         return
 
-    with csv_path.open("w", newline="") as f_csv:
-        writer = csv.writer(f_csv)
-        writer.writerow(
-            [
-                "file",
-                "slice",
-                "band",
-                "prob",
-                "dm_pc_cm-3",
-                "t_sec",
-                "t_sample",
-                "x1",
-                "y1",
-                "x2",
-                "y2",
-                "snr",
-                "class_prob",
-                "is_burst",
-                "patch_file",
-            ]
-        )
+    try:
+        with csv_path.open("w", newline="") as f_csv:
+            writer = csv.writer(f_csv)
+            writer.writerow(
+                [
+                    "file",
+                    "slice",
+                    "band",
+                    "prob",
+                    "dm_pc_cm-3",
+                    "t_sec",
+                    "t_sample",
+                    "x1",
+                    "y1",
+                    "x2",
+                    "y2",
+                    "snr",
+                    "class_prob",
+                    "is_burst",
+                    "patch_file",
+                ]
+            )
+    except PermissionError as e:
+        logger.error("Error de permisos al crear CSV %s: %s", csv_path, e)
+        raise
+
+
+def _write_candidate_to_csv(csv_file: Path, candidate: Candidate) -> None:
+    """Write a single candidate to the CSV file with error handling."""
+    
+    try:
+        with csv_file.open("a", newline="") as f_csv:
+            writer = csv.writer(f_csv)
+            writer.writerow(candidate.to_row())
+    except PermissionError as e:
+        logger.error("Error de permisos al escribir en CSV %s: %s", csv_file, e)
+        # Intentar crear un archivo alternativo
+        alt_csv = csv_file.with_suffix(f".{int(time.time())}.csv")
+        logger.info("Intentando escribir en archivo alternativo: %s", alt_csv)
+        with alt_csv.open("a", newline="") as f_csv:
+            writer = csv.writer(f_csv)
+            writer.writerow(candidate.to_row())
+    except Exception as e:
+        logger.error("Error inesperado al escribir CSV: %s", e)
+        raise
+
 
 def _slice_parameters(width_total: int, slice_len: int) -> tuple[int, int]:
     """Return adjusted ``slice_len`` and number of slices for ``width_total``."""
@@ -640,9 +668,10 @@ def _process_file(
                 )
                 cand_counter += 1
                 prob_max = max(prob_max, float(conf))
-                with csv_file.open("a", newline="") as f_csv:
-                    writer = csv.writer(f_csv)
-                    writer.writerow(cand.to_row())
+                
+                # Usar la función con manejo de errores
+                _write_candidate_to_csv(csv_file, cand)
+                
                 logger.info(
                     "Candidato DM %.2f t=%.3f s conf=%.2f class=%.2f -> %s",
                     dm_val,

@@ -172,11 +172,22 @@ def _save_patch_plot(
         vmax=np.nanpercentile(patch, 99),
         extent=[time_axis[0], time_axis[-1], freq.min(), freq.max()],
     )
-    nchan = patch.shape[1]
-    ax1.set_yticks(np.linspace(0, nchan, 6))
-    ax1.set_yticklabels(np.round(np.linspace(freq.min(), freq.max(), 6)).astype(int))
-    ax1.set_xticks(np.linspace(time_axis[0], time_axis[-1], 6))
-    ax1.set_xticklabels(np.round(np.linspace(time_axis[0], time_axis[-1], 6), 2))
+    
+    ax1.set_xlim(time_axis[0], time_axis[-1])
+    ax1.set_ylim(freq.min(), freq.max())
+    
+    # Configurar ticks de frecuencia correctamente
+    n_freq_ticks = 6
+    freq_tick_positions = np.linspace(freq.min(), freq.max(), n_freq_ticks)
+    ax1.set_yticks(freq_tick_positions)
+    ax1.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
+    
+    # Configurar ticks de tiempo correctamente
+    n_time_ticks = 6
+    time_tick_positions = np.linspace(time_axis[0], time_axis[-1], n_time_ticks)
+    ax1.set_xticks(time_tick_positions)
+    ax1.set_xticklabels([f"{t:.3f}" for t in time_tick_positions])
+    
     ax1.set_xlabel("Time (s)")
     ax1.set_ylabel("Frequency (MHz)")
 
@@ -217,10 +228,9 @@ def _save_slice_summary(
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    fig = plt.figure(figsize=(12, 10)) # Adjusted figsize for new layout
+    fig = plt.figure(figsize=(14, 12))  # Increased figure size
 
     # Main GridSpec: 2 rows. Top row for detection, bottom row for waterfall & patch
-    # height_ratios can be adjusted. e.g., [1.5, 1] gives more height to detection
     gs_main = gridspec.GridSpec(2, 1, height_ratios=[1.5, 1], hspace=0.3, figure=fig)
 
     # --- Top Row: Detection Plot ---
@@ -230,19 +240,17 @@ def _save_slice_summary(
     prev_len_config = config.SLICE_LEN
     config.SLICE_LEN = slice_len
 
-    n_time_ticks_det = 8 # Increased ticks for larger plot
-    time_positions_det = np.linspace(0, 512, n_time_ticks_det) # Assuming detection image is 512 wide
-    # Absolute time for the start of the current detection image slice
+    n_time_ticks_det = 8
+    time_positions_det = np.linspace(0, img_rgb.shape[1]-1, n_time_ticks_det)
     time_start_det_slice_abs = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
-    # Time values for x-axis ticks, relative to the start of the FITS file
-    time_values_det = time_start_det_slice_abs + (time_positions_det / 512.0) * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    time_values_det = time_start_det_slice_abs + (time_positions_det / img_rgb.shape[1]) * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
     ax_det.set_xticks(time_positions_det)
     ax_det.set_xticklabels([f"{t:.3f}" for t in time_values_det])
     ax_det.set_xlabel("Time (s)", fontsize=10, fontweight="bold")
 
     n_dm_ticks = 8
-    dm_positions = np.linspace(0, 512, n_dm_ticks) # Assuming detection image is 512 high
-    dm_values = config.DM_min + (dm_positions / 512.0) * (config.DM_max - config.DM_min)
+    dm_positions = np.linspace(0, img_rgb.shape[0]-1, n_dm_ticks)
+    dm_values = config.DM_min + (dm_positions / img_rgb.shape[0]) * (config.DM_max - config.DM_min)
     ax_det.set_yticks(dm_positions)
     ax_det.set_yticklabels([f"{dm:.0f}" for dm in dm_values])
     ax_det.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=10, fontweight="bold")
@@ -255,14 +263,12 @@ def _save_slice_summary(
             )
             ax_det.add_patch(rect)
             center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
-            # dm_val_cand, t_sec_cand_rel_to_slice_start, _ = pixel_to_physical(center_x, center_y, slice_len)
-            # t_sec_cand_abs = time_start_det_slice_abs + t_sec_cand_rel_to_slice_start # Absolute time of candidate
             dm_val_cand, _, _ = pixel_to_physical(center_x, center_y, slice_len)
             label = f"#{idx+1}\nDM: {dm_val_cand:.1f}\nP: {conf:.2f}"
             ax_det.annotate(
                 label,
                 xy=(center_x, center_y),
-                xytext=(center_x, y2 + 20), # Adjusted y2 offset
+                xytext=(center_x, y2 + 20),
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="lime", alpha=0.8),
                 fontsize=7,
                 ha="center",
@@ -277,14 +283,14 @@ def _save_slice_summary(
     config.SLICE_LEN = prev_len_config
 
     # --- Bottom Row: Waterfalls and Patch Plots ---
-    # Nested GridSpec for the bottom row: 1 row, 3 columns
     gs_bottom_row = gridspec.GridSpecFromSubplotSpec(
-        1,
-        3,
-        subplot_spec=gs_main[1, 0],
-        width_ratios=[1, 1, 1],
-        wspace=0.25,
+        1, 3, subplot_spec=gs_main[1, 0], width_ratios=[1, 1, 1], wspace=0.3
     )
+
+    # Calculate time arrays for proper extent
+    block_size_wf_samples = waterfall_block.shape[0]
+    slice_start_abs = slice_idx * block_size_wf_samples * time_reso_ds
+    slice_end_abs = slice_start_abs + block_size_wf_samples * time_reso_ds
 
     # --- Bottom Row, Left Column: Waterfall with profile ---
     gs_waterfall_nested = gridspec.GridSpecFromSubplotSpec(
@@ -292,17 +298,12 @@ def _save_slice_summary(
     )
     ax_prof_wf = fig.add_subplot(gs_waterfall_nested[0, 0])
     profile_wf = waterfall_block.mean(axis=1)
-    block_size_wf_samples = waterfall_block.shape[0]
-    slice_start_abs = slice_idx * block_size_wf_samples * time_reso_ds
-    slice_end_abs = slice_start_abs + block_size_wf_samples * time_reso_ds
-    time_axis_wf = slice_start_abs + np.arange(block_size_wf_samples) * time_reso_ds
+    time_axis_wf = np.linspace(slice_start_abs, slice_end_abs, len(profile_wf))
     ax_prof_wf.plot(time_axis_wf, profile_wf, color="royalblue", alpha=0.8, lw=1)
     ax_prof_wf.set_xlim(slice_start_abs, slice_end_abs)
     ax_prof_wf.set_xticks([])
     ax_prof_wf.set_yticks([])
-    ax_prof_wf.set_title(
-        f"Raw Waterfall\nSlice {slice_idx+1}", fontsize=9, fontweight="bold"
-    )
+    ax_prof_wf.set_title(f"Raw Waterfall\nSlice {slice_idx+1}", fontsize=9, fontweight="bold")
 
     ax_wf = fig.add_subplot(gs_waterfall_nested[1, 0])
     ax_wf.imshow(
@@ -314,12 +315,20 @@ def _save_slice_summary(
         vmax=np.nanpercentile(waterfall_block, 99),
         extent=[slice_start_abs, slice_end_abs, freq_ds.min(), freq_ds.max()],
     )
-    nchan_wf = waterfall_block.shape[1]
-    tick_times_wf = np.linspace(slice_start_abs, slice_end_abs, 6)
-    ax_wf.set_yticks(np.linspace(0, nchan_wf, 6))
-    ax_wf.set_yticklabels(np.round(np.linspace(freq_ds.min(), freq_ds.max(), 6)).astype(int))
-    ax_wf.set_xticks(tick_times_wf)
-    ax_wf.set_xticklabels([f"{t:.3f}" for t in tick_times_wf])
+    # Set proper axis limits to match the extent
+    ax_wf.set_xlim(slice_start_abs, slice_end_abs)
+    ax_wf.set_ylim(freq_ds.min(), freq_ds.max())
+    
+    # Configure ticks properly
+    n_freq_ticks = 6
+    freq_tick_positions = np.linspace(freq_ds.min(), freq_ds.max(), n_freq_ticks)
+    ax_wf.set_yticks(freq_tick_positions)
+    ax_wf.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
+    
+    n_time_ticks = 5
+    time_tick_positions = np.linspace(slice_start_abs, slice_end_abs, n_time_ticks)
+    ax_wf.set_xticks(time_tick_positions)
+    ax_wf.set_xticklabels([f"{t:.3f}" for t in time_tick_positions])
     ax_wf.set_xlabel("Time (s)", fontsize=9)
     ax_wf.set_ylabel("Frequency (MHz)", fontsize=9)
 
@@ -329,15 +338,12 @@ def _save_slice_summary(
     )
     ax_prof_dw = fig.add_subplot(gs_dedisp_nested[0, 0])
     prof_dw = dedispersed_block.mean(axis=1)
-    block_size_dw = dedispersed_block.shape[0]
-    time_axis_dw = slice_start_abs + np.arange(block_size_dw) * time_reso_ds
+    time_axis_dw = np.linspace(slice_start_abs, slice_end_abs, len(prof_dw))
     ax_prof_dw.plot(time_axis_dw, prof_dw, color="royalblue", alpha=0.8, lw=1)
     ax_prof_dw.set_xlim(slice_start_abs, slice_end_abs)
     ax_prof_dw.set_xticks([])
     ax_prof_dw.set_yticks([])
-    ax_prof_dw.set_title(
-        f"Dedispersed DM={dm_val:.2f}", fontsize=9, fontweight="bold"
-    )
+    ax_prof_dw.set_title(f"Dedispersed DM={dm_val:.2f}", fontsize=9, fontweight="bold")
 
     ax_dw = fig.add_subplot(gs_dedisp_nested[1, 0])
     ax_dw.imshow(
@@ -349,13 +355,14 @@ def _save_slice_summary(
         vmax=np.nanpercentile(dedispersed_block, 99),
         extent=[slice_start_abs, slice_end_abs, freq_ds.min(), freq_ds.max()],
     )
-    nchan_dw = dedispersed_block.shape[1]
-    ax_dw.set_yticks(np.linspace(0, nchan_dw, 6))
-    ax_dw.set_yticklabels(
-        np.round(np.linspace(freq_ds.min(), freq_ds.max(), 6)).astype(int)
-    )
-    ax_dw.set_xticks(tick_times_wf)
-    ax_dw.set_xticklabels([f"{t:.3f}" for t in tick_times_wf])
+    # Set proper axis limits
+    ax_dw.set_xlim(slice_start_abs, slice_end_abs)
+    ax_dw.set_ylim(freq_ds.min(), freq_ds.max())
+    
+    ax_dw.set_yticks(freq_tick_positions)
+    ax_dw.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
+    ax_dw.set_xticks(time_tick_positions)
+    ax_dw.set_xticklabels([f"{t:.3f}" for t in time_tick_positions])
     ax_dw.set_xlabel("Time (s)", fontsize=9)
     ax_dw.set_ylabel("Frequency (MHz)", fontsize=9)
 
@@ -365,15 +372,15 @@ def _save_slice_summary(
     )
     ax_patch_prof = fig.add_subplot(gs_patch_nested[0, 0])
     patch_prof_val = patch_img.mean(axis=1)
-    block_patch_samples = patch_img.shape[0]
-    patch_time_axis = patch_start + np.arange(block_patch_samples) * time_reso_ds
+
+    patch_duration = len(patch_prof_val) * time_reso_ds
+    patch_time_axis = patch_start + np.arange(len(patch_prof_val)) * time_reso_ds
+
     ax_patch_prof.plot(patch_time_axis, patch_prof_val, color="royalblue", alpha=0.8, lw=1)
-    ax_patch_prof.set_xlim(slice_start_abs, slice_end_abs)
+    ax_patch_prof.set_xlim(patch_time_axis[0], patch_time_axis[-1])
     ax_patch_prof.set_xticks([])
     ax_patch_prof.set_yticks([])
-    ax_patch_prof.set_title(
-        "Dedispersed Candidate Patch", fontsize=9, fontweight="bold"
-    )
+    ax_patch_prof.set_title("Dedispersed Candidate Patch", fontsize=9, fontweight="bold")
 
     ax_patch = fig.add_subplot(gs_patch_nested[1, 0])
     ax_patch.imshow(
@@ -385,21 +392,27 @@ def _save_slice_summary(
         vmax=np.nanpercentile(patch_img, 99),
         extent=[patch_time_axis[0], patch_time_axis[-1], freq_ds.min(), freq_ds.max()],
     )
-    nchan_patch_val = patch_img.shape[1]
-    ax_patch.set_yticks(np.linspace(0, nchan_patch_val, 6))
-    ax_patch.set_yticklabels(np.round(np.linspace(freq_ds.min(), freq_ds.max(), 6)).astype(int))
-    ax_patch.set_xlim(slice_start_abs, slice_end_abs)
-    tick_times_patch = np.linspace(slice_start_abs, slice_end_abs, 6)
-    ax_patch.set_xticks(tick_times_patch)
-    ax_patch.set_xticklabels([f"{t:.3f}" for t in tick_times_patch])
+    # Set proper axis limits
+    ax_patch.set_xlim(patch_time_axis[0], patch_time_axis[-1])
+    ax_patch.set_ylim(freq_ds.min(), freq_ds.max())
+
+    # Configurar ticks específicos para el patch
+    n_patch_time_ticks = 5
+    patch_tick_positions = np.linspace(patch_time_axis[0], patch_time_axis[-1], n_patch_time_ticks)
+    ax_patch.set_xticks(patch_tick_positions)
+    ax_patch.set_xticklabels([f"{t:.3f}" for t in patch_tick_positions])
+
+    ax_patch.set_yticks(freq_tick_positions)
+    ax_patch.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
     ax_patch.set_xlabel("Time (s)", fontsize=9)
     ax_patch.set_ylabel("Frequency (MHz)", fontsize=9)
 
-    plt.tight_layout(rect=[0, 0, 1, 0.97]) # Adjust rect to prevent main title overlap if any
-    fig.suptitle(f"Composite Summary: {fits_stem} - {band_name} - Slice {slice_idx + 1}", fontsize=14, fontweight='bold')
-    plt.savefig(out_path, dpi=200)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    fig.suptitle(f"Composite Summary: {fits_stem} - {band_name} - Slice {slice_idx + 1}", 
+                 fontsize=14, fontweight='bold', y=0.97)
+    plt.savefig(out_path, dpi=200, bbox_inches='tight')
     plt.close()
-    # config.SLICE_LEN = prev_len_config # This was moved up
+
 
 def _write_summary(summary: dict, save_path: Path) -> None:
     summary_path = save_path / "summary.json"
@@ -519,13 +532,10 @@ def _process_file(
         axis=1,
     )
 
-
     height = config.DM_max - config.DM_min + 1
     width_total = config.FILE_LENG // config.DOWN_TIME_RATE
 
     slice_len, time_slice = _slice_parameters(width_total, config.SLICE_LEN)
-
-    # Waterfalls will be generated as part of the slice summaries
 
     dm_time = d_dm_time_g(data, height=height, width=width_total)
 
@@ -544,7 +554,6 @@ def _process_file(
     cand_counter = 0
     prob_max = 0.0
     snr_list: List[float] = []
-    first_candidate_dm: float | None = None
 
     band_configs = (
         [
@@ -556,9 +565,32 @@ def _process_file(
         else [(0, "fullband", "Full Band")]
     )
 
+    # Preparar directorios para waterfalls individuales
+    waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / fits_path.stem
+    waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / fits_path.stem
+    freq_ds = np.mean(
+        config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
+        axis=1,
+    )
+    time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+
     for j in range(time_slice):
         slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
         waterfall_block = data[j * slice_len : (j + 1) * slice_len]
+        
+        # 2) Generar waterfall sin dedispersar para este slice
+        waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
+        if waterfall_block.size > 0:
+            plot_waterfall_block(
+                data_block=waterfall_block,
+                freq=freq_ds,
+                time_reso=time_reso_ds,
+                block_size=waterfall_block.shape[0],
+                block_idx=j,
+                save_dir=waterfall_dispersion_dir,
+                filename=fits_path.stem,
+            )
+
         for band_idx, band_suffix, band_name in band_configs:
             band_img = slice_cube[band_idx]
             img_tensor = preprocess_img(band_img)
@@ -592,8 +624,6 @@ def _process_file(
                     first_patch = proc_patch
                     first_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
                     first_dm = dm_val
-                    if first_candidate_dm is None:
-                        first_candidate_dm = dm_val
                 cand = Candidate(
                     fits_path.name,
                     j,
@@ -623,6 +653,21 @@ def _process_file(
                 )
 
             if first_patch is not None:
+                # 3) Generar waterfall dedispersado para este slice con el primer candidato
+                waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
+                start = j * slice_len
+                dedisp_block = dedisperse_block(data, freq_down, first_dm, start, slice_len)
+                if dedisp_block.size > 0:
+                    plot_waterfall_block(
+                        data_block=dedisp_block,
+                        freq=freq_down,
+                        time_reso=time_reso_ds,
+                        block_size=dedisp_block.shape[0],
+                        block_idx=j,
+                        save_dir=waterfall_dedispersion_dir,
+                        filename=f"{fits_path.stem}_dm{first_dm:.2f}",
+                    )
+
                 _save_patch_plot(
                     first_patch,
                     patch_path,
@@ -631,10 +676,7 @@ def _process_file(
                     first_start,
                 )
 
-                dedisp_block = dedisperse_block(
-                    data, freq_down, first_dm, j * slice_len, slice_len
-                )
-
+                # 1) Generar composite
                 composite_dir = save_dir / "Composite" / fits_path.stem
                 comp_path = composite_dir / f"slice{j}_band{band_idx}.png"
                 _save_slice_summary(
@@ -655,6 +697,7 @@ def _process_file(
                     slice_len,
                 )
 
+            # 4) Generar detecciones de Bow ties (detections)
             out_img_path = save_dir / f"{fits_path.stem}_slice{j}_{band_suffix}.png"
             _save_plot(
                 img_rgb,
@@ -668,18 +711,6 @@ def _process_file(
                 fits_path.stem,
                 slice_len,
             )
-
-    if first_candidate_dm is not None:
-        dedisp_dir = save_dir / "DedispersedWaterfalls" / fits_path.stem
-        _plot_dedispersed_waterfalls(
-            data,
-            freq_down,
-            first_candidate_dm,
-            slice_len,
-            time_slice,
-            fits_path.stem,
-            dedisp_dir,
-        )
 
     runtime = time.time() - t_start
     logger.info(

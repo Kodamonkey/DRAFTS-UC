@@ -116,3 +116,52 @@ def dedisperse_patch(
     for idx in range(freq_down.size):
         patch[:, idx] = segment[delays[idx] : delays[idx] + patch_len, idx]
     return patch, start
+
+
+def dedisperse_block(
+    data: np.ndarray,
+    freq_down: np.ndarray,
+    dm: float,
+    start: int,
+    block_len: int,
+) -> np.ndarray:
+    """Dedisperse a continuous block of data.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Time--frequency array already downsampled in frequency.
+    freq_down : np.ndarray
+        Array of downsampled frequency values.
+    dm : float
+        Dispersion measure used for the correction.
+    start : int
+        Starting sample of the block within ``data``.
+    block_len : int
+        Number of samples to include in the output block.
+
+    Returns
+    -------
+    np.ndarray
+        Dedispersed block of shape ``(block_len, n_freq)`` whose time span
+        matches that of the original slice.
+    """
+
+    delays = (
+        4.15
+        * dm
+        * (freq_down ** -2 - freq_down.max() ** -2)
+        * 1e3
+        / config.TIME_RESO
+        / config.DOWN_TIME_RATE
+    ).astype(np.int64)
+
+    max_delay = int(delays.max())
+    if start + block_len + max_delay > data.shape[0]:
+        start = max(0, data.shape[0] - (block_len + max_delay))
+
+    segment = data[start : start + block_len + max_delay]
+    block = np.zeros((block_len, freq_down.size), dtype=np.float32)
+    for idx in range(freq_down.size):
+        block[:, idx] = segment[delays[idx] : delays[idx] + block_len, idx]
+    return block

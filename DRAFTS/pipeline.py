@@ -19,7 +19,7 @@ from BinaryClass.binary_model import BinaryNet
 
 from . import config
 from .candidate import Candidate
-from .dedispersion import d_dm_time_g, dedisperse_patch
+from .dedispersion import d_dm_time_g, dedisperse_patch, dedisperse_block
 from .metrics import compute_snr
 from .astro_conversions import pixel_to_physical
 from .preprocessing import downsample_data
@@ -188,9 +188,11 @@ def _save_patch_plot(
 
 def _save_slice_summary(
     waterfall_block: np.ndarray,
+    dedispersed_block: np.ndarray,
     img_rgb: np.ndarray,
     patch_img: np.ndarray,
-    patch_start: float, # This is the absolute start time of the patch in seconds
+    patch_start: float,  # Absolute start time of the patch in seconds
+    dm_val: float,
     top_conf: Iterable,
     top_boxes: Iterable | None,
     out_path: Path,
@@ -268,15 +270,20 @@ def _save_slice_summary(
                 arrowprops=dict(arrowstyle="->", color="lime", lw=1.5),
             )
     title_det = (
-        f"{fits_stem} - {band_name}\nSlice {slice_idx + 1}/{time_slice} - Detections"
+        f"Detection Map - {fits_stem} ({band_name})\n"
+        f"Slice {slice_idx + 1} of {time_slice}"
     )
     ax_det.set_title(title_det, fontsize=11, fontweight="bold")
     config.SLICE_LEN = prev_len_config
 
-    # --- Bottom Row: Waterfall and Patch Plots ---
-    # Nested GridSpec for the bottom row: 1 row, 2 columns
+    # --- Bottom Row: Waterfalls and Patch Plots ---
+    # Nested GridSpec for the bottom row: 1 row, 3 columns
     gs_bottom_row = gridspec.GridSpecFromSubplotSpec(
-        1, 2, subplot_spec=gs_main[1, 0], width_ratios=[1, 1], wspace=0.25
+        1,
+        3,
+        subplot_spec=gs_main[1, 0],
+        width_ratios=[1, 1, 1],
+        wspace=0.25,
     )
 
     # --- Bottom Row, Left Column: Waterfall with profile ---
@@ -293,7 +300,9 @@ def _save_slice_summary(
     ax_prof_wf.set_xlim(slice_start_abs, slice_end_abs)
     ax_prof_wf.set_xticks([])
     ax_prof_wf.set_yticks([])
-    ax_prof_wf.set_title(f"Waterfall (Slice {slice_idx+1})", fontsize=9, fontweight="bold")
+    ax_prof_wf.set_title(
+        f"Raw Waterfall\nSlice {slice_idx+1}", fontsize=9, fontweight="bold"
+    )
 
     ax_wf = fig.add_subplot(gs_waterfall_nested[1, 0])
     ax_wf.imshow(
@@ -314,9 +323,45 @@ def _save_slice_summary(
     ax_wf.set_xlabel("Time (s)", fontsize=9)
     ax_wf.set_ylabel("Frequency (MHz)", fontsize=9)
 
+    # --- Bottom Row, Middle Column: Dedispersed waterfall ---
+    gs_dedisp_nested = gridspec.GridSpecFromSubplotSpec(
+        2, 1, subplot_spec=gs_bottom_row[0, 1], height_ratios=[1, 4], hspace=0.05
+    )
+    ax_prof_dw = fig.add_subplot(gs_dedisp_nested[0, 0])
+    prof_dw = dedispersed_block.mean(axis=1)
+    block_size_dw = dedispersed_block.shape[0]
+    time_axis_dw = slice_start_abs + np.arange(block_size_dw) * time_reso_ds
+    ax_prof_dw.plot(time_axis_dw, prof_dw, color="royalblue", alpha=0.8, lw=1)
+    ax_prof_dw.set_xlim(slice_start_abs, slice_end_abs)
+    ax_prof_dw.set_xticks([])
+    ax_prof_dw.set_yticks([])
+    ax_prof_dw.set_title(
+        f"Dedispersed DM={dm_val:.2f}", fontsize=9, fontweight="bold"
+    )
+
+    ax_dw = fig.add_subplot(gs_dedisp_nested[1, 0])
+    ax_dw.imshow(
+        dedispersed_block.T,
+        origin="lower",
+        cmap="mako",
+        aspect="auto",
+        vmin=np.nanpercentile(dedispersed_block, 1),
+        vmax=np.nanpercentile(dedispersed_block, 99),
+        extent=[slice_start_abs, slice_end_abs, freq_ds.min(), freq_ds.max()],
+    )
+    nchan_dw = dedispersed_block.shape[1]
+    ax_dw.set_yticks(np.linspace(0, nchan_dw, 6))
+    ax_dw.set_yticklabels(
+        np.round(np.linspace(freq_ds.min(), freq_ds.max(), 6)).astype(int)
+    )
+    ax_dw.set_xticks(tick_times_wf)
+    ax_dw.set_xticklabels([f"{t:.3f}" for t in tick_times_wf])
+    ax_dw.set_xlabel("Time (s)", fontsize=9)
+    ax_dw.set_ylabel("Frequency (MHz)", fontsize=9)
+
     # --- Bottom Row, Right Column: Patch image with profile ---
     gs_patch_nested = gridspec.GridSpecFromSubplotSpec(
-        2, 1, subplot_spec=gs_bottom_row[0, 1], height_ratios=[1, 4], hspace=0.05
+        2, 1, subplot_spec=gs_bottom_row[0, 2], height_ratios=[1, 4], hspace=0.05
     )
     ax_patch_prof = fig.add_subplot(gs_patch_nested[0, 0])
     patch_prof_val = patch_img.mean(axis=1)
@@ -326,7 +371,9 @@ def _save_slice_summary(
     ax_patch_prof.set_xlim(slice_start_abs, slice_end_abs)
     ax_patch_prof.set_xticks([])
     ax_patch_prof.set_yticks([])
-    ax_patch_prof.set_title("Candidate Patch", fontsize=9, fontweight="bold")
+    ax_patch_prof.set_title(
+        "Dedispersed Candidate Patch", fontsize=9, fontweight="bold"
+    )
 
     ax_patch = fig.add_subplot(gs_patch_nested[1, 0])
     ax_patch.imshow(
@@ -390,6 +437,40 @@ def _plot_waterfalls(
             block_idx=j,
             save_dir=out_dir,
             filename=fits_stem,
+        )
+
+
+def _plot_dedispersed_waterfalls(
+    data: np.ndarray,
+    freq_down: np.ndarray,
+    dm: float,
+    slice_len: int,
+    time_slice: int,
+    fits_stem: str,
+    out_dir: Path,
+) -> None:
+    """Save dedispersed frequency--time waterfall plots for each time block.
+
+    The dedispersion is performed at ``dm`` while preserving the original
+    slice boundaries.
+    """
+
+    time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for j in range(time_slice):
+        start = j * slice_len
+        block = dedisperse_block(data, freq_down, dm, start, slice_len)
+        if block.size == 0:
+            continue
+        plot_waterfall_block(
+            data_block=block,
+            freq=freq_down,
+            time_reso=time_reso_ds,
+            block_size=block.shape[0],
+            block_idx=j,
+            save_dir=out_dir,
+            filename=f"{fits_stem}_dm{dm:.2f}",
         )
 
 def _prep_patch(patch: np.ndarray) -> np.ndarray:
@@ -463,6 +544,7 @@ def _process_file(
     cand_counter = 0
     prob_max = 0.0
     snr_list: List[float] = []
+    first_candidate_dm: float | None = None
 
     band_configs = (
         [
@@ -488,6 +570,7 @@ def _process_file(
 
             first_patch: np.ndarray | None = None
             first_start: float | None = None
+            first_dm: float | None = None
             patch_dir = save_dir / "Patches" / fits_path.stem
             patch_path = patch_dir / f"patch_slice{j}_band{band_idx}.png"
 
@@ -508,6 +591,9 @@ def _process_file(
                 if first_patch is None:
                     first_patch = proc_patch
                     first_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+                    first_dm = dm_val
+                    if first_candidate_dm is None:
+                        first_candidate_dm = dm_val
                 cand = Candidate(
                     fits_path.name,
                     j,
@@ -545,13 +631,19 @@ def _process_file(
                     first_start,
                 )
 
+                dedisp_block = dedisperse_block(
+                    data, freq_down, first_dm, j * slice_len, slice_len
+                )
+
                 composite_dir = save_dir / "Composite" / fits_path.stem
                 comp_path = composite_dir / f"slice{j}_band{band_idx}.png"
                 _save_slice_summary(
                     waterfall_block,
+                    dedisp_block,
                     img_rgb,
                     first_patch,
                     first_start,
+                    first_dm,
                     top_conf,
                     top_boxes,
                     comp_path,
@@ -576,6 +668,18 @@ def _process_file(
                 fits_path.stem,
                 slice_len,
             )
+
+    if first_candidate_dm is not None:
+        dedisp_dir = save_dir / "DedispersedWaterfalls" / fits_path.stem
+        _plot_dedispersed_waterfalls(
+            data,
+            freq_down,
+            first_candidate_dm,
+            slice_len,
+            time_slice,
+            fits_path.stem,
+            dedisp_dir,
+        )
 
     runtime = time.time() - t_start
     logger.info(

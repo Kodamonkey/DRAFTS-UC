@@ -218,4 +218,4 @@ LICENSE
 Results/
 
 # modelos de Hugging Face
-models/
+#models/

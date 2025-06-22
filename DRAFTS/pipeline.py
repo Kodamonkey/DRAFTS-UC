@@ -8,7 +8,10 @@ import time
 from pathlib import Path
 from typing import List
 
-import torch
+try:
+    import torch
+except ImportError:  # pragma: no cover - optional dependency
+    torch = None
 import numpy as np
 
 from . import config
@@ -31,15 +34,13 @@ from .visualization import (
 )
 logger = logging.getLogger(__name__)
 
-from ObjectDet.centernet_model import centernet
-from BinaryClass.binary_model import BinaryNet
-
 
 def _load_model() -> torch.nn.Module:
     """Load the CenterNet model configured in :mod:`config`."""
     if torch is None:
         raise ImportError("torch is required to load models")
 
+    from ObjectDet.centernet_model import centernet
     model = centernet(model_name=config.MODEL_NAME).to(config.DEVICE)
     state = torch.load(config.MODEL_PATH, map_location=config.DEVICE)
     model.load_state_dict(state)
@@ -51,6 +52,7 @@ def _load_class_model() -> torch.nn.Module:
     if torch is None:
         raise ImportError("torch is required to load models")
 
+    from BinaryClass.binary_model import BinaryNet
     model = BinaryNet(config.CLASS_MODEL_NAME, num_classes=2).to(config.DEVICE)
     state = torch.load(config.CLASS_MODEL_PATH, map_location=config.DEVICE)
     model.load_state_dict(state)
@@ -165,7 +167,12 @@ def _classify_patch(model: torch.nn.Module, patch: np.ndarray) -> tuple[float, n
     return prob, proc
 
 def _write_summary(summary: dict, save_path: Path) -> None:
-    """Write global summary information to ``summary.json``."""
+    """Write global summary information to ``summary.json``.
+
+    Each entry in ``summary`` now includes ``n_bursts`` and ``n_no_bursts``
+    indicating how many classified bursts and non-bursts were found in a
+    given FITS file.
+    """
 
     summary_path = save_path / "summary.json"
     with summary_path.open("w") as f_json:
@@ -215,6 +222,8 @@ def _process_file(
     _ensure_csv_header(csv_file)
 
     cand_counter = 0
+    n_bursts = 0
+    n_no_bursts = 0
     prob_max = 0.0
     snr_list: List[float] = []
 
@@ -303,6 +312,10 @@ def _process_file(
                     patch_path.name,
                 )
                 cand_counter += 1
+                if is_burst:
+                    n_bursts += 1
+                else:
+                    n_no_bursts += 1
                 prob_max = max(prob_max, float(conf))
                 with csv_file.open("a", newline="") as f_csv:
                     writer = csv.writer(f_csv)
@@ -389,6 +402,8 @@ def _process_file(
 
     return {
         "n_candidates": cand_counter,
+        "n_bursts": n_bursts,
+        "n_no_bursts": n_no_bursts,
         "runtime_s": runtime,
         "max_prob": float(prob_max),
         "mean_snr": float(np.mean(snr_list)) if snr_list else 0.0,

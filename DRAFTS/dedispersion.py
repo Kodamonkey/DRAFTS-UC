@@ -6,7 +6,6 @@ from numba import cuda, njit, prange
 
 from . import config
 
-
 @cuda.jit
 def _de_disp_gpu(dm_time, data, freq, index, start_offset, mid_channel):
     x, y = cuda.grid(2)
@@ -116,7 +115,6 @@ def dedisperse_patch(
     for idx in range(freq_down.size):
         patch[:, idx] = segment[delays[idx] : delays[idx] + patch_len, idx]
     return patch, start
-
 
 def dedisperse_block(
     data: np.ndarray,

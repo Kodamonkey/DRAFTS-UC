@@ -190,7 +190,7 @@ venv_drafts/
 src/data/cent_data/
 
 #Ignore all .pth
-#*.pth
+*.pth
 #Ignore all files in source directory
 *.sh
 # Ignore all .csv files
@@ -217,4 +217,4 @@ LICENSE
 Results/
 
 # modelos de Hugging Face
-#models/
+models/

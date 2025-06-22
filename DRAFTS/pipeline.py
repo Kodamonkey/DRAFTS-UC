@@ -8,12 +8,8 @@ import time
 from pathlib import Path
 from typing import List
 
-import numpy as np
 import torch
-
-from ObjectDet.centernet_model import centernet
-from ObjectDet.centernet_utils import get_res
-from BinaryClass.binary_model import BinaryNet
+import numpy as np
 
 from . import config
 from .candidate import Candidate
@@ -22,6 +18,7 @@ from .metrics import compute_snr
 from .astro_conversions import pixel_to_physical
 from .preprocessing import downsample_data
 from .image_utils import (
+    preprocess_img,
     postprocess_img,
     plot_waterfall_block,
 )
@@ -34,30 +31,34 @@ from .visualization import (
 )
 logger = logging.getLogger(__name__)
 
+from ObjectDet.centernet_model import centernet
+from BinaryClass.binary_model import BinaryNet
+
 
 def _load_model() -> torch.nn.Module:
     """Load the CenterNet model configured in :mod:`config`."""
+    if torch is None:
+        raise ImportError("torch is required to load models")
 
     model = centernet(model_name=config.MODEL_NAME).to(config.DEVICE)
     state = torch.load(config.MODEL_PATH, map_location=config.DEVICE)
     model.load_state_dict(state)
     model.eval()
     return model
+
 def _load_class_model() -> torch.nn.Module:
     """Load the binary classification model configured in :mod:`config`."""
+    if torch is None:
+        raise ImportError("torch is required to load models")
 
     model = BinaryNet(config.CLASS_MODEL_NAME, num_classes=2).to(config.DEVICE)
     state = torch.load(config.CLASS_MODEL_PATH, map_location=config.DEVICE)
-
     model.load_state_dict(state)
-
     model.eval()
     return model
 
-
 def _find_fits_files(frb: str) -> List[Path]:
     """Return FITS files matching ``frb`` within ``config.DATA_DIR``."""
-
     return sorted(f for f in config.DATA_DIR.glob("*.fits") if frb in f.name)
 
 
@@ -66,7 +67,7 @@ def _ensure_csv_header(csv_path: Path) -> None:
 
     # Verificar si el directorio padre existe y crearlo si no
     csv_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     if csv_path.exists():
         return
 
@@ -129,6 +130,7 @@ def _slice_parameters(width_total: int, slice_len: int) -> tuple[int, int]:
 
 def _detect(model: torch.nn.Module, img_tensor: np.ndarray) -> tuple[list, list | None]:
     """Run the detection model and return confidences and boxes."""
+    from ObjectDet.centernet_utils import get_res
 
     with torch.no_grad():
         hm, wh, offset = model(
@@ -169,7 +171,6 @@ def _write_summary(summary: dict, save_path: Path) -> None:
     with summary_path.open("w") as f_json:
         json.dump(summary, f_json, indent=2)
     logger.info("Resumen global escrito en %s", summary_path)
-
 
 def _process_file(
     det_model: torch.nn.Module,
@@ -230,19 +231,28 @@ def _process_file(
     # Preparar directorios para waterfalls individuales
     waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / fits_path.stem
     waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / fits_path.stem
-    time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
-
-    # 2) Generar waterfalls sin dedispersar para todos los slices
-    plot_waterfalls(
-        data=data,
-        slice_len=slice_len,
-        time_slice=time_slice,
-        fits_stem=fits_path.stem,
-        out_dir=waterfall_dispersion_dir,
+    freq_ds = np.mean(
+        config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
+        axis=1,
     )
+    time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
 
     for j in range(time_slice):
         slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
+        waterfall_block = data[j * slice_len : (j + 1) * slice_len]
+        
+        # 2) Generar waterfall sin dedispersar para este slice
+        waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
+        if waterfall_block.size > 0:
+            plot_waterfall_block(
+                data_block=waterfall_block,
+                freq=freq_ds,
+                time_reso=time_reso_ds,
+                block_size=waterfall_block.shape[0],
+                block_idx=j,
+                save_dir=waterfall_dispersion_dir,
+                filename=fits_path.stem,
+            )
 
         for band_idx, band_suffix, band_name in band_configs:
             band_img = slice_cube[band_idx]
@@ -293,10 +303,9 @@ def _process_file(
                 )
                 cand_counter += 1
                 prob_max = max(prob_max, float(conf))
-                
-                # Usar la función con manejo de errores
-                _write_candidate_to_csv(csv_file, cand)
-                
+                with csv_file.open("a", newline="") as f_csv:
+                    writer = csv.writer(f_csv)
+                    writer.writerow(cand.to_row())
                 logger.info(
                     "Candidato DM %.2f t=%.3f s conf=%.2f class=%.2f -> %s",
                     dm_val,

@@ -49,8 +49,41 @@ def plot_waterfall_block(
     block_idx: int,
     save_dir: Path,
     filename: str,
+    normalize: bool = False,
 ) -> None:
-    profile = data_block.mean(axis=1)
+    """Plot a single waterfall block.
+
+    Parameters
+    ----------
+    data_block : np.ndarray
+        Frequency--time slice to plot.
+    freq : np.ndarray
+        Frequency axis in MHz.
+    time_reso : float
+        Time resolution of ``data_block`` in seconds.
+    block_size : int
+        Number of time samples in ``data_block``.
+    block_idx : int
+        Index of the block within the full observation.
+    save_dir : Path
+        Directory where the image will be saved.
+    filename : str
+        Base filename for the output image.
+    normalize : bool, optional
+        If ``True``, each frequency channel is scaled to unit mean and clipped
+        between the 5th and 95th percentiles prior to plotting. This keeps the
+        dynamic range consistent across different ``SLICE_LEN`` and DM ranges.
+    """
+
+    block = data_block.copy() if normalize else data_block
+    if normalize:
+        block += 1
+        block /= np.mean(block, axis=0)
+        vmin, vmax = np.nanpercentile(block, [5, 95])
+        block = np.clip(block, vmin, vmax)
+        block = (block - block.min()) / (block.max() - block.min())
+
+    profile = block.mean(axis=1)
     time_start = block_idx * block_size * time_reso
     peak_time = time_start + np.argmax(profile) * time_reso
 
@@ -65,14 +98,14 @@ def plot_waterfall_block(
 
     ax1 = fig.add_subplot(gs[1:, 0])
     ax1.imshow(
-        data_block.T,
+        block.T,
         origin="lower",
         cmap="mako",
         aspect="auto",
-        vmin=np.nanpercentile(data_block, 1),
-        vmax=np.nanpercentile(data_block, 99),
+        vmin=np.nanpercentile(block, 1),
+        vmax=np.nanpercentile(block, 99),
     )
-    nchan = data_block.shape[1]
+    nchan = block.shape[1]
     ax1.set_yticks(np.linspace(0, nchan, 6))
     ax1.set_yticklabels(np.round(np.linspace(freq.min(), freq.max(), 6)).astype(int))
     ax1.set_xticks(np.linspace(0, block_size, 6))

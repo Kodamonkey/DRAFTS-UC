@@ -169,7 +169,6 @@ cython_debug/
 # Ignore all .npy files
 *.npy
 *.fits
-*.pth
 *.ps1
 
 Hug*/
@@ -203,6 +202,7 @@ src/data/cent_data/
 
 # Ignorar archivos de documentación
 *.txt
+!requirements.txt
 LICENSE
 
 # Ignorar instaladores y scripts
@@ -217,4 +217,4 @@ LICENSE
 Results/
 
 # modelos de Hugging Face
-models/
+#models/

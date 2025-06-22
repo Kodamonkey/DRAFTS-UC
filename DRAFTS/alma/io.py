@@ -71,9 +71,12 @@ def get_obparams(file_name: str) -> None:
         if "SUBINT" in [hdu.name for hdu in f] and "TBIN" in f["SUBINT"].header:
             hdr = f["SUBINT"].header
             sub_data = f["SUBINT"].data
-            config.TIME_RESO = hdr["TBIN"]
-            config.FREQ_RESO = hdr["NCHAN"]
-            config.FILE_LENG = hdr["NSBLK"] * hdr["NAXIS2"]
+            try:
+                config.TIME_RESO = float(hdr["TBIN"])
+            except Exception:
+                config.TIME_RESO = 0.0
+            config.FREQ_RESO = int(hdr["NCHAN"])
+            config.FILE_LENG = int(hdr["NSBLK"]) * int(hdr["NAXIS2"])
             freq_temp = sub_data["DAT_FREQ"][0].astype(np.float64)
             if "CHAN_BW" in hdr:
                 bw = hdr["CHAN_BW"]
@@ -119,9 +122,12 @@ def get_obparams(file_name: str) -> None:
                             freq_axis_inverted = True
                     else:
                         freq_temp = np.linspace(1000, 1500, hdr.get('NCHAN', 512))
-                config.TIME_RESO = hdr["TBIN"]
-                config.FREQ_RESO = hdr.get("NCHAN", len(freq_temp))
-                config.FILE_LENG = hdr.get("NAXIS2", 0) * hdr.get("NSBLK", 1)
+                try:
+                    config.TIME_RESO = float(hdr["TBIN"])
+                except Exception:
+                    config.TIME_RESO = 0.0
+                config.FREQ_RESO = int(hdr.get("NCHAN", len(freq_temp)))
+                config.FILE_LENG = int(hdr.get("NAXIS2", 0)) * int(hdr.get("NSBLK", 1))
             except Exception as e_std:
                 print(f"Error procesando FITS estándar: {e_std}")
                 config.TIME_RESO = 5.12e-5

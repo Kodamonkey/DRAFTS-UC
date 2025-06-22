@@ -115,8 +115,17 @@ def save_slice_summary(
     band_suffix: str,
     fits_stem: str,
     slice_len: int,
+    normalize: bool = False,
 ) -> None:
-    """Save a composite figure summarising detections and waterfalls."""
+    """Save a composite figure summarising detections and waterfalls.
+
+    Parameters
+    ----------
+    normalize : bool, optional
+        If ``True``, apply per-channel normalization to ``waterfall_block`` and
+        ``dedispersed_block`` before plotting, matching the behaviour of
+        :func:`plot_waterfall_block`.
+    """
 
     freq_ds = np.mean(
         config.FREQ.reshape(
@@ -127,9 +136,21 @@ def save_slice_summary(
     )
     time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
 
+    wf_block = waterfall_block.copy()
+    dw_block = dedispersed_block.copy()
+    if normalize:
+        for block in (wf_block, dw_block):
+            block += 1
+            block /= np.mean(block, axis=0)
+            vmin, vmax = np.nanpercentile(block, [5, 95])
+            block[:] = np.clip(block, vmin, vmax)
+            block -= block.min()
+            block /= block.max() - block.min()
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     fig = plt.figure(figsize=(14, 12))
+
 
     gs_main = gridspec.GridSpec(2, 1, height_ratios=[1.5, 1], hspace=0.3, figure=fig)
     ax_det = fig.add_subplot(gs_main[0, 0])
@@ -189,7 +210,7 @@ def save_slice_summary(
         2, 1, subplot_spec=gs_bottom_row[0, 0], height_ratios=[1, 4], hspace=0.05
     )
     ax_prof_wf = fig.add_subplot(gs_waterfall_nested[0, 0])
-    profile_wf = waterfall_block.mean(axis=1)
+    profile_wf = wf_block.mean(axis=1)
     time_axis_wf = np.linspace(slice_start_abs, slice_end_abs, len(profile_wf))
     ax_prof_wf.plot(time_axis_wf, profile_wf, color="royalblue", alpha=0.8, lw=1)
     ax_prof_wf.set_xlim(slice_start_abs, slice_end_abs)
@@ -199,12 +220,12 @@ def save_slice_summary(
 
     ax_wf = fig.add_subplot(gs_waterfall_nested[1, 0])
     ax_wf.imshow(
-        waterfall_block.T,
+        wf_block.T,
         origin="lower",
         cmap="mako",
         aspect="auto",
-        vmin=np.nanpercentile(waterfall_block, 1),
-        vmax=np.nanpercentile(waterfall_block, 99),
+        vmin=np.nanpercentile(wf_block, 1),
+        vmax=np.nanpercentile(wf_block, 99),
         extent=[slice_start_abs, slice_end_abs, freq_ds.min(), freq_ds.max()],
     )
     ax_wf.set_xlim(slice_start_abs, slice_end_abs)
@@ -226,7 +247,7 @@ def save_slice_summary(
         2, 1, subplot_spec=gs_bottom_row[0, 1], height_ratios=[1, 4], hspace=0.05
     )
     ax_prof_dw = fig.add_subplot(gs_dedisp_nested[0, 0])
-    prof_dw = dedispersed_block.mean(axis=1)
+    prof_dw = dw_block.mean(axis=1)
     time_axis_dw = np.linspace(slice_start_abs, slice_end_abs, len(prof_dw))
     ax_prof_dw.plot(time_axis_dw, prof_dw, color="royalblue", alpha=0.8, lw=1)
     ax_prof_dw.set_xlim(slice_start_abs, slice_end_abs)
@@ -236,12 +257,12 @@ def save_slice_summary(
 
     ax_dw = fig.add_subplot(gs_dedisp_nested[1, 0])
     ax_dw.imshow(
-        dedispersed_block.T,
+        dw_block.T,
         origin="lower",
         cmap="mako",
         aspect="auto",
-        vmin=np.nanpercentile(dedispersed_block, 1),
-        vmax=np.nanpercentile(dedispersed_block, 99),
+        vmin=np.nanpercentile(dw_block, 1),
+        vmax=np.nanpercentile(dw_block, 99),
         extent=[slice_start_abs, slice_end_abs, freq_ds.min(), freq_ds.max()],
     )
     ax_dw.set_xlim(slice_start_abs, slice_end_abs)

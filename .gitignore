@@ -169,7 +169,6 @@ cython_debug/
 # Ignore all .npy files
 *.npy
 *.fits
-*.pth
 *.ps1
 
 Hug*/

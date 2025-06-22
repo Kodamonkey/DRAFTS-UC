@@ -360,6 +360,7 @@ def _process_file(
                     band_suffix,
                     fits_path.stem,
                     slice_len,
+                    normalize=True,
                 )
 
             # 4) Generar detecciones de Bow ties (detections)

@@ -12,6 +12,7 @@ from matplotlib import gridspec
 from matplotlib.colors import ListedColormap
 
 from . import config
+from .astro_conversions import pixel_to_physical
 
 if "mako" not in plt.colormaps():
     plt.register_cmap(
@@ -48,8 +49,41 @@ def plot_waterfall_block(
     block_idx: int,
     save_dir: Path,
     filename: str,
+    normalize: bool = False,
 ) -> None:
-    profile = data_block.mean(axis=1)
+    """Plot a single waterfall block.
+
+    Parameters
+    ----------
+    data_block : np.ndarray
+        Frequency--time slice to plot.
+    freq : np.ndarray
+        Frequency axis in MHz.
+    time_reso : float
+        Time resolution of ``data_block`` in seconds.
+    block_size : int
+        Number of time samples in ``data_block``.
+    block_idx : int
+        Index of the block within the full observation.
+    save_dir : Path
+        Directory where the image will be saved.
+    filename : str
+        Base filename for the output image.
+    normalize : bool, optional
+        If ``True``, each frequency channel is scaled to unit mean and clipped
+        between the 5th and 95th percentiles prior to plotting. This keeps the
+        dynamic range consistent across different ``SLICE_LEN`` and DM ranges.
+    """
+
+    block = data_block.copy() if normalize else data_block
+    if normalize:
+        block += 1
+        block /= np.mean(block, axis=0)
+        vmin, vmax = np.nanpercentile(block, [5, 95])
+        block = np.clip(block, vmin, vmax)
+        block = (block - block.min()) / (block.max() - block.min())
+
+    profile = block.mean(axis=1)
     time_start = block_idx * block_size * time_reso
     peak_time = time_start + np.argmax(profile) * time_reso
 
@@ -64,14 +98,14 @@ def plot_waterfall_block(
 
     ax1 = fig.add_subplot(gs[1:, 0])
     ax1.imshow(
-        data_block.T,
+        block.T,
         origin="lower",
         cmap="mako",
         aspect="auto",
-        vmin=np.nanpercentile(data_block, 1),
-        vmax=np.nanpercentile(data_block, 99),
+        vmin=np.nanpercentile(block, 1),
+        vmax=np.nanpercentile(block, 99),
     )
-    nchan = data_block.shape[1]
+    nchan = block.shape[1]
     ax1.set_yticks(np.linspace(0, nchan, 6))
     ax1.set_yticklabels(np.round(np.linspace(freq.min(), freq.max(), 6)).astype(int))
     ax1.set_xticks(np.linspace(0, block_size, 6))
@@ -85,26 +119,6 @@ def plot_waterfall_block(
     plt.close()
 
 
-def pixel_to_physical(px: float, py: float, slice_len: int) -> Tuple[float, float, int]:
-    dm_range = config.DM_max - config.DM_min + 1
-    scale_dm = dm_range / 512.0
-    scale_time = slice_len / 512.0
-    dm_val = config.DM_min + py * scale_dm
-    sample_off = px * scale_time
-    t_sample = int(sample_off)
-    t_seconds = t_sample * config.TIME_RESO * config.DOWN_TIME_RATE
-    return dm_val, t_seconds, t_sample
-
-
-def compute_snr(slice_band: np.ndarray, box: Tuple[int, int, int, int]) -> float:
-    x1, y1, x2, y2 = map(int, box)
-    box_data = slice_band[y1:y2, x1:x2]
-    if box_data.size == 0:
-        return 0.0
-    signal = box_data.mean()
-    noise = np.median(slice_band)
-    std = slice_band.std(ddof=1)
-    return (signal - noise) / (std + 1e-6)
 
 
 def save_detection_plot(

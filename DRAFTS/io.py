@@ -39,22 +39,41 @@ def load_fits_file(file_name: str) -> np.ndarray:
     except Exception as e:
         print(f"[Error cargando FITS con fitsio/astropy] {e}")
         try:
-            with fits.open(file_name) as f:
+            # Intentar sin memmap para archivos corruptos
+            with fits.open(file_name, memmap=False) as f:
                 data_hdu = None
                 for hdu_item in f:
-                    if hdu_item.data is not None and isinstance(hdu_item.data, np.ndarray) and hdu_item.data.ndim >= 3:
-                        data_hdu = hdu_item
-                        break
+                    # Evitar acceder a .data directamente, usar hasattr primero
+                    try:
+                        if (hdu_item.data is not None and 
+                            isinstance(hdu_item.data, np.ndarray) and 
+                            hdu_item.data.ndim >= 3):
+                            data_hdu = hdu_item
+                            break
+                    except (TypeError, ValueError):
+                        # Si no se puede acceder a los datos, saltar este HDU
+                        continue
+                        
                 if data_hdu is None and len(f) > 1:
                     data_hdu = f[1]
                 elif data_hdu is None:
                     data_hdu = f[0]
+                    
                 h = data_hdu.header
-                raw_data = data_hdu.data
-                data_array = raw_data.reshape(h["NAXIS2"] * h.get("NSBLK", 1), h.get("NPOL", 2), h.get("NCHAN", raw_data.shape[-1]))[:, :2, :]
+                try:
+                    raw_data = data_hdu.data
+                    if raw_data is not None:
+                        data_array = raw_data.reshape(h["NAXIS2"] * h.get("NSBLK", 1), h.get("NPOL", 2), h.get("NCHAN", raw_data.shape[-1]))[:, :2, :]
+                    else:
+                        raise ValueError("No hay datos válidos en el HDU")
+                except (TypeError, ValueError) as e_data:
+                    print(f"Error accediendo a datos del HDU: {e_data}")
+                    raise ValueError(f"Archivo FITS corrupto: {file_name}")
+                    
         except Exception as e_astropy:
             print(f"Fallo final al cargar con astropy: {e_astropy}")
-            raise
+            raise ValueError(f"No se puede leer el archivo FITS corrupto: {file_name}")
+            
     if data_array is None:
         raise ValueError(f"No se pudieron cargar los datos de {file_name}")
 

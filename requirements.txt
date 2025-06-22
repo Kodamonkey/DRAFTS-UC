@@ -1,0 +1,16 @@
+# Python dependencies for DRAFTS pipeline
+astropy
+opencv-python
+fitsio
+matplotlib
+numba
+numpy
+pandas
+scipy
+seaborn
+scikit-image
+scikit-learn
+timm
+torch
+torchvision
+tqdm

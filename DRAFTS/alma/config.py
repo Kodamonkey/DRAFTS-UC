@@ -5,10 +5,16 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-import torch
+try:
+    import torch
+except ImportError:  # pragma: no cover - optional dependency
+    torch = None
 
 # Device configuration ---------------------------------------------------------
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if torch is not None:
+    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+else:
+    DEVICE = "cpu"
 
 # Observation parameters -------------------------------------------------------
 FREQ: np.ndarray | None = None

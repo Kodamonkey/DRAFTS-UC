@@ -17,9 +17,9 @@ from ObjectDet.centernet_utils import get_res
 from . import config
 from ..candidate import Candidate
 from .dedispersion import d_dm_time
+from ..metrics import compute_snr
+from ..astro_conversions import pixel_to_physical
 from ..image_utils import (
-    compute_snr,
-    pixel_to_physical,
     postprocess_img,
     preprocess_img,
     save_detection_plot,

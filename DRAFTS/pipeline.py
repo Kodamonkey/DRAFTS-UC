@@ -190,7 +190,23 @@ def _process_file(
     t_start = time.time()
     logger.info("Procesando %s", fits_path.name)
 
-    data = load_fits_file(str(fits_path))
+    try:
+        data = load_fits_file(str(fits_path))
+    except ValueError as e:
+        if "corrupto" in str(e).lower():
+            logger.error("Archivo corrupto detectado: %s - SALTANDO", fits_path.name)
+            return {
+                "n_candidates": 0,
+                "n_bursts": 0,
+                "n_no_bursts": 0,
+                "runtime_s": time.time() - t_start,
+                "max_prob": 0.0,
+                "mean_snr": 0.0,
+                "status": "CORRUPTED_FILE"
+            }
+        else:
+            raise  # Re-lanzar si es otro tipo de error
+    
     if data.shape[1] == 1:
         data = np.repeat(data, 2, axis=1)
     data = np.vstack([data, data[::-1, :]])
@@ -426,9 +442,26 @@ def run_pipeline() -> None:
         if not file_list:
             continue
 
-        get_obparams(str(file_list[0]))
+        try:
+            get_obparams(str(file_list[0]))
+        except Exception as e:
+            logger.error("Error obteniendo parámetros de observación: %s", e)
+            continue
+            
         for fits_path in file_list:
-            summary[fits_path.name] = _process_file(det_model, cls_model, fits_path, save_dir)
+            try:
+                summary[fits_path.name] = _process_file(det_model, cls_model, fits_path, save_dir)
+            except Exception as e:
+                logger.error("Error procesando %s: %s", fits_path.name, e)
+                summary[fits_path.name] = {
+                    "n_candidates": 0,
+                    "n_bursts": 0,
+                    "n_no_bursts": 0,
+                    "runtime_s": 0,
+                    "max_prob": 0.0,
+                    "mean_snr": 0.0,
+                    "status": "ERROR"
+                }
 
     _write_summary(summary, save_dir)
 

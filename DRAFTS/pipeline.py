@@ -252,6 +252,7 @@ def _process_file(
                 block_idx=j,
                 save_dir=waterfall_dispersion_dir,
                 filename=fits_path.stem,
+                normalize=True,
             )
 
         for band_idx, band_suffix, band_name in band_configs:
@@ -329,6 +330,7 @@ def _process_file(
                         block_idx=j,
                         save_dir=waterfall_dedispersion_dir,
                         filename=f"{fits_path.stem}_dm{first_dm:.2f}",
+                        normalize=True,
                     )
 
                 save_patch_plot(

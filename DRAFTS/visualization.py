@@ -331,6 +331,7 @@ def plot_waterfalls(
             block_idx=j,
             save_dir=out_dir,
             filename=fits_stem,
+            normalize=True,
         )
 
 
@@ -361,5 +362,6 @@ def plot_dedispersed_waterfalls(
             block_idx=j,
             save_dir=out_dir,
             filename=f"{fits_stem}_dm{dm:.2f}",
+            normalize=True,
         )
 

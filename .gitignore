@@ -169,7 +169,6 @@ cython_debug/
 # Ignore all .npy files
 *.npy
 *.fits
-*.pth
 *.ps1
 
 Hug*/
@@ -191,7 +190,7 @@ venv_drafts/
 src/data/cent_data/
 
 #Ignore all .pth
-#*.pth
+*.pth
 #Ignore all files in source directory
 *.sh
 # Ignore all .csv files
@@ -203,6 +202,7 @@ src/data/cent_data/
 
 # Ignorar archivos de documentación
 *.txt
+!requirements.txt
 LICENSE
 
 # Ignorar instaladores y scripts

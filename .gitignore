@@ -203,6 +203,7 @@ src/data/cent_data/
 
 # Ignorar archivos de documentación
 *.txt
+!requirements.txt
 LICENSE
 
 # Ignorar instaladores y scripts

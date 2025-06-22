@@ -9,12 +9,12 @@
 [![arXiv](https://img.shields.io/badge/arXiv-2410.03200-b31b1b.svg)](https://arxiv.org/abs/2410.03200)
 [![Python](https://img.shields.io/badge/Python-3.6+-blue.svg)](https://www.python.org/)
 
-[Description](#description) • 
-[Installation](#installation) • 
-[Usage](#usage) • 
-[Models](#models) • 
-[Performance](#performance) • 
-[Real Data Search](#search-in-real-observation-data) • 
+[Description](#description) •
+[Installation](#installation) •
+[Usage](#usage) •
+[Models](#models) •
+[Performance](#performance) •
+[Real Data Search](#search-in-real-observation-data) •
 [Contributing](#contributing)
 
 </div>
@@ -26,17 +26,20 @@
 **DRAFTS** is a Deep learning-based RAdio Fast Transient Search pipeline designed to address limitations in traditional single-pulse search techniques like Presto and Heimdall.
 
 Traditional methods often face challenges including:
+
 - Complex installation procedures
 - Slow execution speeds
 - Incomplete search results
 - Heavy reliance on manual verification
 
 Our pipeline offers three key components:
+
 1. **CUDA-accelerated de-dispersion** for faster processing
 2. **Object detection model** to extract Time of Arrival (TOA) and Dispersion Measure (DM) of FRB signals
 3. **Binary classification model** to verify candidate signal authenticity
 
 **Key advantages:**
+
 - Written entirely in Python for easy cross-platform installation
 - Achieves real-time searching on consumer GPUs (tested on RTX 2070S)
 - Nearly doubles burst detection compared to Heimdall
@@ -47,7 +50,8 @@ Our pipeline offers three key components:
 
 ## Installation
 
-Install all required dependencies with:
+Install all required dependencies from the `requirements.txt` file in the
+repository root with:
 
 ```bash
 pip install -r requirements.txt
@@ -56,6 +60,7 @@ pip install -r requirements.txt
 ## Usage
 
 Training data and pre-trained models are available on HuggingFace:
+
 - [DRAFTS-Data](https://huggingface.co/datasets/TorchLight/DRAFTS)
 - [DRAFTS-Model](https://huggingface.co/TorchLight/DRAFTS)
 
@@ -116,6 +121,7 @@ To evaluate model performance:
    - Files with `cent` for object detection models
 
 **Dependencies:**
+
 - Classification models depend on `binary_model.py`
 - Object detection models depend on `centernet_utils.py` and `centernet_model.py`
 

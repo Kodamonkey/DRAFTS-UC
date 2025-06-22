@@ -87,6 +87,7 @@ def load_fits_file(file_name: str) -> np.ndarray:
                     data_array = temp_data.reshape(total_samples, num_pols, num_chans)[
                         :, :2, :
                     ]
+
     except Exception as e:
         print(f"[Error cargando FITS con fitsio/astropy] {e}")
         try:

@@ -1,10 +1,33 @@
 """Input/output helpers for PSRFITS and standard FITS files."""
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 from astropy.io import fits
+
+
+def _get_column_index(header: fits.Header, name: str) -> Optional[int]:
+    """Return the index of column ``name`` in ``header`` or ``None``."""
+    tfields = header.get("TFIELDS", 0)
+    for i in range(1, tfields + 1):
+        if header.get(f"TTYPE{i}", "").strip() == name:
+            return i
+    return None
+
+
+def _parse_tdim(header: fits.Header, index: int) -> Optional[List[int]]:
+    """Parse the ``TDIM`` value for the given column index."""
+    tdim = header.get(f"TDIM{index}")
+    if tdim:
+        tdim = tdim.strip("() ")
+        try:
+            return [int(v) for v in tdim.split(",")]
+        except ValueError:
+            return None
+    return None
+
+
 
 from . import config
 
@@ -15,65 +38,70 @@ def load_fits_file(file_name: str) -> np.ndarray:
     data_array = None
     try:
         with fits.open(file_name, memmap=True) as hdul:
-            if "SUBINT" in [hdu.name for hdu in hdul] and "DATA" in hdul["SUBINT"].columns.names:
-                subint = hdul["SUBINT"]
-                hdr = subint.header
-                data_array = subint.data["DATA"]
-                nsubint = hdr["NAXIS2"]
-                nchan = hdr["NCHAN"]
-                npol = hdr["NPOL"]
-                nsblk = hdr["NSBLK"]
-                data_array = data_array.reshape(nsubint, nchan, npol, nsblk).swapaxes(1, 2)
-                data_array = data_array.reshape(nsubint * nsblk, npol, nchan)
-                data_array = data_array[:, :2, :]
-            else:
-                import fitsio
-                temp_data, h = fitsio.read(file_name, header=True)
-                if "DATA" in temp_data.dtype.names:
-                    data_array = temp_data["DATA"].reshape(h["NAXIS2"] * h["NSBLK"], h["NPOL"], h["NCHAN"])[:, :2, :]
-                else:
-                    total_samples = h.get("NAXIS2", 1) * h.get("NSBLK", 1)
-                    num_pols = h.get("NPOL", 2)
-                    num_chans = h.get("NCHAN", 512)
-                    data_array = temp_data.reshape(total_samples, num_pols, num_chans)[:, :2, :]
-    except Exception as e:
-        print(f"[Error cargando FITS con fitsio/astropy] {e}")
-        try:
-            # Intentar sin memmap para archivos corruptos
-            with fits.open(file_name, memmap=False) as f:
-                data_hdu = None
-                for hdu_item in f:
-                    # Evitar acceder a .data directamente, usar hasattr primero
-                    try:
-                        if (hdu_item.data is not None and 
-                            isinstance(hdu_item.data, np.ndarray) and 
-                            hdu_item.data.ndim >= 3):
-                            data_hdu = hdu_item
-                            break
-                    except (TypeError, ValueError):
-                        # Si no se puede acceder a los datos, saltar este HDU
-                        continue
-                        
-                if data_hdu is None and len(f) > 1:
-                    data_hdu = f[1]
-                elif data_hdu is None:
-                    data_hdu = f[0]
-                    
-                h = data_hdu.header
-                try:
-                    raw_data = data_hdu.data
-                    if raw_data is not None:
-                        data_array = raw_data.reshape(h["NAXIS2"] * h.get("NSBLK", 1), h.get("NPOL", 2), h.get("NCHAN", raw_data.shape[-1]))[:, :2, :]
+            data_hdu = None
+            for hdu in hdul:
+                if hasattr(hdu, "columns") and "DATA" in hdu.columns.names:
+                    data_hdu = hdu
+                    break
+            if data_hdu is None:
+                for hdu in hdul:
+                    if (
+                        getattr(hdu, "data", None) is not None
+                        and isinstance(hdu.data, np.ndarray)
+                        and hdu.data.ndim >= 2
+                    ):
+                        data_hdu = hdu
+                        break
+            if data_hdu is None:
+                raise ValueError("No se encontró un HDU con datos válidos")
+
+            hdr = data_hdu.header
+            if hasattr(data_hdu, "columns") and "DATA" in data_hdu.columns.names:
+                col_idx = _get_column_index(hdr, "DATA")
+                dims = _parse_tdim(hdr, col_idx) if col_idx else None
+                nsub = hdr.get("NAXIS2", len(data_hdu.data))
+                if dims and len(dims) >= 3:
+                    if len(dims) == 4:
+                        nbin, nchan, npol, nsblk = dims
                     else:
-                        raise ValueError("No hay datos válidos en el HDU")
-                except (TypeError, ValueError) as e_data:
-                    print(f"Error accediendo a datos del HDU: {e_data}")
-                    raise ValueError(f"Archivo FITS corrupto: {file_name}")
-                    
-        except Exception as e_astropy:
-            print(f"Fallo final al cargar con astropy: {e_astropy}")
-            raise ValueError(f"No se puede leer el archivo FITS corrupto: {file_name}")
-            
+                        nbin, nchan, npol = dims[:3]
+                        nsblk = 1
+                else:
+                    nbin = hdr.get("NBIN", 1)
+                    nchan = hdr.get("NCHAN", hdr.get("OBSNCHAN", 1))
+                    npol = hdr.get("NPOL", 1)
+                    nsblk = hdr.get("NSBLK", 1)
+                data = np.asarray(data_hdu.data["DATA"])
+                data_array = data.reshape(nsub, nbin, nchan, npol, nsblk)
+            else:
+                data = np.asarray(data_hdu.data)
+                if data.ndim == 2:
+                    nsub, nchan = data.shape
+                    npol = 1
+                    nbin = nsblk = 1
+                    data_array = data.reshape(nsub, nbin, nchan, npol, nsblk)
+                elif data.ndim == 3:
+                    nsub = data.shape[0]
+                    if data.shape[1] <= 4:
+                        npol = data.shape[1]
+                        nchan = data.shape[2]
+                        nbin = nsblk = 1
+                        data_array = data.reshape(nsub, nbin, nchan, npol, nsblk)
+                    else:
+                        nchan = data.shape[1]
+                        npol = data.shape[2]
+                        nbin = nsblk = 1
+                        data_array = data.reshape(nsub, nbin, nchan, npol, nsblk)
+                else:
+                    raise ValueError("Dimensión de datos no soportada")
+
+            data_array = data_array.transpose(0, 1, 3, 2, 4)
+            data_array = data_array.reshape(nsub * nbin * nsblk, npol, nchan)
+            data_array = data_array[:, :2, :]
+    except Exception as e:
+        print(f"[Error cargando FITS] {e}")
+        raise
+
     if data_array is None:
         raise ValueError(f"No se pudieron cargar los datos de {file_name}")
 
@@ -87,12 +115,16 @@ def get_obparams(file_name: str) -> None:
     """Extract observation parameters and populate :mod:`config`."""
     with fits.open(file_name, memmap=True) as f:
         freq_axis_inverted = False
-        if "SUBINT" in [hdu.name for hdu in f] and "TBIN" in f["SUBINT"].header:
+        if "SUBINT" in [hdu.name for hdu in f] and "DATA" in f["SUBINT"].columns.names:
             hdr = f["SUBINT"].header
             sub_data = f["SUBINT"].data
-            config.TIME_RESO = hdr["TBIN"]
-            config.FREQ_RESO = hdr["NCHAN"]
-            config.FILE_LENG = hdr["NSBLK"] * hdr["NAXIS2"]
+            config.TIME_RESO = hdr.get("TBIN", config.TIME_RESO)
+            config.FREQ_RESO = hdr.get("NCHAN", len(sub_data["DAT_FREQ"][0]))
+            nsblk = hdr.get("NSBLK")
+            nbin = hdr.get("NBIN", 1)
+            if nsblk is None or not isinstance(nsblk, (int, np.integer)):
+                nsblk = 1
+            config.FILE_LENG = hdr.get("NAXIS2", 1) * max(nsblk, 1) * max(nbin, 1)
             freq_temp = sub_data["DAT_FREQ"][0].astype(np.float64)
             if "CHAN_BW" in hdr:
                 bw = hdr["CHAN_BW"]
@@ -138,9 +170,13 @@ def get_obparams(file_name: str) -> None:
                             freq_axis_inverted = True
                     else:
                         freq_temp = np.linspace(1000, 1500, hdr.get('NCHAN', 512))
-                config.TIME_RESO = hdr["TBIN"]
+                config.TIME_RESO = hdr.get("TBIN", config.TIME_RESO)
                 config.FREQ_RESO = hdr.get("NCHAN", len(freq_temp))
-                config.FILE_LENG = hdr.get("NAXIS2", 0) * hdr.get("NSBLK", 1)
+                nsblk = hdr.get("NSBLK")
+                nbin = hdr.get("NBIN", 1)
+                if nsblk is None or not isinstance(nsblk, (int, np.integer)):
+                    nsblk = 1
+                config.FILE_LENG = hdr.get("NAXIS2", 0) * max(nsblk, 1) * max(nbin, 1)
             except Exception as e_std:
                 print(f"Error procesando FITS estándar: {e_std}")
                 config.TIME_RESO = 5.12e-5

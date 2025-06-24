@@ -28,7 +28,7 @@ DATA_NEEDS_REVERSAL: bool = False # Indica si los datos necesitan ser revertidos
 # Configuracion del pipeline  ------------------------------------------------------
 USE_MULTI_BAND: bool = False # Indica si se utiliza procesamiento de múltiples bandas.
 SLICE_LEN: int = 512  # Longitud de cada slice, en muestras.
-DET_PROB: float = 0.3 # Probabilidad de detección mínima para considerar un evento como válido.
+DET_PROB: float = 0.1 # Probabilidad de detección mínima para considerar un evento como válido.
 DM_min: int = 0 # DM mínimo, en pc cm⁻³. 
 DM_max: int = 129 # DM máximo, en pc cm⁻³.
 

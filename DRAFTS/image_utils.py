@@ -6,6 +6,7 @@ from typing import Tuple
 
 import cv2
 import matplotlib.pyplot as plt
+from pyparsing import Iterable
 import seaborn as sns
 import numpy as np
 from matplotlib import gridspec
@@ -119,13 +120,12 @@ def plot_waterfall_block(
     plt.close()
 
 
-
-
 def save_detection_plot(
     img_rgb: np.ndarray,
-    top_conf: list,
-    top_boxes: list | None,
-    out_path: Path,
+    top_conf: Iterable,
+    top_boxes: Iterable | None,
+    class_probs: Iterable | None, 
+    out_img_path: Path,
     slice_idx: int,
     time_slice: int,
     band_name: str,
@@ -133,7 +133,7 @@ def save_detection_plot(
     det_prob: float,
     fits_stem: str,
 ) -> None:
-    """Save a labelled detection plot similar to the original pipeline."""
+    """Save detection plot with both detection and classification probabilities."""
 
     fig, ax = plt.subplots(figsize=(12, 8))
     im = ax.imshow(img_rgb, origin="lower", aspect="auto")
@@ -201,31 +201,55 @@ def save_detection_plot(
         horizontalalignment="right",
     )
 
-    # Bounding boxes
+    # Bounding boxes - UNA SOLA ETIQUETA INTEGRADA
     if top_boxes is not None:
         for idx, (conf, box) in enumerate(zip(top_conf, top_boxes)):
             x1, y1, x2, y2 = map(int, box)
-            rect = plt.Rectangle(
-                (x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor="lime", facecolor="none"
-            )
-            ax.add_patch(rect)
             center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
             dm_val, t_sec, _ = pixel_to_physical(center_x, center_y, config.SLICE_LEN)
-            label = f"#{idx+1}\nDM: {dm_val:.1f}\nP: {conf:.2f}"
+            
+            # Determinar si tenemos probabilidades de clasificación
+            if class_probs is not None and idx < len(class_probs):
+                class_prob = class_probs[idx]
+                is_burst = class_prob >= config.CLASS_PROB
+                color = "lime" if is_burst else "orange"
+                burst_status = "BURST" if is_burst else "NO BURST"
+                
+                # Etiqueta completa con toda la información
+                label = (
+                    f"#{idx+1}\n"
+                    f"DM: {dm_val:.1f}\n"
+                    f"Det: {conf:.2f}\n"
+                    f"Cls: {class_prob:.2f}\n"
+                    f"{burst_status}"
+                )
+            else:
+                # Fallback si no hay probabilidades de clasificación
+                color = "lime"
+                label = f"#{idx+1}\nDM: {dm_val:.1f}\nDet: {conf:.2f}"
+            
+            # Dibujar rectángulo
+            rect = plt.Rectangle(
+                (x1, y1), x2 - x1, y2 - y1, 
+                linewidth=2, edgecolor=color, facecolor="none"
+            )
+            ax.add_patch(rect)
+            
+            # Agregar etiqueta integrada
             ax.annotate(
                 label,
                 xy=(center_x, center_y),
                 xytext=(center_x, y2 + 15),
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="lime", alpha=0.8),
+                bbox=dict(boxstyle="round,pad=0.3", facecolor=color, alpha=0.8),
                 fontsize=8,
                 ha="center",
                 fontweight="bold",
-                arrowprops=dict(arrowstyle="->", color="lime", lw=1),
+                arrowprops=dict(arrowstyle="->", color=color, lw=1),
             )
 
     ax.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
     plt.tight_layout()
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
+    plt.savefig(out_img_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close()
 
     if band_suffix == "fullband":
@@ -250,6 +274,6 @@ def save_detection_plot(
         cbar.set_label("Normalized Intensity", fontsize=10, fontweight="bold")
         ax_cb.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
         plt.tight_layout()
-        cb_path = out_path.parent / f"{out_path.stem}_colorbar{out_path.suffix}"
+        cb_path = out_img_path.parent / f"{out_img_path.stem}_colorbar{out_img_path.suffix}"
         plt.savefig(cb_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
         plt.close()

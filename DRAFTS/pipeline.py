@@ -294,6 +294,9 @@ def _process_file(
             first_dm: float | None = None
             patch_dir = save_dir / "Patches" / fits_path.stem
             patch_path = patch_dir / f"patch_slice{j}_band{band_idx}.png"
+            
+            # Lista para almacenar las probabilidades de clasificación
+            class_probs_list = []
 
             for conf, box in zip(top_conf, top_boxes):
                 dm_val, t_sec, t_sample = pixel_to_physical(
@@ -308,6 +311,8 @@ def _process_file(
                     data, freq_down, dm_val, global_sample
                 )
                 class_prob, proc_patch = _classify_patch(cls_model, patch)
+                class_probs_list.append(class_prob)  # Agregar a la lista
+                
                 is_burst = class_prob >= config.CLASS_PROB
                 if first_patch is None:
                     first_patch = proc_patch
@@ -382,6 +387,7 @@ def _process_file(
                     first_dm,
                     top_conf,
                     top_boxes,
+                    class_probs_list, 
                     comp_path,
                     j,
                     time_slice,
@@ -398,6 +404,7 @@ def _process_file(
                 img_rgb,
                 top_conf,
                 top_boxes,
+                class_probs_list,   
                 out_img_path,
                 j,
                 time_slice,

@@ -18,6 +18,7 @@ def save_plot(
     img_rgb: np.ndarray,
     top_conf: Iterable,
     top_boxes: Iterable | None,
+    class_probs: Iterable | None,
     out_img_path: Path,
     slice_idx: int,
     time_slice: int,
@@ -34,6 +35,7 @@ def save_plot(
         img_rgb,
         top_conf,
         top_boxes,
+        class_probs,
         out_img_path,
         slice_idx,
         time_slice,
@@ -108,6 +110,7 @@ def save_slice_summary(
     dm_val: float,
     top_conf: Iterable,
     top_boxes: Iterable | None,
+    class_probs: Iterable | None,  # Nuevo parámetro
     out_path: Path,
     slice_idx: int,
     time_slice: int,
@@ -153,8 +156,12 @@ def save_slice_summary(
 
 
     gs_main = gridspec.GridSpec(2, 1, height_ratios=[1.5, 1], hspace=0.3, figure=fig)
+    # Subplot para detecciones (parte superior izquierda)
     ax_det = fig.add_subplot(gs_main[0, 0])
     ax_det.imshow(img_rgb, origin="lower", aspect="auto")
+    ax_det.set_title("Detection Results", fontsize=10, fontweight="bold")
+    ax_det.set_xlabel("Time", fontsize=9)
+    ax_det.set_ylabel("DM", fontsize=9)
 
     prev_len_config = config.SLICE_LEN
     config.SLICE_LEN = slice_len
@@ -174,25 +181,50 @@ def save_slice_summary(
     ax_det.set_yticklabels([f"{dm:.0f}" for dm in dm_values])
     ax_det.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=10, fontweight="bold")
 
+    # Bounding boxes con información completa - UNA SOLA ETIQUETA INTEGRADA
     if top_boxes is not None:
         for idx, (conf, box) in enumerate(zip(top_conf, top_boxes)):
             x1, y1, x2, y2 = map(int, box)
-            rect = plt.Rectangle(
-                (x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor="lime", facecolor="none"
-            )
-            ax_det.add_patch(rect)
             center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
             dm_val_cand, _, _ = pixel_to_physical(center_x, center_y, slice_len)
-            label = f"#{idx+1}\nDM: {dm_val_cand:.1f}\nP: {conf:.2f}"
+            
+            # Determinar si tenemos probabilidades de clasificación
+            if class_probs is not None and idx < len(class_probs):
+                class_prob = class_probs[idx]
+                is_burst = class_prob >= config.CLASS_PROB
+                color = "lime" if is_burst else "orange"
+                burst_status = "BURST" if is_burst else "NO BURST"
+                
+                # Etiqueta completa con toda la información
+                label = (
+                    f"#{idx+1}\n"
+                    f"DM: {dm_val_cand:.1f}\n"
+                    f"Det: {conf:.2f}\n"
+                    f"Cls: {class_prob:.2f}\n"
+                    f"{burst_status}"
+                )
+            else:
+                # Fallback si no hay probabilidades de clasificación
+                color = "lime"
+                label = f"#{idx+1}\nDM: {dm_val_cand:.1f}\nDet: {conf:.2f}"
+            
+            # Dibujar rectángulo
+            rect = plt.Rectangle(
+                (x1, y1), x2 - x1, y2 - y1, 
+                linewidth=2, edgecolor=color, facecolor="none"
+            )
+            ax_det.add_patch(rect)
+            
+            # Agregar etiqueta integrada
             ax_det.annotate(
                 label,
                 xy=(center_x, center_y),
-                xytext=(center_x, y2 + 20),
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="lime", alpha=0.8),
+                xytext=(center_x, y2 + 10),
+                bbox=dict(boxstyle="round,pad=0.3", facecolor=color, alpha=0.8),
                 fontsize=7,
                 ha="center",
                 fontweight="bold",
-                arrowprops=dict(arrowstyle="->", color="lime", lw=1.5),
+                arrowprops=dict(arrowstyle="->", color=color, lw=1.5),
             )
     title_det = f"Detection Map - {fits_stem} ({band_name})\nSlice {slice_idx + 1} of {time_slice}"
     ax_det.set_title(title_det, fontsize=11, fontweight="bold")
@@ -319,7 +351,7 @@ def save_slice_summary(
         fontweight="bold",
         y=0.97,
     )
-    plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close()
 
 

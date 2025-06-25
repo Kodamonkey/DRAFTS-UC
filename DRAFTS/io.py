@@ -1,12 +1,23 @@
 """Input/output helpers for PSRFITS and standard FITS files."""
 from __future__ import annotations
 
-from typing import List
+from typing import List, Any
 
 import numpy as np
 from astropy.io import fits
 
 from . import config
+
+
+def _to_int(value: Any, default: int = 0) -> int:
+    """Convert FITS header values to ``int`` safely."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return default
 
 
 def load_fits_file(file_name: str) -> np.ndarray:
@@ -19,10 +30,10 @@ def load_fits_file(file_name: str) -> np.ndarray:
                 subint = hdul["SUBINT"]
                 hdr = subint.header
                 data_array = subint.data["DATA"]
-                nsubint = hdr["NAXIS2"]
-                nchan = hdr["NCHAN"]
-                npol = hdr["NPOL"]
-                nsblk = hdr["NSBLK"]
+                nsubint = _to_int(hdr.get("NAXIS2"))
+                nchan = _to_int(hdr.get("NCHAN"))
+                npol = _to_int(hdr.get("NPOL"))
+                nsblk = _to_int(hdr.get("NSBLK"))
                 data_array = data_array.reshape(nsubint, nchan, npol, nsblk).swapaxes(1, 2)
                 data_array = data_array.reshape(nsubint * nsblk, npol, nchan)
                 data_array = data_array[:, :2, :]
@@ -30,11 +41,14 @@ def load_fits_file(file_name: str) -> np.ndarray:
                 import fitsio
                 temp_data, h = fitsio.read(file_name, header=True)
                 if "DATA" in temp_data.dtype.names:
-                    data_array = temp_data["DATA"].reshape(h["NAXIS2"] * h["NSBLK"], h["NPOL"], h["NCHAN"])[:, :2, :]
+                    total = _to_int(h.get("NAXIS2", 1)) * _to_int(h.get("NSBLK", 1))
+                    num_pols = _to_int(h.get("NPOL", 2))
+                    num_chans = _to_int(h.get("NCHAN", temp_data["DATA"].shape[-1]))
+                    data_array = temp_data["DATA"].reshape(total, num_pols, num_chans)[:, :2, :]
                 else:
-                    total_samples = h.get("NAXIS2", 1) * h.get("NSBLK", 1)
-                    num_pols = h.get("NPOL", 2)
-                    num_chans = h.get("NCHAN", 512)
+                    total_samples = _to_int(h.get("NAXIS2", 1)) * _to_int(h.get("NSBLK", 1))
+                    num_pols = _to_int(h.get("NPOL", 2))
+                    num_chans = _to_int(h.get("NCHAN", temp_data.shape[-1]))
                     data_array = temp_data.reshape(total_samples, num_pols, num_chans)[:, :2, :]
     except Exception as e:
         print(f"[Error cargando FITS con fitsio/astropy] {e}")
@@ -63,7 +77,10 @@ def load_fits_file(file_name: str) -> np.ndarray:
                 try:
                     raw_data = data_hdu.data
                     if raw_data is not None:
-                        data_array = raw_data.reshape(h["NAXIS2"] * h.get("NSBLK", 1), h.get("NPOL", 2), h.get("NCHAN", raw_data.shape[-1]))[:, :2, :]
+                        total = _to_int(h.get("NAXIS2", raw_data.shape[0])) * _to_int(h.get("NSBLK", 1))
+                        num_pols = _to_int(h.get("NPOL", 2))
+                        num_chans = _to_int(h.get("NCHAN", raw_data.shape[-1]))
+                        data_array = raw_data.reshape(total, num_pols, num_chans)[:, :2, :]
                     else:
                         raise ValueError("No hay datos válidos en el HDU")
                 except (TypeError, ValueError) as e_data:

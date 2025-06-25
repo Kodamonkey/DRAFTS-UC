@@ -46,4 +46,4 @@ CLASS_PROB = 0.5
  
 # Default FRB targets --------------------------------------------------------
 #Objetivos de FRB predeterminados. Esta lista se utiliza para buscar archivos FITS
-FRB_TARGETS = ["B0355+54"] # "B0355+54", "FRB20121102", "FRB20201124", "FRB20180301"
+FRB_TARGETS = ["11P"] # "B0355+54", "FRB20121102", "FRB20201124", "FRB20180301"

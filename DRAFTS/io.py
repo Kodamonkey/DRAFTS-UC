@@ -34,7 +34,16 @@ def load_fits_file(file_name: str) -> np.ndarray:
                 nchan = _to_int(hdr.get("NCHAN"))
                 npol = _to_int(hdr.get("NPOL"))
                 nsblk = _to_int(hdr.get("NSBLK"))
-                data_array = data_array.reshape(nsubint, nchan, npol, nsblk).swapaxes(1, 2)
+
+                if nsblk > 0:
+                    data_array = data_array.reshape(nsubint, nchan, npol, nsblk).swapaxes(1, 2)
+                else:
+                    nbin = _to_int(hdr.get("NBIN"))
+                    if nbin <= 0:
+                        raise ValueError("No se encontró NSBLK ni NBIN válidos en el header")
+                    data_array = data_array.reshape(nsubint, nbin, nchan, npol).transpose(0, 3, 2, 1)
+                    nsblk = nbin
+
                 data_array = data_array.reshape(nsubint * nsblk, npol, nchan)
                 data_array = data_array[:, :2, :]
             else:
@@ -77,10 +86,21 @@ def load_fits_file(file_name: str) -> np.ndarray:
                 try:
                     raw_data = data_hdu.data
                     if raw_data is not None:
-                        total = _to_int(h.get("NAXIS2", raw_data.shape[0])) * _to_int(h.get("NSBLK", 1))
-                        num_pols = _to_int(h.get("NPOL", 2))
-                        num_chans = _to_int(h.get("NCHAN", raw_data.shape[-1]))
-                        data_array = raw_data.reshape(total, num_pols, num_chans)[:, :2, :]
+                        nsubint = _to_int(h.get("NAXIS2", raw_data.shape[0]))
+                        nchan = _to_int(h.get("NCHAN", raw_data.shape[-1]))
+                        npol = _to_int(h.get("NPOL", 2))
+                        nsblk = _to_int(h.get("NSBLK", 0))
+                        if nsblk > 0:
+                            total = nsubint * nsblk
+                            data_array = raw_data.reshape(nsubint, nchan, npol, nsblk).swapaxes(1, 2)
+                        else:
+                            nbin = _to_int(h.get("NBIN", 0))
+                            if nbin <= 0:
+                                raise ValueError("No se encontró NSBLK ni NBIN válidos en el header")
+                            total = nsubint * nbin
+                            data_array = raw_data.reshape(nsubint, nbin, nchan, npol).transpose(0, 3, 2, 1)
+                            nsblk = nbin
+                        data_array = data_array.reshape(total, npol, nchan)[:, :2, :]
                     else:
                         raise ValueError("No hay datos válidos en el HDU")
                 except (TypeError, ValueError) as e_data:
@@ -115,7 +135,10 @@ def get_obparams(file_name: str) -> None:
                     tbin_val = 0.0
             config.TIME_RESO = tbin_val
             config.FREQ_RESO = hdr["NCHAN"]
-            config.FILE_LENG = hdr["NSBLK"] * hdr["NAXIS2"]
+            nsblk = _to_int(hdr.get("NSBLK", 0))
+            if nsblk == 0:
+                nsblk = _to_int(hdr.get("NBIN", 1))
+            config.FILE_LENG = nsblk * _to_int(hdr.get("NAXIS2", 0))
             freq_temp = sub_data["DAT_FREQ"][0].astype(np.float64)
             if "CHAN_BW" in hdr:
                 bw = hdr["CHAN_BW"]
@@ -169,7 +192,10 @@ def get_obparams(file_name: str) -> None:
                         tbin_val = 0.0
                 config.TIME_RESO = tbin_val
                 config.FREQ_RESO = hdr.get("NCHAN", len(freq_temp))
-                config.FILE_LENG = hdr.get("NAXIS2", 0) * hdr.get("NSBLK", 1)
+                nsblk = _to_int(hdr.get("NSBLK", 0))
+                if nsblk == 0:
+                    nsblk = _to_int(hdr.get("NBIN", 1))
+                config.FILE_LENG = _to_int(hdr.get("NAXIS2", 0)) * nsblk
             except Exception as e_std:
                 print(f"Error procesando FITS estándar: {e_std}")
                 config.TIME_RESO = 5.12e-5

@@ -83,7 +83,7 @@ Training data and pre-trained models are available on HuggingFace:
    You can also generate waterfall plots for any FITS file with:
 
    ```bash
-   python scripts/plot_waterfall_fits.py <your_file.fits> --output-dir plots/
+   python examples/plot_waterfall_fits.py <your_file.fits> --output-dir plots/
    ```
 
 ### Models

@@ -80,6 +80,11 @@ Training data and pre-trained models are available on HuggingFace:
    set `normalize=True` to scale each frequency channel to unit mean and clip
    between the 5th and 95th percentiles for clear images across varying
    `SLICE_LEN` and DM ranges.
+   You can also generate waterfall plots for any FITS file with:
+
+   ```bash
+   python examples/plot_waterfall_fits.py <your_file.fits> --output-dir plots/
+   ```
 
 ### Models
 

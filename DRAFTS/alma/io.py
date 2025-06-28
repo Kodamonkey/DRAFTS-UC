@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 from typing import List
+import warnings
 
 import numpy as np
 from astropy.io import fits
 
 from . import config
+from ..aliases import get_header_value, get_column_value
 
 
 def load_fits_file(file_name: str) -> np.ndarray:
@@ -19,22 +21,25 @@ def load_fits_file(file_name: str) -> np.ndarray:
                 subint = hdul["SUBINT"]
                 hdr = subint.header
                 data_array = subint.data["DATA"]
-                nsubint = hdr["NAXIS2"]
-                nchan = hdr["NCHAN"]
-                npol = hdr["NPOL"]
-                nsblk = hdr["NSBLK"]
+                nsubint = int(get_header_value(hdr, "NAXIS2", 1))
+                nchan = int(get_header_value(hdr, "NCHAN", 0))
+                npol = int(get_header_value(hdr, "NPOL", 2))
+                nsblk = int(get_header_value(hdr, "NSBLK", 1))
                 data_array = data_array.reshape(nsubint, nchan, npol, nsblk).swapaxes(1, 2)
-                data_array = data_array.reshape(nsubint * nsblk, npol, nchan)
-                data_array = data_array[:, :2, :]
+                data_array = data_array.reshape(nsubint * nsblk, npol, nchan)[:, :2, :]
             else:
                 import fitsio
                 temp_data, h = fitsio.read(file_name, header=True)
                 if "DATA" in temp_data.dtype.names:
-                    data_array = temp_data["DATA"].reshape(h["NAXIS2"] * h["NSBLK"], h["NPOL"], h["NCHAN"])[:, :2, :]
+                    nsubint = int(get_header_value(h, "NAXIS2", 1))
+                    nchan = int(get_header_value(h, "NCHAN", 0))
+                    npol = int(get_header_value(h, "NPOL", 2))
+                    nsblk = int(get_header_value(h, "NSBLK", 1))
+                    data_array = temp_data["DATA"].reshape(nsubint * nsblk, npol, nchan)[:, :2, :]
                 else:
-                    total_samples = h.get("NAXIS2", 1) * h.get("NSBLK", 1)
-                    num_pols = h.get("NPOL", 2)
-                    num_chans = h.get("NCHAN", 512)
+                    total_samples = int(get_header_value(h, "NAXIS2", 1)) * int(get_header_value(h, "NSBLK", 1))
+                    num_pols = int(get_header_value(h, "NPOL", 2))
+                    num_chans = int(get_header_value(h, "NCHAN", 512))
                     data_array = temp_data.reshape(total_samples, num_pols, num_chans)[:, :2, :]
     except Exception as e:
         print(f"[Error cargando FITS con fitsio/astropy] {e}")
@@ -68,19 +73,31 @@ def get_obparams(file_name: str) -> None:
     """Extract observation parameters and populate :mod:`config`."""
     with fits.open(file_name, memmap=True) as f:
         freq_axis_inverted = False
-        if "SUBINT" in [hdu.name for hdu in f] and "TBIN" in f["SUBINT"].header:
+        if "SUBINT" in [hdu.name for hdu in f] and get_header_value(f["SUBINT"].header, "TBIN") is not None:
             hdr = f["SUBINT"].header
             sub_data = f["SUBINT"].data
-            config.TIME_RESO = hdr["TBIN"]
-            config.FREQ_RESO = hdr["NCHAN"]
-            config.FILE_LENG = hdr["NSBLK"] * hdr["NAXIS2"]
-            freq_temp = sub_data["DAT_FREQ"][0].astype(np.float64)
-            if "CHAN_BW" in hdr:
-                bw = hdr["CHAN_BW"]
-                if isinstance(bw, (list, np.ndarray)):
-                    bw = bw[0]
-                if bw < 0:
-                    freq_axis_inverted = True
+            config.TIME_RESO = float(get_header_value(hdr, "TBIN", 0.0))
+            config.FREQ_RESO = int(get_header_value(hdr, "NCHAN", 0))
+            config.FILE_LENG = int(get_header_value(hdr, "NSBLK", 1)) * int(get_header_value(hdr, "NAXIS2", 1))
+            col = get_column_value(f["SUBINT"], "DAT_FREQ")
+            if col is not None:
+                freq_temp = col[0].astype(np.float64)
+            else:
+                edge = get_column_value(f["SUBINT"], "EDGE_CHANNEL")
+                if edge is not None:
+                    edge = edge[0].astype(np.float64)
+                    freq_temp = 0.5 * (edge[:-1] + edge[1:])
+                else:
+                    crval = get_header_value(hdr, "CRVAL1", get_header_value(hdr, "RESTFRQ", 0))
+                    cdelt = get_header_value(hdr, "CDELT1", 1)
+                    crpix = get_header_value(hdr, "CRPIX1", 1)
+                    nchan = config.FREQ_RESO
+                    freq_temp = crval + (np.arange(nchan) - (crpix - 1)) * cdelt
+                    if cdelt and cdelt < 0:
+                        freq_axis_inverted = True
+            bw = get_header_value(hdr, "CHAN_BW")
+            if bw is not None and float(bw) < 0:
+                freq_axis_inverted = True
             elif len(freq_temp) > 1 and freq_temp[0] > freq_temp[-1]:
                 freq_axis_inverted = True
         else:
@@ -89,39 +106,39 @@ def get_obparams(file_name: str) -> None:
                 for i, hdu_item in enumerate(f):
                     if hdu_item.is_image or isinstance(hdu_item, (fits.BinTableHDU, fits.TableHDU)):
                         if 'NAXIS' in hdu_item.header and hdu_item.header['NAXIS'] > 0:
-                            if 'CTYPE3' in hdu_item.header and 'FREQ' in hdu_item.header['CTYPE3'].upper():
-                                data_hdu_index = i
-                                break
-                            if 'CTYPE2' in hdu_item.header and 'FREQ' in hdu_item.header['CTYPE2'].upper():
-                                data_hdu_index = i
-                                break
-                            if 'CTYPE1' in hdu_item.header and 'FREQ' in hdu_item.header['CTYPE1'].upper():
-                                data_hdu_index = i
+                            for ax in ["3", "2", "1"]:
+                                if f"CTYPE{ax}" in hdu_item.header and "FREQ" in hdu_item.header[f"CTYPE{ax}"].upper():
+                                    data_hdu_index = i
+                                    break
+                            if data_hdu_index:
                                 break
                 if data_hdu_index == 0 and len(f) > 1:
                     data_hdu_index = 1
                 hdr = f[data_hdu_index].header
-                if "DAT_FREQ" in f[data_hdu_index].columns.names:
-                    freq_temp = f[data_hdu_index].data["DAT_FREQ"][0].astype(np.float64)
+                col = get_column_value(f[data_hdu_index], "DAT_FREQ")
+                if col is not None:
+                    freq_temp = col[0].astype(np.float64)
                 else:
-                    freq_axis_num = ''
-                    for i in range(1, hdr.get('NAXIS', 0) + 1):
-                        if 'FREQ' in hdr.get(f'CTYPE{i}', '').upper():
-                            freq_axis_num = str(i)
-                            break
-                    if freq_axis_num:
-                        crval = hdr.get(f'CRVAL{freq_axis_num}', 0)
-                        cdelt = hdr.get(f'CDELT{freq_axis_num}', 1)
-                        crpix = hdr.get(f'CRPIX{freq_axis_num}', 1)
-                        naxis = hdr.get(f'NAXIS{freq_axis_num}', hdr.get('NCHAN', 512))
-                        freq_temp = crval + (np.arange(naxis) - (crpix - 1)) * cdelt
-                        if cdelt < 0:
-                            freq_axis_inverted = True
+                    edge = get_column_value(f[data_hdu_index], "EDGE_CHANNEL")
+                    if edge is not None:
+                        edge = edge[0].astype(np.float64)
+                        freq_temp = 0.5 * (edge[:-1] + edge[1:])
                     else:
-                        freq_temp = np.linspace(1000, 1500, hdr.get('NCHAN', 512))
-                config.TIME_RESO = hdr["TBIN"]
-                config.FREQ_RESO = hdr.get("NCHAN", len(freq_temp))
-                config.FILE_LENG = hdr.get("NAXIS2", 0) * hdr.get("NSBLK", 1)
+                        freq_axis_num = ""
+                        for i in range(1, hdr.get("NAXIS", 0) + 1):
+                            if "FREQ" in str(hdr.get(f"CTYPE{i}", "")).upper():
+                                freq_axis_num = str(i)
+                                break
+                        crval = get_header_value(hdr, f"CRVAL{freq_axis_num}", get_header_value(hdr, "RESTFRQ", 0))
+                        cdelt = get_header_value(hdr, f"CDELT{freq_axis_num}", 1)
+                        crpix = get_header_value(hdr, f"CRPIX{freq_axis_num}", 1)
+                        naxis = get_header_value(hdr, f"NAXIS{freq_axis_num}", get_header_value(hdr, "NCHAN", 512))
+                        freq_temp = crval + (np.arange(naxis) - (crpix - 1)) * cdelt
+                        if cdelt and cdelt < 0:
+                            freq_axis_inverted = True
+                config.TIME_RESO = float(get_header_value(hdr, "TBIN", 0.0))
+                config.FREQ_RESO = int(get_header_value(hdr, "NCHAN", len(freq_temp)))
+                config.FILE_LENG = int(get_header_value(hdr, "NAXIS2", 0)) * int(get_header_value(hdr, "NSBLK", 1))
             except Exception as e_std:
                 print(f"Error procesando FITS estándar: {e_std}")
                 config.TIME_RESO = 5.12e-5

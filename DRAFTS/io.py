@@ -20,7 +20,18 @@ def load_fits_file(file_name, reverse_flag=False):
     npol = int(get_header_value(h, "NPOL", 2))
     nchan = int(get_header_value(h, "NCHAN", 0))
 
-    data = data["DATA"].reshape(nsubint * nsblk, npol, nchan)[:, :2, :]
+    # Attempt to retrieve the DATA column using common aliases
+    col_data = None
+    if getattr(data, "dtype", None) is not None and data.dtype.names:
+        for key in ['DATA', 'data', 'Data', 'SUBDATA']:
+            if key in data.dtype.names:
+                col_data = data[key]
+                break
+
+    if col_data is None:
+        raise KeyError("DATA column not found in FITS file")
+
+    data = col_data.reshape(nsubint * nsblk, npol, nchan)[:, :2, :]
     if reverse_flag:
         data = np.ascontiguousarray(data[:, :, ::-1])
 

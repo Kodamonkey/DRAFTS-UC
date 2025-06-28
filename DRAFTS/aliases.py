@@ -16,6 +16,8 @@ HEADER_ALIASES = {
 COLUMN_ALIASES = {
     'DAT_FREQ': ['DAT_FREQ', 'CHAN_FREQ', 'FREQUENCY', 'DATFREQ', 'FREQS'],
     'EDGE_CHANNEL': ['EDGE_CHANNEL', 'EDGE_CHAN'],
+    # Common variants for the main data column
+    'DATA': ['DATA', 'data', 'Data', 'SUBDATA'],
 }
 
 

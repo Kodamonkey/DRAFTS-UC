@@ -440,33 +440,51 @@ def _process_file(
 def run_pipeline() -> None:
     """Run the full FRB detection pipeline."""
 
+    print("=== INICIANDO PIPELINE DE DETECCIÓN DE FRB ===")
+    print(f"Directorio de datos: {config.DATA_DIR}")
+    print(f"Directorio de resultados: {config.RESULTS_DIR}")
+    print(f"Targets FRB: {config.FRB_TARGETS}")
+    
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
     save_dir = config.RESULTS_DIR / config.MODEL_NAME
     save_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Directorio de guardado: {save_dir}")
+    
+    print("Cargando modelos...")
     det_model = _load_model()
     cls_model = _load_class_model()
+    print("Modelos cargados exitosamente")
 
     summary: dict[str, dict] = {}
     for frb in config.FRB_TARGETS:
+        print(f"\nBuscando archivos para target: {frb}")
         file_list = _find_data_files(frb)
+        print(f"Archivos encontrados: {[f.name for f in file_list]}")
         if not file_list:
+            print(f"No se encontraron archivos para {frb}")
             continue
 
         try:
             first_file = file_list[0]
+            print(f"Leyendo parámetros de observación desde: {first_file.name}")
             if first_file.suffix.lower() == ".fits":
                 get_obparams(str(first_file))
             else:
                 get_obparams_fil(str(first_file))
+            print("Parámetros de observación cargados exitosamente")
         except Exception as e:
+            print(f"[ERROR] Error obteniendo parámetros de observación: {e}")
             logger.error("Error obteniendo parámetros de observación: %s", e)
             continue
             
         for fits_path in file_list:
             try:
+                print(f"Procesando archivo: {fits_path.name}")
                 summary[fits_path.name] = _process_file(det_model, cls_model, fits_path, save_dir)
+                print(f"Archivo {fits_path.name} procesado exitosamente")
             except Exception as e:
+                print(f"[ERROR] Error procesando {fits_path.name}: {e}")
                 logger.error("Error procesando %s: %s", fits_path.name, e)
                 summary[fits_path.name] = {
                     "n_candidates": 0,
@@ -478,7 +496,9 @@ def run_pipeline() -> None:
                     "status": "ERROR"
                 }
 
+    print("Escribiendo resumen final...")
     _write_summary(summary, save_dir)
+    print("=== PIPELINE COMPLETADO ===")
 
 if __name__ == "__main__":
     import argparse

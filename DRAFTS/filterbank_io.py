@@ -89,17 +89,18 @@ def load_fil_file(file_name: str) -> np.ndarray:
         dtype = np.float32
     elif nbits == 64:
         dtype = np.float64
-
-    data = np.memmap(file_name, dtype=dtype, mode="r", offset=hdr_len,
-                     shape=(nsamples, nifs, nchans))
-    data = np.asarray(data, dtype=np.float32)
-    if data.shape[1] == 1:
-        data = np.repeat(data, 2, axis=1)
-    else:
-        data = data[:, :2, :]
+    # Memory-map the data to avoid loading the entire file into memory
+    data = np.memmap(
+        file_name,
+        dtype=dtype,
+        mode="r",
+        offset=hdr_len,
+        shape=(nsamples, nifs, nchans),
+    )
 
     if config.DATA_NEEDS_REVERSAL:
         data = np.ascontiguousarray(data[:, :, ::-1])
+
     return data
 
 

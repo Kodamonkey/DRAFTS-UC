@@ -213,8 +213,6 @@ def _process_file(
         else:
             raise  # Re-lanzar si es otro tipo de error
     
-    if data.shape[1] == 1:
-        data = np.repeat(data, 2, axis=1)
     data = np.vstack([data, data[::-1, :]])
 
     data = downsample_data(data)

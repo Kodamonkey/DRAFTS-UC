@@ -89,7 +89,6 @@ def load_fil_file(file_name: str) -> np.ndarray:
         dtype = np.float32
     elif nbits == 64:
         dtype = np.float64
-
     # Memory-map the data to avoid loading the entire file into memory
     data = np.memmap(
         file_name,

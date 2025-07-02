@@ -26,6 +26,7 @@ from .image_utils import (
     plot_waterfall_block,
 )
 from .io import get_obparams, load_fits_file
+from .filterbank_io import load_fil_file, get_obparams_fil
 from .visualization import (
     save_plot,
     save_patch_plot,
@@ -59,9 +60,11 @@ def _load_class_model() -> torch.nn.Module:
     model.eval()
     return model
 
-def _find_fits_files(frb: str) -> List[Path]:
-    """Return FITS files matching ``frb`` within ``config.DATA_DIR``."""
-    return sorted(f for f in config.DATA_DIR.glob("*.fits") if frb in f.name)
+def _find_data_files(frb: str) -> List[Path]:
+    """Return FITS or filterbank files matching ``frb`` within ``config.DATA_DIR``."""
+
+    files = list(config.DATA_DIR.glob("*.fits")) + list(config.DATA_DIR.glob("*.fil"))
+    return sorted(f for f in files if frb in f.name)
 
 
 def _ensure_csv_header(csv_path: Path) -> None:
@@ -191,7 +194,10 @@ def _process_file(
     logger.info("Procesando %s", fits_path.name)
 
     try:
-        data = load_fits_file(str(fits_path))
+        if fits_path.suffix.lower() == ".fits":
+            data = load_fits_file(str(fits_path))
+        else:
+            data = load_fil_file(str(fits_path))
     except ValueError as e:
         if "corrupto" in str(e).lower():
             logger.error("Archivo corrupto detectado: %s - SALTANDO", fits_path.name)
@@ -207,8 +213,6 @@ def _process_file(
         else:
             raise  # Re-lanzar si es otro tipo de error
     
-    if data.shape[1] == 1:
-        data = np.repeat(data, 2, axis=1)
     data = np.vstack([data, data[::-1, :]])
 
     data = downsample_data(data)
@@ -445,12 +449,16 @@ def run_pipeline() -> None:
 
     summary: dict[str, dict] = {}
     for frb in config.FRB_TARGETS:
-        file_list = _find_fits_files(frb)
+        file_list = _find_data_files(frb)
         if not file_list:
             continue
 
         try:
-            get_obparams(str(file_list[0]))
+            first_file = file_list[0]
+            if first_file.suffix.lower() == ".fits":
+                get_obparams(str(first_file))
+            else:
+                get_obparams_fil(str(first_file))
         except Exception as e:
             logger.error("Error obteniendo parámetros de observación: %s", e)
             continue

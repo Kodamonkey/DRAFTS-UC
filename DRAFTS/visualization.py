@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional, List, Tuple
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -12,6 +12,7 @@ from . import config
 from .astro_conversions import pixel_to_physical
 from .image_utils import postprocess_img, preprocess_img, save_detection_plot, plot_waterfall_block
 from .dedispersion import dedisperse_block
+from .snr_utils import compute_snr_profile, find_snr_peak
 
 
 def save_plot(
@@ -53,27 +54,75 @@ def save_patch_plot(
     freq: np.ndarray,
     time_reso: float,
     start_time: float,
+    off_regions: Optional[List[Tuple[int, int]]] = None,
+    thresh_snr: Optional[float] = None,
 ) -> None:
-    """Save a visualization of the classification patch."""
+    """Save a visualization of the classification patch with SNR profile.
+    
+    Parameters
+    ----------
+    patch : np.ndarray
+        2D array with shape (n_time, n_freq)
+    out_path : Path
+        Output file path
+    freq : np.ndarray
+        Frequency axis values
+    time_reso : float
+        Time resolution in seconds
+    start_time : float
+        Start time in seconds
+    off_regions : Optional[List[Tuple[int, int]]]
+        Off-pulse regions for SNR calculation
+    thresh_snr : Optional[float]
+        SNR threshold for highlighting
+    """
 
-    profile = patch.mean(axis=1)
-    fig = plt.figure(figsize=(5, 5))
+    # Calculate SNR profile
+    snr_profile, sigma = compute_snr_profile(patch, off_regions)
+    peak_snr, peak_time_rel, peak_idx = find_snr_peak(snr_profile)
+    
+    fig = plt.figure(figsize=(6, 6))
     gs = gridspec.GridSpec(2, 1, height_ratios=[1, 4], hspace=0.05)
 
     time_axis = start_time + np.arange(patch.shape[0]) * time_reso
+    peak_time_abs = start_time + peak_idx * time_reso
 
+    # Top panel: SNR profile
     ax0 = fig.add_subplot(gs[0, 0])
-    ax0.plot(time_axis, profile, color="royalblue", alpha=0.8, lw=1)
+    ax0.plot(time_axis, snr_profile, color="royalblue", alpha=0.8, lw=1.5)
+    
+    # Highlight regions above threshold
+    if thresh_snr is not None:
+        above_thresh = snr_profile >= thresh_snr
+        if np.any(above_thresh):
+            ax0.plot(time_axis[above_thresh], snr_profile[above_thresh], 
+                    color=config.SNR_HIGHLIGHT_COLOR, lw=2, alpha=0.9)
+        
+        # Add threshold line
+        ax0.axhline(y=thresh_snr, color=config.SNR_HIGHLIGHT_COLOR, 
+                   linestyle='--', alpha=0.7, label=f'Thresh = {thresh_snr:.1f}σ')
+    
+    # Mark peak
+    ax0.plot(peak_time_abs, peak_snr, 'ro', markersize=6, alpha=0.8)
+    ax0.text(peak_time_abs, peak_snr + 0.1 * (ax0.get_ylim()[1] - ax0.get_ylim()[0]), 
+             f'SNR = {peak_snr:.1f}σ', ha='center', va='bottom', fontsize=9, fontweight='bold')
+    
     ax0.set_xlim(time_axis[0], time_axis[-1])
+    ax0.set_ylabel('SNR (σ)', fontsize=10, fontweight='bold')
+    ax0.grid(True, alpha=0.3)
+    if thresh_snr is not None:
+        ax0.legend(fontsize=8, loc='upper right')
+    
+    # Remove x-axis labels for top panel
     ax0.set_xticks([])
-    ax0.set_yticks([])
 
+    # Bottom panel: Waterfall
     ax1 = fig.add_subplot(gs[1, 0])
-    ax1.imshow(
+    im = ax1.imshow(
         patch.T,
         origin="lower",
         aspect="auto",
-        cmap="mako",
+        cmap=config.SNR_COLORMAP,
         vmin=np.nanpercentile(patch, 1),
         vmax=np.nanpercentile(patch, 99),
         extent=[time_axis[0], time_axis[-1], freq.min(), freq.max()],
@@ -92,12 +141,21 @@ def save_patch_plot(
     ax1.set_xticks(time_tick_positions)
     ax1.set_xticklabels([f"{t:.3f}" for t in time_tick_positions])
 
-    ax1.set_xlabel("Time (s)")
-    ax1.set_ylabel("Frequency (MHz)")
+    # Mark peak position on waterfall
+    ax1.axvline(x=peak_time_abs, color=config.SNR_HIGHLIGHT_COLOR, 
+               linestyle='-', alpha=0.8, linewidth=2)
+
+    ax1.set_xlabel("Time (s)", fontsize=10, fontweight='bold')
+    ax1.set_ylabel("Frequency (MHz)", fontsize=10, fontweight='bold')
+
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax1, shrink=0.8)
+    cbar.set_label('Intensity', fontsize=9)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.tight_layout()
-    plt.savefig(out_path, dpi=150)
+    plt.savefig(out_path, dpi=150, bbox_inches='tight')
+    plt.close()
     plt.close()
 
 
@@ -110,7 +168,7 @@ def save_slice_summary(
     dm_val: float,
     top_conf: Iterable,
     top_boxes: Iterable | None,
-    class_probs: Iterable | None,  # Nuevo parámetro
+    class_probs: Iterable | None,
     out_path: Path,
     slice_idx: int,
     time_slice: int,
@@ -119,8 +177,10 @@ def save_slice_summary(
     fits_stem: str,
     slice_len: int,
     normalize: bool = False,
+    off_regions: Optional[List[Tuple[int, int]]] = None,
+    thresh_snr: Optional[float] = None,
 ) -> None:
-    """Save a composite figure summarising detections and waterfalls.
+    """Save a composite figure summarising detections and waterfalls with SNR analysis.
 
     Parameters
     ----------
@@ -128,6 +188,10 @@ def save_slice_summary(
         If ``True``, apply per-channel normalization to ``waterfall_block`` and
         ``dedispersed_block`` before plotting, matching the behaviour of
         :func:`plot_waterfall_block`.
+    off_regions : Optional[List[Tuple[int, int]]]
+        Off-pulse regions for SNR calculation
+    thresh_snr : Optional[float]
+        SNR threshold for highlighting
     """
 
     freq_ds = np.mean(
@@ -238,17 +302,38 @@ def save_slice_summary(
     slice_start_abs = slice_idx * block_size_wf_samples * time_reso_ds
     slice_end_abs = slice_start_abs + block_size_wf_samples * time_reso_ds
 
+    # === Panel 1: Raw Waterfall con SNR ===
     gs_waterfall_nested = gridspec.GridSpecFromSubplotSpec(
         2, 1, subplot_spec=gs_bottom_row[0, 0], height_ratios=[1, 4], hspace=0.05
     )
     ax_prof_wf = fig.add_subplot(gs_waterfall_nested[0, 0])
-    profile_wf = wf_block.mean(axis=1)
-    time_axis_wf = np.linspace(slice_start_abs, slice_end_abs, len(profile_wf))
-    ax_prof_wf.plot(time_axis_wf, profile_wf, color="royalblue", alpha=0.8, lw=1)
+    
+    # Calcular perfil SNR para raw waterfall
+    snr_wf, sigma_wf = compute_snr_profile(wf_block, off_regions)
+    peak_snr_wf, peak_time_wf, peak_idx_wf = find_snr_peak(snr_wf)
+    
+    time_axis_wf = np.linspace(slice_start_abs, slice_end_abs, len(snr_wf))
+    ax_prof_wf.plot(time_axis_wf, snr_wf, color="royalblue", alpha=0.8, lw=1.5, label='SNR Profile')
+    
+    # Resaltar regiones sobre threshold
+    if thresh_snr is not None:
+        above_thresh = snr_wf >= thresh_snr
+        if np.any(above_thresh):
+            ax_prof_wf.plot(time_axis_wf[above_thresh], snr_wf[above_thresh], 
+                           color=config.SNR_HIGHLIGHT_COLOR, lw=2.5, alpha=0.9)
+        ax_prof_wf.axhline(y=thresh_snr, color=config.SNR_HIGHLIGHT_COLOR, 
+                          linestyle='--', alpha=0.7, linewidth=1)
+    
+    # Marcar pico
+    ax_prof_wf.plot(time_axis_wf[peak_idx_wf], peak_snr_wf, 'ro', markersize=5)
+    ax_prof_wf.text(time_axis_wf[peak_idx_wf], peak_snr_wf + 0.1 * (ax_prof_wf.get_ylim()[1] - ax_prof_wf.get_ylim()[0]), 
+                   f'{peak_snr_wf:.1f}σ', ha='center', va='bottom', fontsize=8, fontweight='bold')
+    
     ax_prof_wf.set_xlim(slice_start_abs, slice_end_abs)
+    ax_prof_wf.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
+    ax_prof_wf.grid(True, alpha=0.3)
     ax_prof_wf.set_xticks([])
-    ax_prof_wf.set_yticks([])
-    ax_prof_wf.set_title(f"Raw Waterfall\nSlice {slice_idx+1}", fontsize=9, fontweight="bold")
+    ax_prof_wf.set_title(f"Raw Waterfall SNR\nSlice {slice_idx+1}, Peak={peak_snr_wf:.1f}σ", fontsize=9, fontweight="bold")
 
     ax_wf = fig.add_subplot(gs_waterfall_nested[1, 0])
     ax_wf.imshow(
@@ -274,18 +359,44 @@ def save_slice_summary(
     ax_wf.set_xticklabels([f"{t:.3f}" for t in time_tick_positions])
     ax_wf.set_xlabel("Time (s)", fontsize=9)
     ax_wf.set_ylabel("Frequency (MHz)", fontsize=9)
+    
+    # Marcar posición del pico SNR en el waterfall
+    if 'peak_snr_wf' in locals():
+        ax_wf.axvline(x=time_axis_wf[peak_idx_wf], color=config.SNR_HIGHLIGHT_COLOR, 
+                     linestyle='-', alpha=0.8, linewidth=2)
 
+    # === Panel 2: Dedispersed Waterfall con SNR ===
     gs_dedisp_nested = gridspec.GridSpecFromSubplotSpec(
         2, 1, subplot_spec=gs_bottom_row[0, 1], height_ratios=[1, 4], hspace=0.05
     )
     ax_prof_dw = fig.add_subplot(gs_dedisp_nested[0, 0])
-    prof_dw = dw_block.mean(axis=1)
-    time_axis_dw = np.linspace(slice_start_abs, slice_end_abs, len(prof_dw))
-    ax_prof_dw.plot(time_axis_dw, prof_dw, color="royalblue", alpha=0.8, lw=1)
+    
+    # Calcular perfil SNR para dedispersed waterfall
+    snr_dw, sigma_dw = compute_snr_profile(dw_block, off_regions)
+    peak_snr_dw, peak_time_dw, peak_idx_dw = find_snr_peak(snr_dw)
+    
+    time_axis_dw = np.linspace(slice_start_abs, slice_end_abs, len(snr_dw))
+    ax_prof_dw.plot(time_axis_dw, snr_dw, color="green", alpha=0.8, lw=1.5, label='Dedispersed SNR')
+    
+    # Resaltar regiones sobre threshold
+    if thresh_snr is not None:
+        above_thresh_dw = snr_dw >= thresh_snr
+        if np.any(above_thresh_dw):
+            ax_prof_dw.plot(time_axis_dw[above_thresh_dw], snr_dw[above_thresh_dw], 
+                           color=config.SNR_HIGHLIGHT_COLOR, lw=2.5, alpha=0.9)
+        ax_prof_dw.axhline(y=thresh_snr, color=config.SNR_HIGHLIGHT_COLOR, 
+                          linestyle='--', alpha=0.7, linewidth=1)
+    
+    # Marcar pico
+    ax_prof_dw.plot(time_axis_dw[peak_idx_dw], peak_snr_dw, 'ro', markersize=5)
+    ax_prof_dw.text(time_axis_dw[peak_idx_dw], peak_snr_dw + 0.1 * (ax_prof_dw.get_ylim()[1] - ax_prof_dw.get_ylim()[0]), 
+                   f'{peak_snr_dw:.1f}σ', ha='center', va='bottom', fontsize=8, fontweight='bold')
+    
     ax_prof_dw.set_xlim(slice_start_abs, slice_end_abs)
+    ax_prof_dw.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
+    ax_prof_dw.grid(True, alpha=0.3)
     ax_prof_dw.set_xticks([])
-    ax_prof_dw.set_yticks([])
-    ax_prof_dw.set_title(f"Dedispersed DM={dm_val:.2f}", fontsize=9, fontweight="bold")
+    ax_prof_dw.set_title(f"Dedispersed SNR DM={dm_val:.2f}\nPeak={peak_snr_dw:.1f}σ", fontsize=9, fontweight="bold")
 
     ax_dw = fig.add_subplot(gs_dedisp_nested[1, 0])
     ax_dw.imshow(
@@ -306,20 +417,44 @@ def save_slice_summary(
     ax_dw.set_xticklabels([f"{t:.3f}" for t in time_tick_positions])
     ax_dw.set_xlabel("Time (s)", fontsize=9)
     ax_dw.set_ylabel("Frequency (MHz)", fontsize=9)
+    
+    # Marcar posición del pico SNR en el waterfall dedispersado
+    if 'peak_snr_dw' in locals():
+        ax_dw.axvline(x=time_axis_dw[peak_idx_dw], color=config.SNR_HIGHLIGHT_COLOR, 
+                     linestyle='-', alpha=0.8, linewidth=2)
 
+    # === Panel 3: Candidate Patch con SNR ===
     gs_patch_nested = gridspec.GridSpecFromSubplotSpec(
         2, 1, subplot_spec=gs_bottom_row[0, 2], height_ratios=[1, 4], hspace=0.05
     )
     ax_patch_prof = fig.add_subplot(gs_patch_nested[0, 0])
-    patch_prof_val = patch_img.mean(axis=1)
-
-    patch_time_axis = patch_start + np.arange(len(patch_prof_val)) * time_reso_ds
-
-    ax_patch_prof.plot(patch_time_axis, patch_prof_val, color="royalblue", alpha=0.8, lw=1)
+    
+    # Calcular perfil SNR para el patch del candidato
+    snr_patch, sigma_patch = compute_snr_profile(patch_img, off_regions)
+    peak_snr_patch, peak_time_patch, peak_idx_patch = find_snr_peak(snr_patch)
+    
+    patch_time_axis = patch_start + np.arange(len(snr_patch)) * time_reso_ds
+    ax_patch_prof.plot(patch_time_axis, snr_patch, color="orange", alpha=0.8, lw=1.5, label='Candidate SNR')
+    
+    # Resaltar regiones sobre threshold
+    if thresh_snr is not None:
+        above_thresh_patch = snr_patch >= thresh_snr
+        if np.any(above_thresh_patch):
+            ax_patch_prof.plot(patch_time_axis[above_thresh_patch], snr_patch[above_thresh_patch], 
+                              color=config.SNR_HIGHLIGHT_COLOR, lw=2.5, alpha=0.9)
+        ax_patch_prof.axhline(y=thresh_snr, color=config.SNR_HIGHLIGHT_COLOR, 
+                             linestyle='--', alpha=0.7, linewidth=1)
+    
+    # Marcar pico
+    ax_patch_prof.plot(patch_time_axis[peak_idx_patch], peak_snr_patch, 'ro', markersize=5)
+    ax_patch_prof.text(patch_time_axis[peak_idx_patch], peak_snr_patch + 0.1 * (ax_patch_prof.get_ylim()[1] - ax_patch_prof.get_ylim()[0]), 
+                      f'{peak_snr_patch:.1f}σ', ha='center', va='bottom', fontsize=8, fontweight='bold')
+    
     ax_patch_prof.set_xlim(patch_time_axis[0], patch_time_axis[-1])
+    ax_patch_prof.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
+    ax_patch_prof.grid(True, alpha=0.3)
     ax_patch_prof.set_xticks([])
-    ax_patch_prof.set_yticks([])
-    ax_patch_prof.set_title("Dedispersed Candidate Patch", fontsize=9, fontweight="bold")
+    ax_patch_prof.set_title(f"Candidate Patch SNR\nPeak={peak_snr_patch:.1f}σ", fontsize=9, fontweight="bold")
 
     ax_patch = fig.add_subplot(gs_patch_nested[1, 0])
     ax_patch.imshow(
@@ -343,6 +478,11 @@ def save_slice_summary(
     ax_patch.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
     ax_patch.set_xlabel("Time (s)", fontsize=9)
     ax_patch.set_ylabel("Frequency (MHz)", fontsize=9)
+    
+    # Marcar posición del pico SNR en el patch
+    if 'peak_snr_patch' in locals():
+        ax_patch.axvline(x=patch_time_axis[peak_idx_patch], color=config.SNR_HIGHLIGHT_COLOR, 
+                        linestyle='-', alpha=0.8, linewidth=2)
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     fig.suptitle(

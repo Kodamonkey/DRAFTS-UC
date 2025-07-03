@@ -377,6 +377,8 @@ def _process_file(
                     freq_down,
                     config.TIME_RESO * config.DOWN_TIME_RATE,
                     first_start,
+                    off_regions=None,  # Use IQR method for robust estimation
+                    thresh_snr=config.SNR_THRESH,
                 )
 
                 # 1) Generar composite
@@ -400,6 +402,8 @@ def _process_file(
                     fits_path.stem,
                     slice_len,
                     normalize=True,
+                    off_regions=None,  # Use IQR method
+                    thresh_snr=config.SNR_THRESH,
                 )
 
             # 4) Generar detecciones de Bow ties (detections)

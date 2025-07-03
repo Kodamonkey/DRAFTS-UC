@@ -59,6 +59,7 @@ def _d_dm_time_cpu(data, height: int, width: int) -> np.ndarray:
 def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128) -> np.ndarray:
     result = np.zeros((3, height, width), dtype=np.float32)
     try:
+        print("[INFO] Intentando usar GPU para dedispersión...")
         freq_values = np.mean(config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE), axis=1)
         freq_gpu = cuda.to_device(freq_values)
         nchan_ds = config.FREQ_RESO // config.DOWN_FREQ_RATE
@@ -76,8 +77,10 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
             cuda.synchronize()
             result[:, start_dm:end_dm, :] = dm_time_gpu.copy_to_host()
             del dm_time_gpu
+        print("[INFO] Dedispersión GPU completada exitosamente")
         return result
-    except cuda.cudadrv.driver.CudaAPIError:
+    except (cuda.cudadrv.driver.CudaAPIError, Exception) as e:
+        print(f"[WARNING] Error GPU ({e}), cambiando a CPU...")
         return _d_dm_time_cpu(data, height, width)
 
 def dedisperse_patch(

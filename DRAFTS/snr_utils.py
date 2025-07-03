@@ -156,6 +156,60 @@ def create_snr_regions_around_peak(
     return regions
 
 
+def create_centered_off_regions(
+    profile_length: int,
+    center_exclusion_width: int = 100,
+    region_width: int = 50
+) -> List[Tuple[int, int]]:
+    """
+    Crea regiones off-pulse optimizadas para pulsos centralizados.
+    
+    Parameters
+    ----------
+    profile_length : int
+        Longitud total del perfil temporal
+    center_exclusion_width : int
+        Ancho de la región central a excluir (donde está el pulso)
+    region_width : int
+        Ancho de cada región off-pulse
+    
+    Returns
+    -------
+    List[Tuple[int, int]]
+        Lista de regiones off-pulse optimizadas
+    """
+    center = profile_length // 2
+    half_exclusion = center_exclusion_width // 2
+    
+    regions = []
+    
+    # Región izquierda cercana
+    left_near_end = center - half_exclusion
+    left_near_start = left_near_end - region_width
+    if left_near_start >= 0:
+        regions.append((left_near_start, left_near_end))
+    
+    # Región derecha cercana
+    right_near_start = center + half_exclusion
+    right_near_end = right_near_start + region_width
+    if right_near_end < profile_length:
+        regions.append((right_near_start, right_near_end))
+    
+    # Región izquierda lejana
+    left_far_end = left_near_start - region_width // 2
+    left_far_start = left_far_end - region_width
+    if left_far_start >= 0:
+        regions.append((left_far_start, left_far_end))
+    
+    # Región derecha lejana
+    right_far_start = right_near_end + region_width // 2
+    right_far_end = right_far_start + region_width
+    if right_far_end < profile_length:
+        regions.append((right_far_start, right_far_end))
+    
+    return regions
+
+
 def inject_synthetic_frb(
     waterfall: np.ndarray,
     peak_time_idx: int,

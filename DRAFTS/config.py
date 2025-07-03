@@ -28,7 +28,7 @@ DATA_NEEDS_REVERSAL: bool = False # Indica si los datos necesitan ser revertidos
 # Configuracion del pipeline  ------------------------------------------------------
 USE_MULTI_BAND: bool = False # Indica si se utiliza procesamiento de múltiples bandas.
 SLICE_LEN: int = 512  # Longitud de cada slice, en muestras.
-DET_PROB: float = 0.8 # Probabilidad de detección mínima para considerar un evento como válido.
+DET_PROB: float = 0.1 # Probabilidad de detección mínima para considerar un evento como válido.
 DM_min: int = 0 # DM mínimo, en pc cm⁻³. 
 DM_max: int = 1025 # DM máximo, en pc cm⁻³.
 
@@ -43,7 +43,13 @@ CLASS_MODEL_NAME = "resnet18"
 CLASS_MODEL_PATH = Path(f"./models/class_{CLASS_MODEL_NAME}.pth")
 # Probabilidad mínima para considerar que un parche corresponde a un burst
 CLASS_PROB = 0.5
+
+# Configuración de SNR y visualización -------------------------------------------
+SNR_THRESH = 3.0  # Umbral de SNR para resaltar en visualizaciones
+SNR_OFF_REGIONS = [(-200, -100), (-50, 50), (100, 200)]  # Regiones off para calcular ruido (en bins)
+SNR_COLORMAP = "viridis"  # Mapa de colores para waterfalls
+SNR_HIGHLIGHT_COLOR = "red"  # Color para resaltar detecciones por encima del umbral
  
 # Default FRB targets --------------------------------------------------------
 #Objetivos de FRB predeterminados. Esta lista se utiliza para buscar archivos FITS
-FRB_TARGETS = ["B0355+54"] # "B0355+54", "FRB20121102", "FRB20201124", "FRB20180301"
+FRB_TARGETS = ["B0355+54"] # "B0355+54", "FRB20121102", "FRB20201124", "FRB20180301", "3096_0001_00_8bit"

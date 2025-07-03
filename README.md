@@ -48,6 +48,72 @@ Our pipeline offers three key components:
 
 📄 **Publication:** [DRAFTS: A Deep Learning-Based Radio Fast Transient Search Pipeline (arXiv:2410.03200)](https://arxiv.org/abs/2410.03200)
 
+## New Features - SNR Analysis Integration
+
+### 🆕 Signal-to-Noise Ratio (SNR) Analysis
+
+The pipeline now includes comprehensive SNR analysis capabilities that enhance the detection and visualization of FRB candidates:
+
+#### Key Features
+
+- **Automatic SNR Calculation**: All candidate patches now display temporal profiles in SNR units (σ) instead of raw intensity
+- **Robust Noise Estimation**: Uses Interquartile Range (IQR) method for noise estimation, robust to multiple pulses
+- **Configurable Thresholds**: Set `SNR_THRESH` in `config.py` to highlight significant detections
+- **Enhanced Visualizations**:
+  - SNR profiles with peak annotations
+  - Threshold lines for detection significance
+  - Color-coded regions above threshold
+  - Vertical markers showing peak positions
+
+#### Configuration Parameters
+
+Add these to your `config.py`:
+
+```python
+# SNR and Visualization Configuration
+SNR_THRESH = 5.0  # Threshold for highlighting detections
+SNR_OFF_REGIONS = [(-200, -100), (-50, 50), (100, 200)]  # Off-pulse regions
+SNR_COLORMAP = "viridis"  # Colormap for waterfalls
+SNR_HIGHLIGHT_COLOR = "red"  # Color for threshold highlighting
+```
+
+#### New Functions Available
+
+- **`compute_snr_profile()`**: Calculate SNR profile from waterfall data
+- **`find_snr_peak()`**: Locate and quantify peak SNR values
+- **`inject_synthetic_frb()`**: Generate synthetic FRBs for testing
+- **`estimate_sigma_iqr()`**: Robust noise estimation
+- **`compute_detection_significance()`**: Statistical significance calculation
+
+#### Enhanced Outputs
+
+The pipeline now generates:
+
+1. **SNR-enhanced patch plots** with annotated peaks and thresholds
+2. **Composite summary plots** showing three SNR profiles:
+   - Raw waterfall SNR (blue)
+   - Dedispersed waterfall SNR (green)
+   - Candidate patch SNR (orange)
+3. **Peak markers** on all waterfall displays
+4. **Significance annotations** with σ values
+
+#### Testing
+
+Run the SNR integration test:
+
+```bash
+python test_snr_integration.py
+```
+
+This creates test outputs in `test_snr_output/` to verify SNR functionality.
+
+#### Scientific Benefits
+
+- **Quantitative Assessment**: All detections now have quantitative SNR measurements
+- **Improved Filtering**: Easy identification of high-significance candidates
+- **Statistical Analysis**: Built-in significance calculation considering multiple trials
+- **Robust Processing**: IQR-based noise estimation handles complex RFI environments
+
 ## Installation
 
 Install all required dependencies from the `requirements.txt` file in the

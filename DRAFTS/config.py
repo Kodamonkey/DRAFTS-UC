@@ -27,10 +27,10 @@ DATA_NEEDS_REVERSAL: bool = False # Indica si los datos necesitan ser revertidos
 
 # Configuracion del pipeline  ------------------------------------------------------
 USE_MULTI_BAND: bool = False # Indica si se utiliza procesamiento de múltiples bandas.
-SLICE_LEN: int = 512  # Longitud de cada slice, en muestras.
+SLICE_LEN: int = 1024  # Longitud de cada slice, en muestras.
 DET_PROB: float = 0.1 # Probabilidad de detección mínima para considerar un evento como válido.
 DM_min: int = 0 # DM mínimo, en pc cm⁻³. 
-DM_max: int = 1025 # DM máximo, en pc cm⁻³.
+DM_max: int = 1024 # DM máximo, en pc cm⁻³.
 
 # Rutas de archivos y modelos ---------------------------------------------------
 DATA_DIR = Path("./Data") # Directorio donde se almacenan los datos de entrada.
@@ -46,10 +46,17 @@ CLASS_PROB = 0.5
 
 # Configuración de SNR y visualización -------------------------------------------
 SNR_THRESH = 3.0  # Umbral de SNR para resaltar en visualizaciones
-SNR_OFF_REGIONS = [(-200, -100), (-50, 50), (100, 200)]  # Regiones off para calcular ruido (en bins)
+
+# Regiones off optimizadas para pulsos centralizados
+# Asume que el pulso está en el centro, usa los bordes para estimar ruido
+SNR_OFF_REGIONS = [(-250, -150), (-100, -50), (50, 100), (150, 250)]  # Regiones off simétricas
+
+# Configuración alternativa más conservadora
+# SNR_OFF_REGIONS = [(-200, -100), (100, 200)]  # Solo bordes izquierdo y derecho
+
 SNR_COLORMAP = "viridis"  # Mapa de colores para waterfalls
 SNR_HIGHLIGHT_COLOR = "red"  # Color para resaltar detecciones por encima del umbral
  
 # Default FRB targets --------------------------------------------------------
 #Objetivos de FRB predeterminados. Esta lista se utiliza para buscar archivos FITS
-FRB_TARGETS = ["B0355+54"] # "B0355+54", "FRB20121102", "FRB20201124", "FRB20180301", "3096_0001_00_8bit"
+FRB_TARGETS = ["FRB20201124"] # "B0355+54", "FRB20121102", "FRB20201124", "FRB20180301", "3097_0001_00_8bit"

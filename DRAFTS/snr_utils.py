@@ -29,6 +29,12 @@ def compute_snr_profile(
     sigma : float
         Estimated noise standard deviation
     """
+    # Verificación básica para arrays válidos
+    if waterfall is None or waterfall.size == 0:
+        raise ValueError("waterfall is None or empty in compute_snr_profile")
+    if waterfall.ndim < 2:
+        raise ValueError(f"waterfall must be 2D, got {waterfall.ndim}D array")
+    
     # Integrate over frequency axis
     profile = np.mean(waterfall, axis=1)
     

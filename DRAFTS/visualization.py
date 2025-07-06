@@ -260,7 +260,18 @@ def save_slice_summary(
 
     n_dm_ticks = 8
     dm_positions = np.linspace(0, img_rgb.shape[0] - 1, n_dm_ticks)
-    dm_values = config.DM_min + (dm_positions / img_rgb.shape[0]) * (config.DM_max - config.DM_min)
+    
+    # Calcular rango DM dinámico basado en candidatos detectados
+    dm_plot_min, dm_plot_max = _calculate_dynamic_dm_range(
+        top_boxes=top_boxes,
+        slice_len=slice_len,
+        fallback_dm_min=config.DM_min,
+        fallback_dm_max=config.DM_max,
+        confidence_scores=top_conf if top_conf is not None else None
+    )
+    
+    # Usar el rango dinámico para las etiquetas del eje DM
+    dm_values = dm_plot_min + (dm_positions / img_rgb.shape[0]) * (dm_plot_max - dm_plot_min)
     ax_det.set_yticks(dm_positions)
     ax_det.set_yticklabels([f"{dm:.0f}" for dm in dm_values])
     ax_det.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=10, fontweight="bold")
@@ -270,7 +281,10 @@ def save_slice_summary(
         for idx, (conf, box) in enumerate(zip(top_conf, top_boxes)):
             x1, y1, x2, y2 = map(int, box)
             center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
-            dm_val_cand, _, _ = pixel_to_physical(center_x, center_y, slice_len)
+            
+            # Calcular DM usando el rango dinámico
+            dm_pixel_fraction = center_y / img_rgb.shape[0]
+            dm_val_cand = dm_plot_min + dm_pixel_fraction * (dm_plot_max - dm_plot_min)
             
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
@@ -310,7 +324,14 @@ def save_slice_summary(
                 fontweight="bold",
                 arrowprops=dict(arrowstyle="->", color=color, lw=1.5),
             )
-    title_det = f"Detection Map - {fits_stem} ({band_name})\nSlice {slice_idx + 1} of {time_slice}"
+    # Indicar si se está usando DM dinámico
+    dm_range_info = f"{dm_plot_min:.0f}\u2013{dm_plot_max:.0f}"
+    if getattr(config, 'DM_DYNAMIC_RANGE_ENABLE', True) and top_boxes is not None and len(top_boxes) > 0:
+        dm_range_info += " (auto)"
+    else:
+        dm_range_info += " (full)"
+    
+    title_det = f"Detection Map - {fits_stem} ({band_name})\nSlice {slice_idx + 1} of {time_slice} | DM Range: {dm_range_info} pc cm⁻³"
     ax_det.set_title(title_det, fontsize=11, fontweight="bold")
     config.SLICE_LEN = prev_len_config
 

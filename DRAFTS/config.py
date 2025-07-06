@@ -45,7 +45,7 @@ SLICE_LEN_OVERRIDE_MANUAL: bool = True  # Si True, el sistema inteligente anula 
 
 # SLICE_LEN se calculará dinámicamente o usará valor manual
 SLICE_LEN: int = 32 # Valor manual (usado solo si SLICE_LEN_AUTO = False y SLICE_LEN_INTELLIGENT = False)
-DET_PROB: float = 0.5 # Probabilidad de detección mínima para considerar un evento como válido.
+DET_PROB: float = 0.1 # Probabilidad de detección mínima para considerar un evento como válido.
 DM_min: int = 0 # DM mínimo, en pc cm⁻³. 
 DM_max: int = 1024 # DM máximo, en pc cm⁻³.
 
@@ -96,4 +96,19 @@ RFI_TIME_DETECTION_METHOD = "mad"     # Método para detectar muestras temporale
  
 # Default FRB targets --------------------------------------------------------
 #Objetivos de FRB predeterminados. Esta lista se utiliza para buscar archivos FITS
-FRB_TARGETS = ["B0355+54"] # "B0355+54", "FRB20121102", "FRB20201124", "FRB20180301", "3097_0001_00_8bit"
+FRB_TARGETS = ["3100_0001_00_8bit"] # "B0355+54", "FRB20121102", "FRB20201124", "FRB20180301", "3097_0001_00_8bit"
+
+# Configuración de límites de procesamiento -------------------------------------
+MAX_SAMPLES_LIMIT: int = 2000000  # Límite por chunk para evitar problemas de memoria
+# Con 4.4 GB disponibles, podemos procesar ~2M muestras por chunk (≈2 GB por chunk)
+# El archivo completo se procesará en múltiples chunks automáticamente
+CHUNK_OVERLAP_SAMPLES: int = 1000  # Solapamiento entre chunks para no perder detecciones en bordes
+ENABLE_CHUNK_PROCESSING: bool = True  # Habilita procesamiento automático por chunks
+
+
+'''
+100,000 muestras ≈ 512 MB RAM
+500,000 muestras ≈ 2.5 GB RAM
+1,000,000 muestras ≈ 5 GB RAM
+Archivo completo ≈ 33+ GB RAM
+'''

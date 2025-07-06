@@ -109,7 +109,7 @@ def _read_non_standard_header(f) -> Tuple[dict, int]:
     estimated_samples = (file_size - 512) // bytes_per_sample  # Assume 512 byte header
     
     # Limit to reasonable size to avoid memory issues
-    max_samples = 50000  # Limit to ~50k samples for safety
+    max_samples = config.MAX_SAMPLES_LIMIT  # Configurable limit for safety
     header["nsamples"] = min(estimated_samples, max_samples)
     
     print(f"[INFO] Parámetros estimados para archivo no estándar:")
@@ -136,11 +136,24 @@ def load_fil_file(file_name: str) -> np.ndarray:
             file_size = os.path.getsize(file_name) - hdr_len
             nsamples = file_size // bytes_per_sample if bytes_per_sample > 0 else 1000
 
-        # Limit memory usage - don't load more than ~1GB of data
-        max_samples = 100000  # Reasonable limit for processing
-        if nsamples > max_samples:
-            print(f"[WARNING] Archivo muy grande ({nsamples} muestras), limitando a {max_samples}")
-            nsamples = max_samples
+        # Check if chunk processing is enabled for large files
+        if (getattr(config, 'ENABLE_CHUNK_PROCESSING', True) and 
+            nsamples > config.MAX_SAMPLES_LIMIT):
+            # Don't load data here - let the pipeline handle chunk processing
+            print(f"[INFO] Archivo grande detectado ({nsamples} muestras)")
+            print(f"[INFO] Se procesará automáticamente por chunks")
+            print(f"[INFO] No cargando datos completos para evitar problemas de memoria")
+            # Store original size for chunk processing
+            config._ORIGINAL_FILE_SAMPLES = nsamples
+            # Return a small representative sample for parameter verification
+            nsamples = min(1000, nsamples)  # Just load 1000 samples for verification
+        else:
+            # Apply limit for single-pass processing
+            max_samples = config.MAX_SAMPLES_LIMIT
+            if nsamples > max_samples:
+                print(f"[WARNING] Archivo muy grande ({nsamples} muestras), limitando a {max_samples}")
+                print(f"[INFO] Para procesar archivos más grandes, habilitar config.ENABLE_CHUNK_PROCESSING")
+                nsamples = max_samples
 
         dtype = np.uint8
         if nbits == 16:
@@ -210,11 +223,22 @@ def get_obparams_fil(file_name: str) -> None:
             file_size = os.path.getsize(file_name) - hdr_len
             nsamples = file_size // bytes_per_sample if bytes_per_sample > 0 else 1000
 
-        # Apply the same memory limits as in load_fil_file
-        max_samples = 100000
-        if nsamples > max_samples:
-            print(f"[WARNING] Limitando número de muestras de {nsamples} a {max_samples}")
-            nsamples = max_samples
+        # Check if chunk processing is enabled for large files  
+        if (getattr(config, 'ENABLE_CHUNK_PROCESSING', True) and 
+            nsamples > config.MAX_SAMPLES_LIMIT):
+            # Store original size for chunk processing but don't truncate here
+            print(f"[INFO] Archivo grande detectado ({nsamples} muestras)")
+            print(f"[INFO] Se procesará automáticamente por chunks") 
+            # Store original size for chunk processing
+            config._ORIGINAL_FILE_SAMPLES = nsamples
+            # Keep original nsamples for parameter configuration
+        else:
+            # Apply limit for single-pass processing
+            max_samples = config.MAX_SAMPLES_LIMIT
+            if nsamples > max_samples:
+                print(f"[WARNING] Limitando número de muestras de {nsamples} a {max_samples}")
+                print(f"[INFO] Para procesar archivos más grandes, habilitar config.ENABLE_CHUNK_PROCESSING")
+                nsamples = max_samples
 
         fch1 = header.get("fch1", 1500.0)  # More realistic default
         foff = header.get("foff", -1.0)

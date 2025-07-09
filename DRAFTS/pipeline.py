@@ -28,6 +28,7 @@ from .image_utils import (
 )
 from .io import get_obparams, load_fits_file
 from .filterbank_io import load_fil_file, get_obparams_fil
+from .slice_len_utils import update_slice_len_dynamic, get_slice_duration_info
 from .visualization import (
     save_plot,
     save_patch_plot,
@@ -354,49 +355,16 @@ def _process_file(
     height = config.DM_max - config.DM_min + 1
     width_total = config.FILE_LENG // config.DOWN_TIME_RATE
 
-    # Obtener SLICE_LEN basado en configuración (automático inteligente, dinámico o manual)
-    slice_len = None
-    time_slice = None
+    # 🚀 NUEVO SISTEMA SIMPLIFICADO: SIEMPRE usar SLICE_DURATION_MS
+    # Calcular SLICE_LEN dinámicamente después de cargar metadatos del archivo
+    slice_len, real_duration_ms = update_slice_len_dynamic()
+    time_slice = (width_total + slice_len - 1) // slice_len
     
-    if getattr(config, 'SLICE_LEN_INTELLIGENT', True):
-        # Modo automático inteligente: analiza metadatos del archivo
-        try:
-            from .auto_slice_len import get_automatic_slice_len_from_file
-            
-            # Guardar referencia al archivo actual para análisis
-            if not hasattr(config, 'CURRENT_FILE'):
-                config.CURRENT_FILE = fits_path.name
-            
-            # Calcular SLICE_LEN automático basado en metadatos del archivo
-            automatic_slice_len = get_automatic_slice_len_from_file(config)
-            slice_len, time_slice = _slice_parameters(width_total, automatic_slice_len)
-            
-            logger.info("🚀 SLICE_LEN automático calculado: %d para %s", 
-                       automatic_slice_len, config.CURRENT_FILE)
-            logger.info("   ⏱️  Resolución temporal: %.6f s/muestra", config.TIME_RESO)
-            logger.info("   📊 Archivo: %d muestras, %.3f s total", 
-                       config.FILE_LENG, config.FILE_LENG * config.TIME_RESO)
-            logger.info("   🔢 Generará %d slices de %d muestras cada uno", time_slice, slice_len)
-        except Exception as e:
-            logger.warning("Error en SLICE_LEN automático: %s", e)
-            slice_len = None  # Forzar fallback
-    
-    # Fallback al método dinámico si no se calculó automáticamente
-    if slice_len is None and getattr(config, 'SLICE_LEN_AUTO', True):
-        try:
-            from .slice_len_utils import get_dynamic_slice_len
-            dynamic_slice_len = get_dynamic_slice_len(config)
-            slice_len, time_slice = _slice_parameters(width_total, dynamic_slice_len)
-            logger.info("Usando SLICE_LEN dinámico: %d (duración: %.3f s)", 
-                       dynamic_slice_len, getattr(config, 'SLICE_DURATION_SECONDS', 0.032))
-        except Exception as e:
-            logger.warning("Error en SLICE_LEN dinámico: %s", e)
-            slice_len = None  # Forzar fallback manual
-    
-    # Último fallback: método manual
-    if slice_len is None:
-        slice_len, time_slice = _slice_parameters(width_total, config.SLICE_LEN)
-        logger.info("Usando SLICE_LEN manual: %d", config.SLICE_LEN)
+    logger.info("✅ Sistema de slice simplificado:")
+    logger.info(f"   🎯 Duración objetivo: {config.SLICE_DURATION_MS:.1f} ms")
+    logger.info(f"   � SLICE_LEN calculado: {slice_len} muestras")
+    logger.info(f"   ⏱️  Duración real obtenida: {real_duration_ms:.1f} ms")
+    logger.info(f"   📊 Archivo: {config.FILE_LENG} muestras → {time_slice} slices")
 
     dm_time = d_dm_time_g(data, height=height, width=width_total)
 
@@ -635,6 +603,8 @@ def _process_file(
                         first_start,
                         off_regions=None,  # Use IQR method for robust estimation
                         thresh_snr=config.SNR_THRESH,
+                        band_idx=band_idx,  # Pasar el índice de la banda
+                        band_name=band_name,  # Pasar el nombre de la banda
                     )
                 else:
                     # Para bandas sin detecciones, crear un parche dummy
@@ -678,6 +648,7 @@ def _process_file(
                     normalize=True,
                     off_regions=None,  # Use IQR method
                     thresh_snr=config.SNR_THRESH,
+                    band_idx=band_idx,  # Pasar el índice de la banda
                     )
 
                 # 4) Generar detecciones de Bow ties (detections) - SIEMPRE
@@ -696,6 +667,7 @@ def _process_file(
                     band_suffix,
                     fits_path.stem,
                     slice_len,
+                    band_idx=band_idx,  # Pasar el índice de la banda
                 )
 
     runtime = time.time() - t_start
@@ -797,33 +769,12 @@ def _process_single_chunk(
     height = config.DM_max - config.DM_min + 1
     width_total = data_chunk.shape[0] // config.DOWN_TIME_RATE
     
-    # Usar SLICE_LEN dinámico o configurado
-    slice_len = None
-    time_slice = None
+    # 🚀 NUEVO SISTEMA SIMPLIFICADO: usar SLICE_LEN ya calculado dinámicamente
+    slice_len = config.SLICE_LEN  # Ya actualizado por update_slice_len_dynamic()
+    time_slice = (width_total + slice_len - 1) // slice_len
     
-    if getattr(config, 'SLICE_LEN_INTELLIGENT', True):
-        try:
-            from .auto_slice_len import get_automatic_slice_len_from_file
-            automatic_slice_len = get_automatic_slice_len_from_file(config)
-            slice_len, time_slice = _slice_parameters(width_total, automatic_slice_len)
-            logger.info(f"Chunk {chunk_idx}: SLICE_LEN automático = {automatic_slice_len}")
-        except Exception as e:
-            logger.warning(f"Error en SLICE_LEN automático para chunk {chunk_idx}: {e}")
-            slice_len = None
-    
-    if slice_len is None and getattr(config, 'SLICE_LEN_AUTO', True):
-        try:
-            from .slice_len_utils import get_dynamic_slice_len
-            dynamic_slice_len = get_dynamic_slice_len(config)
-            slice_len, time_slice = _slice_parameters(width_total, dynamic_slice_len)
-            logger.info(f"Chunk {chunk_idx}: SLICE_LEN dinámico = {dynamic_slice_len}")
-        except Exception as e:
-            logger.warning(f"Error en SLICE_LEN dinámico para chunk {chunk_idx}: {e}")
-            slice_len = None
-    
-    if slice_len is None:
-        slice_len, time_slice = _slice_parameters(width_total, config.SLICE_LEN)
-        logger.info(f"Chunk {chunk_idx}: SLICE_LEN manual = {config.SLICE_LEN}")
+    duration_ms, duration_text = get_slice_duration_info(slice_len)
+    logger.info(f"Chunk {chunk_idx}: usando {slice_len} muestras = {duration_text}")
     
     # Generar DM vs tiempo para este chunk
     dm_time = d_dm_time_g(data_chunk, height=height, width=width_total)
@@ -1063,6 +1014,8 @@ def _process_single_chunk(
                         first_start,
                         off_regions=None,  # Use IQR method for robust estimation
                         thresh_snr=config.SNR_THRESH,
+                        band_idx=band_idx,  # Pasar el índice de la banda
+                        band_name=band_name,  # Pasar el nombre de la banda
                     )
                 else:
                     # Para bandas sin detecciones, crear un parche dummy
@@ -1106,6 +1059,7 @@ def _process_single_chunk(
                     normalize=True,
                     off_regions=None,  # Use IQR method
                     thresh_snr=config.SNR_THRESH,
+                    band_idx=band_idx,  # Pasar el índice de la banda
                 )
 
                 # 4) Generar detecciones de Bow ties (detections) - SIEMPRE
@@ -1124,6 +1078,7 @@ def _process_single_chunk(
                     band_suffix,
                     fits_path.stem,
                     slice_len,
+                    band_idx=band_idx,  # Pasar el índice de la banda
                 )
     
     runtime = time.time() - t_start

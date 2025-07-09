@@ -18,6 +18,56 @@ from .snr_utils import compute_snr_profile, find_snr_peak
 logger = logging.getLogger(__name__)
 
 
+def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
+    """Get the frequency range (min, max) for a specific band.
+    
+    Parameters
+    ----------
+    band_idx : int
+        Band index (0=Full, 1=Low, 2=High)
+        
+    Returns
+    -------
+    Tuple[float, float]
+        (freq_min, freq_max) in MHz
+    """
+    freq_ds = np.mean(
+        config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
+        axis=1,
+    )
+    
+    if band_idx == 0:  # Full Band
+        return freq_ds.min(), freq_ds.max()
+    elif band_idx == 1:  # Low Band 
+        mid_channel = len(freq_ds) // 2
+        return freq_ds.min(), freq_ds[mid_channel]
+    elif band_idx == 2:  # High Band
+        mid_channel = len(freq_ds) // 2  
+        return freq_ds[mid_channel], freq_ds.max()
+    else:
+        logger.warning(f"Invalid band index {band_idx}, using Full Band range")
+        return freq_ds.min(), freq_ds.max()
+
+
+def get_band_name_with_freq_range(band_idx: int, band_name: str) -> str:
+    """Get band name with frequency range information.
+    
+    Parameters
+    ----------
+    band_idx : int
+        Band index (0=Full, 1=Low, 2=High)
+    band_name : str
+        Original band name (e.g., "Full Band", "Low Band", "High Band")
+        
+    Returns
+    -------
+    str
+        Band name with frequency range (e.g., "Full Band (1200-1500 MHz)")
+    """
+    freq_min, freq_max = get_band_frequency_range(band_idx)
+    return f"{band_name} ({freq_min:.0f}-{freq_max:.0f} MHz)"
+
+
 def save_plot(
     img_rgb: np.ndarray,
     top_conf: Iterable,
@@ -30,11 +80,16 @@ def save_plot(
     band_suffix: str,
     fits_stem: str,
     slice_len: int,
+    band_idx: int = 0,  # Para calcular el rango de frecuencias
 ) -> None:
     """Wrapper around :func:`save_detection_plot` with dynamic slice length."""
 
     prev_len = config.SLICE_LEN
     config.SLICE_LEN = slice_len
+    
+    # Agregar información de rango de frecuencias al nombre de la banda
+    band_name_with_freq = get_band_name_with_freq_range(band_idx, band_name)
+    
     save_detection_plot(
         img_rgb,
         top_conf,
@@ -43,11 +98,12 @@ def save_plot(
         out_img_path,
         slice_idx,
         time_slice,
-        band_name,
+        band_name_with_freq,
         band_suffix,
         config.DET_PROB,
         fits_stem,
         slice_len=slice_len,  # Pasar slice_len explícitamente
+        band_idx=band_idx,    # Pasar band_idx para el cálculo de frecuencias
     )
     config.SLICE_LEN = prev_len
 
@@ -60,6 +116,8 @@ def save_patch_plot(
     start_time: float,
     off_regions: Optional[List[Tuple[int, int]]] = None,
     thresh_snr: Optional[float] = None,
+    band_idx: int = 0,  # Para mostrar el rango de frecuencias
+    band_name: str = "Unknown Band",  # Nombre de la banda
 ) -> None:
     """Save a visualization of the classification patch with SNR profile.
     
@@ -79,6 +137,10 @@ def save_patch_plot(
         Off-pulse regions for SNR calculation
     thresh_snr : Optional[float]
         SNR threshold for highlighting
+    band_idx : int
+        Band index for frequency range calculation
+    band_name : str
+        Name of the band for display
     """
 
     # Check if patch is valid
@@ -96,6 +158,9 @@ def save_patch_plot(
     time_axis = start_time + np.arange(patch.shape[0]) * time_reso
     peak_time_abs = start_time + peak_idx * time_reso
 
+    # Get band frequency range for title
+    band_name_with_freq = get_band_name_with_freq_range(band_idx, band_name)
+    
     # Top panel: SNR profile
     ax0 = fig.add_subplot(gs[0, 0])
     ax0.plot(time_axis, snr_profile, color="royalblue", alpha=0.8, lw=1.5)
@@ -159,7 +224,10 @@ def save_patch_plot(
 
     # Add colorbar
     cbar = plt.colorbar(im, ax=ax1, shrink=0.8)
-    cbar.set_label('Intensity', fontsize=9)
+    cbar.set_label('Normalized Intensity', fontsize=9, fontweight='bold')
+
+    # Add title with band frequency range information
+    plt.suptitle(f"Candidate Patch - {band_name_with_freq}", fontsize=12, fontweight='bold')
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.tight_layout()
@@ -188,6 +256,7 @@ def save_slice_summary(
     normalize: bool = False,
     off_regions: Optional[List[Tuple[int, int]]] = None,
     thresh_snr: Optional[float] = None,
+    band_idx: int = 0,  # Para mostrar el rango de frecuencias
 ) -> None:
     """Save a composite figure summarising detections and waterfalls with SNR analysis.
 
@@ -201,8 +270,13 @@ def save_slice_summary(
         Off-pulse regions for SNR calculation
     thresh_snr : Optional[float]
         SNR threshold for highlighting
+    band_idx : int
+        Band index for frequency range calculation
     """
 
+    # Get band frequency range for display
+    band_name_with_freq = get_band_name_with_freq_range(band_idx, band_name)
+    
     freq_ds = np.mean(
         config.FREQ.reshape(
             config.FREQ_RESO // config.DOWN_FREQ_RATE,
@@ -244,8 +318,8 @@ def save_slice_summary(
     ax_det = fig.add_subplot(gs_main[0, 0])
     ax_det.imshow(img_rgb, origin="lower", aspect="auto")
     ax_det.set_title("Detection Results", fontsize=10, fontweight="bold")
-    ax_det.set_xlabel("Time", fontsize=9)
-    ax_det.set_ylabel("DM", fontsize=9)
+    ax_det.set_xlabel("Time (s)", fontsize=9)
+    ax_det.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=9)
 
     prev_len_config = config.SLICE_LEN
     config.SLICE_LEN = slice_len
@@ -282,9 +356,10 @@ def save_slice_summary(
             x1, y1, x2, y2 = map(int, box)
             center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
             
-            # Calcular DM usando el rango dinámico
-            dm_pixel_fraction = center_y / img_rgb.shape[0]
-            dm_val_cand = dm_plot_min + dm_pixel_fraction * (dm_plot_max - dm_plot_min)
+            # ✅ CORRECCIÓN: Usar el DM REAL (mismo cálculo que pixel_to_physical)
+            # Este es el DM que se usa en dedispersion y se guarda en CSV
+            from .astro_conversions import pixel_to_physical
+            dm_val_cand, t_sec_real, t_sample_real = pixel_to_physical(center_x, center_y, slice_len)
             
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
@@ -331,7 +406,7 @@ def save_slice_summary(
     else:
         dm_range_info += " (full)"
     
-    title_det = f"Detection Map - {fits_stem} ({band_name})\nSlice {slice_idx + 1} of {time_slice} | DM Range: {dm_range_info} pc cm⁻³"
+    title_det = f"Detection Map - {fits_stem} ({band_name_with_freq})\nSlice {slice_idx + 1} of {time_slice} | DM Range: {dm_range_info} pc cm⁻³"
     ax_det.set_title(title_det, fontsize=11, fontweight="bold")
     config.SLICE_LEN = prev_len_config
 
@@ -461,7 +536,7 @@ def save_slice_summary(
         ax_prof_dw.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
         ax_prof_dw.grid(True, alpha=0.3)
         ax_prof_dw.set_xticks([])
-        ax_prof_dw.set_title(f"Dedispersed SNR DM={dm_val:.2f}\nPeak={peak_snr_dw:.1f}σ", fontsize=9, fontweight="bold")
+        ax_prof_dw.set_title(f"Dedispersed SNR DM={dm_val:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ", fontsize=9, fontweight="bold")
     else:
         ax_prof_dw.text(0.5, 0.5, 'No dedispersed\ndata available', 
                        transform=ax_prof_dw.transAxes, 
@@ -595,7 +670,7 @@ def save_slice_summary(
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     fig.suptitle(
-        f"Composite Summary: {fits_stem} - {band_name} - Slice {slice_idx + 1}",
+        f"Composite Summary: {fits_stem} - {band_name_with_freq} - Slice {slice_idx + 1}",
         fontsize=14,
         fontweight="bold",
         y=0.97,

@@ -199,8 +199,8 @@ def plot_waterfall_block(
     ax1.set_yticklabels(np.round(np.linspace(freq.min(), freq.max(), 6)).astype(int))
     ax1.set_xticks(np.linspace(0, block_size, 6))
     ax1.set_xticklabels(np.round(time_start + np.linspace(0, block_size, 6) * time_reso, 2))
-    ax1.set_xlabel("Time (s)")
-    ax1.set_ylabel("Frequency (MHz)")
+    ax1.set_xlabel("Time (s)", fontsize=12, fontweight="bold")
+    ax1.set_ylabel("Frequency (MHz)", fontsize=12, fontweight="bold")
 
     out_path = save_dir / f"{filename}-block{block_idx:03d}-peak{peak_time:.2f}.png"
     plt.tight_layout()
@@ -221,6 +221,7 @@ def save_detection_plot(
     det_prob: float,
     fits_stem: str,
     slice_len: Optional[int] = None,
+    band_idx: int = 0,  # Para calcular el rango de frecuencias de la banda
 ) -> None:
     """Save detection plot with both detection and classification probabilities."""
 
@@ -261,11 +262,11 @@ def save_detection_plot(
     ax.set_yticklabels([f"{dm:.0f}" for dm in dm_values])
     ax.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=12, fontweight="bold")
 
-    # Title
-    if config.FREQ is not None:
-        freq_range = f"{config.FREQ.min():.1f}\u2013{config.FREQ.max():.1f} MHz"
-    else:
-        freq_range = ""
+    # Title - Usar el rango de frecuencias específico de la banda
+    from .visualization import get_band_frequency_range
+    
+    freq_min, freq_max = get_band_frequency_range(band_idx)
+    freq_range = f"{freq_min:.0f}\u2013{freq_max:.0f} MHz"
         
     # Indicar si se está usando DM dinámico
     dm_range_info = f"{dm_plot_min:.0f}\u2013{dm_plot_max:.0f}"
@@ -319,14 +320,10 @@ def save_detection_plot(
             x1, y1, x2, y2 = map(int, box)
             center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
             
-            # Calcular DM usando el rango dinámico
-            # Convertir posición y en pixel a DM real usando el rango dinámico
-            dm_pixel_fraction = center_y / 512.0
-            dm_val = dm_plot_min + dm_pixel_fraction * (dm_plot_max - dm_plot_min)
-            
-            # Calcular tiempo físico
-            t_pixel_fraction = center_x / 512.0
-            t_sec = time_start_slice + t_pixel_fraction * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+            # ✅ CORRECCIÓN: Usar el DM REAL (mismo cálculo que pixel_to_physical)
+            # Este es el DM que se usa en dedispersion y se guarda en CSV
+            from .astro_conversions import pixel_to_physical
+            dm_val_real, t_sec_real, t_sample_real = pixel_to_physical(center_x, center_y, slice_len)
             
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
@@ -335,10 +332,10 @@ def save_detection_plot(
                 color = "lime" if is_burst else "orange"
                 burst_status = "BURST" if is_burst else "NO BURST"
                 
-                # Etiqueta completa con toda la información
+                # Etiqueta completa con toda la información - USANDO DM REAL
                 label = (
                     f"#{idx+1}\n"
-                    f"DM: {dm_val:.1f}\n"
+                    f"DM: {dm_val_real:.1f}\n"
                     f"Det: {conf:.2f}\n"
                     f"Cls: {class_prob:.2f}\n"
                     f"{burst_status}"
@@ -346,7 +343,7 @@ def save_detection_plot(
             else:
                 # Fallback si no hay probabilidades de clasificación
                 color = "lime"
-                label = f"#{idx+1}\nDM: {dm_val:.1f}\nDet: {conf:.2f}"
+                label = f"#{idx+1}\nDM: {dm_val_real:.1f}\nDet: {conf:.2f}"
             
             # Dibujar rectángulo
             rect = plt.Rectangle(

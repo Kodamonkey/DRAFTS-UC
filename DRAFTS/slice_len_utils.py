@@ -1,15 +1,86 @@
 """
-Funciones para cálculo dinámico de SLICE_LEN basado en duración temporal.
-
-Permite al usuario especificar la duración deseada por slice en segundos
-y calcula automáticamente el SLICE_LEN óptimo basado en los parámetros del archivo.
+Utilidades para cálculo dinámico de SLICE_LEN basado en duración objetivo.
+Nuevo sistema simplificado: SIEMPRE usa SLICE_DURATION_MS como parámetro único.
 """
-
-import numpy as np
-from typing import Tuple, Optional
 import logging
+from typing import Tuple, Optional
+import numpy as np
+
+from . import config
 
 logger = logging.getLogger(__name__)
+
+
+def calculate_slice_len_from_duration() -> Tuple[int, float]:
+    """
+    Calcula SLICE_LEN dinámicamente basado en SLICE_DURATION_MS y metadatos del archivo.
+    
+    Fórmula inversa: SLICE_LEN = round(SLICE_DURATION_MS / (TIME_RESO × DOWN_TIME_RATE × 1000))
+    
+    Returns:
+        Tuple[int, float]: (slice_len_calculado, duracion_real_ms)
+    """
+    if config.TIME_RESO <= 0:
+        logger.warning("TIME_RESO no está configurado, usando SLICE_LEN_MIN")
+        return config.SLICE_LEN_MIN, config.SLICE_DURATION_MS
+    
+    # Fórmula inversa: SLICE_LEN = SLICE_DURATION_MS / (TIME_RESO × DOWN_TIME_RATE × 1000)
+    target_duration_s = config.SLICE_DURATION_MS / 1000.0
+    calculated_slice_len = round(target_duration_s / (config.TIME_RESO * config.DOWN_TIME_RATE))
+    
+    # Aplicar límites mín/máx
+    slice_len = max(config.SLICE_LEN_MIN, min(config.SLICE_LEN_MAX, calculated_slice_len))
+    
+    # Calcular duración real obtenida
+    real_duration_s = slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    real_duration_ms = real_duration_s * 1000.0
+    
+    # Actualizar config.SLICE_LEN con el valor calculado
+    config.SLICE_LEN = slice_len
+    
+    logger.info(f"🎯 Duración objetivo: {config.SLICE_DURATION_MS:.1f} ms")
+    logger.info(f"📏 SLICE_LEN calculado: {slice_len} muestras")
+    logger.info(f"⏱️  Duración real obtenida: {real_duration_ms:.1f} ms")
+    
+    if abs(real_duration_ms - config.SLICE_DURATION_MS) > 5.0:
+        logger.warning(f"⚠️  Diferencia significativa entre objetivo ({config.SLICE_DURATION_MS:.1f} ms) "
+                      f"y obtenido ({real_duration_ms:.1f} ms)")
+    
+    return slice_len, real_duration_ms
+
+
+def get_slice_duration_info(slice_len: int) -> Tuple[float, str]:
+    """
+    Convierte SLICE_LEN a información de duración para display.
+    
+    Args:
+        slice_len: Número de muestras
+        
+    Returns:
+        Tuple[float, str]: (duracion_ms, texto_para_display)
+    """
+    if config.TIME_RESO <= 0:
+        return config.SLICE_DURATION_MS, f"{config.SLICE_DURATION_MS:.1f} ms"
+    
+    duration_s = slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    duration_ms = duration_s * 1000.0
+    
+    return duration_ms, f"{duration_ms:.1f} ms"
+
+
+def update_slice_len_dynamic():
+    """
+    Actualiza config.SLICE_LEN basado en SLICE_DURATION_MS.
+    Debe llamarse después de cargar metadatos del archivo.
+    """
+    slice_len, real_duration_ms = calculate_slice_len_from_duration()
+    logger.info(f"✅ Slice configurado: {slice_len} muestras = {real_duration_ms:.1f} ms")
+    return slice_len, real_duration_ms
+
+
+# ==============================================================================
+# FUNCIONES HEREDADAS (mantenidas para compatibilidad pero no se usan)
+# ==============================================================================
 
 def calculate_optimal_slice_len(
     time_reso: float,
@@ -121,7 +192,11 @@ def get_dynamic_slice_len(config_module) -> int:
     # Obtener parámetros necesarios
     time_reso = getattr(config_module, 'TIME_RESO', 0.0)
     down_time_rate = getattr(config_module, 'DOWN_TIME_RATE', 1)
-    target_duration = getattr(config_module, 'SLICE_DURATION_SECONDS', 0.032)
+    
+    # Convertir de milisegundos a segundos
+    target_duration_ms = getattr(config_module, 'SLICE_DURATION_MS', 64.0)
+    target_duration = target_duration_ms / 1000.0  # Convertir ms a segundos
+    
     min_slice = getattr(config_module, 'SLICE_LEN_MIN', 16)
     max_slice = getattr(config_module, 'SLICE_LEN_MAX', 512)
     
@@ -134,8 +209,8 @@ def get_dynamic_slice_len(config_module) -> int:
         max_slice_len=max_slice
     )
     
-    logger.info("SLICE_LEN dinámico calculado: %d (duración: %.3f s) - %s", 
-                optimal_slice_len, actual_duration, explanation)
+    logger.info("SLICE_LEN dinámico calculado: %d (duración: %.1f ms) - %s", 
+                optimal_slice_len, actual_duration * 1000, explanation)
     
     return optimal_slice_len
 

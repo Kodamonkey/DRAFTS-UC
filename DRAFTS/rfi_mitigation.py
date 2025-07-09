@@ -507,44 +507,44 @@ class RFIMitigator:
         
         # Waterfall original
         im1 = axes[0, 0].imshow(original_waterfall.T, aspect='auto', origin='lower')
-        axes[0, 0].set_title('Waterfall Original')
-        axes[0, 0].set_xlabel('Tiempo')
-        axes[0, 0].set_ylabel('Frecuencia')
+        axes[0, 0].set_title('Original Waterfall')
+        axes[0, 0].set_xlabel('Time (s)')
+        axes[0, 0].set_ylabel('Frequency (MHz)')
         plt.colorbar(im1, ax=axes[0, 0])
         
         # Waterfall limpio
         im2 = axes[0, 1].imshow(cleaned_waterfall.T, aspect='auto', origin='lower')
-        axes[0, 1].set_title('Waterfall Limpio')
-        axes[0, 1].set_xlabel('Tiempo')
-        axes[0, 1].set_ylabel('Frecuencia')
+        axes[0, 1].set_title('Cleaned Waterfall')
+        axes[0, 1].set_xlabel('Time (s)')
+        axes[0, 1].set_ylabel('Frequency (MHz)')
         plt.colorbar(im2, ax=axes[0, 1])
         
         # Diferencia
         diff = original_waterfall - cleaned_waterfall
         im3 = axes[0, 2].imshow(diff.T, aspect='auto', origin='lower')
-        axes[0, 2].set_title('RFI Removido')
-        axes[0, 2].set_xlabel('Tiempo')
-        axes[0, 2].set_ylabel('Frecuencia')
+        axes[0, 2].set_title('Removed RFI')
+        axes[0, 2].set_xlabel('Time (s)')
+        axes[0, 2].set_ylabel('Frequency (MHz)')
         plt.colorbar(im3, ax=axes[0, 2])
         
         # Perfiles temporales
         time_orig = np.mean(original_waterfall, axis=1)
         time_clean = np.mean(cleaned_waterfall, axis=1)
         axes[1, 0].plot(time_orig, label='Original', alpha=0.7)
-        axes[1, 0].plot(time_clean, label='Limpio', alpha=0.7)
-        axes[1, 0].set_title('Perfil Temporal')
-        axes[1, 0].set_xlabel('Tiempo')
-        axes[1, 0].set_ylabel('Intensidad')
+        axes[1, 0].plot(time_clean, label='Cleaned', alpha=0.7)
+        axes[1, 0].set_title('Time Profile')
+        axes[1, 0].set_xlabel('Time (s)')
+        axes[1, 0].set_ylabel('Normalized Intensity')
         axes[1, 0].legend()
         
         # Espectros
         freq_orig = np.mean(original_waterfall, axis=0)
         freq_clean = np.mean(cleaned_waterfall, axis=0)
         axes[1, 1].plot(freq_orig, label='Original', alpha=0.7)
-        axes[1, 1].plot(freq_clean, label='Limpio', alpha=0.7)
-        axes[1, 1].set_title('Espectro Promedio')
-        axes[1, 1].set_xlabel('Frecuencia')
-        axes[1, 1].set_ylabel('Intensidad')
+        axes[1, 1].plot(freq_clean, label='Cleaned', alpha=0.7)
+        axes[1, 1].set_title('Average Spectrum')
+        axes[1, 1].set_xlabel('Frequency (MHz)')
+        axes[1, 1].set_ylabel('Normalized Intensity')
         axes[1, 1].legend()
         
         # Estadísticas de RFI
@@ -555,7 +555,7 @@ class RFIMitigator:
             ])
             axes[1, 2].text(0.1, 0.9, stats_text, transform=axes[1, 2].transAxes,
                            verticalalignment='top', fontsize=10)
-            axes[1, 2].set_title('Estadísticas RFI')
+            axes[1, 2].set_title('RFI Statistics')
             axes[1, 2].set_xticks([])
             axes[1, 2].set_yticks([])
         

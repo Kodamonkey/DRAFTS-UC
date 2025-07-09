@@ -122,17 +122,17 @@ def plot_snr_comparison(
     im1 = axes[0, 0].imshow(original_waterfall.T, aspect='auto', origin='lower',
                            cmap=config.SNR_COLORMAP)
     axes[0, 0].set_title('DM vs. Time - Original')
-    axes[0, 0].set_xlabel('Tiempo')
-    axes[0, 0].set_ylabel('DM')
+    axes[0, 0].set_xlabel('Time (s)')
+    axes[0, 0].set_ylabel('Dispersion Measure (pc cm⁻³)')
     axes[0, 0].axvline(peak_time_orig, color='red', linestyle='--', alpha=0.7)
     plt.colorbar(im1, ax=axes[0, 0])
     
     # Waterfall limpio
     im2 = axes[0, 1].imshow(cleaned_waterfall.T, aspect='auto', origin='lower',
                            cmap=config.SNR_COLORMAP)
-    axes[0, 1].set_title('DM vs. Time - Limpio')
-    axes[0, 1].set_xlabel('Tiempo')
-    axes[0, 1].set_ylabel('DM')
+    axes[0, 1].set_title('DM vs. Time - Cleaned')
+    axes[0, 1].set_xlabel('Time (s)')
+    axes[0, 1].set_ylabel('Dispersion Measure (pc cm⁻³)')
     axes[0, 1].axvline(peak_time_clean, color='red', linestyle='--', alpha=0.7)
     plt.colorbar(im2, ax=axes[0, 1])
     
@@ -146,18 +146,18 @@ def plot_snr_comparison(
                       label=f'Umbral SNR = {config.SNR_THRESH}')
     axes[1, 0].axvline(peak_time_orig, color='blue', linestyle=':', alpha=0.5)
     axes[1, 0].axvline(peak_time_clean, color='red', linestyle=':', alpha=0.5)
-    axes[1, 0].set_title('Comparación Perfiles SNR')
-    axes[1, 0].set_xlabel('Tiempo')
-    axes[1, 0].set_ylabel('SNR')
+    axes[1, 0].set_title('SNR Profile Comparison')
+    axes[1, 0].set_xlabel('Time (s)')
+    axes[1, 0].set_ylabel('SNR (σ)')
     axes[1, 0].legend()
     axes[1, 0].grid(True, alpha=0.3)
     
     # Histograma de mejora en SNR
     snr_improvement = snr_profile - snr_original
     axes[1, 1].hist(snr_improvement, bins=50, alpha=0.7, color='green')
-    axes[1, 1].set_title('Mejora en SNR por Limpieza RFI')
-    axes[1, 1].set_xlabel('Δ SNR (Limpio - Original)')
-    axes[1, 1].set_ylabel('Frecuencia')
+    axes[1, 1].set_title('SNR Improvement by RFI Cleaning')
+    axes[1, 1].set_xlabel('Δ SNR (Cleaned - Original)')
+    axes[1, 1].set_ylabel('Count')
     axes[1, 1].axvline(np.mean(snr_improvement), color='red', linestyle='--',
                       label=f'Media: {np.mean(snr_improvement):.3f}')
     axes[1, 1].legend()

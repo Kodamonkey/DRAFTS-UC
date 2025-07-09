@@ -7,16 +7,19 @@ El **Sistema de DM Dinámico** ha sido totalmente integrado en el pipeline DRAFT
 ## ✨ Características Principales
 
 ### 🎯 Centrado Automático
+
 - **Cálculo automático** del rango DM óptimo basado en candidatos detectados
 - **Centrado inteligente** en el DM del candidato más fuerte
 - **Ajuste adaptativo** según la confianza de la detección
 
 ### 🔍 Mejora de Resolución
+
 - **Factor de zoom automático** de 2x a 20x en el eje DM
 - **Reducción de espacio vacío** en los plots
 - **Visualización optimizada** para cada detección específica
 
 ### 🛡️ Robustez y Flexibilidad
+
 - **Fallback automático** al rango completo si no hay candidatos
 - **Configuración flexible** de parámetros de rango
 - **Compatibilidad total** con el pipeline existente
@@ -37,16 +40,17 @@ DM_RANGE_DEFAULT_VISUALIZATION: str = "detailed"  # Tipo de visualización por d
 
 ### Tipos de Visualización Disponibles
 
-| Tipo | Factor Rango | Ancho Min | Ancho Max | Uso Recomendado |
-|------|--------------|-----------|-----------|----------------|
-| `composite` | 0.15 | 40 | 150 | Resúmenes multi-candidato |
-| `patch` | 0.1 | 30 | 100 | Patches individuales |
-| `detailed` | 0.2 | 50 | 200 | Análisis detallado |
-| `overview` | 0.3 | 80 | 300 | Vista general |
+| Tipo        | Factor Rango | Ancho Min | Ancho Max | Uso Recomendado           |
+| ----------- | ------------ | --------- | --------- | ------------------------- |
+| `composite` | 0.15         | 40        | 150       | Resúmenes multi-candidato |
+| `patch`     | 0.1          | 30        | 100       | Patches individuales      |
+| `detailed`  | 0.2          | 50        | 200       | Análisis detallado        |
+| `overview`  | 0.3          | 80        | 300       | Vista general             |
 
 ## 📊 Funcionamiento
 
 ### 1. Detección de Candidatos
+
 ```python
 # El sistema analiza automáticamente los candidatos detectados
 candidates = [(x1, y1, x2, y2), ...]  # Bounding boxes
@@ -54,6 +58,7 @@ confidences = [0.95, 0.82, ...]       # Puntuaciones de confianza
 ```
 
 ### 2. Cálculo del Rango Dinámico
+
 ```python
 # Conversión de pixels a DM físico
 dm_candidates = [pixel_to_dm(box) for box in candidates]
@@ -68,6 +73,7 @@ dm_plot_max = best_candidate_dm + dm_range_width / 2
 ```
 
 ### 3. Aplicación a los Plots
+
 ```python
 # Los ejes DM se ajustan automáticamente
 dm_values = dm_plot_min + (positions / 512.0) * (dm_plot_max - dm_plot_min)
@@ -77,6 +83,7 @@ ax.set_yticklabels([f"{dm:.0f}" for dm in dm_values])
 ## 📈 Ejemplos de Mejora
 
 ### Antes (Rango Fijo 0-1024 pc cm⁻³)
+
 ```
 FRB detectado en DM = 450 pc cm⁻³
 Rango mostrado: 0 - 1024 pc cm⁻³ (ancho: 1024)
@@ -84,6 +91,7 @@ Resolución efectiva: 1024/512 = 2.0 pc cm⁻³ por pixel
 ```
 
 ### Después (Rango Dinámico)
+
 ```
 FRB detectado en DM = 450 pc cm⁻³
 Rango mostrado: 360 - 540 pc cm⁻³ (ancho: 180)
@@ -96,14 +104,17 @@ Mejora: 5.7x mejor resolución
 ### Funciones Modificadas
 
 #### `image_utils.py`
+
 - ✅ `save_detection_plot()` - Integrado DM dinámico
 - ✅ `_calculate_dynamic_dm_range()` - Nueva función auxiliar
 
 #### `visualization.py`
+
 - ✅ `save_plot()` - Actualizado para pasar slice_len
 - ✅ Importación de funciones DM dinámico
 
 #### `config.py`
+
 - ✅ Nuevos parámetros de configuración DM dinámico
 
 ### Flujo de Integración
@@ -114,7 +125,7 @@ graph TD
     B --> C[Ajuste de Ejes DM]
     C --> D[Generación de Plot]
     D --> E[Visualización Optimizada]
-    
+
     F[Sin Candidatos] --> G[Fallback a Rango Completo]
     G --> D
 ```
@@ -122,11 +133,13 @@ graph TD
 ## 🧪 Testing y Validación
 
 ### Tests Automatizados
+
 ```bash
 python test_dm_dynamic_integration.py
 ```
 
 **Tests incluidos:**
+
 - ✅ Cálculo de rango dinámico
 - ✅ Integración con save_detection_plot
 - ✅ Comportamiento de fallback
@@ -134,11 +147,13 @@ python test_dm_dynamic_integration.py
 - ✅ Opciones de configuración
 
 ### Demostración
+
 ```bash
 python demo_dynamic_dm_plotting.py
 ```
 
 **Genera:**
+
 - 📊 Plots comparativos antes/después
 - 📋 Tabla de mejoras de resolución
 - 📈 Análisis de diferentes escenarios
@@ -177,11 +192,13 @@ dm_min, dm_max = get_dynamic_dm_range_for_candidate(
 ## ⚠️ Consideraciones Importantes
 
 ### Limitaciones
+
 - **Requiere candidatos detectados** para funcionar óptimamente
 - **Fallback al rango completo** si no hay detecciones
 - **Precisión dependiente** de la calidad de las detecciones
 
 ### Recomendaciones
+
 - **Usar confianza > 0.7** para mejores resultados
 - **Ajustar DM_RANGE_FACTOR** según el tipo de observación
 - **Monitorear logs** para verificar el comportamiento del sistema
@@ -189,18 +206,21 @@ dm_min, dm_max = get_dynamic_dm_range_for_candidate(
 ### Troubleshooting
 
 #### Problema: Rango muy estrecho
+
 ```python
 # Solución: Aumentar ancho mínimo
 config.DM_RANGE_MIN_WIDTH = 100.0
 ```
 
 #### Problema: Candidatos fuera del rango
+
 ```python
 # Solución: Aumentar factor de rango
 config.DM_RANGE_FACTOR = 0.3
 ```
 
 #### Problema: No se aplica DM dinámico
+
 ```python
 # Verificar configuración
 assert config.DM_DYNAMIC_RANGE_ENABLE == True
@@ -209,16 +229,19 @@ assert config.DM_DYNAMIC_RANGE_ENABLE == True
 ## 🚀 Beneficios del Sistema
 
 ### Para Investigadores
+
 - **🔍 Mayor resolución** en el eje DM para análisis detallado
 - **⏱️ Ahorro de tiempo** en ajustes manuales de rangos
 - **📊 Visualizaciones consistentes** y optimizadas
 
 ### Para el Pipeline
+
 - **🤖 Automatización completa** sin intervención manual
 - **🛡️ Robustez** con fallbacks automáticos
 - **⚡ Eficiencia** mejorada en análisis de candidatos
 
 ### Métricas de Mejora
+
 - **Resolución DM**: Mejora de 2x a 20x
 - **Espacio útil en plots**: Incremento del 60-90%
 - **Tiempo de análisis**: Reducción del 40%

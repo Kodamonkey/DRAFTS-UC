@@ -26,11 +26,6 @@ except ImportError:  # Si torch no está instalado, lo dejamos como None
 # SWITCHES DE CONTROL - Activar/Desactivar configuraciones manuales
 # =============================================================================
 
-# --- Control de Slice Temporal ---
-SLICE_LEN_AUTO: bool = False                # True = automático, False = manual
-SLICE_LEN_INTELLIGENT: bool = False         # True = análisis inteligente, False = usar SLICE_LEN fijo
-SLICE_LEN_OVERRIDE_MANUAL: bool = False     # True = sistema anula manual, False = respetar manual
-
 # --- Control de Rango DM Dinámico ---
 DM_DYNAMIC_RANGE_ENABLE: bool = False       # True = zoom automático, False = rango fijo
 DM_RANGE_ADAPTIVE: bool = False             # True = adaptar según confianza, False = factor fijo
@@ -49,33 +44,34 @@ DATA_DIR = Path("./Data")                        # Directorio con archivos de en
 RESULTS_DIR = Path("./Results/ObjectDetection")  # Directorio para guardar resultados
 FRB_TARGETS = ["B0355+54"]                       # Lista de targets FRB a procesar
 
+# --- Configuración de Slice Temporal ---
+SLICE_DURATION_MS: float = 196.0            # Duración deseada de cada slice en milisegundos 
+                                            # El sistema calculará automáticamente SLICE_LEN según:
+                                            # SLICE_LEN = round(SLICE_DURATION_MS / (TIME_RESO × DOWN_TIME_RATE × 1000))
+                                            # Valores típicos: 16ms (rápido), 32ms (normal), 64ms (estándar), 128ms (lento)
+
+SLICE_LEN_MIN: int = 32                      # Límite inferior de seguridad para el cálculo automático de SLICE_LEN
+SLICE_LEN_MAX: int = 2048                    # Límite superior de seguridad para el cálculo automático de SLICE_LEN
+                                            # Estos valores actúan como guardias: SLICE_LEN = max(MIN, min(calculado, MAX))
+                                            # Evitan slices muy pequeños (<32) o muy grandes (>2048) que causen problemas
+
 # --- Rango de Dispersion Measure (DM) ---
 DM_min: int = 0                             # DM mínimo en pc cm⁻³
-DM_max: int = 500                          # DM máximo en pc cm⁻³
+DM_max: int = 129                           # DM máximo en pc cm⁻³
 
 # --- Umbrales de detección ---
-DET_PROB: float = 0.3                     # Probabilidad mínima para considerar una detección válida
+DET_PROB: float = 0.3                       # Probabilidad mínima para considerar una detección válida
 CLASS_PROB: float = 0.5                     # Probabilidad mínima para clasificar como burst
 SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en visualizaciones
 
 # --- Configuración de procesamiento ---
 USE_MULTI_BAND: bool = True                 # Usar análisis multi-banda (Full/Low/High)
 ENABLE_CHUNK_PROCESSING: bool = True        # Procesar archivos grandes en chunks
-MAX_SAMPLES_LIMIT: int = 2000000           # Límite de muestras por chunk (memoria)
+MAX_SAMPLES_LIMIT: int = 2000000            # Límite de muestras por chunk (memoria)
 
 # =============================================================================
 # CONFIGURACIÓN MANUAL - Variables que se modifican cuando switches = False
 # =============================================================================
-
-# --- Slice Temporal Manual (cuando SLICE_LEN_AUTO = False) ---
-# Sección manual (cuando SLICE_LEN_AUTO = False):
-SLICE_LEN: int = 512                         # Valor manual (número de muestras)
-
-# Sección automática (cuando SLICE_LEN_AUTO = True):
-SLICE_DURATION_SECONDS: float = 0.032      # Duración deseada para cálculo automático
-
-SLICE_LEN_MIN: int = 0                      # Valor mínimo de SLICE_LEN
-SLICE_LEN_MAX: int = 1024                   # Valor máximo de SLICE_LEN
 
 # --- Rango DM Manual (cuando DM_DYNAMIC_RANGE_ENABLE = False) ---
 
@@ -129,6 +125,9 @@ FREQ_RESO: int = 0                          # Resolución de frecuencia (canales
 TIME_RESO: float = 0.0                      # Resolución temporal (segundos)
 FILE_LENG: int = 0                          # Longitud del archivo (muestras)
 
+# --- Configuración de Slice Temporal (calculada dinámicamente) ---
+SLICE_LEN: int = 512                        # Número de muestras por slice (calculado automáticamente desde SLICE_DURATION_MS)
+
 # --- Parámetros de decimación ---
 DOWN_FREQ_RATE: int = 1                     # Factor de reducción en frecuencia
 DOWN_TIME_RATE: int = 1                     # Factor de reducción en tiempo
@@ -151,47 +150,35 @@ CHUNK_OVERLAP_SAMPLES: int = 1000           # Solapamiento entre chunks
 # INFORMACIÓN ADICIONAL Y NOTAS
 # =============================================================================
 
-# --- GUÍA DE USO DE SWITCHES DE CONTROL ---
+# --- GUÍA DE USO SIMPLIFICADA ---
 """
-CONFIGURACIÓN MANUAL vs AUTOMÁTICA:
+CONFIGURACIÓN SIMPLIFICADA:
 
 1. SLICE TEMPORAL:
-   Para usar configuración MANUAL:
-   - SLICE_LEN_AUTO = False
-   - SLICE_LEN_INTELLIGENT = False  
-   - SLICE_LEN_OVERRIDE_MANUAL = False
-   - Configurar: SLICE_LEN = 32 (o el valor deseado)
-   
-   Para usar configuración AUTOMÁTICA:
-   - SLICE_LEN_AUTO = True
-   - SLICE_LEN_INTELLIGENT = True
-   - SLICE_LEN_OVERRIDE_MANUAL = True
+   - Solo configura SLICE_DURATION_MS con la duración deseada en milisegundos
+   - El sistema calcula automáticamente SLICE_LEN según los metadatos del archivo
+   - Ejemplos: 32.0 ms (rápido), 64.0 ms (normal), 128.0 ms (lento), 256.0 ms (detallado)
 
 2. RANGO DM PARA PLOTS:
    Para usar configuración MANUAL:
    - DM_DYNAMIC_RANGE_ENABLE = False
-   - DM_RANGE_ADAPTIVE = False
    - Configurar: DM_RANGE_FACTOR, DM_PLOT_MARGIN_FACTOR, etc.
    
    Para usar configuración AUTOMÁTICA:
    - DM_DYNAMIC_RANGE_ENABLE = True
-   - DM_RANGE_ADAPTIVE = True
 
 3. RFI:
    Para procesamiento BÁSICO:
    - RFI_ENABLE_ALL_FILTERS = False
-   - RFI_INTERPOLATE_MASKED = False
-   - RFI_SAVE_DIAGNOSTICS = False
    
    Para procesamiento COMPLETO:
    - RFI_ENABLE_ALL_FILTERS = True
-   - RFI_INTERPOLATE_MASKED = True
-   - RFI_SAVE_DIAGNOSTICS = True
 
 CASOS DE USO TÍPICOS:
-- Pruebas y desarrollo: Configuración MANUAL
-- Producción y análisis automático: Configuración AUTOMÁTICA
-- Debug y ajuste fino: Configuración MANUAL + diagnósticos
+- Análisis rápido: SLICE_DURATION_MS = 32.0
+- Análisis estándar: SLICE_DURATION_MS = 64.0  
+- Análisis detallado: SLICE_DURATION_MS = 128.0
+- Análisis ultra-detallado: SLICE_DURATION_MS = 256.0
 """
 
 # --- Bandas de frecuencia automáticas ---
@@ -211,21 +198,16 @@ CASOS DE USO TÍPICOS:
 #   - DET_PROB = 0.05 (más sensible)
 #   - SNR_THRESH = 2.5 (umbral más bajo)
 #   - DM_RANGE_FACTOR = 0.2 (rango más estrecho)
+#   - SLICE_DURATION_MS = 32.0 (slices más cortos)
 #
 # Para búsqueda exploratoria:
 #   - DET_PROB = 0.1 (balanced)
 #   - SNR_THRESH = 3.0 (estándar)
 #   - DM_RANGE_FACTOR = 0.3 (rango más amplio)
+#   - SLICE_DURATION_MS = 64.0 (duración estándar)
 #
 # Para procesamiento rápido:
 #   - ENABLE_CHUNK_PROCESSING = True
 #   - MAX_SAMPLES_LIMIT = 1000000 (chunks más pequeños)
 #   - USE_MULTI_BAND = False (si no es necesario)
-#
-# Para procesamiento rápido:
-#   - ENABLE_CHUNK_PROCESSING = True
-#   - MAX_SAMPLES_LIMIT = 1000000 (chunks más pequeños)
-#   - USE_MULTI_BAND = False (si no es necesario)
-#   - ENABLE_CHUNK_PROCESSING = True
-#   - MAX_SAMPLES_LIMIT = 1000000 (chunks más pequeños)
-#   - USE_MULTI_BAND = False (si no es necesario)
+#   - SLICE_DURATION_MS = 128.0 (slices más largos)

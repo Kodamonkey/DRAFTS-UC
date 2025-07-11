@@ -65,7 +65,7 @@ CLASS_PROB: float = 0.5                     # Probabilidad mínima para clasific
 SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en visualizaciones
 
 # --- Configuración de procesamiento ---
-USE_MULTI_BAND: bool = True                 # Usar análisis multi-banda (Full/Low/High)
+USE_MULTI_BAND: bool = False                 # Usar análisis multi-banda (Full/Low/High)
 ENABLE_CHUNK_PROCESSING: bool = True        # Procesar archivos grandes en chunks
 MAX_SAMPLES_LIMIT: int = 2000000            # Límite de muestras por chunk (memoria)
 

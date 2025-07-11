@@ -701,6 +701,44 @@ def _process_file(
         "mean_snr": float(np.mean(snr_list)) if snr_list else 0.0,
     }
 
+def _load_extended_data_for_dedispersion(fits_path: Path, start_sample_global: int, chunk_size: int, dm_val: float) -> np.ndarray:
+    """
+    Cargar datos extendidos del archivo original para dedispersión correcta.
+    La dedispersión requiere contexto temporal más amplio que un chunk.
+    """
+    # Calcular rango extendido necesario para dedispersión
+    # El delay máximo de dispersión determina cuántos datos adicionales necesitamos
+    max_freq = np.max(config.FREQ) if config.FREQ is not None else 1500.0  # MHz
+    min_freq = np.min(config.FREQ) if config.FREQ is not None else 1200.0  # MHz
+    
+    # Calcular delay máximo (en muestras)
+    delay_constant = 4.148808  # ms * MHz^2 / (pc cm^-3)
+    max_delay_ms = delay_constant * dm_val * (1.0/(min_freq**2) - 1.0/(max_freq**2))
+    max_delay_samples = int(max_delay_ms / (config.TIME_RESO * 1000)) + 100  # +100 buffer
+    
+    # Extender el rango para incluir el delay
+    extended_start = max(0, start_sample_global - max_delay_samples)
+    extended_end = min(config.FILE_LENG, start_sample_global + chunk_size + max_delay_samples)
+    extended_size = extended_end - extended_start
+    
+    logger.debug(f"Cargando datos extendidos: muestras {extended_start} a {extended_end} (DM={dm_val:.1f})")
+    
+    try:
+        if fits_path.suffix.lower() == ".fits":
+            # Para FITS, cargar todo y extraer región
+            full_data = load_fits_file(str(fits_path))
+            extended_data = full_data[extended_start:extended_end]
+        else:
+            # Para .fil, cargar solo la región extendida
+            extended_data = _load_fil_chunk(str(fits_path), extended_start, extended_size)
+        
+        return extended_data, extended_start
+        
+    except Exception as e:
+        logger.warning(f"Error cargando datos extendidos: {e}. Usando chunk original.")
+        # Fallback al chunk original si hay problemas
+        return None, extended_start
+
 def _load_fil_chunk(file_path: str, start_sample: int, chunk_size: int) -> np.ndarray:
     """Load a specific chunk from a filterbank file."""
     from .filterbank_io import _read_header
@@ -759,9 +797,10 @@ def _process_single_chunk(
     save_dir: Path,
     chunk_idx: int,
     start_sample_global: int,
-    csv_file: Path
+    csv_file: Path,
+    total_samples: int = None,  # ✅ NUEVO: Total de muestras del archivo completo
 ) -> dict:
-    """Process a single chunk of data."""
+    """Process a single chunk of data with GLOBAL context for correct plotting."""
     
     # Esta función contiene la lógica de procesamiento principal
     # extraída de _process_file, adaptada para chunks
@@ -786,8 +825,20 @@ def _process_single_chunk(
     slice_len = config.SLICE_LEN  # Ya actualizado por update_slice_len_dynamic()
     time_slice = (width_total + slice_len - 1) // slice_len
     
+    # ✅ CORRECCIÓN CRÍTICA 1: Calcular contexto global del archivo completo
+    if total_samples is not None:
+        total_samples_ds = total_samples // config.DOWN_TIME_RATE
+        total_time_slice = (total_samples_ds + slice_len - 1) // slice_len
+    else:
+        total_time_slice = time_slice  # Fallback si no se proporciona
+    
+    # ✅ CORRECCIÓN CRÍTICA 2: Calcular slice inicial global
+    start_sample_global_ds = start_sample_global // config.DOWN_TIME_RATE  
+    start_slice_global = start_sample_global_ds // slice_len
+    
     duration_ms, duration_text = get_slice_duration_info(slice_len)
     logger.info(f"Chunk {chunk_idx}: usando {slice_len} muestras = {duration_text}")
+    logger.info(f"Chunk {chunk_idx}: slice global inicial = {start_slice_global}, total slices archivo = {total_time_slice}")
     
     # Generar DM vs tiempo para este chunk
     dm_time = d_dm_time_g(data_chunk, height=height, width=width_total)
@@ -812,6 +863,9 @@ def _process_single_chunk(
     
     # Procesar slices en este chunk
     for j in range(time_slice):
+        # ✅ CORRECCIÓN CRÍTICA 3: Calcular slice_idx GLOBAL para visualizaciones
+        slice_idx_global = start_slice_global + j
+        
         slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
         waterfall_block = data_chunk[j * slice_len : (j + 1) * slice_len]
         
@@ -820,7 +874,7 @@ def _process_single_chunk(
             
         # Verificación básica para arrays válidos
         if waterfall_block.size == 0 or slice_cube.size == 0:
-            logger.warning(f"Chunk {chunk_idx}, slice {j} tiene arrays vacíos, saltando...")
+            logger.warning(f"Chunk {chunk_idx}, slice {j} (global: {slice_idx_global}) tiene arrays vacíos, saltando...")
             continue
         
         # Preparar directorios para waterfalls individuales  
@@ -834,15 +888,15 @@ def _process_single_chunk(
         )
         time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
         
-        # 2) Generar waterfall sin dedispersar para este slice
+        # ✅ CORRECCIÓN: Generar waterfall SIN dedispersar (datos crudos con dispersión visible)
         waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
         if waterfall_block.size > 0:
             plot_waterfall_block(
-                data_block=waterfall_block,
+                data_block=waterfall_block,  # ✅ CORRECTO - Datos crudos del chunk (con dispersión)
                 freq=freq_ds,
                 time_reso=time_reso_ds,
                 block_size=waterfall_block.shape[0],
-                block_idx=j,
+                block_idx=slice_idx_global,  # ✅ Usar índice global
                 save_dir=waterfall_dispersion_dir,
                 filename=f"{fits_path.stem}_chunk{chunk_idx}",
                 normalize=True,
@@ -910,32 +964,46 @@ def _process_single_chunk(
                         logger.warning(f"Chunk {chunk_idx}, slice {j}, band {band_idx}, box {conf_idx}: Box_int inválido: {box_int}")
                         continue
                     
-                    # ✅ CORRECCIÓN: Calcular SNR mejorado y tiempo absoluto global
-                    # Usar data_chunk como fuente para SNR (equivalente al waterfall)
-                    waterfall_slice = data_chunk[j * slice_len:(j + 1) * slice_len]
-                    snr_peak, _ = _calculate_improved_snr_and_time(
-                        waterfall_slice,
-                        box_int,
-                        j,
-                        int(t_sample),
-                        slice_len
-                    )
-                    
-                    # Mantener cálculo original para compatibilidad
+                    # ✅ CORRECCIÓN: Calcular SNR usando método compatible
+                    # NO usar _calculate_improved_snr_and_time en chunks por ahora
+                    # Usar método original más estable
                     snr_val = compute_snr(band_img, box_int)
-                    chunk_snr_list.append(snr_peak)  # Usar SNR mejorado
+                    chunk_snr_list.append(snr_val)  # Usar SNR original
                     
-                    # Extraer patch para clasificación
-                    patch, start_sample_patch = dedisperse_patch(
-                        data_chunk, config.FREQ, dm_val, j * slice_len + int(t_sample)
+                    # ✅ CORRECCIÓN CRÍTICA: Extraer patch usando datos extendidos del archivo original
+                    # Cargar datos extendidos para patch correcto
+                    extended_data_patch, extended_start_patch = _load_extended_data_for_dedispersion(
+                        fits_path, start_sample_global, data_chunk.shape[0], dm_val
                     )
+                    
+                    if extended_data_patch is not None:
+                        # Calcular posición global del candidato en datos extendidos
+                        global_sample_in_extended = (start_sample_global + j * slice_len + int(t_sample)) - extended_start_patch
+                        
+                        # Extraer patch para clasificación usando datos extendidos
+                        patch, start_sample_patch = dedisperse_patch(
+                            extended_data_patch, config.FREQ, dm_val, global_sample_in_extended
+                        )
+                        # Ajustar start_sample_patch al contexto global
+                        start_sample_patch += extended_start_patch
+                    else:
+                        # Fallback: usar chunk si no se pueden cargar datos extendidos
+                        patch, start_sample_patch = dedisperse_patch(
+                            data_chunk, config.FREQ, dm_val, j * slice_len + int(t_sample)
+                        )
+                        start_sample_patch += start_sample_global
+                    
                     class_prob, proc_patch = _classify_patch(cls_model, patch)
                     class_probs_list.append(class_prob)  # Agregar a la lista
                     
                     is_burst = class_prob >= config.CLASS_PROB
+                    
+                    # ✅ CORRECCIÓN CRÍTICA 4: Calcular patch_start GLOBAL
                     if first_patch is None:
                         first_patch = proc_patch
-                        first_start = start_sample_patch * config.TIME_RESO * config.DOWN_TIME_RATE
+                        # Calcular tiempo de inicio GLOBAL del patch
+                        global_patch_start_sample = start_sample_global + start_sample_patch
+                        first_start = global_patch_start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
                         first_dm = dm_val
                     
                     # Crear candidato con información global
@@ -953,7 +1021,7 @@ def _process_single_chunk(
                         is_burst,
                         f"chunk{chunk_idx}_slice{j}_band{band_idx}.png",
                         global_t_sec,  # ✅ Tiempo absoluto (ya calculado correctamente)
-                        snr_peak,      # ✅ SNR mejorado (mismo que plots)
+                        snr_val,       # ✅ SNR calculado
                     )
                     
                     chunk_candidates += 1
@@ -1012,13 +1080,40 @@ def _process_single_chunk(
 
             # Solo generar visualizaciones complejas si AL MENOS UNA banda en este slice tiene candidatos
             if slice_has_candidates:
-                # Preparar valores por defecto para casos sin detecciones en esta banda específica
+                # ✅ CORRECCIÓN: Inicializar dedisp_block en todos los casos
                 dedisp_block = None
+                
+                # ✅ CORRECCIÓN CRÍTICA: Usar datos apropiados para cada tipo de plot
                 if first_patch is not None:
-                    # 3) Generar waterfall dedispersado para este slice con el primer candidato
+                    # 3) Generar waterfall dedispersado - USAR DATOS EXTENDIDOS DEL ARCHIVO ORIGINAL
                     waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
-                    start = j * slice_len
-                    dedisp_block = dedisperse_block(data_chunk, freq_ds, first_dm, start, slice_len)
+                    
+                    # Cargar datos extendidos para dedispersión correcta
+                    extended_data, extended_start = _load_extended_data_for_dedispersion(
+                        fits_path, start_sample_global, data_chunk.shape[0], first_dm
+                    )
+                    
+                    if extended_data is not None:
+                        # Calcular posición relativa del slice en los datos extendidos
+                        relative_start = start_sample_global - extended_start + j * slice_len
+                        
+                        # Aplicar mismo preprocessing que al chunk
+                        extended_preprocessed = np.vstack([extended_data, extended_data[::-1, :]])
+                        extended_preprocessed = downsample_data(extended_preprocessed)
+                        
+                        # Dedispersar usando datos extendidos (CORRECTO)
+                        dedisp_block = dedisperse_block(
+                            extended_preprocessed, 
+                            freq_ds, 
+                            first_dm, 
+                            relative_start, 
+                            slice_len
+                        )
+                    else:
+                        # Fallback: usar chunk si no se pueden cargar datos extendidos
+                        logger.warning(f"Usando chunk para dedispersión (no ideal) - slice {slice_idx_global}")
+                        start = j * slice_len
+                        dedisp_block = dedisperse_block(data_chunk, freq_ds, first_dm, start, slice_len)
                     
                 if dedisp_block is not None and dedisp_block.size > 0:
                     plot_waterfall_block(
@@ -1026,7 +1121,7 @@ def _process_single_chunk(
                         freq=freq_ds,
                         time_reso=time_reso_ds,
                         block_size=dedisp_block.shape[0],
-                        block_idx=j,
+                        block_idx=slice_idx_global,  # ✅ Usar índice global
                         save_dir=waterfall_dedispersion_dir,
                         filename=f"{fits_path.stem}_chunk{chunk_idx}_dm{first_dm:.2f}_{band_suffix}",
                         normalize=True,
@@ -1045,27 +1140,50 @@ def _process_single_chunk(
                         band_name=band_name,  # Pasar el nombre de la banda
                     )
                 else:
-                    # Para bandas sin detecciones, crear un parche dummy
+                    # ✅ CORRECCIÓN: Para bandas sin detecciones, usar datos extendidos con DM=0
                     waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
-                    start = j * slice_len
-                    # Usar DM=0 para banda sin detecciones
-                    dedisp_block = dedisperse_block(data_chunk, freq_ds, 0.0, start, slice_len)
                     
-                    if dedisp_block.size > 0:
+                    # Cargar datos extendidos para dedispersión con DM=0
+                    extended_data, extended_start = _load_extended_data_for_dedispersion(
+                        fits_path, start_sample_global, data_chunk.shape[0], 0.0  # DM=0 para sin detecciones
+                    )
+                    
+                    if extended_data is not None:
+                        # Calcular posición relativa del slice en los datos extendidos
+                        relative_start = start_sample_global - extended_start + j * slice_len
+                        
+                        # Aplicar mismo preprocessing
+                        extended_preprocessed = np.vstack([extended_data, extended_data[::-1, :]])
+                        extended_preprocessed = downsample_data(extended_preprocessed)
+                        
+                        # Usar DM=0 para banda sin detecciones
+                        dedisp_block = dedisperse_block(
+                            extended_preprocessed, 
+                            freq_ds, 
+                            0.0, 
+                            relative_start, 
+                            slice_len
+                        )
+                    else:
+                        # Fallback
+                        start = j * slice_len
+                        dedisp_block = dedisperse_block(data_chunk, freq_ds, 0.0, start, slice_len)
+                    
+                    if dedisp_block is not None and dedisp_block.size > 0:
                         plot_waterfall_block(
                             data_block=dedisp_block,
                             freq=freq_ds,
                             time_reso=time_reso_ds,
                             block_size=dedisp_block.shape[0],
-                            block_idx=j,
+                            block_idx=slice_idx_global,  # ✅ Usar índice global
                             save_dir=waterfall_dedispersion_dir,
                             filename=f"{fits_path.stem}_chunk{chunk_idx}_dm0.00_{band_suffix}",
                             normalize=True,
                         )
 
-                # 1) Generar composite - SIEMPRE para comparativas si hay candidatos en este slice
+                # ✅ CORRECCIÓN CRÍTICA 5: save_slice_summary con parámetros GLOBALES
                 composite_dir = save_dir / "Composite" / f"{fits_path.stem}_chunk{chunk_idx}"
-                comp_path = composite_dir / f"slice{j}_band{band_idx}.png"
+                comp_path = composite_dir / f"slice{slice_idx_global}_band{band_idx}.png"
                 save_slice_summary(
                     waterfall_block,
                     dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,  # fallback a waterfall original
@@ -1077,8 +1195,8 @@ def _process_single_chunk(
                     top_boxes if len(top_boxes) > 0 else [],
                     class_probs_list, 
                     comp_path,
-                    j,
-                    time_slice,
+                    slice_idx_global,        # ✅ CORRECCIÓN: Usar índice GLOBAL del slice
+                    total_time_slice,        # ✅ CORRECCIÓN: Total de slices del archivo COMPLETO
                     band_name,
                     band_suffix,
                     fits_path.stem,
@@ -1089,18 +1207,18 @@ def _process_single_chunk(
                     band_idx=band_idx,  # Pasar el índice de la banda
                 )
 
-                # 4) Generar detecciones de Bow ties (detections) - SIEMPRE
+                # ✅ CORRECCIÓN CRÍTICA 6: save_plot con parámetros GLOBALES
                 detections_dir = save_dir / "Detections" / f"{fits_path.stem}_chunk{chunk_idx}"
                 detections_dir.mkdir(parents=True, exist_ok=True)
-                out_img_path = detections_dir / f"slice{j}_{band_suffix}.png"
+                out_img_path = detections_dir / f"slice{slice_idx_global}_{band_suffix}.png"
                 save_plot(
                     img_rgb,
                     top_conf if len(top_conf) > 0 else [],
                     top_boxes if len(top_boxes) > 0 else [],
                     class_probs_list,   
                     out_img_path,
-                    j,
-                    time_slice,
+                    slice_idx_global,        # ✅ CORRECCIÓN: Usar índice GLOBAL del slice
+                    total_time_slice,        # ✅ CORRECCIÓN: Total de slices del archivo COMPLETO
                     band_name,
                     band_suffix,
                     fits_path.stem,
@@ -1184,10 +1302,10 @@ def _process_file_in_chunks(
                 # Para archivos .fil, podemos cargar solo el chunk específico
                 data_chunk = _load_fil_chunk(str(fits_path), start_sample, actual_chunk_size)
             
-            # Procesar este chunk usando la lógica existente
+            # ✅ CORRECCIÓN CRÍTICA 7: Pasar total_samples para contexto global
             chunk_results = _process_single_chunk(
                 det_model, cls_model, data_chunk, fits_path, save_dir, 
-                chunk_idx, start_sample, csv_file
+                chunk_idx, start_sample, csv_file, total_samples  # ✅ NUEVO parámetro
             )
             
             # Acumular resultados

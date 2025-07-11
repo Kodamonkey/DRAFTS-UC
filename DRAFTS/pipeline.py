@@ -42,6 +42,7 @@ from .file_utils import (
     write_summary as _write_summary,
 )
 from .csv_utils import ensure_csv_header as _ensure_csv_header, write_candidate as _write_candidate_to_csv
+from .pipeline_core import load_and_prepare_data, compute_slice_info, process_slice
 from .detection_utils import (
     detect_candidates as _detect,
     prep_patch as _prep_patch,
@@ -103,10 +104,7 @@ def _process_file(
         logger.info("⚠️  Advertencia: Archivos muy grandes pueden causar problemas de memoria")
 
     try:
-        if fits_path.suffix.lower() == ".fits":
-            data = load_fits_file(str(fits_path))
-        else:
-            data = load_fil_file(str(fits_path))
+        data, freq_down = load_and_prepare_data(fits_path)
     except ValueError as e:
         if "corrupto" in str(e).lower():
             logger.error("Archivo corrupto detectado: %s - SALTANDO", fits_path.name)
@@ -122,26 +120,10 @@ def _process_file(
         else:
             raise  # Re-lanzar si es otro tipo de error
     
-    data = np.vstack([data, data[::-1, :]])
-
-    data = downsample_data(data)
-
-    # Verificación básica para evitar errores con arrays vacíos
-    if config.FREQ_RESO == 0 or config.DOWN_FREQ_RATE == 0:
-        raise ValueError(f"Parámetros de frecuencia inválidos: FREQ_RESO={config.FREQ_RESO}, DOWN_FREQ_RATE={config.DOWN_FREQ_RATE}")
-    
-    freq_down = np.mean(
-        config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
-        axis=1,
-    )
-
     height = config.DM_max - config.DM_min + 1
     width_total = config.FILE_LENG // config.DOWN_TIME_RATE
 
-    # 🚀 NUEVO SISTEMA SIMPLIFICADO: SIEMPRE usar SLICE_DURATION_MS
-    # Calcular SLICE_LEN dinámicamente después de cargar metadatos del archivo
-    slice_len, real_duration_ms = update_slice_len_dynamic()
-    time_slice = (width_total + slice_len - 1) // slice_len
+    slice_len, time_slice, real_duration_ms = compute_slice_info(width_total)
     
     logger.info("✅ Sistema de slice simplificado:")
     logger.info(f"   🎯 Duración objetivo: {config.SLICE_DURATION_MS:.1f} ms")
@@ -169,300 +151,34 @@ def _process_file(
     prob_max = 0.0
     snr_list: List[float] = []
 
-    band_configs = (
-        [
-            (0, "fullband", "Full Band"),
-            (1, "lowband", "Low Band"),
-            (2, "highband", "High Band"),
-        ]
-        if config.USE_MULTI_BAND
-        else [(0, "fullband", "Full Band")]
-    )
-
-    # Preparar directorios para waterfalls individuales
-    waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / fits_path.stem
-    waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / fits_path.stem
-    
-    # Reutilizar freq_down ya calculado anteriormente para evitar problemas
-    freq_ds = freq_down
-    time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
-
     for j in range(time_slice):
         slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
         waterfall_block = data[j * slice_len : (j + 1) * slice_len]
-        
-        # Verificación básica para arrays válidos
+
         if waterfall_block.size == 0 or slice_cube.size == 0:
-            logger.warning("Slice %d tiene arrays vacíos, saltando...", j)
+            logger.warning("Slice %d tiene arrays vac\u00edos, saltando...", j)
             continue
-        
-        # Aplicar limpieza de RFI si está habilitada
-        rfi_stats = {}
-        if hasattr(config, 'RFI_ENABLE_ALL_FILTERS') and config.RFI_ENABLE_ALL_FILTERS:
-            try:
-                logger.info("Aplicando limpieza de RFI al slice %d", j)
-                waterfall_block, rfi_stats = apply_rfi_cleaning(
-                    waterfall_block,
-                    stokes_v=None,  # No hay datos de polarización en este punto
-                    output_dir=save_dir / "rfi_diagnostics" if getattr(config, 'RFI_SAVE_DIAGNOSTICS', False) else None
-                )
-                logger.info("RFI cleaning completado para slice %d: %.2f%% datos flagged", 
-                           j, rfi_stats.get('total_flagged_fraction', 0) * 100)
-            except Exception as e:
-                logger.warning("Error en limpieza de RFI para slice %d: %s", j, e)
-                # Continúa con datos originales si hay error
-        
-        # 2) Generar waterfall sin dedispersar para este slice
-        waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
-        if waterfall_block.size > 0:
-            plot_waterfall_block(
-                data_block=waterfall_block,
-                freq=freq_ds,
-                time_reso=time_reso_ds,
-                block_size=waterfall_block.shape[0],
-                block_idx=j,
-                save_dir=waterfall_dispersion_dir,
-                filename=fits_path.stem,
-                normalize=True,
-            )
 
-        # Recopilar información de todas las bandas primero
-        band_results = []
-        slice_has_candidates = False
-        
-        for band_idx, band_suffix, band_name in band_configs:
-            band_img = slice_cube[band_idx]
-            img_tensor = preprocess_img(band_img)
-            top_conf, top_boxes = _detect(det_model, img_tensor)
-            
-            # Siempre generar img_rgb para visualización, incluso sin detecciones
-            img_rgb = postprocess_img(img_tensor)
-            
-            # Si no hay detecciones, crear listas vacías pero continuar con visualizaciones
-            if top_boxes is None:
-                top_conf = []
-                top_boxes = []
+        cands, bursts, no_bursts, prob, snrs = process_slice(
+            det_model,
+            cls_model,
+            j,
+            data,
+            slice_cube,
+            waterfall_block,
+            freq_down,
+            csv_file,
+            fits_path,
+            slice_len,
+            time_slice,
+            save_dir,
+        )
 
-            first_patch: np.ndarray | None = None
-            first_start: float | None = None
-            first_dm: float | None = None
-            patch_dir = save_dir / "Patches" / fits_path.stem
-            patch_path = patch_dir / f"patch_slice{j}_band{band_idx}.png"
-            
-            # Lista para almacenar las probabilidades de clasificación
-            class_probs_list = []
-
-            for conf, box in zip(top_conf, top_boxes):
-                dm_val, t_sec, t_sample = pixel_to_physical(
-                    (box[0] + box[2]) / 2,
-                    (box[1] + box[3]) / 2,
-                    slice_len,
-                )
-                
-                # ✅ CORRECCIÓN: Calcular SNR mejorado y tiempo absoluto
-                snr_peak, t_sec_absolute = _calculate_improved_snr_and_time(
-                    waterfall_block,
-                    tuple(map(int, box)),
-                    j,
-                    int(t_sample),
-                    slice_len
-                )
-                
-                # Mantener cálculo original para compatibilidad
-                snr_val = compute_snr(band_img, tuple(map(int, box)))
-                snr_list.append(snr_peak)  # Usar SNR mejorado para la lista
-                global_sample = j * slice_len + int(t_sample)
-                patch, start_sample = dedisperse_patch(
-                    data, freq_down, dm_val, global_sample
-                )
-                class_prob, proc_patch = _classify_patch(cls_model, patch)
-                class_probs_list.append(class_prob)  # Agregar a la lista
-                
-                is_burst = class_prob >= config.CLASS_PROB
-                if first_patch is None:
-                    first_patch = proc_patch
-                    first_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
-                    first_dm = dm_val
-                cand = Candidate(
-                    fits_path.name,
-                    j,
-                    band_idx,
-                    float(conf),
-                    dm_val,
-                    t_sec,
-                    t_sample,
-                    tuple(map(int, box)),
-                    snr_val,  # SNR original para compatibilidad
-                    class_prob,
-                    is_burst,
-                    patch_path.name,
-                    t_sec_absolute,  # ✅ Tiempo absoluto
-                    snr_peak,       # ✅ SNR mejorado (mismo que plots)
-                )
-                cand_counter += 1
-                if is_burst:
-                    n_bursts += 1
-                else:
-                    n_no_bursts += 1
-                prob_max = max(prob_max, float(conf))
-                _write_candidate_to_csv(csv_file, cand)
-                logger.info(
-                    "Candidato DM %.2f t=%.3f s conf=%.2f class=%.2f -> %s",
-                    dm_val,
-                    t_sec,
-                    conf,
-                    class_prob,
-                    "BURST" if is_burst else "no burst",
-                )
-            
-            # Marcar si este slice tiene candidatos
-            if len(top_conf) > 0:
-                slice_has_candidates = True
-            
-            # Almacenar información de esta banda para procesamiento posterior
-            band_results.append({
-                'band_idx': band_idx,
-                'band_suffix': band_suffix,
-                'band_name': band_name,
-                'band_img': band_img,
-                'img_rgb': img_rgb,
-                'top_conf': top_conf,
-                'top_boxes': top_boxes,
-                'class_probs_list': class_probs_list,
-                'first_patch': first_patch,
-                'first_start': first_start,
-                'first_dm': first_dm,
-                'patch_path': patch_path
-            })
-
-        # Ahora generar visualizaciones para todas las bandas si AL MENOS UNA tiene candidatos
-        for band_result in band_results:
-            band_idx = band_result['band_idx']
-            band_suffix = band_result['band_suffix']
-            band_name = band_result['band_name']
-            img_rgb = band_result['img_rgb']
-            top_conf = band_result['top_conf']
-            top_boxes = band_result['top_boxes']
-            class_probs_list = band_result['class_probs_list']
-            first_patch = band_result['first_patch']
-            first_start = band_result['first_start']
-            first_dm = band_result['first_dm']
-            patch_path = band_result['patch_path']
-
-            
-            # Solo generar visualizaciones complejas si AL MENOS UNA banda en este slice tiene candidatos
-            if slice_has_candidates:
-                # Preparar valores por defecto para casos sin detecciones en esta banda específica
-                dedisp_block = None
-                if first_patch is not None:
-                    # 3) Generar waterfall dedispersado para este slice con el primer candidato
-                    waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
-                    start = j * slice_len
-                    dedisp_block = dedisperse_block(data, freq_down, first_dm, start, slice_len)
-                    
-                    # Aplicar limpieza de RFI al bloque dedispersado si está habilitada
-                    if hasattr(config, 'RFI_ENABLE_ALL_FILTERS') and config.RFI_ENABLE_ALL_FILTERS and dedisp_block.size > 0:
-                        try:
-                            logger.debug("Aplicando limpieza de RFI al bloque dedispersado slice %d", j)
-                            dedisp_block_clean, rfi_stats_dedisp = apply_rfi_cleaning(
-                                dedisp_block,
-                                stokes_v=None,
-                                output_dir=None  # No guardar diagnósticos para cada bloque
-                            )
-                            dedisp_block = dedisp_block_clean
-                            logger.debug("RFI cleaning en bloque dedispersado completado: %.2f%% datos flagged", 
-                                       rfi_stats_dedisp.get('total_flagged_fraction', 0) * 100)
-                        except Exception as e:
-                            logger.warning("Error en limpieza de RFI para bloque dedispersado slice %d: %s", j, e)
-                            # Continúa con datos originales si hay error
-                
-                if dedisp_block is not None and dedisp_block.size > 0:
-                    plot_waterfall_block(
-                        data_block=dedisp_block,
-                        freq=freq_down,
-                        time_reso=time_reso_ds,
-                        block_size=dedisp_block.shape[0],
-                        block_idx=j,
-                        save_dir=waterfall_dedispersion_dir,
-                        filename=f"{fits_path.stem}_dm{first_dm:.2f}_{band_suffix}",
-                        normalize=True,
-                    )
-
-                if first_patch is not None:
-                    save_patch_plot(
-                        first_patch,
-                        patch_path,
-                        freq_down,
-                        config.TIME_RESO * config.DOWN_TIME_RATE,
-                        first_start,
-                        off_regions=None,  # Use IQR method for robust estimation
-                        thresh_snr=config.SNR_THRESH,
-                        band_idx=band_idx,  # Pasar el índice de la banda
-                        band_name=band_name,  # Pasar el nombre de la banda
-                    )
-                else:
-                    # Para bandas sin detecciones, crear un parche dummy
-                    waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
-                    start = j * slice_len
-                    # Usar DM=0 para banda sin detecciones
-                    dedisp_block = dedisperse_block(data, freq_down, 0.0, start, slice_len)
-                    
-                    if dedisp_block.size > 0:
-                        plot_waterfall_block(
-                            data_block=dedisp_block,
-                            freq=freq_down,
-                            time_reso=time_reso_ds,
-                            block_size=dedisp_block.shape[0],
-                            block_idx=j,
-                            save_dir=waterfall_dedispersion_dir,
-                            filename=f"{fits_path.stem}_dm0.00_{band_suffix}",
-                            normalize=True,
-                        )
-
-                # 1) Generar composite - SIEMPRE para comparativas si hay candidatos en este slice
-                composite_dir = save_dir / "Composite" / fits_path.stem
-                comp_path = composite_dir / f"slice{j}_band{band_idx}.png"
-                save_slice_summary(
-                    waterfall_block,
-                    dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,  # fallback a waterfall original
-                    img_rgb,
-                    first_patch,
-                    first_start if first_start is not None else 0.0,
-                    first_dm if first_dm is not None else 0.0,
-                    top_conf if len(top_conf) > 0 else [],
-                    top_boxes if len(top_boxes) > 0 else [],
-                    class_probs_list, 
-                    comp_path,
-                    j,
-                    time_slice,
-                    band_name,
-                    band_suffix,
-                    fits_path.stem,
-                    slice_len,
-                    normalize=True,
-                    off_regions=None,  # Use IQR method
-                    thresh_snr=config.SNR_THRESH,
-                    band_idx=band_idx,  # Pasar el índice de la banda
-                    )
-
-                # 4) Generar detecciones de Bow ties (detections) - SIEMPRE
-                detections_dir = save_dir / "Detections" / fits_path.stem
-                detections_dir.mkdir(parents=True, exist_ok=True)
-                out_img_path = detections_dir / f"slice{j}_{band_suffix}.png"
-                save_plot(
-                    img_rgb,
-                    top_conf if len(top_conf) > 0 else [],
-                    top_boxes if len(top_boxes) > 0 else [],
-                    class_probs_list,   
-                    out_img_path,
-                    j,
-                    time_slice,
-                    band_name,
-                    band_suffix,
-                    fits_path.stem,
-                    slice_len,
-                    band_idx=band_idx,  # Pasar el índice de la banda
-                )
+        cand_counter += cands
+        n_bursts += bursts
+        n_no_bursts += no_bursts
+        prob_max = max(prob_max, prob)
+        snr_list.extend(snrs)
 
     runtime = time.time() - t_start
     logger.info(
@@ -471,19 +187,21 @@ def _process_file(
         cand_counter,
         prob_max,
         runtime,
+
     )
 
     return {
         "n_candidates": cand_counter,
         "n_bursts": n_bursts,
         "n_no_bursts": n_no_bursts,
+
         "runtime_s": runtime,
         "max_prob": float(prob_max),
         "mean_snr": float(np.mean(snr_list)) if snr_list else 0.0,
     }
-
 def _load_extended_data_for_dedispersion(fits_path: Path, start_sample_global: int, chunk_size: int, dm_val: float) -> np.ndarray:
     """
+
     Cargar datos extendidos del archivo original para dedispersión correcta.
     La dedispersión requiere contexto temporal más amplio que un chunk.
     """

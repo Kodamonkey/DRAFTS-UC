@@ -218,3 +218,6 @@ Results/
 
 # modelos de Hugging Face
 models/
+
+Guides/
+tests/

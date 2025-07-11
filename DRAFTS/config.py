@@ -42,7 +42,7 @@ RFI_SAVE_DIAGNOSTICS: bool = False          # True = guardar gráficos, False = 
 # --- Rutas de archivos y datos ---
 DATA_DIR = Path("./Data")                        # Directorio con archivos de entrada (.fits, .fil)
 RESULTS_DIR = Path("./Results/ObjectDetection")  # Directorio para guardar resultados
-FRB_TARGETS = ["B0355+54"]                       # Lista de targets FRB a procesar
+FRB_TARGETS = ["3101_0001_00_8bit"]                       # Lista de targets FRB a procesar
 
 # --- Configuración de Slice Temporal ---
 SLICE_DURATION_MS: float = 196.0            # Duración deseada de cada slice en milisegundos 
@@ -50,17 +50,17 @@ SLICE_DURATION_MS: float = 196.0            # Duración deseada de cada slice en
                                             # SLICE_LEN = round(SLICE_DURATION_MS / (TIME_RESO × DOWN_TIME_RATE × 1000))
                                             # Valores típicos: 16ms (rápido), 32ms (normal), 64ms (estándar), 128ms (lento)
 
-SLICE_LEN_MIN: int = 32                      # Límite inferior de seguridad para el cálculo automático de SLICE_LEN
-SLICE_LEN_MAX: int = 2048                    # Límite superior de seguridad para el cálculo automático de SLICE_LEN
+SLICE_LEN_MIN: int = 32                     # Límite inferior de seguridad para el cálculo automático de SLICE_LEN
+SLICE_LEN_MAX: int = 2048                   # Límite superior de seguridad para el cálculo automático de SLICE_LEN
                                             # Estos valores actúan como guardias: SLICE_LEN = max(MIN, min(calculado, MAX))
                                             # Evitan slices muy pequeños (<32) o muy grandes (>2048) que causen problemas
 
 # --- Rango de Dispersion Measure (DM) ---
 DM_min: int = 0                             # DM mínimo en pc cm⁻³
-DM_max: int = 129                           # DM máximo en pc cm⁻³
+DM_max: int = 1028                           # DM máximo en pc cm⁻³
 
 # --- Umbrales de detección ---
-DET_PROB: float = 0.3                       # Probabilidad mínima para considerar una detección válida
+DET_PROB: float = 0.2                       # Probabilidad mínima para considerar una detección válida
 CLASS_PROB: float = 0.5                     # Probabilidad mínima para clasificar como burst
 SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en visualizaciones
 
@@ -94,8 +94,8 @@ RFI_TIME_SIGMA_THRESH = 5.0                # Umbral sigma para enmascarado tempo
 RFI_ZERO_DM_SIGMA_THRESH = 4.0             # Umbral sigma para filtro Zero-DM
 RFI_IMPULSE_SIGMA_THRESH = 6.0             # Umbral sigma para filtrado de impulsos
 RFI_POLARIZATION_THRESH = 0.8              # Umbral para filtrado de polarización (0-1)
-RFI_CHANNEL_DETECTION_METHOD = "mad"        # Método detección canales: "mad", "std", "kurtosis"
-RFI_TIME_DETECTION_METHOD = "mad"           # Método detección temporal: "mad", "std", "outlier"
+RFI_CHANNEL_DETECTION_METHOD = "mad"       # Método detección canales: "mad", "std", "kurtosis"
+RFI_TIME_DETECTION_METHOD = "mad"          # Método detección temporal: "mad", "std", "outlier"
 
 # =============================================================================
 # CONFIGURACIÓN DE MODELOS Y SISTEMA - No dependen de switches

@@ -148,13 +148,13 @@ def _ensure_csv_header(csv_path: Path) -> None:
                     "band",
                     "prob",
                     "dm_pc_cm-3",
-                    "t_sec",
+                    "t_sec_absolute",  # ✅ Actualizado: tiempo absoluto desde inicio archivo
                     "t_sample",
                     "x1",
                     "y1",
                     "x2",
                     "y2",
-                    "snr",
+                    "snr_peak",       # ✅ Actualizado: SNR calculado igual que plots
                     "class_prob",
                     "is_burst",
                     "patch_file",
@@ -475,8 +475,19 @@ def _process_file(
                     (box[1] + box[3]) / 2,
                     slice_len,
                 )
+                
+                # ✅ CORRECCIÓN: Calcular SNR mejorado y tiempo absoluto
+                snr_peak, t_sec_absolute = _calculate_improved_snr_and_time(
+                    waterfall_block,
+                    tuple(map(int, box)),
+                    j,
+                    int(t_sample),
+                    slice_len
+                )
+                
+                # Mantener cálculo original para compatibilidad
                 snr_val = compute_snr(band_img, tuple(map(int, box)))
-                snr_list.append(snr_val)
+                snr_list.append(snr_peak)  # Usar SNR mejorado para la lista
                 global_sample = j * slice_len + int(t_sample)
                 patch, start_sample = dedisperse_patch(
                     data, freq_down, dm_val, global_sample
@@ -498,10 +509,12 @@ def _process_file(
                     t_sec,
                     t_sample,
                     tuple(map(int, box)),
-                    snr_val,
+                    snr_val,  # SNR original para compatibilidad
                     class_prob,
                     is_burst,
                     patch_path.name,
+                    t_sec_absolute,  # ✅ Tiempo absoluto
+                    snr_peak,       # ✅ SNR mejorado (mismo que plots)
                 )
                 cand_counter += 1
                 if is_burst:
@@ -897,8 +910,20 @@ def _process_single_chunk(
                         logger.warning(f"Chunk {chunk_idx}, slice {j}, band {band_idx}, box {conf_idx}: Box_int inválido: {box_int}")
                         continue
                     
+                    # ✅ CORRECCIÓN: Calcular SNR mejorado y tiempo absoluto global
+                    # Usar data_chunk como fuente para SNR (equivalente al waterfall)
+                    waterfall_slice = data_chunk[j * slice_len:(j + 1) * slice_len]
+                    snr_peak, _ = _calculate_improved_snr_and_time(
+                        waterfall_slice,
+                        box_int,
+                        j,
+                        int(t_sample),
+                        slice_len
+                    )
+                    
+                    # Mantener cálculo original para compatibilidad
                     snr_val = compute_snr(band_img, box_int)
-                    chunk_snr_list.append(snr_val)
+                    chunk_snr_list.append(snr_peak)  # Usar SNR mejorado
                     
                     # Extraer patch para clasificación
                     patch, start_sample_patch = dedisperse_patch(
@@ -920,13 +945,15 @@ def _process_single_chunk(
                         band_idx,
                         float(conf),
                         dm_val,
-                        global_t_sec,  # Tiempo global
+                        global_t_sec,  # Tiempo global (ya es absoluto)
                         global_sample,  # Muestra global
                         box_int,
-                        snr_val,
+                        snr_val,  # SNR original para compatibilidad
                         class_prob,
                         is_burst,
                         f"chunk{chunk_idx}_slice{j}_band{band_idx}.png",
+                        global_t_sec,  # ✅ Tiempo absoluto (ya calculado correctamente)
+                        snr_peak,      # ✅ SNR mejorado (mismo que plots)
                     )
                     
                     chunk_candidates += 1
@@ -1280,3 +1307,69 @@ if __name__ == "__main__":
         config.CLASS_MODEL_PATH = args.class_model
 
     run_pipeline()
+
+def _calculate_improved_snr_and_time(
+    waterfall_block: np.ndarray,
+    box: tuple[int, int, int, int],
+    slice_idx: int,
+    t_sample_relative: int,
+    slice_len: int
+) -> tuple[float, float]:
+    """
+    Calcula SNR mejorado usando compute_snr_profile y tiempo absoluto.
+    
+    Parameters
+    ----------
+    waterfall_block : np.ndarray
+        Bloque de waterfall para calcular SNR
+    box : tuple
+        Bounding box (x1, y1, x2, y2)
+    slice_idx : int
+        Índice del slice actual
+    t_sample_relative : int
+        Muestra de tiempo relativa al slice
+    slice_len : int
+        Longitud del slice
+        
+    Returns
+    -------
+    tuple
+        (snr_peak, t_sec_absolute)
+    """
+    from .snr_utils import compute_snr_profile, find_snr_peak
+    
+    try:
+        # Calcular SNR usando el mismo método que los plots
+        snr_profile, sigma = compute_snr_profile(waterfall_block, off_regions=None)
+        
+        # Encontrar el pico SNR en la región de la bounding box
+        x1, y1, x2, y2 = box
+        
+        # Mapear coordenadas de la bounding box al perfil SNR
+        # La bounding box está en coordenadas de imagen (512x512)
+        # El perfil SNR tiene la longitud del waterfall_block
+        if len(snr_profile) > 0:
+            # Escalar coordenada X de la bounding box al perfil SNR
+            center_x = (x1 + x2) / 2
+            snr_idx = int((center_x / 512.0) * len(snr_profile))
+            snr_idx = max(0, min(len(snr_profile) - 1, snr_idx))
+            
+            # Tomar SNR en la posición del candidato
+            snr_peak = snr_profile[snr_idx]
+        else:
+            snr_peak = 0.0
+            
+    except Exception as e:
+        logger.warning(f"Error calculando SNR mejorado: {e}")
+        # Fallback al método original
+        from .metrics import compute_snr
+        band_img = waterfall_block  # Asumir que es la imagen de banda
+        snr_peak = compute_snr(band_img, box)
+    
+    # Calcular tiempo absoluto desde el inicio del archivo
+    # t_sample_relative es relativo al slice actual
+    # Necesitamos sumar el offset del slice
+    t_sample_absolute = slice_idx * slice_len + t_sample_relative
+    t_sec_absolute = t_sample_absolute * config.TIME_RESO * config.DOWN_TIME_RATE
+    
+    return snr_peak, t_sec_absolute

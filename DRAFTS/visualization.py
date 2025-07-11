@@ -262,6 +262,10 @@ def save_slice_summary(
 
     Parameters
     ----------
+    dm_val : float
+        DM value for dedispersion (fallback if no candidates detected).
+        Note: If candidates are detected, the DM of the first candidate will be used
+        for consistency with the detection box labels.
     normalize : bool, optional
         If ``True``, apply per-channel normalization to ``waterfall_block`` and
         ``dedispersed_block`` before plotting, matching the behaviour of
@@ -351,15 +355,23 @@ def save_slice_summary(
     ax_det.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=10, fontweight="bold")
 
     # Bounding boxes con información completa - UNA SOLA ETIQUETA INTEGRADA
+    # Pre-calcular DMs para consistencia entre detection box y waterfall
+    candidate_dms = []
+    if top_boxes is not None:
+        for idx, box in enumerate(top_boxes):
+            center_x = (box[0] + box[2]) / 2
+            center_y = (box[1] + box[3]) / 2
+            from .astro_conversions import pixel_to_physical
+            dm_val_cand, _, _ = pixel_to_physical(center_x, center_y, slice_len)
+            candidate_dms.append(dm_val_cand)
+    
     if top_boxes is not None:
         for idx, (conf, box) in enumerate(zip(top_conf, top_boxes)):
             x1, y1, x2, y2 = map(int, box)
             center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
             
-            # ✅ CORRECCIÓN: Usar el DM REAL (mismo cálculo que pixel_to_physical)
-            # Este es el DM que se usa en dedispersion y se guarda en CSV
-            from .astro_conversions import pixel_to_physical
-            dm_val_cand, t_sec_real, t_sample_real = pixel_to_physical(center_x, center_y, slice_len)
+            # ✅ USAR el DM pre-calculado para consistencia total
+            dm_val_cand = candidate_dms[idx]
             
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
@@ -536,7 +548,14 @@ def save_slice_summary(
         ax_prof_dw.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
         ax_prof_dw.grid(True, alpha=0.3)
         ax_prof_dw.set_xticks([])
-        ax_prof_dw.set_title(f"Dedispersed SNR DM={dm_val:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ", fontsize=9, fontweight="bold")
+        
+        # ✅ CORRECCIÓN: Usar el MISMO DM pre-calculado (garantiza consistencia 100%)
+        display_dm = dm_val  # valor por defecto
+        if candidate_dms and len(candidate_dms) > 0:
+            # Usar el DM del primer candidato (ya calculado arriba)
+            display_dm = candidate_dms[0]
+        
+        ax_prof_dw.set_title(f"Dedispersed SNR DM={display_dm:.1f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ", fontsize=9, fontweight="bold")
     else:
         ax_prof_dw.text(0.5, 0.5, 'No dedispersed\ndata available', 
                        transform=ax_prof_dw.transAxes, 

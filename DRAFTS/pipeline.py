@@ -5,6 +5,7 @@ import csv
 import json
 import logging
 import time
+import gc
 from pathlib import Path
 from typing import List
 
@@ -727,10 +728,17 @@ def _load_extended_data_for_dedispersion(fits_path: Path, start_sample_global: i
         if fits_path.suffix.lower() == ".fits":
             # Para FITS, cargar todo y extraer región
             full_data = load_fits_file(str(fits_path))
-            extended_data = full_data[extended_start:extended_end]
+            extended_data_raw = full_data[extended_start:extended_end]
         else:
             # Para .fil, cargar solo la región extendida
-            extended_data = _load_fil_chunk(str(fits_path), extended_start, extended_size)
+            extended_data_raw = _load_fil_chunk(str(fits_path), extended_start, extended_size)
+        
+        # ✅ CRÍTICO: Procesar datos extendidos igual que los chunks
+        # Aplicar el mismo preprocesamiento que _process_single_chunk
+        extended_data_stacked = np.vstack([extended_data_raw, extended_data_raw[::-1, :]])
+        
+        from .preprocessing import downsample_data
+        extended_data = downsample_data(extended_data_stacked)
         
         return extended_data, extended_start
         
@@ -843,6 +851,13 @@ def _process_single_chunk(
     # Generar DM vs tiempo para este chunk
     dm_time = d_dm_time_g(data_chunk, height=height, width=width_total)
     
+    # Calcular freq_down para este chunk (necesario para dedispersion)
+    freq_ds = np.mean(
+        config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
+        axis=1,
+    )
+    time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+    
     # Contadores para este chunk
     chunk_candidates = 0
     chunk_bursts = 0
@@ -880,13 +895,6 @@ def _process_single_chunk(
         # Preparar directorios para waterfalls individuales  
         waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / f"{fits_path.stem}_chunk{chunk_idx}"
         waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / f"{fits_path.stem}_chunk{chunk_idx}"
-        
-        # Calcular freq_down para este chunk
-        freq_ds = np.mean(
-            config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
-            axis=1,
-        )
-        time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
         
         # ✅ CORRECCIÓN: Generar waterfall SIN dedispersar (datos crudos con dispersión visible)
         waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
@@ -972,9 +980,10 @@ def _process_single_chunk(
                     
                     # ✅ CORRECCIÓN CRÍTICA: Extraer patch usando datos extendidos del archivo original
                     # Cargar datos extendidos para patch correcto
-                    extended_data_patch, extended_start_patch = _load_extended_data_for_dedispersion(
+                    extended_result = _load_extended_data_for_dedispersion(
                         fits_path, start_sample_global, data_chunk.shape[0], dm_val
                     )
+                    extended_data_patch, extended_start_patch = extended_result
                     
                     if extended_data_patch is not None:
                         # Calcular posición global del candidato en datos extendidos
@@ -982,14 +991,14 @@ def _process_single_chunk(
                         
                         # Extraer patch para clasificación usando datos extendidos
                         patch, start_sample_patch = dedisperse_patch(
-                            extended_data_patch, config.FREQ, dm_val, global_sample_in_extended
+                            extended_data_patch, freq_ds, dm_val, global_sample_in_extended
                         )
                         # Ajustar start_sample_patch al contexto global
                         start_sample_patch += extended_start_patch
                     else:
                         # Fallback: usar chunk si no se pueden cargar datos extendidos
                         patch, start_sample_patch = dedisperse_patch(
-                            data_chunk, config.FREQ, dm_val, j * slice_len + int(t_sample)
+                            data_chunk, freq_ds, dm_val, j * slice_len + int(t_sample)
                         )
                         start_sample_patch += start_sample_global
                     
@@ -1089,21 +1098,19 @@ def _process_single_chunk(
                     waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
                     
                     # Cargar datos extendidos para dedispersión correcta
-                    extended_data, extended_start = _load_extended_data_for_dedispersion(
+                    extended_result = _load_extended_data_for_dedispersion(
                         fits_path, start_sample_global, data_chunk.shape[0], first_dm
                     )
+                    extended_data, extended_start = extended_result
                     
                     if extended_data is not None:
                         # Calcular posición relativa del slice en los datos extendidos
                         relative_start = start_sample_global - extended_start + j * slice_len
                         
-                        # Aplicar mismo preprocessing que al chunk
-                        extended_preprocessed = np.vstack([extended_data, extended_data[::-1, :]])
-                        extended_preprocessed = downsample_data(extended_preprocessed)
-                        
+                        # Los datos extendidos ya están procesados en _load_extended_data_for_dedispersion
                         # Dedispersar usando datos extendidos (CORRECTO)
                         dedisp_block = dedisperse_block(
-                            extended_preprocessed, 
+                            extended_data, 
                             freq_ds, 
                             first_dm, 
                             relative_start, 
@@ -1144,21 +1151,19 @@ def _process_single_chunk(
                     waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
                     
                     # Cargar datos extendidos para dedispersión con DM=0
-                    extended_data, extended_start = _load_extended_data_for_dedispersion(
+                    extended_result = _load_extended_data_for_dedispersion(
                         fits_path, start_sample_global, data_chunk.shape[0], 0.0  # DM=0 para sin detecciones
                     )
+                    extended_data, extended_start = extended_result
                     
                     if extended_data is not None:
                         # Calcular posición relativa del slice en los datos extendidos
                         relative_start = start_sample_global - extended_start + j * slice_len
                         
-                        # Aplicar mismo preprocessing
-                        extended_preprocessed = np.vstack([extended_data, extended_data[::-1, :]])
-                        extended_preprocessed = downsample_data(extended_preprocessed)
-                        
+                        # Los datos extendidos ya están procesados en _load_extended_data_for_dedispersion
                         # Usar DM=0 para banda sin detecciones
                         dedisp_block = dedisperse_block(
-                            extended_preprocessed, 
+                            extended_data, 
                             freq_ds, 
                             0.0, 
                             relative_start, 

@@ -1,8 +1,6 @@
 """High level pipeline for FRB detection with CenterNet."""
 from __future__ import annotations
 
-import csv
-import json
 import logging
 import time
 import gc
@@ -21,7 +19,6 @@ from .dedispersion import d_dm_time_g, dedisperse_patch, dedisperse_block
 from .metrics import compute_snr
 from .astro_conversions import pixel_to_physical
 from .preprocessing import downsample_data
-from .rfi_mitigation import RFIMitigator
 from .image_utils import (
     preprocess_img,
     postprocess_img,
@@ -36,240 +33,21 @@ from .visualization import (
     save_slice_summary,
     plot_waterfalls,
 )
+from .rfi_utils import apply_rfi_cleaning
+from .models import load_detection_model as _load_model, load_classification_model as _load_class_model
+from .file_utils import (
+    find_data_files as _find_data_files,
+    slice_parameters as _slice_parameters,
+    load_fil_chunk as _load_fil_chunk,
+    write_summary as _write_summary,
+)
+from .csv_utils import ensure_csv_header as _ensure_csv_header, write_candidate as _write_candidate_to_csv
+from .detection_utils import (
+    detect_candidates as _detect,
+    prep_patch as _prep_patch,
+    classify_patch as _classify_patch,
+)
 logger = logging.getLogger(__name__)
-
-
-def apply_rfi_cleaning(
-    waterfall: np.ndarray,
-    stokes_v: np.ndarray | None = None,
-    output_dir: Path | None = None
-) -> tuple[np.ndarray, dict]:
-    """
-    Aplica limpieza de RFI al waterfall DM vs. Time.
-    
-    Parameters
-    ----------
-    waterfall : np.ndarray
-        Datos waterfall (tiempo, frecuencia/DM)
-    stokes_v : np.ndarray, optional
-        Datos de polarización circular
-    output_dir : Path, optional
-        Directorio para guardar diagnósticos
-        
-    Returns
-    -------
-    tuple[np.ndarray, dict]
-        Waterfall limpio y estadísticas de RFI
-    """
-    if not hasattr(config, 'RFI_ENABLE_ALL_FILTERS') or not config.RFI_ENABLE_ALL_FILTERS:
-        # RFI cleaning deshabilitado
-        return waterfall, {}
-    
-    print("[INFO] Aplicando limpieza de RFI...")
-    
-    # Configura el mitigador de RFI
-    rfi_mitigator = RFIMitigator(
-        freq_sigma_thresh=getattr(config, 'RFI_FREQ_SIGMA_THRESH', 5.0),
-        time_sigma_thresh=getattr(config, 'RFI_TIME_SIGMA_THRESH', 5.0),
-        zero_dm_sigma_thresh=getattr(config, 'RFI_ZERO_DM_SIGMA_THRESH', 4.0),
-        impulse_sigma_thresh=getattr(config, 'RFI_IMPULSE_SIGMA_THRESH', 6.0),
-        polarization_thresh=getattr(config, 'RFI_POLARIZATION_THRESH', 0.8)
-    )
-    
-    # Aplica limpieza
-    cleaned_waterfall, rfi_stats = rfi_mitigator.clean_waterfall(
-        waterfall,
-        stokes_v=stokes_v,
-        apply_all_filters=True
-    )
-    
-    # Guarda diagnósticos si está configurado
-    if (getattr(config, 'RFI_SAVE_DIAGNOSTICS', False) and 
-        output_dir and 
-        rfi_stats.get('total_flagged_fraction', 0) > 0.001):
-        
-        rfi_dir = output_dir / "rfi_diagnostics"
-        rfi_dir.mkdir(parents=True, exist_ok=True)
-        
-        diagnostic_path = rfi_dir / "rfi_cleaning_diagnostics.png"
-        rfi_mitigator.plot_rfi_diagnostics(
-            waterfall, cleaned_waterfall, diagnostic_path
-        )
-    
-    return cleaned_waterfall, rfi_stats
-
-
-def _load_model() -> torch.nn.Module:
-    """Load the CenterNet model configured in :mod:`config`."""
-    if torch is None:
-        raise ImportError("torch is required to load models")
-
-    from ObjectDet.centernet_model import centernet
-    model = centernet(model_name=config.MODEL_NAME).to(config.DEVICE)
-    state = torch.load(config.MODEL_PATH, map_location=config.DEVICE)
-    model.load_state_dict(state)
-    model.eval()
-    return model
-
-def _load_class_model() -> torch.nn.Module:
-    """Load the binary classification model configured in :mod:`config`."""
-    if torch is None:
-        raise ImportError("torch is required to load models")
-
-    from BinaryClass.binary_model import BinaryNet
-    model = BinaryNet(config.CLASS_MODEL_NAME, num_classes=2).to(config.DEVICE)
-    state = torch.load(config.CLASS_MODEL_PATH, map_location=config.DEVICE)
-    model.load_state_dict(state)
-    model.eval()
-    return model
-
-def _find_data_files(frb: str) -> List[Path]:
-    """Return FITS or filterbank files matching ``frb`` within ``config.DATA_DIR``."""
-
-    files = list(config.DATA_DIR.glob("*.fits")) + list(config.DATA_DIR.glob("*.fil"))
-    return sorted(f for f in files if frb in f.name)
-
-
-def _ensure_csv_header(csv_path: Path) -> None:
-    """Create ``csv_path`` with the standard candidate header if needed."""
-
-    # Verificar si el directorio padre existe y crearlo si no
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if csv_path.exists():
-        return
-
-    try:
-        with csv_path.open("w", newline="") as f_csv:
-            writer = csv.writer(f_csv)
-            writer.writerow(
-                [
-                    "file",
-                    "slice",
-                    "band",
-                    "prob",
-                    "dm_pc_cm-3",
-                    "t_sec_absolute",  # ✅ Actualizado: tiempo absoluto desde inicio archivo
-                    "t_sample",
-                    "x1",
-                    "y1",
-                    "x2",
-                    "y2",
-                    "snr_peak",       # ✅ Actualizado: SNR calculado igual que plots
-                    "class_prob",
-                    "is_burst",
-                    "patch_file",
-                ]
-            )
-    except PermissionError as e:
-        logger.error("Error de permisos al crear CSV %s: %s", csv_path, e)
-        raise
-
-
-def _write_candidate_to_csv(csv_file: Path, candidate: Candidate) -> None:
-    """Write a single candidate to the CSV file with error handling."""
-    
-    try:
-        with csv_file.open("a", newline="") as f_csv:
-            writer = csv.writer(f_csv)
-            writer.writerow(candidate.to_row())
-    except PermissionError as e:
-        logger.error("Error de permisos al escribir en CSV %s: %s", csv_file, e)
-        # Intentar crear un archivo alternativo
-        alt_csv = csv_file.with_suffix(f".{int(time.time())}.csv")
-        logger.info("Usando archivo alternativo: %s", alt_csv)
-        with alt_csv.open("a", newline="") as f_csv:
-            writer = csv.writer(f_csv)
-            writer.writerow(candidate.to_row())
-    except Exception as e:
-        logger.error("Error inesperado al escribir CSV: %s", e)
-        raise
-
-
-def _slice_parameters(width_total: int, slice_len: int) -> tuple[int, int]:
-    """Return adjusted ``slice_len`` and number of slices for ``width_total``."""
-
-    if width_total == 0:
-        return 0, 0
-    if width_total < slice_len:
-        return width_total, 1
-    return slice_len, width_total // slice_len
-
-
-def _detect(model, img_tensor: np.ndarray) -> tuple[list, list | None]:
-    """Run the detection model and return confidences and boxes."""
-    from ObjectDet.centernet_utils import get_res
-
-    try:
-        with torch.no_grad():
-            hm, wh, offset = model(
-                torch.from_numpy(img_tensor)
-                .to(config.DEVICE)
-                .float()
-                .unsqueeze(0)
-            )
-        
-        top_conf, top_boxes = get_res(hm, wh, offset, confidence=config.DET_PROB)
-        
-        # Validar resultados
-        if top_boxes is None:
-            return [], None
-            
-        if not isinstance(top_conf, (list, np.ndarray)):
-            logger.warning(f"top_conf no es lista/array: {type(top_conf)}")
-            return [], None
-            
-        if not isinstance(top_boxes, (list, np.ndarray)):
-            logger.warning(f"top_boxes no es lista/array: {type(top_boxes)}")
-            return [], None
-            
-        # Convertir a listas si es necesario
-        if isinstance(top_conf, np.ndarray):
-            top_conf = top_conf.tolist()
-        if isinstance(top_boxes, np.ndarray):
-            top_boxes = top_boxes.tolist()
-            
-        return top_conf, top_boxes
-        
-    except Exception as e:
-        logger.error(f"Error en _detect: {e}")
-        return [], None
-
-
-def _prep_patch(patch: np.ndarray) -> np.ndarray:
-    """Normalize patch for classification."""
-
-    patch = patch.copy()
-    patch += 1
-    patch /= np.mean(patch, axis=0)
-    vmin, vmax = np.nanpercentile(patch, [5, 95])
-    patch = np.clip(patch, vmin, vmax)
-    patch = (patch - patch.min()) / (patch.max() - patch.min())
-    return patch
-
-
-def _classify_patch(model, patch: np.ndarray) -> tuple[float, np.ndarray]:
-    """Return probability from binary model for ``patch`` along with the processed patch."""
-
-    proc = _prep_patch(patch)
-    tensor = torch.from_numpy(proc[None, None, :, :]).float().to(config.DEVICE)
-    with torch.no_grad():
-        out = model(tensor)
-        prob = out.softmax(dim=1)[0, 1].item()
-    return prob, proc
-
-def _write_summary(summary: dict, save_path: Path) -> None:
-    """Write global summary information to ``summary.json``.
-
-    Each entry in ``summary`` now includes ``n_bursts`` and ``n_no_bursts``
-    indicating how many classified bursts and non-bursts were found in a
-    given FITS file.
-    """
-
-    summary_path = save_path / "summary.json"
-    with summary_path.open("w") as f_json:
-        json.dump(summary, f_json, indent=2)
-    logger.info("Resumen global escrito en %s", summary_path)
 
 def _process_file(
     det_model: torch.nn.Module,
@@ -527,9 +305,7 @@ def _process_file(
                 else:
                     n_no_bursts += 1
                 prob_max = max(prob_max, float(conf))
-                with csv_file.open("a", newline="") as f_csv:
-                    writer = csv.writer(f_csv)
-                    writer.writerow(cand.to_row())
+                _write_candidate_to_csv(csv_file, cand)
                 logger.info(
                     "Candidato DM %.2f t=%.3f s conf=%.2f class=%.2f -> %s",
                     dm_val,

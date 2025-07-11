@@ -2,7 +2,10 @@
 Configuración del Pipeline de Detección de FRB
 ===========================================================
 
-Este archivo contiene todos los parámetros configurables del pipeline de detección
+Este archivo c# --- Parámetros de decimación ---
+DOWN_FREQ_RATE: int = 8                     # Factor de reducción en frecuencia (AGRESIVO para evitar chunks)
+DOWN_TIME_RATE: int = 16                    # Factor de reducción en tiempo (AGRESIVO para evitar chunks)
+DATA_NEEDS_REVERSAL: bool = False           # Invertir eje de frecuencia si es necesarioene todos los parámetros configurables del pipeline de detección
 de Fast Radio Bursts (FRB). Los parámetros están organizados por categorías para
 facilitar la configuración según las necesidades astronómicas.
 
@@ -45,7 +48,7 @@ RESULTS_DIR = Path("./Results/ObjectDetection")  # Directorio para guardar resul
 FRB_TARGETS = ["3101_0001_00_8bit"]                       # Lista de targets FRB a procesar
 
 # --- Configuración de Slice Temporal ---
-SLICE_DURATION_MS: float = 196.0            # Duración deseada de cada slice en milisegundos 
+SLICE_DURATION_MS: float = 200.0            # Duración deseada de cada slice en milisegundos 
                                             # El sistema calculará automáticamente SLICE_LEN según:
                                             # SLICE_LEN = round(SLICE_DURATION_MS / (TIME_RESO × DOWN_TIME_RATE × 1000))
                                             # Valores típicos: 16ms (rápido), 32ms (normal), 64ms (estándar), 128ms (lento)
@@ -57,7 +60,7 @@ SLICE_LEN_MAX: int = 2048                   # Límite superior de seguridad para
 
 # --- Rango de Dispersion Measure (DM) ---
 DM_min: int = 0                             # DM mínimo en pc cm⁻³
-DM_max: int = 1028                           # DM máximo en pc cm⁻³
+DM_max: int = 1028                          # DM máximo en pc cm⁻³
 
 # --- Umbrales de detección ---
 DET_PROB: float = 0.2                       # Probabilidad mínima para considerar una detección válida
@@ -65,8 +68,8 @@ CLASS_PROB: float = 0.5                     # Probabilidad mínima para clasific
 SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en visualizaciones
 
 # --- Configuración de procesamiento ---
-USE_MULTI_BAND: bool = False                 # Usar análisis multi-banda (Full/Low/High)
-ENABLE_CHUNK_PROCESSING: bool = True        # Procesar archivos grandes en chunks
+USE_MULTI_BAND: bool = True                 # Usar análisis multi-banda (Full/Low/High)
+ENABLE_CHUNK_PROCESSING: bool = False       # FORZAR PIPELINE CLÁSICO - NO usar chunks
 MAX_SAMPLES_LIMIT: int = 2000000            # Límite de muestras por chunk (memoria)
 
 # =============================================================================
@@ -129,9 +132,12 @@ FILE_LENG: int = 0                          # Longitud del archivo (muestras)
 SLICE_LEN: int = 512                        # Número de muestras por slice (calculado automáticamente desde SLICE_DURATION_MS)
 
 # --- Parámetros de decimación ---
-DOWN_FREQ_RATE: int = 1                     # Factor de reducción en frecuencia
-DOWN_TIME_RATE: int = 1                     # Factor de reducción en tiempo
+DOWN_FREQ_RATE: int = 8                     # Factor de reducción en frecuencia (AGRESIVO para evitar chunks)
+DOWN_TIME_RATE: int = 16                    # Factor de reducción en tiempo (AGRESIVO para evitar chunks)
 DATA_NEEDS_REVERSAL: bool = False           # Invertir eje de frecuencia si es necesario
+
+# Marcador para indicar que usamos configuración manual de downsampling
+_downsampling_configured: bool = True       # Evita que get_obparams_fil sobrescriba los valores
 
 # --- Configuración de SNR y visualización ---
 SNR_OFF_REGIONS = [(-250, -150), (-100, -50), (50, 100), (150, 250)]  # Regiones simétricas
@@ -145,6 +151,14 @@ CHUNK_OVERLAP_SAMPLES: int = 1000           # Solapamiento entre chunks
 # 500,000 muestras ≈ 2.5 GB RAM
 # 1,000,000 muestras ≈ 5 GB RAM
 # 2,000,000 muestras ≈ 10 GB RAM
+
+# *** CONFIGURACIÓN ACTUAL: DOWNSAMPLING AGRESIVO ***
+# DOWN_TIME_RATE = 16 y DOWN_FREQ_RATE = 8 reducen los datos 128x
+# Archivo original: 65,917,953 muestras → ~515,000 muestras (pipeline clásico)
+# ENABLE_CHUNK_PROCESSING = False → Fuerza siempre pipeline clásico
+#
+# ¡IMPORTANTE! Sin downsampling cada chunk necesita 15.3 GB RAM y falla.
+# Con downsampling 128x, el archivo completo cabe en <1 GB RAM.
 
 # =============================================================================
 # INFORMACIÓN ADICIONAL Y NOTAS

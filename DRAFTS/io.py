@@ -154,11 +154,48 @@ def get_obparams(file_name: str) -> None:
             config.FREQ = freq_temp
             config.DATA_NEEDS_REVERSAL = False
 
-    if config.FREQ_RESO >= 512:
-        config.DOWN_FREQ_RATE = max(1, int(round(config.FREQ_RESO / 512)))
+    # ✅ CORRECCIÓN CRÍTICA: NO sobrescribir valores de downsampling configurados manualmente
+    # Solo usar valores automáticos si no están configurados explícitamente
+    if not hasattr(config, '_downsampling_configured') or not config._downsampling_configured:
+        # Cálculo automático solo si no hay configuración manual
+        if config.FREQ_RESO >= 512:
+            auto_down_freq = max(1, int(round(config.FREQ_RESO / 512)))
+        else:
+            auto_down_freq = 1
+        if config.TIME_RESO > 1e-9:
+            auto_down_time = max(1, int((49.152 * 16 / 1e6) / config.TIME_RESO))
+        else:
+            auto_down_time = 15
+            
+        config.DOWN_FREQ_RATE = auto_down_freq
+        config.DOWN_TIME_RATE = auto_down_time
+        print(f"[INFO] Usando downsampling automático: freq={auto_down_freq}, time={auto_down_time}")
     else:
-        config.DOWN_FREQ_RATE = 1
-    if config.TIME_RESO > 1e-9:
-        config.DOWN_TIME_RATE = max(1, int((49.152 * 16 / 1e6) / config.TIME_RESO))
-    else:
-        config.DOWN_TIME_RATE = 15
+        print(f"[INFO] Usando downsampling configurado manualmente: freq={config.DOWN_FREQ_RATE}, time={config.DOWN_TIME_RATE}")
+
+    # ✅ DEBUG: Mostrar información detallada para archivos FITS
+    print(f"\n[DEBUG] 📡 INFORMACIÓN DEL ARRAY DE FRECUENCIAS (FITS):")
+    print(f"  - Array shape: {config.FREQ.shape}")
+    print(f"  - Frecuencia mínima: {config.FREQ.min():.3f} MHz")
+    print(f"  - Frecuencia máxima: {config.FREQ.max():.3f} MHz")
+    print(f"  - Ancho de banda total: {config.FREQ.max() - config.FREQ.min():.3f} MHz")
+    print(f"  - Resolución por canal: {abs(config.FREQ[1] - config.FREQ[0]):.6f} MHz")
+    print(f"  - Datos invertidos (freq descendente): {config.DATA_NEEDS_REVERSAL}")
+    print(f"  - Primeros 10 canales: {config.FREQ[:10]}")
+    print(f"  - Últimos 10 canales: {config.FREQ[-10:]}")
+    
+    print(f"\n[DEBUG] 📄 PARÁMETROS EXTRAÍDOS DEL FITS:")
+    print(f"  - TIME_RESO: {config.TIME_RESO:.6e} s")
+    print(f"  - FREQ_RESO: {config.FREQ_RESO}")
+    print(f"  - FILE_LENG: {config.FILE_LENG}")
+    print(f"  - freq_axis_inverted: {freq_axis_inverted}")
+    
+    # ✅ Calcular y mostrar el tamaño final después del downsampling
+    final_samples = config.FILE_LENG // config.DOWN_TIME_RATE
+    final_channels = config.FREQ_RESO // config.DOWN_FREQ_RATE
+    reduction_factor = config.DOWN_TIME_RATE * config.DOWN_FREQ_RATE
+    print(f"\n[INFO] 💾 IMPACTO DEL DOWNSAMPLING (FITS):")
+    print(f"  - Tamaño después del downsampling: {final_samples:,} muestras")
+    print(f"  - Canales después del downsampling: {final_channels}")
+    print(f"  - Factor de reducción total: {reduction_factor}x")
+    print(f"  - ¿Necesita chunks?: {'NO' if final_samples <= getattr(config, 'MAX_SAMPLES_LIMIT', 2000000) else 'SÍ'}")

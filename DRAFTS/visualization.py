@@ -166,7 +166,7 @@ def save_patch_plot(
     ax0.plot(time_axis, snr_profile, color="royalblue", alpha=0.8, lw=1.5)
     
     # Highlight regions above threshold
-    if thresh_snr is not None:
+    if thresh_snr is not None and config.SNR_SHOW_PEAK_LINES:
         above_thresh = snr_profile >= thresh_snr
         if np.any(above_thresh):
             ax0.plot(time_axis[above_thresh], snr_profile[above_thresh], 
@@ -184,7 +184,7 @@ def save_patch_plot(
     ax0.set_xlim(time_axis[0], time_axis[-1])
     ax0.set_ylabel('SNR (σ)', fontsize=10, fontweight='bold')
     ax0.grid(True, alpha=0.3)
-    if thresh_snr is not None:
+    if thresh_snr is not None and config.SNR_SHOW_PEAK_LINES:
         ax0.legend(fontsize=8, loc='upper right')
     
     # Remove x-axis labels for top panel
@@ -216,8 +216,9 @@ def save_patch_plot(
     ax1.set_xticklabels([f"{t:.3f}" for t in time_tick_positions])
 
     # Mark peak position on waterfall
-    ax1.axvline(x=peak_time_abs, color=config.SNR_HIGHLIGHT_COLOR, 
-               linestyle='-', alpha=0.8, linewidth=2)
+    if config.SNR_SHOW_PEAK_LINES:
+        ax1.axvline(x=peak_time_abs, color=config.SNR_HIGHLIGHT_COLOR, 
+                   linestyle='-', alpha=0.8, linewidth=2)
 
     ax1.set_xlabel("Time (s)", fontsize=10, fontweight='bold')
     ax1.set_ylabel("Frequency (MHz)", fontsize=10, fontweight='bold')
@@ -286,6 +287,20 @@ def save_slice_summary(
     )
     time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
 
+    # DEBUG: Verificar configuración de plots
+    if config.DEBUG_FREQUENCY_ORDER:
+        print(f"🔍 [DEBUG PLOTS] Composite summary para: {fits_stem}")
+        print(f"🔍 [DEBUG PLOTS] Band: {band_name_with_freq}")
+        print(f"🔍 [DEBUG PLOTS] freq_ds shape: {freq_ds.shape}")
+        print(f"🔍 [DEBUG PLOTS] freq_ds.min(): {freq_ds.min():.2f} MHz")
+        print(f"🔍 [DEBUG PLOTS] freq_ds.max(): {freq_ds.max():.2f} MHz")
+        print(f"🔍 [DEBUG PLOTS] waterfall_block shape: {waterfall_block.shape if waterfall_block is not None else 'None'}")
+        print(f"🔍 [DEBUG PLOTS] dedispersed_block shape: {dedispersed_block.shape if dedispersed_block is not None else 'None'}")
+        print(f"🔍 [DEBUG PLOTS] DM value: {dm_val:.2f} pc cm⁻³")
+        print(f"🔍 [DEBUG PLOTS] imshow origin='lower' significa: freq_ds.min() en parte inferior, freq_ds.max() en parte superior")
+        print(f"🔍 [DEBUG PLOTS] extent será: [tiempo_inicio, tiempo_fin, {freq_ds.min():.1f}, {freq_ds.max():.1f}]")
+        print("🔍 [DEBUG PLOTS] " + "="*60)
+
     # Check if waterfall_block is valid
     if waterfall_block is not None and waterfall_block.size > 0:
         wf_block = waterfall_block.copy()
@@ -297,6 +312,16 @@ def save_slice_summary(
         dw_block = dedispersed_block.copy()
     else:
         dw_block = None
+
+    # DEBUG: Verificar datos de entrada
+    if config.DEBUG_FREQUENCY_ORDER:
+        print(f"🔍 [DEBUG DATOS] Entrada a save_slice_summary:")
+        print(f"🔍 [DEBUG DATOS] waterfall_block válido: {wf_block is not None}")
+        print(f"🔍 [DEBUG DATOS] dedispersed_block válido: {dw_block is not None}")
+        if wf_block is not None and dw_block is not None:
+            print(f"🔍 [DEBUG DATOS] ¿Son iguales raw y dedispersed? {np.array_equal(wf_block, dw_block)}")
+            print(f"🔍 [DEBUG DATOS] Diferencia máxima: {np.max(np.abs(wf_block - dw_block)):.6f}")
+        print("🔍 [DEBUG DATOS] " + "="*50)
     
     if normalize:
         for block in (wf_block, dw_block):
@@ -434,7 +459,7 @@ def save_slice_summary(
         ax_prof_wf.plot(time_axis_wf, snr_wf, color="royalblue", alpha=0.8, lw=1.5, label='SNR Profile')
         
         # Resaltar regiones sobre threshold
-        if thresh_snr is not None:
+        if thresh_snr is not None and config.SNR_SHOW_PEAK_LINES:
             above_thresh_wf = snr_wf >= thresh_snr
             if np.any(above_thresh_wf):
                 ax_prof_wf.plot(time_axis_wf[above_thresh_wf], snr_wf[above_thresh_wf], 
@@ -465,6 +490,13 @@ def save_slice_summary(
     ax_wf = fig.add_subplot(gs_waterfall_nested[1, 0])
     
     if wf_block is not None and wf_block.size > 0:
+        # DEBUG: Verificar raw waterfall
+        if config.DEBUG_FREQUENCY_ORDER:
+            print(f"🔍 [DEBUG RAW WF] Raw waterfall shape: {wf_block.shape}")
+            print(f"🔍 [DEBUG RAW WF] Transpose para imshow: {wf_block.T.shape}")
+            print(f"🔍 [DEBUG RAW WF] .T[0, :] (primera freq) primeras 5 muestras: {wf_block.T[0, :5]}")
+            print(f"🔍 [DEBUG RAW WF] .T[-1, :] (última freq) primeras 5 muestras: {wf_block.T[-1, :5]}")
+        
         ax_wf.imshow(
             wf_block.T,
             origin="lower",
@@ -490,7 +522,7 @@ def save_slice_summary(
         ax_wf.set_ylabel("Frequency (MHz)", fontsize=9)
         
         # Marcar posición del pico SNR en el waterfall
-        if 'peak_snr_wf' in locals():
+        if 'peak_snr_wf' in locals() and config.SNR_SHOW_PEAK_LINES:
             ax_wf.axvline(x=time_axis_wf[peak_idx_wf], color=config.SNR_HIGHLIGHT_COLOR, 
                          linestyle='-', alpha=0.8, linewidth=2)
     else:
@@ -519,7 +551,7 @@ def save_slice_summary(
         ax_prof_dw.plot(time_axis_dw, snr_dw, color="green", alpha=0.8, lw=1.5, label='Dedispersed SNR')
         
         # Resaltar regiones sobre threshold
-        if thresh_snr is not None:
+        if thresh_snr is not None and config.SNR_SHOW_PEAK_LINES:
             above_thresh_dw = snr_dw >= thresh_snr
             if np.any(above_thresh_dw):
                 ax_prof_dw.plot(time_axis_dw[above_thresh_dw], snr_dw[above_thresh_dw], 
@@ -550,6 +582,14 @@ def save_slice_summary(
     ax_dw = fig.add_subplot(gs_dedisp_nested[1, 0])
     
     if dw_block is not None and dw_block.size > 0:
+        # DEBUG: Verificar dedispersed waterfall
+        if config.DEBUG_FREQUENCY_ORDER:
+            print(f"🔍 [DEBUG DED WF] Dedispersed waterfall shape: {dw_block.shape}")
+            print(f"🔍 [DEBUG DED WF] Transpose para imshow: {dw_block.T.shape}")
+            print(f"🔍 [DEBUG DED WF] .T[0, :] (primera freq) primeras 5 muestras: {dw_block.T[0, :5]}")
+            print(f"🔍 [DEBUG DED WF] .T[-1, :] (última freq) primeras 5 muestras: {dw_block.T[-1, :5]}")
+            print(f"🔍 [DEBUG DED WF] ¿Es diferente al raw? Diff promedio: {np.mean(np.abs(dw_block - wf_block)) if wf_block is not None else 'N/A'}")
+        
         ax_dw.imshow(
             dw_block.T,
             origin="lower",
@@ -570,7 +610,7 @@ def save_slice_summary(
         ax_dw.set_ylabel("Frequency (MHz)", fontsize=9)
         
         # Marcar posición del pico SNR en el waterfall dedispersado
-        if 'peak_snr_dw' in locals():
+        if 'peak_snr_dw' in locals() and config.SNR_SHOW_PEAK_LINES:
             ax_dw.axvline(x=time_axis_dw[peak_idx_dw], color=config.SNR_HIGHLIGHT_COLOR, 
                          linestyle='-', alpha=0.8, linewidth=2)
     else:
@@ -599,7 +639,7 @@ def save_slice_summary(
         ax_patch_prof.plot(patch_time_axis, snr_patch, color="orange", alpha=0.8, lw=1.5, label='Candidate SNR')
         
         # Resaltar regiones sobre threshold
-        if thresh_snr is not None:
+        if thresh_snr is not None and config.SNR_SHOW_PEAK_LINES:
             above_thresh_patch = snr_patch >= thresh_snr
             if np.any(above_thresh_patch):
                 ax_patch_prof.plot(patch_time_axis[above_thresh_patch], snr_patch[above_thresh_patch], 
@@ -631,6 +671,13 @@ def save_slice_summary(
     ax_patch = fig.add_subplot(gs_patch_nested[1, 0])
     
     if patch_img is not None and patch_img.size > 0:
+        # DEBUG: Verificar candidate patch
+        if config.DEBUG_FREQUENCY_ORDER:
+            print(f"🔍 [DEBUG PATCH] Candidate patch shape: {patch_img.shape}")
+            print(f"🔍 [DEBUG PATCH] Transpose para imshow: {patch_img.T.shape}")
+            print(f"🔍 [DEBUG PATCH] .T[0, :] (primera freq) primeras 5 muestras: {patch_img.T[0, :5]}")
+            print(f"🔍 [DEBUG PATCH] .T[-1, :] (última freq) primeras 5 muestras: {patch_img.T[-1, :5]}")
+        
         ax_patch.imshow(
             patch_img.T,
             origin="lower",
@@ -654,7 +701,7 @@ def save_slice_summary(
         ax_patch.set_ylabel("Frequency (MHz)", fontsize=9)
         
         # Marcar posición del pico SNR en el patch
-        if 'peak_snr_patch' in locals():
+        if 'peak_snr_patch' in locals() and config.SNR_SHOW_PEAK_LINES:
             ax_patch.axvline(x=patch_time_axis[peak_idx_patch], color=config.SNR_HIGHLIGHT_COLOR, 
                            linestyle='-', alpha=0.8, linewidth=2)
     else:

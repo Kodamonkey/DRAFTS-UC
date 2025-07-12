@@ -564,6 +564,11 @@ def _process_file(
                     # 3) Generar waterfall dedispersado para este slice con el primer candidato
                     waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
                     start = j * slice_len
+                    
+                    # DEBUG: Verificar DM usado para dedispersión
+                    if config.DEBUG_FREQUENCY_ORDER:
+                        print(f"🔍 [DEBUG DM] Slice {j} CON candidatos - usando DM={first_dm:.2f}")
+                    
                     dedisp_block = dedisperse_block(data, freq_down, first_dm, start, slice_len)
                     
                     # Aplicar limpieza de RFI al bloque dedispersado si está habilitada
@@ -610,6 +615,12 @@ def _process_file(
                     # Para bandas sin detecciones, crear un parche dummy
                     waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
                     start = j * slice_len
+                    
+                    # DEBUG: Verificar DM usado cuando no hay candidatos
+                    if config.DEBUG_FREQUENCY_ORDER:
+                        print(f"🔍 [DEBUG DM] Slice {j} SIN candidatos - usando DM=0.0 (¡Sin dedispersión!)")
+                        print(f"🔍 [DEBUG DM] ❌ PROBLEMA: DM=0 significa waterfall dedispersado = waterfall raw")
+                    
                     # Usar DM=0 para banda sin detecciones
                     dedisp_block = dedisperse_block(data, freq_down, 0.0, start, slice_len)
                     
@@ -628,6 +639,22 @@ def _process_file(
                 # 1) Generar composite - SIEMPRE para comparativas si hay candidatos en este slice
                 composite_dir = save_dir / "Composite" / fits_path.stem
                 comp_path = composite_dir / f"slice{j}_band{band_idx}.png"
+                
+                # DEBUG: Verificar datos antes de save_slice_summary
+                if config.DEBUG_FREQUENCY_ORDER:
+                    print(f"🔍 [DEBUG PIPELINE] Slice {j}, Band {band_idx}")
+                    print(f"🔍 [DEBUG PIPELINE] waterfall_block shape: {waterfall_block.shape}")
+                    print(f"🔍 [DEBUG PIPELINE] dedisp_block existe: {dedisp_block is not None}")
+                    if dedisp_block is not None:
+                        print(f"🔍 [DEBUG PIPELINE] dedisp_block shape: {dedisp_block.shape}")
+                        print(f"🔍 [DEBUG PIPELINE] ¿Son iguales?: {np.array_equal(waterfall_block, dedisp_block)}")
+                        if not np.array_equal(waterfall_block, dedisp_block):
+                            print(f"🔍 [DEBUG PIPELINE] ✅ DIFERENTES - Diff max: {np.max(np.abs(waterfall_block - dedisp_block)):.6f}")
+                        else:
+                            print(f"🔍 [DEBUG PIPELINE] ❌ IGUALES - Esto indica problema!")
+                    else:
+                        print(f"🔍 [DEBUG PIPELINE] ❌ dedisp_block es None - usando fallback!")
+                
                 save_slice_summary(
                     waterfall_block,
                     dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,  # fallback a waterfall original

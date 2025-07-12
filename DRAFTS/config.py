@@ -35,6 +35,12 @@ RFI_ENABLE_ALL_FILTERS: bool = False        # True = todos los filtros, False = 
 RFI_INTERPOLATE_MASKED: bool = False        # True = interpolar valores, False = mantener enmascarados
 RFI_SAVE_DIAGNOSTICS: bool = False          # True = guardar gráficos, False = no guardar
 
+# --- Control de Visualización SNR ---
+SNR_SHOW_PEAK_LINES: bool = False            # True = mostrar líneas rojas del SNR peak, False = ocultar líneas
+
+# --- Control de Debug ---
+DEBUG_FREQUENCY_ORDER: bool = True          # True = debug orden de frecuencias y dedispersión, False = sin debug
+
 # =============================================================================
 # CONFIGURACIÓN PRINCIPAL - Parámetros que típicamente se modifican
 # =============================================================================
@@ -42,7 +48,7 @@ RFI_SAVE_DIAGNOSTICS: bool = False          # True = guardar gráficos, False = 
 # --- Rutas de archivos y datos ---
 DATA_DIR = Path("./Data")                        # Directorio con archivos de entrada (.fits, .fil)
 RESULTS_DIR = Path("./Results/ObjectDetection")  # Directorio para guardar resultados
-FRB_TARGETS = ["B0355+54"]                       # Lista de targets FRB a procesar
+FRB_TARGETS = ["3101_0001_00_8bit", "3100_0001_00_8bit", "3099_0001_00_8bit", "3098_0001_00_8bit", "3097_0001_00_8bit"]                       # Lista de targets FRB a procesar
 
 # --- Configuración de Slice Temporal ---
 SLICE_DURATION_MS: float = 196.0            # Duración deseada de cada slice en milisegundos 
@@ -57,15 +63,15 @@ SLICE_LEN_MAX: int = 2048                    # Límite superior de seguridad par
 
 # --- Rango de Dispersion Measure (DM) ---
 DM_min: int = 0                             # DM mínimo en pc cm⁻³
-DM_max: int = 129                           # DM máximo en pc cm⁻³
+DM_max: int = 1024                           # DM máximo en pc cm⁻³
 
 # --- Umbrales de detección ---
-DET_PROB: float = 0.3                       # Probabilidad mínima para considerar una detección válida
+DET_PROB: float = 0.5                       # Probabilidad mínima para considerar una detección válida
 CLASS_PROB: float = 0.5                     # Probabilidad mínima para clasificar como burst
 SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en visualizaciones
 
 # --- Configuración de procesamiento ---
-USE_MULTI_BAND: bool = True                 # Usar análisis multi-banda (Full/Low/High)
+USE_MULTI_BAND: bool = False                 # Usar análisis multi-banda (Full/Low/High)
 ENABLE_CHUNK_PROCESSING: bool = True        # Procesar archivos grandes en chunks
 MAX_SAMPLES_LIMIT: int = 2000000            # Límite de muestras por chunk (memoria)
 
@@ -173,6 +179,28 @@ CONFIGURACIÓN SIMPLIFICADA:
    
    Para procesamiento COMPLETO:
    - RFI_ENABLE_ALL_FILTERS = True
+
+4. VISUALIZACIÓN SNR:
+   Para MOSTRAR líneas rojas del SNR en composite:
+   - SNR_SHOW_PEAK_LINES = True
+   
+   Para OCULTAR líneas rojas del SNR en composite:
+   - SNR_SHOW_PEAK_LINES = False
+
+5. DEBUG DE ARCHIVOS Y FRECUENCIAS:
+   Para HABILITAR debugs detallados de archivos:
+   - DEBUG_FREQUENCY_ORDER = True
+   
+   Para DESHABILITAR debugs (producción):
+   - DEBUG_FREQUENCY_ORDER = False
+   
+   Los debugs muestran:
+   - Información completa del archivo (.fits/.fil)
+   - Orden y valores de frecuencias
+   - Parámetros de decimación
+   - Configuración de chunking
+   - Datos cargados en memoria
+   - Dirección de dedispersión
 
 CASOS DE USO TÍPICOS:
 - Análisis rápido: SLICE_DURATION_MS = 32.0

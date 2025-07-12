@@ -196,6 +196,24 @@ def dedisperse_block(
         / config.DOWN_TIME_RATE
     ).astype(np.int64)
 
+    # DEBUG: Verificar dedispersión
+    if config.DEBUG_FREQUENCY_ORDER:
+        print(f"🔍 [DEBUG DEDISPERSIÓN] DM: {dm:.2f} pc cm⁻³")
+        print(f"🔍 [DEBUG DEDISPERSIÓN] freq_down shape: {freq_down.shape}")
+        print(f"🔍 [DEBUG DEDISPERSIÓN] Primeras 3 freq_down: {freq_down[:3]}")
+        print(f"🔍 [DEBUG DEDISPERSIÓN] Últimas 3 freq_down: {freq_down[-3:]}")
+        print(f"🔍 [DEBUG DEDISPERSIÓN] freq_down.max(): {freq_down.max():.2f} MHz")
+        print(f"🔍 [DEBUG DEDISPERSIÓN] Primeros 3 delays: {delays[:3]} muestras")
+        print(f"🔍 [DEBUG DEDISPERSIÓN] Últimos 3 delays: {delays[-3:]} muestras")
+        print(f"🔍 [DEBUG DEDISPERSIÓN] max_delay: {delays.max()} muestras")
+        print(f"🔍 [DEBUG DEDISPERSIÓN] Dedispersión esperada: freq ALTAS llegan primero (delay=0), freq BAJAS llegan después (delay>0)")
+        if freq_down[0] < freq_down[-1]:  # ascendente
+            expected_delay_pattern = "delays DECRECIENTES (de max a 0)"
+        else:  # descendente
+            expected_delay_pattern = "delays CRECIENTES (de 0 a max)"
+        print(f"🔍 [DEBUG DEDISPERSIÓN] Patrón esperado de delays: {expected_delay_pattern}")
+        print("🔍 [DEBUG DEDISPERSIÓN] " + "="*60)
+
     max_delay = int(delays.max())
     if start + block_len + max_delay > data.shape[0]:
         start = max(0, data.shape[0] - (block_len + max_delay))

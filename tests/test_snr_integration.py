@@ -82,7 +82,7 @@ try:
     ax1.axhline(y=config.SNR_THRESH, color='red', linestyle='--', alpha=0.7, label=f'Threshold = {config.SNR_THRESH}σ')
     ax1.plot(time_axis[peak_idx], peak_snr, 'ro', markersize=8, label=f'Peak = {peak_snr:.1f}σ')
     ax1.set_ylabel('SNR (σ)')
-    ax1.set_title(f'Perfil SNR - Peak: {peak_snr:.1f}σ en t={time_axis[peak_idx]*1000:.1f}ms')
+    ax1.set_title(f'SNR Profile - Peak: {peak_snr:.1f}σ at t={time_axis[peak_idx]*1000:.1f}ms')
     ax1.grid(True, alpha=0.3)
     ax1.legend()
     
@@ -92,7 +92,7 @@ try:
     ax2.axvline(x=time_axis[peak_idx]*1000, color='red', linestyle='-', alpha=0.8, linewidth=2)
     ax2.set_xlabel('Time (ms)')
     ax2.set_ylabel('Frequency (MHz)')
-    ax2.set_title('Waterfall con FRB Sintético')
+    ax2.set_title('Waterfall with Synthetic FRB')
     
     plt.colorbar(im, ax=ax2, label='Intensity')
     plt.tight_layout()

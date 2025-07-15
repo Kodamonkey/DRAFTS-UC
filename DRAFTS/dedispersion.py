@@ -1,10 +1,13 @@
 """Dedispersion helpers using GPU/CPU."""
 from __future__ import annotations
 
+import logging
 import numpy as np
 from numba import cuda, njit, prange
 
 from . import config
+
+logger = logging.getLogger(__name__)
 
 @cuda.jit
 def _de_disp_gpu(dm_time, data, freq, index, start_offset, mid_channel):
@@ -32,26 +35,44 @@ def _de_disp_gpu(dm_time, data, freq, index, start_offset, mid_channel):
 
 @njit(parallel=True)
 def _d_dm_time_cpu(data, height: int, width: int) -> np.ndarray:
+    """CPU fallback for dedispersion without Numba optimizations."""
     out = np.zeros((3, height, width), dtype=np.float32)
     nchan_ds = config.FREQ_RESO // config.DOWN_FREQ_RATE
     freq_index = np.arange(0, nchan_ds)
     mid_channel = nchan_ds // 2
 
-    for DM in prange(height):
+    # Asegurarse de que config.FREQ sea válido
+    if config.FREQ is None or config.FREQ.size == 0:
+        logger.error("config.FREQ es inválido en _d_dm_time_cpu")
+        return out
+    
+    # Usar frecuencias downsampled consistentemente
+    freq_ds = np.mean(config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE), axis=1)
+    
+    # Sin usar prange para evitar problemas de Numba
+    for DM in range(height):
         delays = (
             4.15
             * DM
-            * (config.FREQ ** -2 - config.FREQ.max() ** -2)
+            * (freq_ds ** -2 - freq_ds.max() ** -2)
             * 1e3
             / config.TIME_RESO
             / config.DOWN_TIME_RATE
         ).astype(np.int64)
+        
         time_series = np.zeros(width, dtype=np.float32)
+        
         for j in freq_index:
-            time_series += data[delays[j] : delays[j] + width, j]
-            if j == mid_channel:
-                out[1, DM] = time_series
-        out[0, DM] = time_series
+            start_idx = delays[j]
+            end_idx = start_idx + width
+            
+            # Verificaciones simples
+            if start_idx >= 0 and end_idx <= data.shape[0] and j < data.shape[1]:
+                time_series += data[start_idx:end_idx, j]
+                if j == mid_channel:
+                    out[1, DM] = time_series.copy()
+                    
+        out[0, DM] = time_series.copy()
         out[2, DM] = time_series - out[1, DM]
     return out
 
@@ -59,6 +80,25 @@ def _d_dm_time_cpu(data, height: int, width: int) -> np.ndarray:
 def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128) -> np.ndarray:
     result = np.zeros((3, height, width), dtype=np.float32)
     try:
+        print("[INFO] Intentando usar GPU para dedispersión...")
+        
+        # Verificar que config.FREQ y sus dimensiones sean válidas
+        if config.FREQ is None:
+            raise ValueError("config.FREQ is None during dedispersion")
+        if config.FREQ.size == 0:
+            raise ValueError("config.FREQ is empty during dedispersion")
+        if config.FREQ_RESO == 0 or config.DOWN_FREQ_RATE == 0:
+            raise ValueError(f"Invalid frequency parameters during dedispersion: FREQ_RESO={config.FREQ_RESO}, DOWN_FREQ_RATE={config.DOWN_FREQ_RATE}")
+        
+        # Verificar que el reshape es válido
+        expected_size = config.FREQ_RESO // config.DOWN_FREQ_RATE
+        if expected_size * config.DOWN_FREQ_RATE != config.FREQ_RESO:
+            logger.warning("FREQ_RESO (%d) no es divisible por DOWN_FREQ_RATE (%d) en dedispersión", 
+                          config.FREQ_RESO, config.DOWN_FREQ_RATE)
+            # Ajustar para que sea divisible
+            config.FREQ_RESO = expected_size * config.DOWN_FREQ_RATE
+            config.FREQ = config.FREQ[:config.FREQ_RESO]
+        
         freq_values = np.mean(config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE), axis=1)
         freq_gpu = cuda.to_device(freq_values)
         nchan_ds = config.FREQ_RESO // config.DOWN_FREQ_RATE
@@ -76,8 +116,10 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
             cuda.synchronize()
             result[:, start_dm:end_dm, :] = dm_time_gpu.copy_to_host()
             del dm_time_gpu
+        print("[INFO] Dedispersión GPU completada exitosamente")
         return result
-    except cuda.cudadrv.driver.CudaAPIError:
+    except (cuda.cudadrv.driver.CudaAPIError, Exception) as e:
+        print(f"[WARNING] Error GPU ({e}), cambiando a CPU...")
         return _d_dm_time_cpu(data, height, width)
 
 def dedisperse_patch(
@@ -153,6 +195,24 @@ def dedisperse_block(
         / config.TIME_RESO
         / config.DOWN_TIME_RATE
     ).astype(np.int64)
+
+    # DEBUG: Verificar dedispersión
+    if config.DEBUG_FREQUENCY_ORDER:
+        print(f"🔍 [DEBUG DEDISPERSIÓN] DM: {dm:.2f} pc cm⁻³")
+        print(f"🔍 [DEBUG DEDISPERSIÓN] freq_down shape: {freq_down.shape}")
+        print(f"🔍 [DEBUG DEDISPERSIÓN] Primeras 3 freq_down: {freq_down[:3]}")
+        print(f"🔍 [DEBUG DEDISPERSIÓN] Últimas 3 freq_down: {freq_down[-3:]}")
+        print(f"🔍 [DEBUG DEDISPERSIÓN] freq_down.max(): {freq_down.max():.2f} MHz")
+        print(f"🔍 [DEBUG DEDISPERSIÓN] Primeros 3 delays: {delays[:3]} muestras")
+        print(f"🔍 [DEBUG DEDISPERSIÓN] Últimos 3 delays: {delays[-3:]} muestras")
+        print(f"🔍 [DEBUG DEDISPERSIÓN] max_delay: {delays.max()} muestras")
+        print(f"🔍 [DEBUG DEDISPERSIÓN] Dedispersión esperada: freq ALTAS llegan primero (delay=0), freq BAJAS llegan después (delay>0)")
+        if freq_down[0] < freq_down[-1]:  # ascendente
+            expected_delay_pattern = "delays DECRECIENTES (de max a 0)"
+        else:  # descendente
+            expected_delay_pattern = "delays CRECIENTES (de 0 a max)"
+        print(f"🔍 [DEBUG DEDISPERSIÓN] Patrón esperado de delays: {expected_delay_pattern}")
+        print("🔍 [DEBUG DEDISPERSIÓN] " + "="*60)
 
     max_delay = int(delays.max())
     if start + block_len + max_delay > data.shape[0]:

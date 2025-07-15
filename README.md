@@ -48,6 +48,154 @@ Our pipeline offers three key components:
 
 📄 **Publication:** [DRAFTS: A Deep Learning-Based Radio Fast Transient Search Pipeline (arXiv:2410.03200)](https://arxiv.org/abs/2410.03200)
 
+## New Features - SNR Analysis Integration
+
+### 🆕 Signal-to-Noise Ratio (SNR) Analysis
+
+The pipeline now includes comprehensive SNR analysis capabilities that enhance the detection and visualization of FRB candidates:
+
+#### Key Features
+
+- **Automatic SNR Calculation**: All candidate patches now display temporal profiles in SNR units (σ) instead of raw intensity
+- **Robust Noise Estimation**: Uses Interquartile Range (IQR) method for noise estimation, robust to multiple pulses
+- **Configurable Thresholds**: Set `SNR_THRESH` in `config.py` to highlight significant detections
+- **Enhanced Visualizations**:
+  - SNR profiles with peak annotations
+  - Threshold lines for detection significance
+  - Color-coded regions above threshold
+  - Vertical markers showing peak positions
+
+#### Configuration Parameters
+
+Add these to your `config.py`:
+
+```python
+# SNR and Visualization Configuration
+SNR_THRESH = 5.0  # Threshold for highlighting detections
+SNR_OFF_REGIONS = [(-200, -100), (-50, 50), (100, 200)]  # Off-pulse regions
+SNR_COLORMAP = "viridis"  # Colormap for waterfalls
+SNR_HIGHLIGHT_COLOR = "red"  # Color for threshold highlighting
+```
+
+#### New Functions Available
+
+- **`compute_snr_profile()`**: Calculate SNR profile from waterfall data
+- **`find_snr_peak()`**: Locate and quantify peak SNR values
+- **`inject_synthetic_frb()`**: Generate synthetic FRBs for testing
+- **`estimate_sigma_iqr()`**: Robust noise estimation
+- **`compute_detection_significance()`**: Statistical significance calculation
+
+#### Enhanced Outputs
+
+The pipeline now generates:
+
+1. **SNR-enhanced patch plots** with annotated peaks and thresholds
+2. **Composite summary plots** showing three SNR profiles:
+   - Raw waterfall SNR (blue)
+   - Dedispersed waterfall SNR (green)
+   - Candidate patch SNR (orange)
+3. **Peak markers** on all waterfall displays
+4. **Significance annotations** with σ values
+
+#### Testing
+
+Run the SNR integration test:
+
+```bash
+python test_snr_integration.py
+```
+
+This creates test outputs in `test_snr_output/` to verify SNR functionality.
+
+#### Scientific Benefits
+
+- **Quantitative Assessment**: All detections now have quantitative SNR measurements
+- **Improved Filtering**: Easy identification of high-significance candidates
+- **Statistical Analysis**: Built-in significance calculation considering multiple trials
+- **Robust Processing**: IQR-based noise estimation handles complex RFI environments
+
+### 🆕 RFI Mitigation System
+
+The pipeline now includes comprehensive Radio Frequency Interference (RFI) cleaning capabilities that significantly improve FRB detection by removing terrestrial and space-based interference:
+
+#### Key RFI Mitigation Techniques
+
+1. **Channel Masking**: Detects and removes persistently contaminated frequency channels
+
+   - Methods: MAD (Median Absolute Deviation), Standard Deviation, Kurtosis
+   - Robust to both narrowband and broadband RFI
+
+2. **Temporal Masking**: Identifies and removes time samples with broadband RFI
+
+   - Statistical outlier detection using robust estimators
+   - Preserves dispersed signals while removing impulsive interference
+
+3. **Zero-DM Filtering**: Eliminates non-dispersed terrestrial RFI
+
+   - Subtracts temporal profile average, preserving dispersed FRB signals
+   - Particularly effective against local radio transmissions
+
+4. **Impulse Filtering**: Removes short-duration impulsive RFI
+
+   - 2D median filtering to detect and suppress impulses
+   - Maintains signal integrity while removing interference spikes
+
+5. **Polarization Analysis**: Uses polarization characteristics to identify RFI
+   - Terrestrial RFI often has different polarization signatures than astrophysical signals
+   - Effective when polarization data is available
+
+#### RFI Configuration Parameters
+
+Configure RFI cleaning in `config.py`:
+
+```python
+# RFI Mitigation Configuration
+RFI_FREQ_SIGMA_THRESH = 5.0      # Channel masking threshold
+RFI_TIME_SIGMA_THRESH = 5.0      # Temporal masking threshold
+RFI_ZERO_DM_SIGMA_THRESH = 4.0   # Zero-DM filter threshold
+RFI_IMPULSE_SIGMA_THRESH = 6.0   # Impulse filtering threshold
+RFI_POLARIZATION_THRESH = 0.8    # Polarization filtering threshold
+RFI_ENABLE_ALL_FILTERS = True    # Enable all RFI filters
+RFI_SAVE_DIAGNOSTICS = True      # Save diagnostic plots
+```
+
+#### Environment-Specific Settings
+
+**Urban Observatory (High RFI)**:
+
+```python
+RFI_FREQ_SIGMA_THRESH = 3.0      # More aggressive
+RFI_TIME_SIGMA_THRESH = 3.0      # More aggressive
+RFI_ZERO_DM_SIGMA_THRESH = 3.0   # More aggressive
+```
+
+**Remote Observatory (Low RFI)**:
+
+```python
+RFI_FREQ_SIGMA_THRESH = 6.0      # Less aggressive
+RFI_TIME_SIGMA_THRESH = 6.0      # Less aggressive
+RFI_ZERO_DM_SIGMA_THRESH = 5.0   # Less aggressive
+```
+
+#### Testing RFI Mitigation
+
+Test the RFI cleaning system:
+
+```bash
+python test_rfi_integration.py    # Full integration test
+python simple_rfi_test.py         # Quick verification test
+```
+
+#### RFI Cleaning Benefits
+
+- **Improved SNR**: Removes interference while preserving FRB signals
+- **Reduced False Positives**: Eliminates RFI-based false detections
+- **Automated Processing**: No manual intervention required
+- **Diagnostic Outputs**: Automatic generation of before/after comparisons
+- **Statistical Monitoring**: Tracks RFI contamination levels
+
+The RFI mitigation system integrates seamlessly with the existing pipeline and SNR analysis, providing enhanced detection capabilities for challenging radio environments.
+
 ## Installation
 
 Install all required dependencies from the `requirements.txt` file in the

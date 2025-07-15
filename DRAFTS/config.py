@@ -1,4 +1,16 @@
-"""Global configuration and runtime parameters for the Effelsberg pipeline."""
+"""
+Configuración del Pipeline de Detección de FRB
+===========================================================
+
+Este archivo contiene todos los parámetros configurables del pipeline de detección
+de Fast Radio Bursts (FRB). Los parámetros están organizados por categorías para
+facilitar la configuración según las necesidades astronómicas.
+
+GUÍA DE USO:
+- Modifique los SWITCHES DE CONTROL para elegir modo manual o automático
+- Configure los parámetros de cada sección según sus necesidades
+- Los parámetros avanzados generalmente no requieren modificación.
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,43 +19,338 @@ from typing import Optional
 import numpy as np
 try:
     import torch
-except ImportError:  # pragma: no cover - optional dependency
+except ImportError:  # Si torch no está instalado, lo dejamos como None
     torch = None
 
-# Configuracion del dispositivo ---------------------------------------------------
+# =============================================================================
+# SWITCHES DE CONTROL ESENCIALES - Solo configuraciones principales
+# =============================================================================
+
+# --- Control de RFI (ESENCIAL) ---
+RFI_ENABLE_ALL_FILTERS: bool = False        # True = todos los filtros, False = solo básicos
+
+# --- Control de Debug (ESENCIAL) ---
+DEBUG_FREQUENCY_ORDER: bool = False         # True = debug orden de frecuencias y dedispersión, False = sin debug para ahorrar memoria
+
+# =============================================================================
+# CONFIGURACIÓN PRINCIPAL - Parámetros que típicamente se modifican
+# =============================================================================
+
+# --- Rutas de archivos y datos ---
+DATA_DIR = Path("./Data")                        # Directorio con archivos de entrada (.fits, .fil)
+RESULTS_DIR = Path("./Results/ObjectDetection")  # Directorio para guardar resultados
+# --- Lista de targets optimizada para múltiples archivos ---
+FRB_TARGETS = ["3098_0001_00_8bit"]          # Lista de targets FRB a procesar - Reducida para pruebas
+# Para procesar todos: ["FRB20201124_0009", "FRB20180301_0002", "B0355+54_FB_20220918"]
+# Nota: FRB20180301_0002.fits parece estar corrupto - revisar archivo
+
+# --- Configuración de Slice Temporal (ESENCIAL) ---
+SLICE_DURATION_MS: float = 196.0            # Duración deseada de cada slice en milisegundos 
+                                            # El sistema calculará automáticamente SLICE_LEN según:
+                                            # SLICE_LEN = round(SLICE_DURATION_MS / (TIME_RESO × DOWN_TIME_RATE × 1000))
+                                            # Valores típicos: 16ms (rápido), 32ms (normal), 64ms (estándar), 128ms (lento)
+
+# --- Rango de Dispersion Measure (DM) ---
+DM_min: int = 0                             # DM mínimo en pc cm⁻³
+DM_max: int = 1024                           # DM máximo en pc cm⁻³
+
+# --- Umbrales de detección ---
+DET_PROB: float = 0.5                       # Probabilidad mínima para considerar una detección válida
+CLASS_PROB: float = 0.5                     # Probabilidad mínima para clasificar como burst
+SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en visualizaciones
+
+# --- Configuración de procesamiento ---
+USE_MULTI_BAND: bool = False                 # Usar análisis multi-banda (Full/Low/High)
+ENABLE_CHUNK_PROCESSING: bool = True        # Procesar archivos grandes en chunks
+MAX_SAMPLES_LIMIT: int = 2000000             # Límite de muestras por chunk (memoria) - Reducido para múltiples archivos
+
+# =============================================================================
+# CONFIGURACIÓN MANUAL - Solo configuraciones esenciales
+# =============================================================================
+
+# (Las configuraciones avanzadas se movieron a la sección de análisis arriba)
+
+# =============================================================================
+# CONFIGURACIÓN DE MODELOS Y SISTEMA - No dependen de switches
+# =============================================================================
+
+# --- Modelo de detección ---
+MODEL_NAME = "resnet50"                     # Arquitectura del modelo de detección
+MODEL_PATH = Path(f"./models/cent_{MODEL_NAME}.pth")  # Ruta al modelo entrenado
+
+# --- Modelo de clasificación binaria ---
+CLASS_MODEL_NAME = "resnet18"               # Arquitectura del modelo de clasificación
+CLASS_MODEL_PATH = Path(f"./models/class_{CLASS_MODEL_NAME}.pth")  # Ruta al modelo
+
+# --- Dispositivo de cómputo ---
 if torch is not None:
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 else:
     DEVICE = "cpu"
 
-# Parametros de observacion -------------------------------------------------------
-FREQ: np.ndarray | None = None # Frecuencia de observación, puede ser None si no se especifica.
-FREQ_RESO: int = 0 # Resolución de frecuencia, en MHz.
-TIME_RESO: float = 0.0 # Resolución de tiempo, en segundos.
-FILE_LENG: int = 0 # Longitud del archivo, en muestras.
-DOWN_FREQ_RATE: int = 1 # Tasa de reducción de frecuencia, factor por el cual se reduce la frecuencia.
-DOWN_TIME_RATE: int = 1 # Tasa de reducción de tiempo, factor por el cual se reduce el tiempo. 
-DATA_NEEDS_REVERSAL: bool = False # Indica si los datos necesitan ser revertidos (invertidos) en el eje de frecuencia.
+# =============================================================================
+# CONFIGURACIÓN AUTOMÁTICA - Variables que se configuran automáticamente
+# =============================================================================
 
-# Configuracion del pipeline  ------------------------------------------------------
-USE_MULTI_BAND: bool = False # Indica si se utiliza procesamiento de múltiples bandas.
-SLICE_LEN: int = 512  # Longitud de cada slice, en muestras.
-DET_PROB: float = 0.1 # Probabilidad de detección mínima para considerar un evento como válido.
-DM_min: int = 0 # DM mínimo, en pc cm⁻³. 
-DM_max: int = 129 # DM máximo, en pc cm⁻³.
+# --- Metadatos del archivo (se configuran automáticamente) ---
+FREQ: np.ndarray | None = None              # Array de frecuencias de observación (MHz)
+FREQ_RESO: int = 0                          # Resolución de frecuencia (canales)
+TIME_RESO: float = 0.0                      # Resolución temporal (segundos)
+FILE_LENG: int = 0                          # Longitud del archivo (muestras)
 
-# Rutas de archivos y modelos ---------------------------------------------------
-DATA_DIR = Path("./Data") # Directorio donde se almacenan los datos de entrada.
-RESULTS_DIR = Path("./Results/ObjectDetection") # Directorio donde se guardan los resultados del procesamiento.
-MODEL_NAME = "resnet50" # Nombre del modelo utilizado para la detección de eventos.
-MODEL_PATH = Path(f"./models/cent_{MODEL_NAME}.pth") # Ruta al modelo preentrenado para la detección de eventos.
+# --- Configuración de Slice Temporal (calculada dinámicamente) ---
+SLICE_LEN: int = 512                        # Número de muestras por slice (calculado automáticamente desde SLICE_DURATION_MS)
 
-# Configuración del modelo de clasificación binaria
-CLASS_MODEL_NAME = "resnet18"
-CLASS_MODEL_PATH = Path(f"./models/class_{CLASS_MODEL_NAME}.pth")
-# Probabilidad mínima para considerar que un parche corresponde a un burst
-CLASS_PROB = 0.5
- 
-# Default FRB targets --------------------------------------------------------
-#Objetivos de FRB predeterminados. Esta lista se utiliza para buscar archivos FITS
-FRB_TARGETS = ["B0355+54"] # "B0355+54", "FRB20121102", "FRB20201124", "FRB20180301"
+# --- Parámetros de downsampling ---
+DOWN_FREQ_RATE: int = 1                     # Factor de reducción en frecuencia
+DOWN_TIME_RATE: int = 1                     # Factor de reducción en tiempo
+DATA_NEEDS_REVERSAL: bool = False           # Invertir eje de frecuencia si es necesario
+
+# --- Configuración de SNR y visualización (SIMPLIFICADA) ---
+# Solo configuraciones esenciales, las estéticas están en la sección de análisis arriba
+
+# --- Configuración de chunking (ESENCIAL) ---
+# Solo configuración básica, el overlap está en la sección de análisis arriba
+# Referencia de memoria optimizada para múltiples archivos:
+# 100,000 muestras ≈ 512 MB RAM
+# 500,000 muestras ≈ 2.5 GB RAM  ← Configuración actual
+# 1,000,000 muestras ≈ 5 GB RAM
+# 2,000,000 muestras ≈ 10 GB RAM
+
+# =============================================================================
+# INFORMACIÓN ADICIONAL Y NOTAS
+# =============================================================================
+
+# --- GUÍA DE USO SIMPLIFICADA ---
+"""
+CONFIGURACIÓN SIMPLIFICADA:
+
+1. SLICE TEMPORAL:
+   - Solo configura SLICE_DURATION_MS con la duración deseada en milisegundos
+   - El sistema calcula automáticamente SLICE_LEN según los metadatos del archivo
+   - Ejemplos: 32.0 ms (rápido), 64.0 ms (normal), 128.0 ms (lento), 256.0 ms (detallado)
+
+2. RANGO DM PARA PLOTS:
+   Para usar configuración MANUAL:
+   - DM_DYNAMIC_RANGE_ENABLE = False
+   - Configurar: DM_RANGE_FACTOR, DM_PLOT_MARGIN_FACTOR, etc.
+   
+   Para usar configuración AUTOMÁTICA:
+   - DM_DYNAMIC_RANGE_ENABLE = True
+
+3. RFI:
+   Para procesamiento BÁSICO:
+   - RFI_ENABLE_ALL_FILTERS = False
+   
+   Para procesamiento COMPLETO:
+   - RFI_ENABLE_ALL_FILTERS = True
+
+4. VISUALIZACIÓN SNR:
+   Para MOSTRAR líneas rojas del SNR en composite:
+   - SNR_SHOW_PEAK_LINES = True
+   
+   Para OCULTAR líneas rojas del SNR en composite:
+   - SNR_SHOW_PEAK_LINES = False
+
+5. DEBUG DE ARCHIVOS Y FRECUENCIAS:
+   Para HABILITAR debugs detallados de archivos:
+   - DEBUG_FREQUENCY_ORDER = True
+   
+   Para DESHABILITAR debugs (producción):
+   - DEBUG_FREQUENCY_ORDER = False
+   
+   Los debugs muestran:
+   - Información completa del archivo (.fits/.fil)
+   - Orden y valores de frecuencias
+   - Parámetros de decimación
+   - Configuración de chunking
+   - Datos cargados en memoria
+   - Dirección de dedispersión
+
+CASOS DE USO TÍPICOS:
+- Análisis rápido: SLICE_DURATION_MS = 32.0
+- Análisis estándar: SLICE_DURATION_MS = 64.0  
+- Análisis detallado: SLICE_DURATION_MS = 128.0
+- Análisis ultra-detallado: SLICE_DURATION_MS = 256.0
+"""
+
+# --- Bandas de frecuencia automáticas ---
+# El sistema genera automáticamente 3 bandas:
+# - banda[0] = Full Band  (suma completa de frecuencias)
+# - banda[1] = Low Band   (mitad inferior del espectro)  
+# - banda[2] = High Band  (mitad superior del espectro)
+
+# --- Notas sobre memoria y chunking ---
+# El procesamiento en chunks es esencial para archivos grandes:
+# - Archivos típicos de FRB pueden ser >30 GB
+# - MAX_SAMPLES_LIMIT controla el tamaño de cada chunk
+# - CHUNK_OVERLAP_SAMPLES evita perder detecciones en bordes
+
+# --- Configuración recomendada para diferentes casos ---
+# Para detecciones de alta precisión:
+#   - DET_PROB = 0.05 (más sensible)
+#   - SNR_THRESH = 2.5 (umbral más bajo)
+#   - DM_RANGE_FACTOR = 0.2 (rango más estrecho)
+#   - SLICE_DURATION_MS = 32.0 (slices más cortos)
+#
+# Para búsqueda exploratoria:
+#   - DET_PROB = 0.1 (balanced)
+#   - SNR_THRESH = 3.0 (estándar)
+#   - DM_RANGE_FACTOR = 0.3 (rango más amplio)
+#   - SLICE_DURATION_MS = 64.0 (duración estándar)
+#
+# Para procesamiento rápido:
+#   - ENABLE_CHUNK_PROCESSING = True
+#   - MAX_SAMPLES_LIMIT = 1000000 (chunks más pequeños)
+#   - USE_MULTI_BAND = False (si no es necesario)
+#   - SLICE_DURATION_MS = 128.0 (slices más largos)
+
+# --- CONFIGURACIONES RECOMENDADAS PARA DIFERENTES ESCENARIOS ---
+
+# Para ARCHIVO ÚNICO (análisis detallado):
+#   - DEBUG_FREQUENCY_ORDER = True
+#   - MAX_SAMPLES_LIMIT = 2000000
+#   - GENERATE_WATERFALLS = True
+#   - CHUNK_OVERLAP_SAMPLES = 1000
+#
+# Para MÚLTIPLES ARCHIVOS (procesamiento en lote):
+#   - DEBUG_FREQUENCY_ORDER = False  ← Configuración actual
+#   - MAX_SAMPLES_LIMIT = 500000     ← Configuración actual
+#   - GENERATE_WATERFALLS = True
+#   - CHUNK_OVERLAP_SAMPLES = 500    ← Configuración actual
+#   - SKIP_CORRUPTED_FILES = True
+#   - FORCE_GARBAGE_COLLECTION = True
+#
+# Para ARCHIVOS MUY GRANDES (>5GB):
+#   - MAX_SAMPLES_LIMIT = 200000
+#   - CHUNK_OVERLAP_SAMPLES = 200
+#   - REDUCE_VISUALIZATION_QUALITY = True
+#   - USE_MULTI_BAND = False
+#
+# Para ANÁLISIS RÁPIDO (solo detección):
+#   - GENERATE_WATERFALLS = False
+#   - GENERATE_PATCHES = False
+#   - GENERATE_COMPOSITES = False
+#   - MAX_SAMPLES_LIMIT = 1000000
+
+"""
+SOLUCIÓN PARA EL PROBLEMA ACTUAL:
+
+1. El archivo FRB20180301_0002.fits está corrupto ("buffer is too small")
+2. B0355+54_FB_20220918.fits es muy grande (1.09 GB en memoria + procesamiento)
+3. La configuración actual intenta cargar demasiado en memoria
+
+PASOS PARA RESOLVER:
+
+1. Procesar archivos de uno en uno:
+   FRB_TARGETS = ["FRB20201124_0009"]  # Solo uno por vez
+
+2. Una vez confirmado que funciona, procesar los archivos grandes:
+   FRB_TARGETS = ["B0355+54_FB_20220918"]
+
+3. Investigar y reparar el archivo corrupto:
+   FRB_TARGETS = ["FRB20180301_0002"]  # Este requiere atención especial
+
+4. La configuración actual está optimizada para múltiples archivos pequeños-medianos
+"""
+
+# =============================================================================
+# CONFIGURACIONES OPCIONALES/AVANZADAS - Candidatas para eliminación
+# =============================================================================
+"""
+ANÁLISIS DE CONFIGURACIONES OPCIONALES:
+
+Las siguientes configuraciones pueden no ser esenciales para el funcionamiento básico
+del pipeline. Cada una se analiza con su propósito y ubicación de uso.
+"""
+
+# --- 1. CONFIGURACIONES DE RANGO DM DINÁMICO (POSIBLEMENTE INNECESARIAS) ---
+# UBICACIÓN: Se usan en astro_conversions.py y visualización
+# PROPÓSITO: Ajustar automáticamente el rango DM según candidatos detectados
+# IMPACTO: Solo afecta visualizaciones, no detección
+DM_DYNAMIC_RANGE_ENABLE: bool = False       # True = zoom automático, False = rango fijo
+DM_RANGE_ADAPTIVE: bool = False             # True = adaptar según confianza, False = factor fijo
+DM_RANGE_FACTOR: float = 0.3                # Factor de rango (0.3 = ±30% del DM óptimo)
+DM_RANGE_MIN_WIDTH: float = 80.0            # Ancho mínimo del rango DM en pc cm⁻³
+DM_RANGE_MAX_WIDTH: float = 300.0           # Ancho máximo del rango DM en pc cm⁻³
+
+# --- 2. CONFIGURACIONES DE PLOTS ESTÉTICAS (POSIBLEMENTE INNECESARIAS) ---
+# UBICACIÓN: Se usan en visualization.py para ajustar plots
+# PROPÓSITO: Controlar márgenes y rangos de visualización
+# IMPACTO: Solo estética, no afecta detección
+DM_PLOT_MARGIN_FACTOR: float = 0.25         # Margen adicional para evitar bordes (25%)
+DM_PLOT_MIN_RANGE: float = 120.0            # Rango mínimo del plot en pc cm⁻³
+DM_PLOT_MAX_RANGE: float = 400.0            # Rango máximo del plot en pc cm⁻³
+DM_PLOT_DEFAULT_RANGE: float = 250.0        # Rango por defecto sin candidatos
+DM_RANGE_DEFAULT_VISUALIZATION: str = "detailed"  # Tipo de visualización por defecto
+
+# --- 3. CONFIGURACIONES RFI AVANZADAS (COMPLEJAS, POSIBLEMENTE INNECESARIAS) ---
+# UBICACIÓN: Se usan en rfi_mitigation.py
+# PROPÓSITO: Control fino de filtros RFI
+# IMPACTO: Afecta calidad de datos, pero valores por defecto suelen funcionar
+RFI_INTERPOLATE_MASKED: bool = False        # True = interpolar valores, False = mantener enmascarados
+RFI_SAVE_DIAGNOSTICS: bool = False          # True = guardar gráficos, False = no guardar
+RFI_FREQ_SIGMA_THRESH = 5.0                # Umbral sigma para enmascarado de canales
+RFI_TIME_SIGMA_THRESH = 5.0                # Umbral sigma para enmascarado temporal
+RFI_ZERO_DM_SIGMA_THRESH = 4.0             # Umbral sigma para filtro Zero-DM
+RFI_IMPULSE_SIGMA_THRESH = 6.0             # Umbral sigma para filtrado de impulsos
+RFI_POLARIZATION_THRESH = 0.8              # Umbral para filtrado de polarización (0-1)
+RFI_CHANNEL_DETECTION_METHOD = "mad"        # Método detección canales: "mad", "std", "kurtosis"
+RFI_TIME_DETECTION_METHOD = "mad"           # Método detección temporal: "mad", "std", "outlier"
+
+# --- 4. CONFIGURACIONES DE VISUALIZACIÓN SNR (PURAMENTE ESTÉTICAS) ---
+# UBICACIÓN: Se usan en visualization.py y image_utils.py
+# PROPÓSITO: Control de apariencia de plots
+# IMPACTO: Solo estética, no afecta detección
+SNR_SHOW_PEAK_LINES: bool = False            # True = mostrar líneas rojas del SNR peak, False = ocultar líneas
+SNR_OFF_REGIONS = [(-250, -150), (-100, -50), (50, 100), (150, 250)]  # Regiones simétricas
+SNR_COLORMAP = "viridis"                    # Mapa de colores para waterfalls
+SNR_HIGHLIGHT_COLOR = "red"                 # Color para resaltar detecciones
+
+# --- 5. CONFIGURACIONES DE SLICE AVANZADAS (POSIBLEMENTE REDUNDANTES) ---
+# UBICACIÓN: Se usan en slice_len_utils.py
+# PROPÓSITO: Límites de seguridad para cálculo automático
+# IMPACTO: Solo seguridad, valores por defecto suelen funcionar
+SLICE_LEN_MIN: int = 32                      # Límite inferior de seguridad para el cálculo automático de SLICE_LEN
+SLICE_LEN_MAX: int = 2048                    # Límite superior de seguridad para el cálculo automático de SLICE_LEN
+
+# --- 6. CONFIGURACIONES DE CHUNKING AVANZADAS (POSIBLEMENTE INNECESARIAS) ---
+# UBICACIÓN: Se usan en pipeline.py para procesamiento por chunks
+# PROPÓSITO: Control fino del solapamiento entre chunks
+# IMPACTO: Puede afectar detecciones en bordes, pero valor por defecto funciona
+CHUNK_OVERLAP_SAMPLES: int = 500           # Solapamiento entre chunks
+
+# =============================================================================
+# RECOMENDACIONES PARA ELIMINACIÓN:
+# =============================================================================
+"""
+CONFIGURACIONES QUE SE PUEDEN ELIMINAR FÁCILMENTE:
+
+1. ALTA PRIORIDAD PARA ELIMINAR (Solo estética):
+   - SNR_OFF_REGIONS, SNR_COLORMAP, SNR_HIGHLIGHT_COLOR
+   - DM_PLOT_MARGIN_FACTOR, DM_PLOT_MIN_RANGE, DM_PLOT_MAX_RANGE
+   - DM_RANGE_DEFAULT_VISUALIZATION
+   - SNR_SHOW_PEAK_LINES
+
+2. MEDIA PRIORIDAD PARA ELIMINAR (Funcionalidad avanzada poco usada):
+   - DM_DYNAMIC_RANGE_ENABLE, DM_RANGE_ADAPTIVE, DM_RANGE_FACTOR
+   - DM_RANGE_MIN_WIDTH, DM_RANGE_MAX_WIDTH
+   - RFI_INTERPOLATE_MASKED, RFI_SAVE_DIAGNOSTICS
+   - RFI_CHANNEL_DETECTION_METHOD, RFI_TIME_DETECTION_METHOD
+
+3. BAJA PRIORIDAD PARA ELIMINAR (Podrían ser útiles):
+   - RFI_*_SIGMA_THRESH (umbrales RFI)
+   - SLICE_LEN_MIN, SLICE_LEN_MAX (seguridad)
+   - CHUNK_OVERLAP_SAMPLES (puede afectar detección)
+
+CONFIGURACIONES ESENCIALES QUE NO SE DEBEN ELIMINAR:
+- FRB_TARGETS, DATA_DIR, RESULTS_DIR
+- SLICE_DURATION_MS (configura duración temporal)
+- DM_min, DM_max (rango de dispersión)
+- DET_PROB, CLASS_PROB, SNR_THRESH (umbrales de detección)
+- USE_MULTI_BAND, ENABLE_CHUNK_PROCESSING, MAX_SAMPLES_LIMIT
+- MODEL_NAME, MODEL_PATH, CLASS_MODEL_NAME, CLASS_MODEL_PATH
+- DEBUG_FREQUENCY_ORDER, RFI_ENABLE_ALL_FILTERS
+"""
+
+# =============================================================================

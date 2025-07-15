@@ -270,6 +270,90 @@ def _write_summary(summary: dict, save_path: Path) -> None:
         json.dump(summary, f_json, indent=2)
     logger.info("Resumen global escrito en %s", summary_path)
 
+def _load_or_create_summary(save_path: Path) -> dict:
+    """Load existing summary.json or create a new one."""
+    summary_path = save_path / "summary.json"
+    
+    if summary_path.exists():
+        try:
+            with summary_path.open("r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError):
+            logger.warning(f"Error leyendo {summary_path}, creando nuevo summary")
+    
+    # Crear nuevo summary con estructura inicial
+    return {
+        "pipeline_info": {
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "model": config.MODEL_NAME,
+            "dm_range": f"{config.DM_min}-{config.DM_max}",
+            "slice_duration_ms": config.SLICE_DURATION_MS,
+            "debug_enabled": config.DEBUG_FREQUENCY_ORDER
+        },
+        "files_processed": {},
+        "global_stats": {
+            "total_files": 0,
+            "total_candidates": 0,
+            "total_bursts": 0,
+            "total_processing_time": 0.0
+        }
+    }
+
+def _update_summary_with_file_debug(
+    save_path: Path, 
+    filename: str, 
+    debug_info: dict
+) -> None:
+    """Update summary.json immediately with file debug information."""
+    
+    summary = _load_or_create_summary(save_path)
+    
+    # Agregar información de debug del archivo
+    if filename not in summary["files_processed"]:
+        summary["files_processed"][filename] = {}
+    
+    summary["files_processed"][filename]["debug_info"] = debug_info
+    summary["files_processed"][filename]["status"] = "debug_completed"
+    summary["files_processed"][filename]["debug_timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Guardar inmediatamente
+    summary_path = save_path / "summary.json"
+    with summary_path.open("w") as f:
+        json.dump(summary, f, indent=2)
+    
+    if config.DEBUG_FREQUENCY_ORDER:
+        logger.info(f"Debug info guardada para {filename} en {summary_path}")
+
+def _update_summary_with_results(
+    save_path: Path, 
+    filename: str, 
+    results_info: dict
+) -> None:
+    """Update summary.json with processing results for a file."""
+    
+    summary = _load_or_create_summary(save_path)
+    
+    # Agregar información de resultados
+    if filename not in summary["files_processed"]:
+        summary["files_processed"][filename] = {}
+    
+    summary["files_processed"][filename].update(results_info)
+    summary["files_processed"][filename]["status"] = "processing_completed"
+    summary["files_processed"][filename]["results_timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Actualizar estadísticas globales
+    summary["global_stats"]["total_files"] = len(summary["files_processed"])
+    summary["global_stats"]["total_candidates"] += results_info.get("n_candidates", 0)
+    summary["global_stats"]["total_bursts"] += results_info.get("n_bursts", 0)
+    summary["global_stats"]["total_processing_time"] += results_info.get("processing_time", 0.0)
+    
+    # Guardar
+    summary_path = save_path / "summary.json"
+    with summary_path.open("w") as f:
+        json.dump(summary, f, indent=2)
+    
+    logger.info(f"Resultados guardados para {filename} en {summary_path}")
+
 def _process_file(
     det_model: torch.nn.Module,
     cls_model: torch.nn.Module,
@@ -1167,7 +1251,13 @@ def _process_file_in_chunks(
             start_sample -= overlap  # Agregar overlap con chunk anterior
             
         actual_chunk_size = end_sample - start_sample
+        
+        # Calcular tiempo absoluto del chunk
+        chunk_start_time_sec = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+        chunk_end_time_sec = end_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+        
         logger.info(f"Chunk {chunk_idx + 1}: muestras {start_sample:,} a {end_sample:,} ({actual_chunk_size:,} muestras)")
+        logger.info(f"Chunk {chunk_idx + 1}: tiempo {chunk_start_time_sec:.1f}s a {chunk_end_time_sec:.1f}s ({chunk_end_time_sec - chunk_start_time_sec:.1f}s duración)")
         
         # Modificar temporalmente la configuración para este chunk
         original_file_leng = config.FILE_LENG
@@ -1183,12 +1273,27 @@ def _process_file_in_chunks(
             else:
                 # Para archivos .fil, podemos cargar solo el chunk específico
                 data_chunk = _load_fil_chunk(str(fits_path), start_sample, actual_chunk_size)
+            # Calcular tiempo absoluto del chunk
+            chunk_start_time_sec = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+            chunk_end_time_sec = end_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+            chunk_duration_sec = chunk_end_time_sec - chunk_start_time_sec
             
             # Procesar este chunk usando la lógica existente
             chunk_results = _process_single_chunk(
                 det_model, cls_model, data_chunk, fits_path, save_dir, 
                 chunk_idx, start_sample, csv_file
             )
+            
+            # Agregar información temporal al resultado del chunk
+            chunk_results["chunk_timing"] = {
+                "chunk_index": chunk_idx,
+                "start_sample": start_sample,
+                "end_sample": end_sample,
+                "start_time_sec": chunk_start_time_sec,
+                "end_time_sec": chunk_end_time_sec,
+                "duration_sec": chunk_duration_sec,
+                "time_range_str": f"{chunk_start_time_sec:.1f}-{chunk_end_time_sec:.1f}s"
+            }
             
             # Acumular resultados
             total_candidates += chunk_results["n_candidates"]
@@ -1268,12 +1373,25 @@ def run_pipeline() -> None:
         for fits_path in file_list:
             try:
                 print(f"Procesando archivo: {fits_path.name}")
-                summary[fits_path.name] = _process_file(det_model, cls_model, fits_path, save_dir)
+                results = _process_file(det_model, cls_model, fits_path, save_dir)
+                summary[fits_path.name] = results
+                
+                # *** GUARDAR RESULTADOS INMEDIATAMENTE EN SUMMARY.JSON ***
+                _update_summary_with_results(save_dir, fits_path.stem, {
+                    "n_candidates": results.get("n_candidates", 0),
+                    "n_bursts": results.get("n_bursts", 0),
+                    "n_no_bursts": results.get("n_no_bursts", 0),
+                    "processing_time": results.get("runtime_s", 0.0),
+                    "max_detection_prob": results.get("max_prob", 0.0),
+                    "mean_snr": results.get("mean_snr", 0.0),
+                    "status": results.get("status", "completed")
+                })
+                
                 print(f"Archivo {fits_path.name} procesado exitosamente")
             except Exception as e:
                 print(f"[ERROR] Error procesando {fits_path.name}: {e}")
                 logger.error("Error procesando %s: %s", fits_path.name, e)
-                summary[fits_path.name] = {
+                error_results = {
                     "n_candidates": 0,
                     "n_bursts": 0,
                     "n_no_bursts": 0,
@@ -1282,6 +1400,19 @@ def run_pipeline() -> None:
                     "mean_snr": 0.0,
                     "status": "ERROR"
                 }
+                summary[fits_path.name] = error_results
+                
+                # *** GUARDAR RESULTADOS DE ERROR INMEDIATAMENTE ***
+                _update_summary_with_results(save_dir, fits_path.stem, {
+                    "n_candidates": 0,
+                    "n_bursts": 0,
+                    "n_no_bursts": 0,
+                    "processing_time": 0.0,
+                    "max_detection_prob": 0.0,
+                    "mean_snr": 0.0,
+                    "status": "ERROR",
+                    "error_message": str(e)
+                })
 
     print("Escribiendo resumen final...")
     _write_summary(summary, save_dir)

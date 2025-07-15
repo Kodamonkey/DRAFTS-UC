@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Optional
 
 import cv2
 import matplotlib.pyplot as plt
+from pyparsing import Iterable
 import seaborn as sns
 import numpy as np
 from matplotlib import gridspec
@@ -13,12 +14,100 @@ from matplotlib.colors import ListedColormap
 
 from . import config
 from .astro_conversions import pixel_to_physical
+from .dynamic_dm_range import get_dynamic_dm_range_for_candidate
 
 if "mako" not in plt.colormaps():
     plt.register_cmap(
         name="mako",
         cmap=ListedColormap(sns.color_palette("mako", as_cmap=True)(np.linspace(0, 1, 256)))
     )
+
+
+def _calculate_dynamic_dm_range(
+    top_boxes: Iterable | None,
+    slice_len: int,
+    fallback_dm_min: int = None,
+    fallback_dm_max: int = None,
+    confidence_scores: Iterable | None = None
+) -> Tuple[float, float]:
+    """
+    Calcula el rango DM dinámico basado en los candidatos detectados.
+    
+    Parameters
+    ----------
+    top_boxes : Iterable | None
+        Bounding boxes de los candidatos detectados
+    slice_len : int
+        Longitud del slice temporal
+    fallback_dm_min : int, optional
+        DM mínimo de fallback si no se puede calcular dinámicamente
+    fallback_dm_max : int, optional
+        DM máximo de fallback si no se puede calcular dinámicamente
+    confidence_scores : Iterable | None, optional
+        Puntuaciones de confianza para cada candidato
+        
+    Returns
+    -------
+    Tuple[float, float]
+        (dm_plot_min, dm_plot_max) para el rango DM dinámico
+    """
+    
+    # Si no hay candidatos o DM dinámico deshabilitado, usar rango completo
+    if (not getattr(config, 'DM_DYNAMIC_RANGE_ENABLE', True) or 
+        top_boxes is None or 
+        len(top_boxes) == 0):
+        
+        dm_min = fallback_dm_min if fallback_dm_min is not None else config.DM_min
+        dm_max = fallback_dm_max if fallback_dm_max is not None else config.DM_max
+        return float(dm_min), float(dm_max)
+    
+    # Extraer DMs de los candidatos
+    dm_candidates = []
+    for i, box in enumerate(top_boxes):
+        x1, y1, x2, y2 = map(int, box)
+        center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
+        dm_val, _, _ = pixel_to_physical(center_x, center_y, slice_len)
+        dm_candidates.append(dm_val)
+    
+    if not dm_candidates:
+        dm_min = fallback_dm_min if fallback_dm_min is not None else config.DM_min
+        dm_max = fallback_dm_max if fallback_dm_max is not None else config.DM_max
+        return float(dm_min), float(dm_max)
+    
+    # Usar el candidato más fuerte (mejor confianza) como referencia
+    if confidence_scores is not None and len(confidence_scores) > 0:
+        best_idx = np.argmax(confidence_scores)
+        dm_optimal = dm_candidates[best_idx]
+        confidence = confidence_scores[best_idx]
+    else:
+        # Si no hay confianza, usar el DM mediano
+        dm_optimal = np.median(dm_candidates)
+        confidence = 0.8  # Valor por defecto
+    
+    # Calcular rango dinámico
+    try:
+        # Obtener parámetros de configuración
+        range_factor = getattr(config, 'DM_RANGE_FACTOR', 0.2)
+        min_width = getattr(config, 'DM_RANGE_MIN_WIDTH', 50.0)
+        max_width = getattr(config, 'DM_RANGE_MAX_WIDTH', 200.0)
+        
+        dm_plot_min, dm_plot_max = get_dynamic_dm_range_for_candidate(
+            dm_optimal=dm_optimal,
+            config_module=config,
+            visualization_type=getattr(config, 'DM_RANGE_DEFAULT_VISUALIZATION', 'detailed'),
+            confidence=confidence,
+            range_factor=range_factor,
+            min_range_width=min_width,
+            max_range_width=max_width
+        )
+    except Exception as e:
+        # En caso de error, usar rango completo
+        print(f"[WARNING] Error calculando rango DM dinámico: {e}")
+        dm_min = fallback_dm_min if fallback_dm_min is not None else config.DM_min
+        dm_max = fallback_dm_max if fallback_dm_max is not None else config.DM_max
+        return float(dm_min), float(dm_max)
+    
+    return dm_plot_min, dm_plot_max
 
 
 def preprocess_img(img: np.ndarray) -> np.ndarray:
@@ -110,8 +199,8 @@ def plot_waterfall_block(
     ax1.set_yticklabels(np.round(np.linspace(freq.min(), freq.max(), 6)).astype(int))
     ax1.set_xticks(np.linspace(0, block_size, 6))
     ax1.set_xticklabels(np.round(time_start + np.linspace(0, block_size, 6) * time_reso, 2))
-    ax1.set_xlabel("Time (s)")
-    ax1.set_ylabel("Frequency (MHz)")
+    ax1.set_xlabel("Time (s)", fontsize=12, fontweight="bold")
+    ax1.set_ylabel("Frequency (MHz)", fontsize=12, fontweight="bold")
 
     out_path = save_dir / f"{filename}-block{block_idx:03d}-peak{peak_time:.2f}.png"
     plt.tight_layout()
@@ -119,21 +208,26 @@ def plot_waterfall_block(
     plt.close()
 
 
-
-
 def save_detection_plot(
     img_rgb: np.ndarray,
-    top_conf: list,
-    top_boxes: list | None,
-    out_path: Path,
+    top_conf: Iterable,
+    top_boxes: Iterable | None,
+    class_probs: Iterable | None, 
+    out_img_path: Path,
     slice_idx: int,
     time_slice: int,
     band_name: str,
     band_suffix: str,
     det_prob: float,
     fits_stem: str,
+    slice_len: Optional[int] = None,
+    band_idx: int = 0,  # Para calcular el rango de frecuencias de la banda
 ) -> None:
-    """Save a labelled detection plot similar to the original pipeline."""
+    """Save detection plot with both detection and classification probabilities."""
+
+    # Usar slice_len específico o del config
+    if slice_len is None:
+        slice_len = config.SLICE_LEN
 
     fig, ax = plt.subplots(figsize=(12, 8))
     im = ax.imshow(img_rgb, origin="lower", aspect="auto")
@@ -141,32 +235,51 @@ def save_detection_plot(
     # Time axis labels
     n_time_ticks = 6
     time_positions = np.linspace(0, 512, n_time_ticks)
-    time_start_slice = slice_idx * config.SLICE_LEN * config.TIME_RESO * config.DOWN_TIME_RATE
+    time_start_slice = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
     time_values = time_start_slice + (
         time_positions / 512.0
-    ) * config.SLICE_LEN * config.TIME_RESO * config.DOWN_TIME_RATE
+    ) * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
     ax.set_xticks(time_positions)
     ax.set_xticklabels([f"{t:.3f}" for t in time_values])
     ax.set_xlabel("Time (s)", fontsize=12, fontweight="bold")
 
-    # DM axis labels
+    # DM axis labels - AQUÍ ESTÁ LA INTEGRACIÓN DEL DM DINÁMICO
     n_dm_ticks = 8
     dm_positions = np.linspace(0, 512, n_dm_ticks)
-    dm_values = config.DM_min + (dm_positions / 512.0) * (config.DM_max - config.DM_min)
+    
+    # Calcular rango DM dinámico basado en candidatos detectados
+    dm_plot_min, dm_plot_max = _calculate_dynamic_dm_range(
+        top_boxes=top_boxes,
+        slice_len=slice_len,
+        fallback_dm_min=config.DM_min,
+        fallback_dm_max=config.DM_max,
+        confidence_scores=top_conf if top_conf is not None else None
+    )
+    
+    # Usar el rango dinámico para las etiquetas del eje DM
+    dm_values = dm_plot_min + (dm_positions / 512.0) * (dm_plot_max - dm_plot_min)
     ax.set_yticks(dm_positions)
     ax.set_yticklabels([f"{dm:.0f}" for dm in dm_values])
     ax.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=12, fontweight="bold")
 
-    # Title
-    if config.FREQ is not None:
-        freq_range = f"{config.FREQ.min():.1f}\u2013{config.FREQ.max():.1f} MHz"
+    # Title - Usar el rango de frecuencias específico de la banda
+    from .visualization import get_band_frequency_range
+    
+    freq_min, freq_max = get_band_frequency_range(band_idx)
+    freq_range = f"{freq_min:.0f}\u2013{freq_max:.0f} MHz"
+        
+    # Indicar si se está usando DM dinámico
+    dm_range_info = f"{dm_plot_min:.0f}\u2013{dm_plot_max:.0f}"
+    if getattr(config, 'DM_DYNAMIC_RANGE_ENABLE', True) and top_boxes is not None and len(top_boxes) > 0:
+        dm_range_info += " (auto)"
     else:
-        freq_range = ""
+        dm_range_info += " (full)"
+        
     title = (
         f"{fits_stem} - {band_name} ({freq_range})\n"
         f"Slice {slice_idx + 1}/{time_slice} | "
         f"Time Resolution: {config.TIME_RESO * config.DOWN_TIME_RATE * 1e6:.1f} \u03bcs | "
-        f"DM Range: {config.DM_min}\u2013{config.DM_max} pc cm⁻\u00b3"
+        f"DM Range: {dm_range_info} pc cm⁻\u00b3"
     )
     ax.set_title(title, fontsize=11, fontweight="bold", pad=20)
 
@@ -201,31 +314,59 @@ def save_detection_plot(
         horizontalalignment="right",
     )
 
-    # Bounding boxes
+    # Bounding boxes - UNA SOLA ETIQUETA INTEGRADA
     if top_boxes is not None:
         for idx, (conf, box) in enumerate(zip(top_conf, top_boxes)):
             x1, y1, x2, y2 = map(int, box)
+            center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
+            
+            # ✅ CORRECCIÓN: Usar el DM REAL (mismo cálculo que pixel_to_physical)
+            # Este es el DM que se usa en dedispersion y se guarda en CSV
+            from .astro_conversions import pixel_to_physical
+            dm_val_real, t_sec_real, t_sample_real = pixel_to_physical(center_x, center_y, slice_len)
+            
+            # Determinar si tenemos probabilidades de clasificación
+            if class_probs is not None and idx < len(class_probs):
+                class_prob = class_probs[idx]
+                is_burst = class_prob >= config.CLASS_PROB
+                color = "lime" if is_burst else "orange"
+                burst_status = "BURST" if is_burst else "NO BURST"
+                
+                # Etiqueta completa con toda la información - USANDO DM REAL
+                label = (
+                    f"#{idx+1}\n"
+                    f"DM: {dm_val_real:.1f}\n"
+                    f"Det: {conf:.2f}\n"
+                    f"Cls: {class_prob:.2f}\n"
+                    f"{burst_status}"
+                )
+            else:
+                # Fallback si no hay probabilidades de clasificación
+                color = "lime"
+                label = f"#{idx+1}\nDM: {dm_val_real:.1f}\nDet: {conf:.2f}"
+            
+            # Dibujar rectángulo
             rect = plt.Rectangle(
-                (x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor="lime", facecolor="none"
+                (x1, y1), x2 - x1, y2 - y1, 
+                linewidth=2, edgecolor=color, facecolor="none"
             )
             ax.add_patch(rect)
-            center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
-            dm_val, t_sec, _ = pixel_to_physical(center_x, center_y, config.SLICE_LEN)
-            label = f"#{idx+1}\nDM: {dm_val:.1f}\nP: {conf:.2f}"
+            
+            # Agregar etiqueta integrada
             ax.annotate(
                 label,
                 xy=(center_x, center_y),
                 xytext=(center_x, y2 + 15),
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="lime", alpha=0.8),
+                bbox=dict(boxstyle="round,pad=0.3", facecolor=color, alpha=0.8),
                 fontsize=8,
                 ha="center",
                 fontweight="bold",
-                arrowprops=dict(arrowstyle="->", color="lime", lw=1),
+                arrowprops=dict(arrowstyle="->", color=color, lw=1),
             )
 
     ax.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
     plt.tight_layout()
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
+    plt.savefig(out_img_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close()
 
     if band_suffix == "fullband":
@@ -250,6 +391,6 @@ def save_detection_plot(
         cbar.set_label("Normalized Intensity", fontsize=10, fontweight="bold")
         ax_cb.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
         plt.tight_layout()
-        cb_path = out_path.parent / f"{out_path.stem}_colorbar{out_path.suffix}"
+        cb_path = out_img_path.parent / f"{out_img_path.stem}_colorbar{out_img_path.suffix}"
         plt.savefig(cb_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
         plt.close()

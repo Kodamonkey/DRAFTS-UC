@@ -419,3 +419,104 @@ def get_obparams_fil(file_name: str) -> None:
     print(f"  - Muestras: {nsamples}")
     print(f"  - Down-sampling frecuencia: {config.DOWN_FREQ_RATE}")
     print(f"  - Down-sampling tiempo: {config.DOWN_TIME_RATE}")
+
+    # *** GUARDAR DEBUG INFO EN SUMMARY.JSON INMEDIATAMENTE ***
+    if config.DEBUG_FREQUENCY_ORDER:
+        _save_file_debug_info_fil(file_name, {
+            "file_type": "filterbank",
+            "file_size_bytes": os.path.getsize(file_name),
+            "file_size_gb": os.path.getsize(file_name) / (1024**3),
+            "header_size_bytes": hdr_len,
+            "format": "SIGPROC Filterbank (.fil)",
+            "source_name": header.get('source_name', 'Unknown'),
+            "telescope_id": header.get('telescope_id', 'Unknown'),
+            "raw_parameters": {
+                "tsamp": tsamp,
+                "nchans": nchans,
+                "nifs": nifs,
+                "nbits": nbits,
+                "nsamples": nsamples,
+                "fch1": fch1,
+                "foff": foff
+            },
+            "frequency_analysis": {
+                "fch1_mhz": fch1,
+                "foff_mhz": foff,
+                "freq_min_mhz": float(config.FREQ.min()),
+                "freq_max_mhz": float(config.FREQ.max()),
+                "bandwidth_mhz": abs(config.FREQ.max() - config.FREQ.min()),
+                "resolution_per_channel_mhz": abs(foff),
+                "original_order": "DESCENDENTE (foff<0)" if foff < 0 else "ASCENDENTE (foff>0)",
+                "final_order": "ASCENDENTE" if config.FREQ[0] < config.FREQ[-1] else "DESCENDENTE",
+                "freq_axis_inverted": freq_axis_inverted,
+                "data_needs_reversal": config.DATA_NEEDS_REVERSAL
+            },
+            "time_analysis": {
+                "time_resolution_sec": config.TIME_RESO,
+                "total_samples": config.FILE_LENG,
+                "total_duration_sec": config.FILE_LENG * config.TIME_RESO,
+                "total_duration_min": (config.FILE_LENG * config.TIME_RESO) / 60,
+                "total_duration_hours": (config.FILE_LENG * config.TIME_RESO) / 3600
+            },
+            "decimation": {
+                "down_freq_rate": config.DOWN_FREQ_RATE,
+                "down_time_rate": config.DOWN_TIME_RATE,
+                "channels_after_decimation": config.FREQ_RESO // config.DOWN_FREQ_RATE,
+                "time_resolution_after_decimation_sec": config.TIME_RESO * config.DOWN_TIME_RATE,
+                "total_reduction_factor": config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE
+            },
+            "chunking": {
+                "chunk_processing_enabled": getattr(config, 'ENABLE_CHUNK_PROCESSING', True),
+                "max_samples_limit": config.MAX_SAMPLES_LIMIT,
+                "file_fits_in_memory": config.FILE_LENG <= config.MAX_SAMPLES_LIMIT,
+                "estimated_chunks": int(np.ceil(config.FILE_LENG / config.MAX_SAMPLES_LIMIT)) if config.FILE_LENG > config.MAX_SAMPLES_LIMIT else 1
+            },
+            "slice_config": {
+                "slice_duration_ms_configured": config.SLICE_DURATION_MS,
+                "slice_len_calculated": round(config.SLICE_DURATION_MS / (config.TIME_RESO * config.DOWN_TIME_RATE * 1000)),
+                "slice_len_limits": [config.SLICE_LEN_MIN, config.SLICE_LEN_MAX]
+            },
+            "processing_config": {
+                "multi_band_enabled": config.USE_MULTI_BAND,
+                "dm_range": [config.DM_min, config.DM_max],
+                "detection_thresholds": {
+                    "det_prob": config.DET_PROB,
+                    "class_prob": config.CLASS_PROB,
+                    "snr_thresh": config.SNR_THRESH
+                }
+            },
+            "file_temporal_info": {
+                "total_duration_sec": config.FILE_LENG * config.TIME_RESO,
+                "total_duration_formatted": f"{(config.FILE_LENG * config.TIME_RESO) // 3600:.0f}h {((config.FILE_LENG * config.TIME_RESO) % 3600) // 60:.0f}m {(config.FILE_LENG * config.TIME_RESO) % 60:.1f}s",
+                "sample_rate_hz": 1.0 / config.TIME_RESO,
+                "effective_sample_rate_after_decimation_hz": 1.0 / (config.TIME_RESO * config.DOWN_TIME_RATE),
+                "temporal_continuity_note": "All chunks maintain temporal continuity - global timestamps preserved"
+            }
+        })
+
+
+def _save_file_debug_info_fil(file_name: str, debug_info: dict) -> None:
+    """Save debug information for a filterbank file to summary.json immediately."""
+    try:
+        # Import aquí para evitar import circular
+        from .pipeline import _update_summary_with_file_debug
+        from pathlib import Path
+        
+        # Determinar el directorio de guardado
+        results_dir = getattr(config, 'RESULTS_DIR', Path('./Results/ObjectDetection'))
+        model_dir = results_dir / config.MODEL_NAME
+        
+        # Asegurar que el directorio existe
+        model_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Obtener solo el nombre del archivo sin path
+        filename = Path(file_name).stem
+        
+        # Guardar debug info inmediatamente
+        _update_summary_with_file_debug(model_dir, filename, debug_info)
+        
+    except Exception as e:
+        print(f"[WARNING] Error guardando debug info para {file_name}: {e}")
+
+
+# ...existing code...

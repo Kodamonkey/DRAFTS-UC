@@ -23,23 +23,14 @@ except ImportError:  # Si torch no está instalado, lo dejamos como None
     torch = None
 
 # =============================================================================
-# SWITCHES DE CONTROL - Activar/Desactivar configuraciones manuales
+# SWITCHES DE CONTROL ESENCIALES - Solo configuraciones principales
 # =============================================================================
 
-# --- Control de Rango DM Dinámico ---
-DM_DYNAMIC_RANGE_ENABLE: bool = False       # True = zoom automático, False = rango fijo
-DM_RANGE_ADAPTIVE: bool = False             # True = adaptar según confianza, False = factor fijo
-
-# --- Control de RFI ---
+# --- Control de RFI (ESENCIAL) ---
 RFI_ENABLE_ALL_FILTERS: bool = False        # True = todos los filtros, False = solo básicos
-RFI_INTERPOLATE_MASKED: bool = False        # True = interpolar valores, False = mantener enmascarados
-RFI_SAVE_DIAGNOSTICS: bool = False          # True = guardar gráficos, False = no guardar
 
-# --- Control de Visualización SNR ---
-SNR_SHOW_PEAK_LINES: bool = False            # True = mostrar líneas rojas del SNR peak, False = ocultar líneas
-
-# --- Control de Debug ---
-DEBUG_FREQUENCY_ORDER: bool = True          # True = debug orden de frecuencias y dedispersión, False = sin debug
+# --- Control de Debug (ESENCIAL) ---
+DEBUG_FREQUENCY_ORDER: bool = False         # True = debug orden de frecuencias y dedispersión, False = sin debug para ahorrar memoria
 
 # =============================================================================
 # CONFIGURACIÓN PRINCIPAL - Parámetros que típicamente se modifican
@@ -48,18 +39,16 @@ DEBUG_FREQUENCY_ORDER: bool = True          # True = debug orden de frecuencias 
 # --- Rutas de archivos y datos ---
 DATA_DIR = Path("./Data")                        # Directorio con archivos de entrada (.fits, .fil)
 RESULTS_DIR = Path("./Results/ObjectDetection")  # Directorio para guardar resultados
-FRB_TARGETS = ["3101_0001_00_8bit", "3100_0001_00_8bit", "3099_0001_00_8bit", "3098_0001_00_8bit", "3097_0001_00_8bit"]                       # Lista de targets FRB a procesar
+# --- Lista de targets optimizada para múltiples archivos ---
+FRB_TARGETS = ["3098_0001_00_8bit"]          # Lista de targets FRB a procesar - Reducida para pruebas
+# Para procesar todos: ["FRB20201124_0009", "FRB20180301_0002", "B0355+54_FB_20220918"]
+# Nota: FRB20180301_0002.fits parece estar corrupto - revisar archivo
 
-# --- Configuración de Slice Temporal ---
+# --- Configuración de Slice Temporal (ESENCIAL) ---
 SLICE_DURATION_MS: float = 196.0            # Duración deseada de cada slice en milisegundos 
                                             # El sistema calculará automáticamente SLICE_LEN según:
                                             # SLICE_LEN = round(SLICE_DURATION_MS / (TIME_RESO × DOWN_TIME_RATE × 1000))
                                             # Valores típicos: 16ms (rápido), 32ms (normal), 64ms (estándar), 128ms (lento)
-
-SLICE_LEN_MIN: int = 32                      # Límite inferior de seguridad para el cálculo automático de SLICE_LEN
-SLICE_LEN_MAX: int = 2048                    # Límite superior de seguridad para el cálculo automático de SLICE_LEN
-                                            # Estos valores actúan como guardias: SLICE_LEN = max(MIN, min(calculado, MAX))
-                                            # Evitan slices muy pequeños (<32) o muy grandes (>2048) que causen problemas
 
 # --- Rango de Dispersion Measure (DM) ---
 DM_min: int = 0                             # DM mínimo en pc cm⁻³
@@ -73,35 +62,13 @@ SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en vis
 # --- Configuración de procesamiento ---
 USE_MULTI_BAND: bool = False                 # Usar análisis multi-banda (Full/Low/High)
 ENABLE_CHUNK_PROCESSING: bool = True        # Procesar archivos grandes en chunks
-MAX_SAMPLES_LIMIT: int = 2000000            # Límite de muestras por chunk (memoria)
+MAX_SAMPLES_LIMIT: int = 2000000             # Límite de muestras por chunk (memoria) - Reducido para múltiples archivos
 
 # =============================================================================
-# CONFIGURACIÓN MANUAL - Variables que se modifican cuando switches = False
+# CONFIGURACIÓN MANUAL - Solo configuraciones esenciales
 # =============================================================================
 
-# --- Rango DM Manual (cuando DM_DYNAMIC_RANGE_ENABLE = False) ---
-
-DM_RANGE_FACTOR: float = 0.3                # Factor de rango (0.3 = ±30% del DM óptimo)
-DM_RANGE_MIN_WIDTH: float = 80.0            # Ancho mínimo del rango DM en pc cm⁻³
-DM_RANGE_MAX_WIDTH: float = 300.0           # Ancho máximo del rango DM en pc cm⁻³
-
-# --- Rango DM para Plots ---
-DM_PLOT_MARGIN_FACTOR: float = 0.25         # Margen adicional para evitar bordes (25%)
-DM_PLOT_MIN_RANGE: float = 120.0            # Rango mínimo del plot en pc cm⁻³
-DM_PLOT_MAX_RANGE: float = 400.0            # Rango máximo del plot en pc cm⁻³
-DM_PLOT_DEFAULT_RANGE: float = 250.0        # Rango por defecto sin candidatos
-
-# --- Tipo de visualización por defecto ---
-DM_RANGE_DEFAULT_VISUALIZATION: str = "detailed"  # Tipo de visualización por defecto
-
-# --- RFI Manual (cuando RFI_ENABLE_ALL_FILTERS = False) ---
-RFI_FREQ_SIGMA_THRESH = 5.0                # Umbral sigma para enmascarado de canales
-RFI_TIME_SIGMA_THRESH = 5.0                # Umbral sigma para enmascarado temporal
-RFI_ZERO_DM_SIGMA_THRESH = 4.0             # Umbral sigma para filtro Zero-DM
-RFI_IMPULSE_SIGMA_THRESH = 6.0             # Umbral sigma para filtrado de impulsos
-RFI_POLARIZATION_THRESH = 0.8              # Umbral para filtrado de polarización (0-1)
-RFI_CHANNEL_DETECTION_METHOD = "mad"        # Método detección canales: "mad", "std", "kurtosis"
-RFI_TIME_DETECTION_METHOD = "mad"           # Método detección temporal: "mad", "std", "outlier"
+# (Las configuraciones avanzadas se movieron a la sección de análisis arriba)
 
 # =============================================================================
 # CONFIGURACIÓN DE MODELOS Y SISTEMA - No dependen de switches
@@ -134,21 +101,19 @@ FILE_LENG: int = 0                          # Longitud del archivo (muestras)
 # --- Configuración de Slice Temporal (calculada dinámicamente) ---
 SLICE_LEN: int = 512                        # Número de muestras por slice (calculado automáticamente desde SLICE_DURATION_MS)
 
-# --- Parámetros de decimación ---
+# --- Parámetros de downsampling ---
 DOWN_FREQ_RATE: int = 1                     # Factor de reducción en frecuencia
 DOWN_TIME_RATE: int = 1                     # Factor de reducción en tiempo
 DATA_NEEDS_REVERSAL: bool = False           # Invertir eje de frecuencia si es necesario
 
-# --- Configuración de SNR y visualización ---
-SNR_OFF_REGIONS = [(-250, -150), (-100, -50), (50, 100), (150, 250)]  # Regiones simétricas
-SNR_COLORMAP = "viridis"                    # Mapa de colores para waterfalls
-SNR_HIGHLIGHT_COLOR = "red"                 # Color para resaltar detecciones
+# --- Configuración de SNR y visualización (SIMPLIFICADA) ---
+# Solo configuraciones esenciales, las estéticas están en la sección de análisis arriba
 
-# --- Configuración de chunking ---
-CHUNK_OVERLAP_SAMPLES: int = 1000           # Solapamiento entre chunks
-# Referencia de memoria:
+# --- Configuración de chunking (ESENCIAL) ---
+# Solo configuración básica, el overlap está en la sección de análisis arriba
+# Referencia de memoria optimizada para múltiples archivos:
 # 100,000 muestras ≈ 512 MB RAM
-# 500,000 muestras ≈ 2.5 GB RAM
+# 500,000 muestras ≈ 2.5 GB RAM  ← Configuración actual
 # 1,000,000 muestras ≈ 5 GB RAM
 # 2,000,000 muestras ≈ 10 GB RAM
 
@@ -239,3 +204,153 @@ CASOS DE USO TÍPICOS:
 #   - MAX_SAMPLES_LIMIT = 1000000 (chunks más pequeños)
 #   - USE_MULTI_BAND = False (si no es necesario)
 #   - SLICE_DURATION_MS = 128.0 (slices más largos)
+
+# --- CONFIGURACIONES RECOMENDADAS PARA DIFERENTES ESCENARIOS ---
+
+# Para ARCHIVO ÚNICO (análisis detallado):
+#   - DEBUG_FREQUENCY_ORDER = True
+#   - MAX_SAMPLES_LIMIT = 2000000
+#   - GENERATE_WATERFALLS = True
+#   - CHUNK_OVERLAP_SAMPLES = 1000
+#
+# Para MÚLTIPLES ARCHIVOS (procesamiento en lote):
+#   - DEBUG_FREQUENCY_ORDER = False  ← Configuración actual
+#   - MAX_SAMPLES_LIMIT = 500000     ← Configuración actual
+#   - GENERATE_WATERFALLS = True
+#   - CHUNK_OVERLAP_SAMPLES = 500    ← Configuración actual
+#   - SKIP_CORRUPTED_FILES = True
+#   - FORCE_GARBAGE_COLLECTION = True
+#
+# Para ARCHIVOS MUY GRANDES (>5GB):
+#   - MAX_SAMPLES_LIMIT = 200000
+#   - CHUNK_OVERLAP_SAMPLES = 200
+#   - REDUCE_VISUALIZATION_QUALITY = True
+#   - USE_MULTI_BAND = False
+#
+# Para ANÁLISIS RÁPIDO (solo detección):
+#   - GENERATE_WATERFALLS = False
+#   - GENERATE_PATCHES = False
+#   - GENERATE_COMPOSITES = False
+#   - MAX_SAMPLES_LIMIT = 1000000
+
+"""
+SOLUCIÓN PARA EL PROBLEMA ACTUAL:
+
+1. El archivo FRB20180301_0002.fits está corrupto ("buffer is too small")
+2. B0355+54_FB_20220918.fits es muy grande (1.09 GB en memoria + procesamiento)
+3. La configuración actual intenta cargar demasiado en memoria
+
+PASOS PARA RESOLVER:
+
+1. Procesar archivos de uno en uno:
+   FRB_TARGETS = ["FRB20201124_0009"]  # Solo uno por vez
+
+2. Una vez confirmado que funciona, procesar los archivos grandes:
+   FRB_TARGETS = ["B0355+54_FB_20220918"]
+
+3. Investigar y reparar el archivo corrupto:
+   FRB_TARGETS = ["FRB20180301_0002"]  # Este requiere atención especial
+
+4. La configuración actual está optimizada para múltiples archivos pequeños-medianos
+"""
+
+# =============================================================================
+# CONFIGURACIONES OPCIONALES/AVANZADAS - Candidatas para eliminación
+# =============================================================================
+"""
+ANÁLISIS DE CONFIGURACIONES OPCIONALES:
+
+Las siguientes configuraciones pueden no ser esenciales para el funcionamiento básico
+del pipeline. Cada una se analiza con su propósito y ubicación de uso.
+"""
+
+# --- 1. CONFIGURACIONES DE RANGO DM DINÁMICO (POSIBLEMENTE INNECESARIAS) ---
+# UBICACIÓN: Se usan en astro_conversions.py y visualización
+# PROPÓSITO: Ajustar automáticamente el rango DM según candidatos detectados
+# IMPACTO: Solo afecta visualizaciones, no detección
+DM_DYNAMIC_RANGE_ENABLE: bool = False       # True = zoom automático, False = rango fijo
+DM_RANGE_ADAPTIVE: bool = False             # True = adaptar según confianza, False = factor fijo
+DM_RANGE_FACTOR: float = 0.3                # Factor de rango (0.3 = ±30% del DM óptimo)
+DM_RANGE_MIN_WIDTH: float = 80.0            # Ancho mínimo del rango DM en pc cm⁻³
+DM_RANGE_MAX_WIDTH: float = 300.0           # Ancho máximo del rango DM en pc cm⁻³
+
+# --- 2. CONFIGURACIONES DE PLOTS ESTÉTICAS (POSIBLEMENTE INNECESARIAS) ---
+# UBICACIÓN: Se usan en visualization.py para ajustar plots
+# PROPÓSITO: Controlar márgenes y rangos de visualización
+# IMPACTO: Solo estética, no afecta detección
+DM_PLOT_MARGIN_FACTOR: float = 0.25         # Margen adicional para evitar bordes (25%)
+DM_PLOT_MIN_RANGE: float = 120.0            # Rango mínimo del plot en pc cm⁻³
+DM_PLOT_MAX_RANGE: float = 400.0            # Rango máximo del plot en pc cm⁻³
+DM_PLOT_DEFAULT_RANGE: float = 250.0        # Rango por defecto sin candidatos
+DM_RANGE_DEFAULT_VISUALIZATION: str = "detailed"  # Tipo de visualización por defecto
+
+# --- 3. CONFIGURACIONES RFI AVANZADAS (COMPLEJAS, POSIBLEMENTE INNECESARIAS) ---
+# UBICACIÓN: Se usan en rfi_mitigation.py
+# PROPÓSITO: Control fino de filtros RFI
+# IMPACTO: Afecta calidad de datos, pero valores por defecto suelen funcionar
+RFI_INTERPOLATE_MASKED: bool = False        # True = interpolar valores, False = mantener enmascarados
+RFI_SAVE_DIAGNOSTICS: bool = False          # True = guardar gráficos, False = no guardar
+RFI_FREQ_SIGMA_THRESH = 5.0                # Umbral sigma para enmascarado de canales
+RFI_TIME_SIGMA_THRESH = 5.0                # Umbral sigma para enmascarado temporal
+RFI_ZERO_DM_SIGMA_THRESH = 4.0             # Umbral sigma para filtro Zero-DM
+RFI_IMPULSE_SIGMA_THRESH = 6.0             # Umbral sigma para filtrado de impulsos
+RFI_POLARIZATION_THRESH = 0.8              # Umbral para filtrado de polarización (0-1)
+RFI_CHANNEL_DETECTION_METHOD = "mad"        # Método detección canales: "mad", "std", "kurtosis"
+RFI_TIME_DETECTION_METHOD = "mad"           # Método detección temporal: "mad", "std", "outlier"
+
+# --- 4. CONFIGURACIONES DE VISUALIZACIÓN SNR (PURAMENTE ESTÉTICAS) ---
+# UBICACIÓN: Se usan en visualization.py y image_utils.py
+# PROPÓSITO: Control de apariencia de plots
+# IMPACTO: Solo estética, no afecta detección
+SNR_SHOW_PEAK_LINES: bool = False            # True = mostrar líneas rojas del SNR peak, False = ocultar líneas
+SNR_OFF_REGIONS = [(-250, -150), (-100, -50), (50, 100), (150, 250)]  # Regiones simétricas
+SNR_COLORMAP = "viridis"                    # Mapa de colores para waterfalls
+SNR_HIGHLIGHT_COLOR = "red"                 # Color para resaltar detecciones
+
+# --- 5. CONFIGURACIONES DE SLICE AVANZADAS (POSIBLEMENTE REDUNDANTES) ---
+# UBICACIÓN: Se usan en slice_len_utils.py
+# PROPÓSITO: Límites de seguridad para cálculo automático
+# IMPACTO: Solo seguridad, valores por defecto suelen funcionar
+SLICE_LEN_MIN: int = 32                      # Límite inferior de seguridad para el cálculo automático de SLICE_LEN
+SLICE_LEN_MAX: int = 2048                    # Límite superior de seguridad para el cálculo automático de SLICE_LEN
+
+# --- 6. CONFIGURACIONES DE CHUNKING AVANZADAS (POSIBLEMENTE INNECESARIAS) ---
+# UBICACIÓN: Se usan en pipeline.py para procesamiento por chunks
+# PROPÓSITO: Control fino del solapamiento entre chunks
+# IMPACTO: Puede afectar detecciones en bordes, pero valor por defecto funciona
+CHUNK_OVERLAP_SAMPLES: int = 500           # Solapamiento entre chunks
+
+# =============================================================================
+# RECOMENDACIONES PARA ELIMINACIÓN:
+# =============================================================================
+"""
+CONFIGURACIONES QUE SE PUEDEN ELIMINAR FÁCILMENTE:
+
+1. ALTA PRIORIDAD PARA ELIMINAR (Solo estética):
+   - SNR_OFF_REGIONS, SNR_COLORMAP, SNR_HIGHLIGHT_COLOR
+   - DM_PLOT_MARGIN_FACTOR, DM_PLOT_MIN_RANGE, DM_PLOT_MAX_RANGE
+   - DM_RANGE_DEFAULT_VISUALIZATION
+   - SNR_SHOW_PEAK_LINES
+
+2. MEDIA PRIORIDAD PARA ELIMINAR (Funcionalidad avanzada poco usada):
+   - DM_DYNAMIC_RANGE_ENABLE, DM_RANGE_ADAPTIVE, DM_RANGE_FACTOR
+   - DM_RANGE_MIN_WIDTH, DM_RANGE_MAX_WIDTH
+   - RFI_INTERPOLATE_MASKED, RFI_SAVE_DIAGNOSTICS
+   - RFI_CHANNEL_DETECTION_METHOD, RFI_TIME_DETECTION_METHOD
+
+3. BAJA PRIORIDAD PARA ELIMINAR (Podrían ser útiles):
+   - RFI_*_SIGMA_THRESH (umbrales RFI)
+   - SLICE_LEN_MIN, SLICE_LEN_MAX (seguridad)
+   - CHUNK_OVERLAP_SAMPLES (puede afectar detección)
+
+CONFIGURACIONES ESENCIALES QUE NO SE DEBEN ELIMINAR:
+- FRB_TARGETS, DATA_DIR, RESULTS_DIR
+- SLICE_DURATION_MS (configura duración temporal)
+- DM_min, DM_max (rango de dispersión)
+- DET_PROB, CLASS_PROB, SNR_THRESH (umbrales de detección)
+- USE_MULTI_BAND, ENABLE_CHUNK_PROCESSING, MAX_SAMPLES_LIMIT
+- MODEL_NAME, MODEL_PATH, CLASS_MODEL_NAME, CLASS_MODEL_PATH
+- DEBUG_FREQUENCY_ORDER, RFI_ENABLE_ALL_FILTERS
+"""
+
+# =============================================================================

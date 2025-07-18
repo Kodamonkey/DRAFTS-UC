@@ -20,7 +20,6 @@ from .dedispersion import d_dm_time_g, dedisperse_patch, dedisperse_block
 from .metrics import compute_snr
 from .astro_conversions import pixel_to_physical
 from .preprocessing import downsample_data
-from .rfi_mitigation import RFIMitigator
 from .image_utils import (
     preprocess_img,
     postprocess_img,
@@ -36,66 +35,6 @@ from .visualization import (
     plot_waterfalls,
 )
 logger = logging.getLogger(__name__)
-
-
-def apply_rfi_cleaning(
-    waterfall: np.ndarray,
-    stokes_v: np.ndarray | None = None,
-    output_dir: Path | None = None
-) -> tuple[np.ndarray, dict]:
-    """
-    Aplica limpieza de RFI al waterfall DM vs. Time.
-    
-    Parameters
-    ----------
-    waterfall : np.ndarray
-        Datos waterfall (tiempo, frecuencia/DM)
-    stokes_v : np.ndarray, optional
-        Datos de polarización circular
-    output_dir : Path, optional
-        Directorio para guardar diagnósticos
-        
-    Returns
-    -------
-    tuple[np.ndarray, dict]
-        Waterfall limpio y estadísticas de RFI
-    """
-    if not hasattr(config, 'RFI_ENABLE_ALL_FILTERS') or not config.RFI_ENABLE_ALL_FILTERS:
-        # RFI cleaning deshabilitado
-        return waterfall, {}
-    
-    print("[INFO] Aplicando limpieza de RFI...")
-    
-    # Configura el mitigador de RFI
-    rfi_mitigator = RFIMitigator(
-        freq_sigma_thresh=getattr(config, 'RFI_FREQ_SIGMA_THRESH', 5.0),
-        time_sigma_thresh=getattr(config, 'RFI_TIME_SIGMA_THRESH', 5.0),
-        zero_dm_sigma_thresh=getattr(config, 'RFI_ZERO_DM_SIGMA_THRESH', 4.0),
-        impulse_sigma_thresh=getattr(config, 'RFI_IMPULSE_SIGMA_THRESH', 6.0),
-        polarization_thresh=getattr(config, 'RFI_POLARIZATION_THRESH', 0.8)
-    )
-    
-    # Aplica limpieza
-    cleaned_waterfall, rfi_stats = rfi_mitigator.clean_waterfall(
-        waterfall,
-        stokes_v=stokes_v,
-        apply_all_filters=True
-    )
-    
-    # Guarda diagnósticos si está configurado
-    if (getattr(config, 'RFI_SAVE_DIAGNOSTICS', False) and 
-        output_dir and 
-        rfi_stats.get('total_flagged_fraction', 0) > 0.001):
-        
-        rfi_dir = output_dir / "rfi_diagnostics"
-        rfi_dir.mkdir(parents=True, exist_ok=True)
-        
-        diagnostic_path = rfi_dir / "rfi_cleaning_diagnostics.png"
-        rfi_mitigator.plot_rfi_diagnostics(
-            waterfall, cleaned_waterfall, diagnostic_path
-        )
-    
-    return cleaned_waterfall, rfi_stats
 
 
 def _load_model() -> torch.nn.Module:
@@ -497,21 +436,6 @@ def _process_file(
             logger.warning("Slice %d tiene arrays vacíos, saltando...", j)
             continue
         
-        # Aplicar limpieza de RFI si está habilitada
-        rfi_stats = {}
-        if hasattr(config, 'RFI_ENABLE_ALL_FILTERS') and config.RFI_ENABLE_ALL_FILTERS:
-            try:
-                logger.info("Aplicando limpieza de RFI al slice %d", j)
-                waterfall_block, rfi_stats = apply_rfi_cleaning(
-                    waterfall_block,
-                    stokes_v=None,  # No hay datos de polarización en este punto
-                    output_dir=save_dir / "rfi_diagnostics" if getattr(config, 'RFI_SAVE_DIAGNOSTICS', False) else None
-                )
-                logger.info("RFI cleaning completado para slice %d: %.2f%% datos flagged", 
-                           j, rfi_stats.get('total_flagged_fraction', 0) * 100)
-            except Exception as e:
-                logger.warning("Error en limpieza de RFI para slice %d: %s", j, e)
-                # Continúa con datos originales si hay error
         
         # 2) Generar waterfall sin dedispersar para este slice
         waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
@@ -655,21 +579,6 @@ def _process_file(
                     
                     dedisp_block = dedisperse_block(data, freq_down, first_dm, start, slice_len)
                     
-                    # Aplicar limpieza de RFI al bloque dedispersado si está habilitada
-                    if hasattr(config, 'RFI_ENABLE_ALL_FILTERS') and config.RFI_ENABLE_ALL_FILTERS and dedisp_block.size > 0:
-                        try:
-                            logger.debug("Aplicando limpieza de RFI al bloque dedispersado slice %d", j)
-                            dedisp_block_clean, rfi_stats_dedisp = apply_rfi_cleaning(
-                                dedisp_block,
-                                stokes_v=None,
-                                output_dir=None  # No guardar diagnósticos para cada bloque
-                            )
-                            dedisp_block = dedisp_block_clean
-                            logger.debug("RFI cleaning en bloque dedispersado completado: %.2f%% datos flagged", 
-                                       rfi_stats_dedisp.get('total_flagged_fraction', 0) * 100)
-                        except Exception as e:
-                            logger.warning("Error en limpieza de RFI para bloque dedispersado slice %d: %s", j, e)
-                            # Continúa con datos originales si hay error
                 
                 if dedisp_block is not None and dedisp_block.size > 0:
                     plot_waterfall_block(

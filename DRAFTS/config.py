@@ -332,3 +332,16 @@ CONFIGURACIONES ESENCIALES QUE NO SE DEBEN ELIMINAR:
 """
 
 # =============================================================================
+from dataclasses import dataclass, field
+
+@dataclass
+class Config:
+    """Runtime configuration returned by file loaders."""
+
+    TIME_RESO: float
+    FREQ_RESO: int
+    FILE_LENG: int
+    FREQ: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=float))
+    DOWN_FREQ_RATE: int = 1
+    DOWN_TIME_RATE: int = 1
+    DATA_NEEDS_REVERSAL: bool = False

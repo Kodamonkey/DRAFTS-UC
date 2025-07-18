@@ -34,6 +34,11 @@ from .visualization import (
     save_slice_summary,
     plot_waterfalls,
 )
+from .summary_utils import (
+    _write_summary,
+    _update_summary_with_results,
+    _update_summary_with_file_debug,
+)
 logger = logging.getLogger(__name__)
 
 
@@ -196,102 +201,6 @@ def _classify_patch(model, patch: np.ndarray) -> tuple[float, np.ndarray]:
         prob = out.softmax(dim=1)[0, 1].item()
     return prob, proc
 
-def _write_summary(summary: dict, save_path: Path) -> None:
-    """Write global summary information to ``summary.json``.
-
-    Each entry in ``summary`` now includes ``n_bursts`` and ``n_no_bursts``
-    indicating how many classified bursts and non-bursts were found in a
-    given FITS file.
-    """
-
-    summary_path = save_path / "summary.json"
-    with summary_path.open("w") as f_json:
-        json.dump(summary, f_json, indent=2)
-    logger.info("Resumen global escrito en %s", summary_path)
-
-def _load_or_create_summary(save_path: Path) -> dict:
-    """Load existing summary.json or create a new one."""
-    summary_path = save_path / "summary.json"
-    
-    if summary_path.exists():
-        try:
-            with summary_path.open("r") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            logger.warning(f"Error leyendo {summary_path}, creando nuevo summary")
-    
-    # Crear nuevo summary con estructura inicial
-    return {
-        "pipeline_info": {
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "model": config.MODEL_NAME,
-            "dm_range": f"{config.DM_min}-{config.DM_max}",
-            "slice_duration_ms": config.SLICE_DURATION_MS,
-            "debug_enabled": config.DEBUG_FREQUENCY_ORDER
-        },
-        "files_processed": {},
-        "global_stats": {
-            "total_files": 0,
-            "total_candidates": 0,
-            "total_bursts": 0,
-            "total_processing_time": 0.0
-        }
-    }
-
-def _update_summary_with_file_debug(
-    save_path: Path, 
-    filename: str, 
-    debug_info: dict
-) -> None:
-    """Update summary.json immediately with file debug information."""
-    
-    summary = _load_or_create_summary(save_path)
-    
-    # Agregar información de debug del archivo
-    if filename not in summary["files_processed"]:
-        summary["files_processed"][filename] = {}
-    
-    summary["files_processed"][filename]["debug_info"] = debug_info
-    summary["files_processed"][filename]["status"] = "debug_completed"
-    summary["files_processed"][filename]["debug_timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Guardar inmediatamente
-    summary_path = save_path / "summary.json"
-    with summary_path.open("w") as f:
-        json.dump(summary, f, indent=2)
-    
-    if config.DEBUG_FREQUENCY_ORDER:
-        logger.info(f"Debug info guardada para {filename} en {summary_path}")
-
-def _update_summary_with_results(
-    save_path: Path, 
-    filename: str, 
-    results_info: dict
-) -> None:
-    """Update summary.json with processing results for a file."""
-    
-    summary = _load_or_create_summary(save_path)
-    
-    # Agregar información de resultados
-    if filename not in summary["files_processed"]:
-        summary["files_processed"][filename] = {}
-    
-    summary["files_processed"][filename].update(results_info)
-    summary["files_processed"][filename]["status"] = "processing_completed"
-    summary["files_processed"][filename]["results_timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Actualizar estadísticas globales
-    summary["global_stats"]["total_files"] = len(summary["files_processed"])
-    summary["global_stats"]["total_candidates"] += results_info.get("n_candidates", 0)
-    summary["global_stats"]["total_bursts"] += results_info.get("n_bursts", 0)
-    summary["global_stats"]["total_processing_time"] += results_info.get("processing_time", 0.0)
-    
-    # Guardar
-    summary_path = save_path / "summary.json"
-    with summary_path.open("w") as f:
-        json.dump(summary, f, indent=2)
-    
-    logger.info(f"Resultados guardados para {filename} en {summary_path}")
 
 def _process_file(
     det_model: torch.nn.Module,

@@ -9,6 +9,7 @@ from typing import Tuple
 import numpy as np
 
 from . import config
+from .summary_utils import _update_summary_with_file_debug
 
 
 def _read_int(f) -> int:
@@ -498,10 +499,8 @@ def get_obparams_fil(file_name: str) -> None:
 def _save_file_debug_info_fil(file_name: str, debug_info: dict) -> None:
     """Save debug information for a filterbank file to summary.json immediately."""
     try:
-        # Import aquí para evitar import circular
-        from .pipeline import _update_summary_with_file_debug
         from pathlib import Path
-        
+
         # Determinar el directorio de guardado
         results_dir = getattr(config, 'RESULTS_DIR', Path('./Results/ObjectDetection'))
         model_dir = results_dir / config.MODEL_NAME

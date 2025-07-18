@@ -10,6 +10,7 @@ import numpy as np
 
 from . import config
 from .summary_utils import _update_summary_with_file_debug
+from .frequency_utils import normalize_frequency_order
 
 
 def _read_int(f) -> int:
@@ -119,7 +120,12 @@ def _read_non_standard_header(f) -> Tuple[dict, int]:
 
 
 def load_fil_file(file_name: str) -> np.ndarray:
-    """Load a filterbank file and return the data array in shape (time, pol, channel)."""
+    """Load a filterbank file and return the data array in shape ``(time, pol, channel)``.
+
+    This function keeps the previous behaviour of loading the entire file (or the
+    first ``MAX_SAMPLES_LIMIT`` samples when chunking is enabled).  For streaming
+    access consider using :func:`iter_fil_chunks`.
+    """
     global_vars = config
     data_array = None
     
@@ -171,16 +177,10 @@ def load_fil_file(file_name: str) -> np.ndarray:
             )
             data_array = np.array(data)
         except ValueError as e:
-            print(f"[WARNING] Error creating memmap: {e}")
-            safe_samples = min(nsamples, 10000)
-            data = np.memmap(
-                file_name,
-                dtype=dtype,
-                mode="r",
-                offset=hdr_len,
-                shape=(safe_samples, nifs, nchans),
+            raise ValueError(
+                f"Error creating memmap: {e}. Consider using 'iter_fil_chunks' "
+                "for streaming processing."
             )
-            data_array = np.array(data)
             
     except Exception as e:
         print(f"[Error cargando FIL] {e}")
@@ -270,6 +270,7 @@ def get_obparams_fil(file_name: str) -> None:
         fch1 = header.get("fch1", 1500.0)
         foff = header.get("foff", -1.0)
         freq_temp = fch1 + np.arange(nchans) * foff
+        freq_temp, freq_axis_inverted = normalize_frequency_order(freq_temp, foff)
         
         # DEBUG: Headers Filterbank específicos
         if config.DEBUG_FREQUENCY_ORDER:
@@ -290,23 +291,11 @@ def get_obparams_fil(file_name: str) -> None:
             print(f"📋 [DEBUG FILTERBANK]   Primeras 5 freq calculadas: {freq_temp[:5]}")
             print(f"📋 [DEBUG FILTERBANK]   Últimas 5 freq calculadas: {freq_temp[-5:]}")
         
-        # Detectar inversión de frecuencias (homólogo a io.py)
-        if foff < 0:
-            freq_axis_inverted = True
-            if config.DEBUG_FREQUENCY_ORDER:
-                print(f"📋 [DEBUG FILTERBANK]   ⚠️ foff negativo - frecuencias invertidas!")
-        elif len(freq_temp) > 1 and freq_temp[0] > freq_temp[-1]:
-            freq_axis_inverted = True
-            if config.DEBUG_FREQUENCY_ORDER:
-                print(f"📋 [DEBUG FILTERBANK]   ⚠️ Frecuencias detectadas en orden descendente!")
-        
-        # Aplicar corrección de orden (homólogo a io.py)
-        if freq_axis_inverted:
-            config.FREQ = freq_temp[::-1]
-            config.DATA_NEEDS_REVERSAL = True
-        else:
-            config.FREQ = freq_temp
-            config.DATA_NEEDS_REVERSAL = False
+        if freq_axis_inverted and config.DEBUG_FREQUENCY_ORDER:
+            print(f"📋 [DEBUG FILTERBANK]   ⚠️ Frecuencias invertidas detectadas")
+
+        config.FREQ = freq_temp
+        config.DATA_NEEDS_REVERSAL = freq_axis_inverted
 
     # DEBUG: Orden de frecuencias
     if config.DEBUG_FREQUENCY_ORDER:
@@ -516,6 +505,65 @@ def _save_file_debug_info_fil(file_name: str, debug_info: dict) -> None:
         
     except Exception as e:
         print(f"[WARNING] Error guardando debug info para {file_name}: {e}")
+def iter_fil_chunks(file_name: str, chunk_size: int, start_sample: int = 0):
+    """Yield consecutive chunks from a ``.fil`` file.
 
+    Parameters
+    ----------
+    file_name : str
+        Path to the filterbank file.
+    chunk_size : int
+        Number of samples per chunk to return.
+    start_sample : int, optional
+        Starting sample index, by default ``0``.
 
-# ...existing code...
+    Yields
+    ------
+    np.ndarray
+        Data chunks in the same format returned by :func:`load_fil_file`.
+    """
+
+    with open(file_name, "rb") as f:
+        header, hdr_len = _read_header(f)
+
+    nchans = header.get("nchans", 512)
+    nifs = header.get("nifs", 1)
+    nbits = header.get("nbits", 8)
+    nsamples = header.get("nsamples")
+
+    if nsamples is None:
+        bytes_per_sample = nifs * nchans * (nbits // 8)
+        file_size = os.path.getsize(file_name) - hdr_len
+        nsamples = file_size // bytes_per_sample if bytes_per_sample > 0 else 0
+
+    dtype = np.uint8
+    if nbits == 16:
+        dtype = np.int16
+    elif nbits == 32:
+        dtype = np.float32
+    elif nbits == 64:
+        dtype = np.float64
+
+    bytes_per_sample = nifs * nchans * (nbits // 8)
+
+    with open(file_name, "rb") as f:
+        f.seek(hdr_len + start_sample * bytes_per_sample)
+
+        samples_read = start_sample
+        while samples_read < nsamples:
+            remaining = nsamples - samples_read
+            this_chunk = min(chunk_size, remaining)
+
+            raw = f.read(this_chunk * bytes_per_sample)
+            if not raw:
+                break
+
+            data = np.frombuffer(raw, dtype=dtype)
+            data = data.reshape(this_chunk, nifs, nchans)
+
+            if getattr(config, 'DATA_NEEDS_REVERSAL', False):
+                data = data[:, :, ::-1]
+
+            yield data
+
+            samples_read += this_chunk

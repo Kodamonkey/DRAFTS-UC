@@ -148,6 +148,21 @@ Training data and pre-trained models are available on HuggingFace:
    between the 5th and 95th percentiles for clear images across varying
    `SLICE_LEN` and DM ranges.
 
+#### Streaming filterbank files
+
+Large `.fil` files can now be processed chunk by chunk using
+`iter_fil_chunks`:
+
+```python
+from DRAFTS.filterbank_io import iter_fil_chunks
+
+for chunk in iter_fil_chunks("observation.fil", chunk_size=2048):
+    process(chunk)
+```
+
+This avoids loading the entire file into memory and integrates easily with
+existing processing pipelines.
+
 ### Models
 
 #### Object Detection

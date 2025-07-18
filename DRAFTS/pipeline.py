@@ -667,6 +667,35 @@ def _load_fil_chunk(file_path: str, start_sample: int, chunk_size: int) -> np.nd
     
     return data
 
+def _load_fits_chunk(file_path: str, start_sample: int, chunk_size: int) -> np.ndarray:
+    """Load a specific chunk from a FITS file without reading the whole file."""
+    from astropy.io import fits
+
+    with fits.open(file_path, memmap=True) as hdul:
+        if "SUBINT" in hdul and "DATA" in hdul["SUBINT"].columns.names:
+            subint = hdul["SUBINT"]
+            data = subint.data["DATA"]
+            hdr = subint.header
+        else:
+            idx = _find_data_hdu(hdul)
+            hdu = hdul[idx]
+            data = hdu.data
+            hdr = hdu.header
+
+        nsubint = hdr.get("NAXIS2", 1)
+        nchan = hdr.get("NCHAN", data.shape[-1])
+        npol = hdr.get("NPOL", 1)
+        nsblk = hdr.get("NSBLK", 1)
+
+        arr = data.reshape(nsubint, nchan, npol, nsblk).swapaxes(1, 2)
+        arr = arr.reshape(nsubint * nsblk, npol, nchan)[:, :2, :]
+        arr = arr[start_sample : start_sample + chunk_size]
+
+    if getattr(config, "DATA_NEEDS_REVERSAL", False):
+        arr = arr[:, :, ::-1]
+
+    return arr
+
 def _process_single_chunk(
     det_model,
     cls_model, 
@@ -1082,14 +1111,10 @@ def _process_file_in_chunks(
         config.FILE_LENG = actual_chunk_size
         
         try:
-            # Cargar solo este chunk del archivo
+            # Cargar solo este chunk del archivo de forma eficiente
             if fits_path.suffix.lower() == ".fits":
-                # Para archivos FITS, necesitaríamos modificar load_fits_file
-                # Por ahora, usamos el método existente
-                data_chunk = load_fits_file(str(fits_path))
-                data_chunk = data_chunk[start_sample:end_sample]
+                data_chunk = _load_fits_chunk(str(fits_path), start_sample, actual_chunk_size)
             else:
-                # Para archivos .fil, podemos cargar solo el chunk específico
                 data_chunk = _load_fil_chunk(str(fits_path), start_sample, actual_chunk_size)
             # Calcular tiempo absoluto del chunk
             chunk_start_time_sec = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE

@@ -2,13 +2,68 @@
 from __future__ import annotations
 
 import os
-from typing import List
 
 import numpy as np
 from astropy.io import fits
 
 from . import config
 from .summary_utils import _update_summary_with_file_debug
+from .frequency_utils import normalize_frequency_order
+
+
+def _find_data_hdu(hdulist: fits.HDUList) -> int:
+    """Return the index of the HDU containing spectral data."""
+    data_hdu_index = 0
+    for i, hdu_item in enumerate(hdulist):
+        if hdu_item.is_image or isinstance(hdu_item, (fits.BinTableHDU, fits.TableHDU)):
+            if "NAXIS" in hdu_item.header and hdu_item.header["NAXIS"] > 0:
+                if "CTYPE3" in hdu_item.header and "FREQ" in hdu_item.header["CTYPE3"].upper():
+                    return i
+                if "CTYPE2" in hdu_item.header and "FREQ" in hdu_item.header["CTYPE2"].upper():
+                    return i
+                if "CTYPE1" in hdu_item.header and "FREQ" in hdu_item.header["CTYPE1"].upper():
+                    return i
+    if data_hdu_index == 0 and len(hdulist) > 1:
+        data_hdu_index = 1
+    return data_hdu_index
+
+
+def _extract_standard_fits_frequency(hdu: fits.hdu.base.ExtensionHDU) -> tuple[np.ndarray, bool]:
+    """Extract the frequency array from a standard FITS HDU."""
+    hdr = hdu.header
+
+    if "DAT_FREQ" in hdu.columns.names:
+        freq_temp = hdu.data["DAT_FREQ"][0].astype(np.float64)
+        cdelt = None
+        if getattr(config, "DEBUG_FREQUENCY_ORDER", False):
+            print("📋 [DEBUG HEADER] Frecuencias extraídas de columna DAT_FREQ")
+    else:
+        freq_axis_num = ""
+        for i in range(1, hdr.get("NAXIS", 0) + 1):
+            if "FREQ" in hdr.get(f"CTYPE{i}", "").upper():
+                freq_axis_num = str(i)
+                break
+
+        if freq_axis_num:
+            crval = hdr.get(f"CRVAL{freq_axis_num}", 0)
+            cdelt = hdr.get(f"CDELT{freq_axis_num}", 1)
+            crpix = hdr.get(f"CRPIX{freq_axis_num}", 1)
+            naxis = hdr.get(f"NAXIS{freq_axis_num}", hdr.get("NCHAN", 512))
+            freq_temp = crval + (np.arange(naxis) - (crpix - 1)) * cdelt
+
+            if getattr(config, "DEBUG_FREQUENCY_ORDER", False):
+                print("📋 [DEBUG HEADER] Parámetros WCS frecuencia:")
+                print(f"📋 [DEBUG HEADER]   CRVAL{freq_axis_num}: {crval} (valor de referencia)")
+                print(f"📋 [DEBUG HEADER]   CDELT{freq_axis_num}: {cdelt} (incremento por canal)")
+                print(f"📋 [DEBUG HEADER]   CRPIX{freq_axis_num}: {crpix} (pixel de referencia)")
+                print(f"📋 [DEBUG HEADER]   NAXIS{freq_axis_num}: {naxis} (número de canales)")
+        else:
+            if getattr(config, "DEBUG_FREQUENCY_ORDER", False):
+                print("📋 [DEBUG HEADER] ⚠️ Usando frecuencias por defecto: 1000-1500 MHz")
+            freq_temp = np.linspace(1000, 1500, hdr.get("NCHAN", 512))
+            cdelt = None
+
+    return normalize_frequency_order(freq_temp, cdelt)
 
 
 def load_fits_file(file_name: str) -> np.ndarray:
@@ -152,41 +207,24 @@ def get_obparams(file_name: str) -> None:
                 if 'SRC_NAME' in hdr:
                     print(f"📋 [DEBUG HEADER]   Fuente: {hdr['SRC_NAME']}")
             
+            bw = None
             if "CHAN_BW" in hdr:
                 bw = hdr["CHAN_BW"]
                 if isinstance(bw, (list, np.ndarray)):
                     bw = bw[0]
                 if config.DEBUG_FREQUENCY_ORDER:
                     print(f"📋 [DEBUG HEADER]   CHAN_BW detectado: {bw} MHz")
-                if bw < 0:
-                    freq_axis_inverted = True
-                    if config.DEBUG_FREQUENCY_ORDER:
-                        print(f"📋 [DEBUG HEADER]   ⚠️ CHAN_BW negativo - frecuencias invertidas!")
-            elif len(freq_temp) > 1 and freq_temp[0] > freq_temp[-1]:
-                freq_axis_inverted = True
-                if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"📋 [DEBUG HEADER]   ⚠️ Frecuencias detectadas en orden descendente!")
+
+            freq_temp, freq_axis_inverted = normalize_frequency_order(freq_temp, bw)
+            if freq_axis_inverted and config.DEBUG_FREQUENCY_ORDER:
+                print(f"📋 [DEBUG HEADER]   ⚠️ Frecuencias invertidas detectadas")
         else:
             # DEBUG: Procesando formato FITS estándar
             if config.DEBUG_FREQUENCY_ORDER:
                 print(f"📋 [DEBUG HEADER] Formato detectado: FITS estándar (no PSRFITS)")
             
             try:
-                data_hdu_index = 0
-                for i, hdu_item in enumerate(f):
-                    if hdu_item.is_image or isinstance(hdu_item, (fits.BinTableHDU, fits.TableHDU)):
-                        if 'NAXIS' in hdu_item.header and hdu_item.header['NAXIS'] > 0:
-                            if 'CTYPE3' in hdu_item.header and 'FREQ' in hdu_item.header['CTYPE3'].upper():
-                                data_hdu_index = i
-                                break
-                            if 'CTYPE2' in hdu_item.header and 'FREQ' in hdu_item.header['CTYPE2'].upper():
-                                data_hdu_index = i
-                                break
-                            if 'CTYPE1' in hdu_item.header and 'FREQ' in hdu_item.header['CTYPE1'].upper():
-                                data_hdu_index = i
-                                break
-                if data_hdu_index == 0 and len(f) > 1:
-                    data_hdu_index = 1
+                data_hdu_index = _find_data_hdu(f)
                 
                 # DEBUG: HDU seleccionado
                 if config.DEBUG_FREQUENCY_ORDER:
@@ -203,43 +241,7 @@ def get_obparams(file_name: str) -> None:
                         if key in hdr:
                             print(f"📋 [DEBUG HEADER]   {key}: {hdr[key]}")
                 
-                if "DAT_FREQ" in f[data_hdu_index].columns.names:
-                    freq_temp = f[data_hdu_index].data["DAT_FREQ"][0].astype(np.float64)
-                    if config.DEBUG_FREQUENCY_ORDER:
-                        print(f"📋 [DEBUG HEADER] Frecuencias extraídas de columna DAT_FREQ")
-                else:
-                    freq_axis_num = ''
-                    for i in range(1, hdr.get('NAXIS', 0) + 1):
-                        if 'FREQ' in hdr.get(f'CTYPE{i}', '').upper():
-                            freq_axis_num = str(i)
-                            break
-                    
-                    if config.DEBUG_FREQUENCY_ORDER:
-                        print(f"📋 [DEBUG HEADER] Buscando eje de frecuencias en headers WCS...")
-                        print(f"📋 [DEBUG HEADER] Eje de frecuencias detectado: CTYPE{freq_axis_num}" if freq_axis_num else "📋 [DEBUG HEADER] ⚠️ No se encontró eje de frecuencias")
-                    
-                    if freq_axis_num:
-                        crval = hdr.get(f'CRVAL{freq_axis_num}', 0)
-                        cdelt = hdr.get(f'CDELT{freq_axis_num}', 1)
-                        crpix = hdr.get(f'CRPIX{freq_axis_num}', 1)
-                        naxis = hdr.get(f'NAXIS{freq_axis_num}', hdr.get('NCHAN', 512))
-                        freq_temp = crval + (np.arange(naxis) - (crpix - 1)) * cdelt
-                        
-                        if config.DEBUG_FREQUENCY_ORDER:
-                            print(f"📋 [DEBUG HEADER] Parámetros WCS frecuencia:")
-                            print(f"📋 [DEBUG HEADER]   CRVAL{freq_axis_num}: {crval} (valor de referencia)")
-                            print(f"📋 [DEBUG HEADER]   CDELT{freq_axis_num}: {cdelt} (incremento por canal)")
-                            print(f"📋 [DEBUG HEADER]   CRPIX{freq_axis_num}: {crpix} (pixel de referencia)")
-                            print(f"📋 [DEBUG HEADER]   NAXIS{freq_axis_num}: {naxis} (número de canales)")
-                        
-                        if cdelt < 0:
-                            freq_axis_inverted = True
-                            if config.DEBUG_FREQUENCY_ORDER:
-                                print(f"📋 [DEBUG HEADER]   ⚠️ CDELT negativo - frecuencias invertidas!")
-                    else:
-                        if config.DEBUG_FREQUENCY_ORDER:
-                            print(f"📋 [DEBUG HEADER] ⚠️ Usando frecuencias por defecto: 1000-1500 MHz")
-                        freq_temp = np.linspace(1000, 1500, hdr.get('NCHAN', 512))
+                freq_temp, freq_axis_inverted = _extract_standard_fits_frequency(f[data_hdu_index])
                 
                 config.TIME_RESO = hdr["TBIN"]
                 config.FREQ_RESO = hdr.get("NCHAN", len(freq_temp))
@@ -261,12 +263,8 @@ def get_obparams(file_name: str) -> None:
                 config.FREQ_RESO = 512
                 config.FILE_LENG = 100000
                 freq_temp = np.linspace(1000, 1500, config.FREQ_RESO)
-        if freq_axis_inverted:
-            config.FREQ = freq_temp[::-1]
-            config.DATA_NEEDS_REVERSAL = True
-        else:
-            config.FREQ = freq_temp
-            config.DATA_NEEDS_REVERSAL = False
+        config.FREQ = freq_temp
+        config.DATA_NEEDS_REVERSAL = freq_axis_inverted
 
     # DEBUG: Orden de frecuencias
     if config.DEBUG_FREQUENCY_ORDER:

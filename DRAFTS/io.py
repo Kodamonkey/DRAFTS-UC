@@ -49,9 +49,17 @@ def load_fits_file(file_name: str) -> np.ndarray:
                 nchan = _safe_int(hdr.get("NCHAN", 0))
                 npol = _safe_int(hdr.get("NPOL", 0))
                 nsblk = _safe_int(hdr.get("NSBLK", 1))
-                data_array = data_array.reshape(nsubint, nchan, npol, nsblk).swapaxes(1, 2)
-                data_array = data_array.reshape(nsubint * nsblk, npol, nchan)
-                data_array = data_array[:, :2, :]
+                # Validar dimensiones antes de reshape
+                if any(x <= 0 for x in [nsubint, nchan, npol, nsblk]):
+                    raise ValueError(
+                        f"Dimensiones inválidas en header FITS: NAXIS2={nsubint}, NCHAN={nchan}, NPOL={npol}, NSBLK={nsblk} (no pueden ser <= 0)"
+                    )
+                try:
+                    data_array = data_array.reshape(nsubint, nchan, npol, nsblk).swapaxes(1, 2)
+                    data_array = data_array.reshape(nsubint * nsblk, npol, nchan)
+                    data_array = data_array[:, :2, :]
+                except Exception as e:
+                    raise ValueError(f"Error al hacer reshape de los datos: {e}")
             else:
                 import fitsio
                 temp_data, h = fitsio.read(file_name, header=True)
@@ -59,12 +67,26 @@ def load_fits_file(file_name: str) -> np.ndarray:
                     total_samples = _safe_int(h.get("NAXIS2", 1)) * _safe_int(h.get("NSBLK", 1))
                     num_pols = _safe_int(h.get("NPOL", 2))
                     num_chans = _safe_int(h.get("NCHAN", 512))
-                    data_array = temp_data["DATA"].reshape(total_samples, num_pols, num_chans)[:, :2, :]
+                    if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
+                        raise ValueError(
+                            f"Dimensiones inválidas en header FITSIO: NAXIS2={h.get('NAXIS2', 1)}, NSBLK={h.get('NSBLK', 1)}, NPOL={num_pols}, NCHAN={num_chans} (no pueden ser <= 0)"
+                        )
+                    try:
+                        data_array = temp_data["DATA"].reshape(total_samples, num_pols, num_chans)[:, :2, :]
+                    except Exception as e:
+                        raise ValueError(f"Error al hacer reshape de los datos (fitsio): {e}")
                 else:
                     total_samples = _safe_int(h.get("NAXIS2", 1)) * _safe_int(h.get("NSBLK", 1))
                     num_pols = _safe_int(h.get("NPOL", 2))
                     num_chans = _safe_int(h.get("NCHAN", 512))
-                    data_array = temp_data.reshape(total_samples, num_pols, num_chans)[:, :2, :]
+                    if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
+                        raise ValueError(
+                            f"Dimensiones inválidas en header FITSIO: NAXIS2={h.get('NAXIS2', 1)}, NSBLK={h.get('NSBLK', 1)}, NPOL={num_pols}, NCHAN={num_chans} (no pueden ser <= 0)"
+                        )
+                    try:
+                        data_array = temp_data.reshape(total_samples, num_pols, num_chans)[:, :2, :]
+                    except Exception as e:
+                        raise ValueError(f"Error al hacer reshape de los datos (fitsio): {e}")
     except Exception as e:
         print(f"[Error cargando FITS con fitsio/astropy] {e}")
         try:
@@ -72,7 +94,6 @@ def load_fits_file(file_name: str) -> np.ndarray:
             with fits.open(file_name, memmap=False) as f:
                 data_hdu = None
                 for hdu_item in f:
-                    # Evitar acceder a .data directamente, usar hasattr primero
                     try:
                         if (hdu_item.data is not None and 
                             isinstance(hdu_item.data, np.ndarray) and 
@@ -80,14 +101,11 @@ def load_fits_file(file_name: str) -> np.ndarray:
                             data_hdu = hdu_item
                             break
                     except (TypeError, ValueError):
-                        # Si no se puede acceder a los datos, saltar este HDU
                         continue
-                        
                 if data_hdu is None and len(f) > 1:
                     data_hdu = f[1]
                 elif data_hdu is None:
                     data_hdu = f[0]
-                    
                 h = data_hdu.header
                 try:
                     raw_data = data_hdu.data
@@ -95,13 +113,19 @@ def load_fits_file(file_name: str) -> np.ndarray:
                         total_samples = _safe_int(h.get("NAXIS2", 1)) * _safe_int(h.get("NSBLK", 1))
                         num_pols = _safe_int(h.get("NPOL", 2))
                         num_chans = _safe_int(h.get("NCHAN", raw_data.shape[-1]))
-                        data_array = raw_data.reshape(total_samples, num_pols, num_chans)[:, :2, :]
+                        if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
+                            raise ValueError(
+                                f"Dimensiones inválidas en header fallback: NAXIS2={h.get('NAXIS2', 1)}, NSBLK={h.get('NSBLK', 1)}, NPOL={num_pols}, NCHAN={num_chans} (no pueden ser <= 0)"
+                            )
+                        try:
+                            data_array = raw_data.reshape(total_samples, num_pols, num_chans)[:, :2, :]
+                        except Exception as e:
+                            raise ValueError(f"Error al hacer reshape de los datos (fallback): {e}")
                     else:
                         raise ValueError("No hay datos válidos en el HDU")
                 except (TypeError, ValueError) as e_data:
                     print(f"Error accediendo a datos del HDU: {e_data}")
                     raise ValueError(f"Archivo FITS corrupto: {file_name}")
-                    
         except Exception as e_astropy:
             print(f"Fallo final al cargar con astropy: {e_astropy}")
             raise ValueError(f"Archivo FITS corrupto: {file_name}") from e_astropy

@@ -7,6 +7,30 @@ from typing import List
 import numpy as np
 from astropy.io import fits
 
+
+def _safe_float(value, default=0.0):
+    """Return ``value`` as ``float`` or ``default`` if conversion fails."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        try:
+            cleaned = str(value).strip().replace("*", "").replace("UNSET", "")
+            return float(cleaned)
+        except (TypeError, ValueError):
+            return default
+
+
+def _safe_int(value, default=0):
+    """Return ``value`` as ``int`` or ``default`` if conversion fails."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            cleaned = str(value).strip().replace("*", "").replace("UNSET", "")
+            return int(float(cleaned))
+        except (TypeError, ValueError):
+            return default
+
 from . import config
 from .summary_utils import _update_summary_with_file_debug
 
@@ -134,9 +158,11 @@ def get_obparams(file_name: str) -> None:
             hdr = f["SUBINT"].header
             sub_data = f["SUBINT"].data
             # Convertir a tipos numéricos explícitamente por si vengan como strings
-            config.TIME_RESO = float(hdr["TBIN"])
-            config.FREQ_RESO = int(hdr["NCHAN"])
-            config.FILE_LENG = int(hdr["NSBLK"]) * int(hdr["NAXIS2"])
+            config.TIME_RESO = _safe_float(hdr.get("TBIN"))
+            config.FREQ_RESO = _safe_int(hdr.get("NCHAN"))
+            config.FILE_LENG = (
+                _safe_int(hdr.get("NSBLK")) * _safe_int(hdr.get("NAXIS2"))
+            )
 
             try:
                 freq_temp = sub_data["DAT_FREQ"][0].astype(np.float64)
@@ -144,13 +170,15 @@ def get_obparams(file_name: str) -> None:
                 if config.DEBUG_FREQUENCY_ORDER:
                     print(f"[DEBUG HEADER] Error convirtiendo DAT_FREQ: {e}")
                     print("[DEBUG HEADER] Usando rango de frecuencias por defecto")
-                nchan = int(hdr.get("NCHAN", 512))
+                nchan = _safe_int(hdr.get("NCHAN", 512), 512)
                 freq_temp = np.linspace(1000, 1500, nchan)
             
             # DEBUG: Headers PSRFITS específicos
             if config.DEBUG_FREQUENCY_ORDER:
                 print(f"📋 [DEBUG HEADER] Headers PSRFITS extraídos:")
-                print(f"📋 [DEBUG HEADER]   TBIN (resolución temporal): {hdr['TBIN']:.2e} s")
+                print(
+                    f"📋 [DEBUG HEADER]   TBIN (resolución temporal): {_safe_float(hdr.get('TBIN')):.2e} s"
+                )
                 print(f"📋 [DEBUG HEADER]   NCHAN (canales): {hdr['NCHAN']}")
                 print(f"📋 [DEBUG HEADER]   NSBLK (muestras por subint): {hdr['NSBLK']}")
                 print(f"📋 [DEBUG HEADER]   NAXIS2 (número de subints): {hdr['NAXIS2']}")
@@ -224,7 +252,7 @@ def get_obparams(file_name: str) -> None:
                         if config.DEBUG_FREQUENCY_ORDER:
                             print(f"[DEBUG HEADER] Error convirtiendo DAT_FREQ: {e}")
                             print("[DEBUG HEADER] Usando rango de frecuencias por defecto")
-                        nchan = int(hdr.get("NCHAN", 512))
+                        nchan = _safe_int(hdr.get("NCHAN", 512), 512)
                         freq_temp = np.linspace(1000, 1500, nchan)
                     else:
                         if config.DEBUG_FREQUENCY_ORDER:
@@ -274,9 +302,9 @@ def get_obparams(file_name: str) -> None:
                         freq_temp = np.linspace(1000, 1500, hdr.get('NCHAN', 512))
                 
                 # Convertir a tipos numéricos para evitar errores de comparación
-                config.TIME_RESO = float(hdr["TBIN"])
-                config.FREQ_RESO = int(hdr.get("NCHAN", len(freq_temp)))
-                config.FILE_LENG = int(hdr.get("NAXIS2", 0)) * int(hdr.get("NSBLK", 1))
+                config.TIME_RESO = _safe_float(hdr.get("TBIN"))
+                config.FREQ_RESO = _safe_int(hdr.get("NCHAN", len(freq_temp)))
+                config.FILE_LENG = _safe_int(hdr.get("NAXIS2", 0)) * _safe_int(hdr.get("NSBLK", 1))
                 
                 # DEBUG: Parámetros finales extraídos
                 if config.DEBUG_FREQUENCY_ORDER:

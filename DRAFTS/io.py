@@ -45,10 +45,10 @@ def load_fits_file(file_name: str) -> np.ndarray:
                 subint = hdul["SUBINT"]
                 hdr = subint.header
                 data_array = subint.data["DATA"]
-                nsubint = hdr["NAXIS2"]
-                nchan = hdr["NCHAN"]
-                npol = hdr["NPOL"]
-                nsblk = hdr["NSBLK"]
+                nsubint = _safe_int(hdr.get("NAXIS2", 0))
+                nchan = _safe_int(hdr.get("NCHAN", 0))
+                npol = _safe_int(hdr.get("NPOL", 0))
+                nsblk = _safe_int(hdr.get("NSBLK", 1))
                 data_array = data_array.reshape(nsubint, nchan, npol, nsblk).swapaxes(1, 2)
                 data_array = data_array.reshape(nsubint * nsblk, npol, nchan)
                 data_array = data_array[:, :2, :]
@@ -56,11 +56,14 @@ def load_fits_file(file_name: str) -> np.ndarray:
                 import fitsio
                 temp_data, h = fitsio.read(file_name, header=True)
                 if "DATA" in temp_data.dtype.names:
-                    data_array = temp_data["DATA"].reshape(h["NAXIS2"] * h["NSBLK"], h["NPOL"], h["NCHAN"])[:, :2, :]
+                    total_samples = _safe_int(h.get("NAXIS2", 1)) * _safe_int(h.get("NSBLK", 1))
+                    num_pols = _safe_int(h.get("NPOL", 2))
+                    num_chans = _safe_int(h.get("NCHAN", 512))
+                    data_array = temp_data["DATA"].reshape(total_samples, num_pols, num_chans)[:, :2, :]
                 else:
-                    total_samples = h.get("NAXIS2", 1) * h.get("NSBLK", 1)
-                    num_pols = h.get("NPOL", 2)
-                    num_chans = h.get("NCHAN", 512)
+                    total_samples = _safe_int(h.get("NAXIS2", 1)) * _safe_int(h.get("NSBLK", 1))
+                    num_pols = _safe_int(h.get("NPOL", 2))
+                    num_chans = _safe_int(h.get("NCHAN", 512))
                     data_array = temp_data.reshape(total_samples, num_pols, num_chans)[:, :2, :]
     except Exception as e:
         print(f"[Error cargando FITS con fitsio/astropy] {e}")
@@ -89,7 +92,10 @@ def load_fits_file(file_name: str) -> np.ndarray:
                 try:
                     raw_data = data_hdu.data
                     if raw_data is not None:
-                        data_array = raw_data.reshape(h["NAXIS2"] * h.get("NSBLK", 1), h.get("NPOL", 2), h.get("NCHAN", raw_data.shape[-1]))[:, :2, :]
+                        total_samples = _safe_int(h.get("NAXIS2", 1)) * _safe_int(h.get("NSBLK", 1))
+                        num_pols = _safe_int(h.get("NPOL", 2))
+                        num_chans = _safe_int(h.get("NCHAN", raw_data.shape[-1]))
+                        data_array = raw_data.reshape(total_samples, num_pols, num_chans)[:, :2, :]
                     else:
                         raise ValueError("No hay datos válidos en el HDU")
                 except (TypeError, ValueError) as e_data:
@@ -98,10 +104,10 @@ def load_fits_file(file_name: str) -> np.ndarray:
                     
         except Exception as e_astropy:
             print(f"Fallo final al cargar con astropy: {e_astropy}")
-            raise ValueError(f"No se puede leer el archivo FITS corrupto: {file_name}")
+            raise ValueError(f"Archivo FITS corrupto: {file_name}") from e_astropy
             
     if data_array is None:
-        raise ValueError(f"No se pudieron cargar los datos de {file_name}")
+        raise ValueError(f"Archivo FITS corrupto: {file_name}")
 
     if global_vars.DATA_NEEDS_REVERSAL:
         print(f">> Invirtiendo eje de frecuencia de los datos cargados para {file_name}")

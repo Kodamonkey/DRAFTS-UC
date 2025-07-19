@@ -24,7 +24,20 @@ def _load_or_create_summary(save_path: Path) -> dict:
     if summary_path.exists():
         try:
             with summary_path.open("r") as f:
-                return json.load(f)
+                summary = json.load(f)
+            # Ensure required keys exist
+            if "files_processed" not in summary:
+                summary["files_processed"] = {}
+            if "pipeline_info" not in summary:
+                summary["pipeline_info"] = {}
+            if "global_stats" not in summary:
+                summary["global_stats"] = {
+                    "total_files": 0,
+                    "total_candidates": 0,
+                    "total_bursts": 0,
+                    "total_processing_time": 0.0,
+                }
+            return summary
         except (json.JSONDecodeError, FileNotFoundError):
             logger.warning(f"Error leyendo {summary_path}, creando nuevo summary")
 

@@ -8,6 +8,7 @@ import numpy as np
 from astropy.io import fits
 
 from . import config
+from .summary_utils import _update_summary_with_file_debug
 
 
 def load_fits_file(file_name: str) -> np.ndarray:
@@ -428,8 +429,6 @@ def get_obparams(file_name: str) -> None:
 def _save_file_debug_info_fits(file_name: str, debug_info: dict) -> None:
     """Save debug information for a FITS file to summary.json immediately."""
     try:
-        # Import aquí para evitar import circular
-        from .pipeline import _update_summary_with_file_debug
         from pathlib import Path
         import os
         

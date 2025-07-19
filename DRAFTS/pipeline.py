@@ -273,31 +273,41 @@ def _write_summary(summary: dict, save_path: Path) -> None:
 def _load_or_create_summary(save_path: Path) -> dict:
     """Load existing summary.json or create a new one."""
     summary_path = save_path / "summary.json"
-    
+
+    summary = {}
     if summary_path.exists():
         try:
             with summary_path.open("r") as f:
-                return json.load(f)
+                summary = json.load(f)
         except (json.JSONDecodeError, FileNotFoundError):
             logger.warning(f"Error leyendo {summary_path}, creando nuevo summary")
-    
-    # Crear nuevo summary con estructura inicial
-    return {
-        "pipeline_info": {
+
+    if not isinstance(summary, dict):
+        logger.warning(f"Estructura inesperada en {summary_path}, creando nuevo summary")
+        summary = {}
+
+    summary.setdefault(
+        "pipeline_info",
+        {
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
             "model": config.MODEL_NAME,
             "dm_range": f"{config.DM_min}-{config.DM_max}",
             "slice_duration_ms": config.SLICE_DURATION_MS,
-            "debug_enabled": config.DEBUG_FREQUENCY_ORDER
+            "debug_enabled": config.DEBUG_FREQUENCY_ORDER,
         },
-        "files_processed": {},
-        "global_stats": {
+    )
+    summary.setdefault("files_processed", {})
+    summary.setdefault(
+        "global_stats",
+        {
             "total_files": 0,
             "total_candidates": 0,
             "total_bursts": 0,
-            "total_processing_time": 0.0
-        }
-    }
+            "total_processing_time": 0.0,
+        },
+    )
+
+    return summary
 
 def _update_summary_with_file_debug(
     save_path: Path, 

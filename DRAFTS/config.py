@@ -26,8 +26,6 @@ except ImportError:  # Si torch no está instalado, lo dejamos como None
 # SWITCHES DE CONTROL ESENCIALES - Solo configuraciones principales
 # =============================================================================
 
-# --- Control de RFI (ESENCIAL) ---
-RFI_ENABLE_ALL_FILTERS: bool = False        # True = todos los filtros, False = solo básicos
 
 # --- Control de Debug (ESENCIAL) ---
 DEBUG_FREQUENCY_ORDER: bool = False         # True = debug orden de frecuencias y dedispersión, False = sin debug para ahorrar memoria
@@ -40,7 +38,9 @@ DEBUG_FREQUENCY_ORDER: bool = False         # True = debug orden de frecuencias 
 DATA_DIR = Path("./Data")                        # Directorio con archivos de entrada (.fits, .fil)
 RESULTS_DIR = Path("./Results/ObjectDetection")  # Directorio para guardar resultados
 # --- Lista de targets optimizada para múltiples archivos ---
+
 FRB_TARGETS = ["3096_0001_00_8bit"]          # Lista de targets FRB a procesar - Reducida para pruebas
+
 # Para procesar todos: ["FRB20201124_0009", "FRB20180301_0002", "B0355+54_FB_20220918"]
 # Nota: FRB20180301_0002.fits parece estar corrupto - revisar archivo
 
@@ -138,12 +138,6 @@ CONFIGURACIÓN SIMPLIFICADA:
    Para usar configuración AUTOMÁTICA:
    - DM_DYNAMIC_RANGE_ENABLE = True
 
-3. RFI:
-   Para procesamiento BÁSICO:
-   - RFI_ENABLE_ALL_FILTERS = False
-   
-   Para procesamiento COMPLETO:
-   - RFI_ENABLE_ALL_FILTERS = True
 
 4. VISUALIZACIÓN SNR:
    Para MOSTRAR líneas rojas del SNR en composite:
@@ -284,19 +278,6 @@ DM_PLOT_MAX_RANGE: float = 400.0            # Rango máximo del plot en pc cm⁻
 DM_PLOT_DEFAULT_RANGE: float = 250.0        # Rango por defecto sin candidatos
 DM_RANGE_DEFAULT_VISUALIZATION: str = "detailed"  # Tipo de visualización por defecto
 
-# --- 3. CONFIGURACIONES RFI AVANZADAS (COMPLEJAS, POSIBLEMENTE INNECESARIAS) ---
-# UBICACIÓN: Se usan en rfi_mitigation.py
-# PROPÓSITO: Control fino de filtros RFI
-# IMPACTO: Afecta calidad de datos, pero valores por defecto suelen funcionar
-RFI_INTERPOLATE_MASKED: bool = False        # True = interpolar valores, False = mantener enmascarados
-RFI_SAVE_DIAGNOSTICS: bool = False          # True = guardar gráficos, False = no guardar
-RFI_FREQ_SIGMA_THRESH = 5.0                # Umbral sigma para enmascarado de canales
-RFI_TIME_SIGMA_THRESH = 5.0                # Umbral sigma para enmascarado temporal
-RFI_ZERO_DM_SIGMA_THRESH = 4.0             # Umbral sigma para filtro Zero-DM
-RFI_IMPULSE_SIGMA_THRESH = 6.0             # Umbral sigma para filtrado de impulsos
-RFI_POLARIZATION_THRESH = 0.8              # Umbral para filtrado de polarización (0-1)
-RFI_CHANNEL_DETECTION_METHOD = "mad"        # Método detección canales: "mad", "std", "kurtosis"
-RFI_TIME_DETECTION_METHOD = "mad"           # Método detección temporal: "mad", "std", "outlier"
 
 # --- 4. CONFIGURACIONES DE VISUALIZACIÓN SNR (PURAMENTE ESTÉTICAS) ---
 # UBICACIÓN: Se usan en visualization.py y image_utils.py
@@ -335,11 +316,10 @@ CONFIGURACIONES QUE SE PUEDEN ELIMINAR FÁCILMENTE:
 2. MEDIA PRIORIDAD PARA ELIMINAR (Funcionalidad avanzada poco usada):
    - DM_DYNAMIC_RANGE_ENABLE, DM_RANGE_ADAPTIVE, DM_RANGE_FACTOR
    - DM_RANGE_MIN_WIDTH, DM_RANGE_MAX_WIDTH
-   - RFI_INTERPOLATE_MASKED, RFI_SAVE_DIAGNOSTICS
-   - RFI_CHANNEL_DETECTION_METHOD, RFI_TIME_DETECTION_METHOD
+   - DM_DYNAMIC_RANGE_ENABLE, DM_RANGE_ADAPTIVE, DM_RANGE_FACTOR
+   - DM_RANGE_MIN_WIDTH, DM_RANGE_MAX_WIDTH
 
 3. BAJA PRIORIDAD PARA ELIMINAR (Podrían ser útiles):
-   - RFI_*_SIGMA_THRESH (umbrales RFI)
    - SLICE_LEN_MIN, SLICE_LEN_MAX (seguridad)
    - CHUNK_OVERLAP_SAMPLES (puede afectar detección)
 
@@ -350,7 +330,7 @@ CONFIGURACIONES ESENCIALES QUE NO SE DEBEN ELIMINAR:
 - DET_PROB, CLASS_PROB, SNR_THRESH (umbrales de detección)
 - USE_MULTI_BAND, ENABLE_CHUNK_PROCESSING, MAX_SAMPLES_LIMIT
 - MODEL_NAME, MODEL_PATH, CLASS_MODEL_NAME, CLASS_MODEL_PATH
-- DEBUG_FREQUENCY_ORDER, RFI_ENABLE_ALL_FILTERS
+ - DEBUG_FREQUENCY_ORDER
 """
 
 # =============================================================================

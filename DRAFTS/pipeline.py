@@ -201,7 +201,6 @@ def _classify_patch(model, patch: np.ndarray) -> tuple[float, np.ndarray]:
         prob = out.softmax(dim=1)[0, 1].item()
     return prob, proc
 
-
 def _process_file(
     det_model: torch.nn.Module,
     cls_model: torch.nn.Module,

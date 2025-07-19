@@ -10,7 +10,7 @@ from typing import List
 
 try:
     import torch
-except ImportError:  # pragma: no cover - optional dependency
+except ImportError:  
     torch = None
 import numpy as np
 

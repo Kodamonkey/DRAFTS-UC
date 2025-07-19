@@ -20,7 +20,6 @@ from .dedispersion import d_dm_time_g, dedisperse_patch, dedisperse_block
 from .metrics import compute_snr
 from .astro_conversions import pixel_to_physical
 from .preprocessing import downsample_data
-from .rfi_mitigation import RFIMitigator
 from .image_utils import (
     preprocess_img,
     postprocess_img,
@@ -35,67 +34,12 @@ from .visualization import (
     save_slice_summary,
     plot_waterfalls,
 )
+from .summary_utils import (
+    _write_summary,
+    _update_summary_with_results,
+    _update_summary_with_file_debug,
+)
 logger = logging.getLogger(__name__)
-
-
-def apply_rfi_cleaning(
-    waterfall: np.ndarray,
-    stokes_v: np.ndarray | None = None,
-    output_dir: Path | None = None
-) -> tuple[np.ndarray, dict]:
-    """
-    Aplica limpieza de RFI al waterfall DM vs. Time.
-    
-    Parameters
-    ----------
-    waterfall : np.ndarray
-        Datos waterfall (tiempo, frecuencia/DM)
-    stokes_v : np.ndarray, optional
-        Datos de polarización circular
-    output_dir : Path, optional
-        Directorio para guardar diagnósticos
-        
-    Returns
-    -------
-    tuple[np.ndarray, dict]
-        Waterfall limpio y estadísticas de RFI
-    """
-    if not hasattr(config, 'RFI_ENABLE_ALL_FILTERS') or not config.RFI_ENABLE_ALL_FILTERS:
-        # RFI cleaning deshabilitado
-        return waterfall, {}
-    
-    print("[INFO] Aplicando limpieza de RFI...")
-    
-    # Configura el mitigador de RFI
-    rfi_mitigator = RFIMitigator(
-        freq_sigma_thresh=getattr(config, 'RFI_FREQ_SIGMA_THRESH', 5.0),
-        time_sigma_thresh=getattr(config, 'RFI_TIME_SIGMA_THRESH', 5.0),
-        zero_dm_sigma_thresh=getattr(config, 'RFI_ZERO_DM_SIGMA_THRESH', 4.0),
-        impulse_sigma_thresh=getattr(config, 'RFI_IMPULSE_SIGMA_THRESH', 6.0),
-        polarization_thresh=getattr(config, 'RFI_POLARIZATION_THRESH', 0.8)
-    )
-    
-    # Aplica limpieza
-    cleaned_waterfall, rfi_stats = rfi_mitigator.clean_waterfall(
-        waterfall,
-        stokes_v=stokes_v,
-        apply_all_filters=True
-    )
-    
-    # Guarda diagnósticos si está configurado
-    if (getattr(config, 'RFI_SAVE_DIAGNOSTICS', False) and 
-        output_dir and 
-        rfi_stats.get('total_flagged_fraction', 0) > 0.001):
-        
-        rfi_dir = output_dir / "rfi_diagnostics"
-        rfi_dir.mkdir(parents=True, exist_ok=True)
-        
-        diagnostic_path = rfi_dir / "rfi_cleaning_diagnostics.png"
-        rfi_mitigator.plot_rfi_diagnostics(
-            waterfall, cleaned_waterfall, diagnostic_path
-        )
-    
-    return cleaned_waterfall, rfi_stats
 
 
 def _load_model() -> torch.nn.Module:
@@ -257,113 +201,6 @@ def _classify_patch(model, patch: np.ndarray) -> tuple[float, np.ndarray]:
         prob = out.softmax(dim=1)[0, 1].item()
     return prob, proc
 
-def _write_summary(summary: dict, save_path: Path) -> None:
-    """Write global summary information to ``summary.json``.
-
-    Each entry in ``summary`` now includes ``n_bursts`` and ``n_no_bursts``
-    indicating how many classified bursts and non-bursts were found in a
-    given FITS file.
-    """
-
-    summary_path = save_path / "summary.json"
-    with summary_path.open("w") as f_json:
-        json.dump(summary, f_json, indent=2)
-    logger.info("Resumen global escrito en %s", summary_path)
-
-def _load_or_create_summary(save_path: Path) -> dict:
-    """Load existing summary.json or create a new one."""
-    summary_path = save_path / "summary.json"
-
-    summary = {}
-    if summary_path.exists():
-        try:
-            with summary_path.open("r") as f:
-                summary = json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            logger.warning(f"Error leyendo {summary_path}, creando nuevo summary")
-
-    if not isinstance(summary, dict):
-        logger.warning(f"Estructura inesperada en {summary_path}, creando nuevo summary")
-        summary = {}
-
-    summary.setdefault(
-        "pipeline_info",
-        {
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "model": config.MODEL_NAME,
-            "dm_range": f"{config.DM_min}-{config.DM_max}",
-            "slice_duration_ms": config.SLICE_DURATION_MS,
-            "debug_enabled": config.DEBUG_FREQUENCY_ORDER,
-        },
-    )
-    summary.setdefault("files_processed", {})
-    summary.setdefault(
-        "global_stats",
-        {
-            "total_files": 0,
-            "total_candidates": 0,
-            "total_bursts": 0,
-            "total_processing_time": 0.0,
-        },
-    )
-
-    return summary
-
-def _update_summary_with_file_debug(
-    save_path: Path, 
-    filename: str, 
-    debug_info: dict
-) -> None:
-    """Update summary.json immediately with file debug information."""
-    
-    summary = _load_or_create_summary(save_path)
-    
-    # Agregar información de debug del archivo
-    if filename not in summary["files_processed"]:
-        summary["files_processed"][filename] = {}
-    
-    summary["files_processed"][filename]["debug_info"] = debug_info
-    summary["files_processed"][filename]["status"] = "debug_completed"
-    summary["files_processed"][filename]["debug_timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Guardar inmediatamente
-    summary_path = save_path / "summary.json"
-    with summary_path.open("w") as f:
-        json.dump(summary, f, indent=2)
-    
-    if config.DEBUG_FREQUENCY_ORDER:
-        logger.info(f"Debug info guardada para {filename} en {summary_path}")
-
-def _update_summary_with_results(
-    save_path: Path, 
-    filename: str, 
-    results_info: dict
-) -> None:
-    """Update summary.json with processing results for a file."""
-    
-    summary = _load_or_create_summary(save_path)
-    
-    # Agregar información de resultados
-    if filename not in summary["files_processed"]:
-        summary["files_processed"][filename] = {}
-    
-    summary["files_processed"][filename].update(results_info)
-    summary["files_processed"][filename]["status"] = "processing_completed"
-    summary["files_processed"][filename]["results_timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Actualizar estadísticas globales
-    summary["global_stats"]["total_files"] = len(summary["files_processed"])
-    summary["global_stats"]["total_candidates"] += results_info.get("n_candidates", 0)
-    summary["global_stats"]["total_bursts"] += results_info.get("n_bursts", 0)
-    summary["global_stats"]["total_processing_time"] += results_info.get("processing_time", 0.0)
-    
-    # Guardar
-    summary_path = save_path / "summary.json"
-    with summary_path.open("w") as f:
-        json.dump(summary, f, indent=2)
-    
-    logger.info(f"Resultados guardados para {filename} en {summary_path}")
-
 def _process_file(
     det_model: torch.nn.Module,
     cls_model: torch.nn.Module,
@@ -507,21 +344,6 @@ def _process_file(
             logger.warning("Slice %d tiene arrays vacíos, saltando...", j)
             continue
         
-        # Aplicar limpieza de RFI si está habilitada
-        rfi_stats = {}
-        if hasattr(config, 'RFI_ENABLE_ALL_FILTERS') and config.RFI_ENABLE_ALL_FILTERS:
-            try:
-                logger.info("Aplicando limpieza de RFI al slice %d", j)
-                waterfall_block, rfi_stats = apply_rfi_cleaning(
-                    waterfall_block,
-                    stokes_v=None,  # No hay datos de polarización en este punto
-                    output_dir=save_dir / "rfi_diagnostics" if getattr(config, 'RFI_SAVE_DIAGNOSTICS', False) else None
-                )
-                logger.info("RFI cleaning completado para slice %d: %.2f%% datos flagged", 
-                           j, rfi_stats.get('total_flagged_fraction', 0) * 100)
-            except Exception as e:
-                logger.warning("Error en limpieza de RFI para slice %d: %s", j, e)
-                # Continúa con datos originales si hay error
         
         # 2) Generar waterfall sin dedispersar para este slice
         waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
@@ -665,21 +487,6 @@ def _process_file(
                     
                     dedisp_block = dedisperse_block(data, freq_down, first_dm, start, slice_len)
                     
-                    # Aplicar limpieza de RFI al bloque dedispersado si está habilitada
-                    if hasattr(config, 'RFI_ENABLE_ALL_FILTERS') and config.RFI_ENABLE_ALL_FILTERS and dedisp_block.size > 0:
-                        try:
-                            logger.debug("Aplicando limpieza de RFI al bloque dedispersado slice %d", j)
-                            dedisp_block_clean, rfi_stats_dedisp = apply_rfi_cleaning(
-                                dedisp_block,
-                                stokes_v=None,
-                                output_dir=None  # No guardar diagnósticos para cada bloque
-                            )
-                            dedisp_block = dedisp_block_clean
-                            logger.debug("RFI cleaning en bloque dedispersado completado: %.2f%% datos flagged", 
-                                       rfi_stats_dedisp.get('total_flagged_fraction', 0) * 100)
-                        except Exception as e:
-                            logger.warning("Error en limpieza de RFI para bloque dedispersado slice %d: %s", j, e)
-                            # Continúa con datos originales si hay error
                 
                 if dedisp_block is not None and dedisp_block.size > 0:
                     plot_waterfall_block(

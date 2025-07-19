@@ -133,9 +133,10 @@ def get_obparams(file_name: str) -> None:
             
             hdr = f["SUBINT"].header
             sub_data = f["SUBINT"].data
-            config.TIME_RESO = hdr["TBIN"]
-            config.FREQ_RESO = hdr["NCHAN"]
-            config.FILE_LENG = hdr["NSBLK"] * hdr["NAXIS2"]
+            # Convertir a tipos numéricos explícitamente por si vienen como strings
+            config.TIME_RESO = float(hdr["TBIN"])
+            config.FREQ_RESO = int(hdr["NCHAN"])
+            config.FILE_LENG = int(hdr["NSBLK"]) * int(hdr["NAXIS2"])
             freq_temp = sub_data["DAT_FREQ"][0].astype(np.float64)
             
             # DEBUG: Headers PSRFITS específicos
@@ -156,6 +157,11 @@ def get_obparams(file_name: str) -> None:
                 bw = hdr["CHAN_BW"]
                 if isinstance(bw, (list, np.ndarray)):
                     bw = bw[0]
+                # Asegurar que sea float por si proviene como string
+                try:
+                    bw = float(bw)
+                except (TypeError, ValueError):
+                    bw = 0.0
                 if config.DEBUG_FREQUENCY_ORDER:
                     print(f"📋 [DEBUG HEADER]   CHAN_BW detectado: {bw} MHz")
                 if bw < 0:
@@ -223,6 +229,16 @@ def get_obparams(file_name: str) -> None:
                         cdelt = hdr.get(f'CDELT{freq_axis_num}', 1)
                         crpix = hdr.get(f'CRPIX{freq_axis_num}', 1)
                         naxis = hdr.get(f'NAXIS{freq_axis_num}', hdr.get('NCHAN', 512))
+                        try:
+                            crval = float(crval)
+                            cdelt = float(cdelt)
+                            crpix = float(crpix)
+                            naxis = int(naxis)
+                        except (TypeError, ValueError):
+                            crval = float(crval) if isinstance(crval, (int, float)) else 0.0
+                            cdelt = float(cdelt) if isinstance(cdelt, (int, float)) else 1.0
+                            crpix = float(crpix) if isinstance(crpix, (int, float)) else 1.0
+                            naxis = int(naxis) if isinstance(naxis, (int, float)) else hdr.get('NCHAN', 512)
                         freq_temp = crval + (np.arange(naxis) - (crpix - 1)) * cdelt
                         
                         if config.DEBUG_FREQUENCY_ORDER:
@@ -241,9 +257,10 @@ def get_obparams(file_name: str) -> None:
                             print(f"📋 [DEBUG HEADER] ⚠️ Usando frecuencias por defecto: 1000-1500 MHz")
                         freq_temp = np.linspace(1000, 1500, hdr.get('NCHAN', 512))
                 
-                config.TIME_RESO = hdr["TBIN"]
-                config.FREQ_RESO = hdr.get("NCHAN", len(freq_temp))
-                config.FILE_LENG = hdr.get("NAXIS2", 0) * hdr.get("NSBLK", 1)
+                # Convertir a tipos numéricos para evitar errores de comparación
+                config.TIME_RESO = float(hdr["TBIN"])
+                config.FREQ_RESO = int(hdr.get("NCHAN", len(freq_temp)))
+                config.FILE_LENG = int(hdr.get("NAXIS2", 0)) * int(hdr.get("NSBLK", 1))
                 
                 # DEBUG: Parámetros finales extraídos
                 if config.DEBUG_FREQUENCY_ORDER:

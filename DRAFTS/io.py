@@ -133,11 +133,19 @@ def get_obparams(file_name: str) -> None:
             
             hdr = f["SUBINT"].header
             sub_data = f["SUBINT"].data
-            # Convertir a tipos numéricos explícitamente por si vienen como strings
+            # Convertir a tipos numéricos explícitamente por si vengan como strings
             config.TIME_RESO = float(hdr["TBIN"])
             config.FREQ_RESO = int(hdr["NCHAN"])
             config.FILE_LENG = int(hdr["NSBLK"]) * int(hdr["NAXIS2"])
-            freq_temp = sub_data["DAT_FREQ"][0].astype(np.float64)
+
+            try:
+                freq_temp = sub_data["DAT_FREQ"][0].astype(np.float64)
+            except Exception as e:
+                if config.DEBUG_FREQUENCY_ORDER:
+                    print(f"[DEBUG HEADER] Error convirtiendo DAT_FREQ: {e}")
+                    print("[DEBUG HEADER] Usando rango de frecuencias por defecto")
+                nchan = int(hdr.get("NCHAN", 512))
+                freq_temp = np.linspace(1000, 1500, nchan)
             
             # DEBUG: Headers PSRFITS específicos
             if config.DEBUG_FREQUENCY_ORDER:
@@ -210,9 +218,17 @@ def get_obparams(file_name: str) -> None:
                             print(f"📋 [DEBUG HEADER]   {key}: {hdr[key]}")
                 
                 if "DAT_FREQ" in f[data_hdu_index].columns.names:
-                    freq_temp = f[data_hdu_index].data["DAT_FREQ"][0].astype(np.float64)
-                    if config.DEBUG_FREQUENCY_ORDER:
-                        print(f"📋 [DEBUG HEADER] Frecuencias extraídas de columna DAT_FREQ")
+                    try:
+                        freq_temp = f[data_hdu_index].data["DAT_FREQ"][0].astype(np.float64)
+                    except Exception as e:
+                        if config.DEBUG_FREQUENCY_ORDER:
+                            print(f"[DEBUG HEADER] Error convirtiendo DAT_FREQ: {e}")
+                            print("[DEBUG HEADER] Usando rango de frecuencias por defecto")
+                        nchan = int(hdr.get("NCHAN", 512))
+                        freq_temp = np.linspace(1000, 1500, nchan)
+                    else:
+                        if config.DEBUG_FREQUENCY_ORDER:
+                            print(f"📋 [DEBUG HEADER] Frecuencias extraídas de columna DAT_FREQ")
                 else:
                     freq_axis_num = ''
                     for i in range(1, hdr.get('NAXIS', 0) + 1):

@@ -359,7 +359,7 @@ def _process_file(
                 save_dir=waterfall_dispersion_dir,
                 filename=fits_path.stem,
                 normalize=True,
-                start_time=slice_start_global_sec,
+                start_time=0.0,
             )
 
         # Recopilar información de todas las bandas primero
@@ -508,7 +508,7 @@ def _process_file(
                         save_dir=waterfall_dedispersion_dir,
                         filename=f"{fits_path.stem}_dm{first_dm:.2f}_{band_suffix}",
                         normalize=True,
-                        start_time=slice_start_global_sec,
+                        start_time=0.0,
                     )
 
                 if first_patch is not None:
@@ -546,7 +546,7 @@ def _process_file(
                             save_dir=waterfall_dedispersion_dir,
                             filename=f"{fits_path.stem}_dm0.00_{band_suffix}",
                             normalize=True,
-                            start_time=slice_start_global_sec,
+                            start_time=0.0,
                         )
 
                 # 1) Generar composite - SIEMPRE para comparativas si hay candidatos en este slice
@@ -738,6 +738,8 @@ def _process_single_chunk(
         else [(0, "fullband", "Full Band")]
     )
     
+    chunk_offset_sec = start_sample_global * config.TIME_RESO
+
     # Procesar slices en este chunk
     for j in range(time_slice):
         slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
@@ -751,10 +753,10 @@ def _process_single_chunk(
             logger.warning(f"Chunk {chunk_idx}, slice {j} tiene arrays vacíos, saltando...")
             continue
         
+        time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
         slice_start_global_sec = (
-            (start_sample_global + j * slice_len)
-            * config.TIME_RESO
-            * config.DOWN_TIME_RATE
+            chunk_offset_sec
+            + j * slice_len * time_reso_ds
         )
 
         # Preparar directorios para waterfalls individuales
@@ -766,7 +768,6 @@ def _process_single_chunk(
             config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
             axis=1,
         )
-        time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
         
         # 2) Generar waterfall sin dedispersar para este slice
         waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
@@ -780,7 +781,7 @@ def _process_single_chunk(
                 save_dir=waterfall_dispersion_dir,
                 filename=f"{fits_path.stem}_chunk{chunk_idx}",
                 normalize=True,
-                start_time=slice_start_global_sec,
+                start_time=chunk_offset_sec,
             )
 
         # Recopilar información de todas las bandas primero
@@ -957,7 +958,7 @@ def _process_single_chunk(
                         save_dir=waterfall_dedispersion_dir,
                         filename=f"{fits_path.stem}_chunk{chunk_idx}_dm{first_dm:.2f}_{band_suffix}",
                         normalize=True,
-                        start_time=slice_start_global_sec,
+                        start_time=chunk_offset_sec,
                     )
 
                 if first_patch is not None:
@@ -989,7 +990,7 @@ def _process_single_chunk(
                             save_dir=waterfall_dedispersion_dir,
                             filename=f"{fits_path.stem}_chunk{chunk_idx}_dm0.00_{band_suffix}",
                             normalize=True,
-                            start_time=slice_start_global_sec,
+                            start_time=chunk_offset_sec,
                         )
 
                 # 1) Generar composite - SIEMPRE para comparativas si hay candidatos en este slice

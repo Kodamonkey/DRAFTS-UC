@@ -13,7 +13,7 @@ import tempfile
 
 # Importar módulos del pipeline
 from DRAFTS import config
-from DRAFTS.image_utils import save_detection_plot, _calculate_dynamic_dm_range
+from DRAFTS.visualization import save_detection_plot, _calculate_dynamic_dm_range
 from DRAFTS.astro_conversions import pixel_to_physical
 
 def demonstrate_integrated_dm_system():

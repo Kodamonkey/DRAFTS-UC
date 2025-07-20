@@ -13,8 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "DRAFTS"))
 
 from DRAFTS import config
-from DRAFTS.image_utils import save_detection_plot
-from DRAFTS.visualization import save_slice_summary
+from DRAFTS.visualization import save_detection_plot, save_slice_summary
 
 def create_test_plots():
     """Crear plots de prueba con rangos DM dinámicos."""

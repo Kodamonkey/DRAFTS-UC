@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "DRAFTS"))
 
 from DRAFTS import config
-from DRAFTS.image_utils import _calculate_dynamic_dm_range
+from DRAFTS.visualization import _calculate_dynamic_dm_range
 from DRAFTS.dynamic_dm_range import get_dynamic_dm_range_for_candidate
 
 def test_dynamic_dm_range():

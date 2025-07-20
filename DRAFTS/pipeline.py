@@ -20,11 +20,8 @@ from .dedispersion import d_dm_time_g, dedisperse_patch, dedisperse_block
 from .metrics import compute_snr
 from .astro_conversions import pixel_to_physical
 from .preprocessing import downsample_data
-from .image_utils import (
-    preprocess_img,
-    postprocess_img,
-    plot_waterfall_block,
-)
+from .image_utils import preprocess_img, postprocess_img
+from .visualization import plot_waterfall_block
 from .io import get_obparams, load_fits_file
 from .filterbank_io import load_fil_file, get_obparams_fil
 from .slice_len_utils import update_slice_len_dynamic, get_slice_duration_info
@@ -684,8 +681,13 @@ def _process_single_chunk(
     
     from .preprocessing import downsample_data
     from .dedispersion import d_dm_time_g, dedisperse_patch, dedisperse_block
-    from .image_utils import preprocess_img, postprocess_img, plot_waterfall_block
-    from .visualization import save_plot, save_patch_plot, save_slice_summary
+    from .image_utils import preprocess_img, postprocess_img
+    from .visualization import (
+        plot_waterfall_block,
+        save_plot,
+        save_patch_plot,
+        save_slice_summary,
+    )
     import time
     
     t_start = time.time()

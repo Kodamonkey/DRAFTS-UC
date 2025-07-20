@@ -30,8 +30,13 @@ def test_visualization_generation():
     print("\nTesting visualization functions directly...")
     try:
         # Test import of visualization functions
-        from DRAFTS.visualization import save_plot, save_patch_plot, save_slice_summary
-        from DRAFTS.image_utils import plot_waterfall_block, preprocess_img, postprocess_img
+        from DRAFTS.visualization import (
+            save_plot,
+            save_patch_plot,
+            save_slice_summary,
+            plot_waterfall_block,
+        )
+        from DRAFTS.image_utils import preprocess_img, postprocess_img
         print("✅ Visualization functions imported successfully")
         
         # Create test directories

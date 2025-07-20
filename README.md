@@ -146,7 +146,9 @@ Training data and pre-trained models are available on HuggingFace:
 4. **Visualization** – When plotting waterfalls with `plot_waterfall_block`,
    set `normalize=True` to scale each frequency channel to unit mean and clip
    between the 5th and 95th percentiles for clear images across varying
-   `SLICE_LEN` and DM ranges.
+   `SLICE_LEN` and DM ranges. When processing data in chunks, pass the
+   `start_time` offset (in seconds) so the x-axis reflects the absolute time
+   across chunks.
 
 ### Models
 

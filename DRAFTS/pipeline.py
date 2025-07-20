@@ -562,7 +562,7 @@ def _process_file(
                     first_dm if first_dm is not None else 0.0,
                     top_conf if len(top_conf) > 0 else [],
                     top_boxes if len(top_boxes) > 0 else [],
-                    class_probs_list, 
+                    class_probs_list,
                     comp_path,
                     j,
                     time_slice,
@@ -574,6 +574,7 @@ def _process_file(
                     off_regions=None,  # Use IQR method
                     thresh_snr=config.SNR_THRESH,
                     band_idx=band_idx,  # Pasar el índice de la banda
+                    time_offset=0.0,
                     )
 
                 # 4) Generar detecciones de Bow ties (detections) - SIEMPRE
@@ -584,7 +585,7 @@ def _process_file(
                     img_rgb,
                     top_conf if len(top_conf) > 0 else [],
                     top_boxes if len(top_boxes) > 0 else [],
-                    class_probs_list,   
+                    class_probs_list,
                     out_img_path,
                     j,
                     time_slice,
@@ -593,6 +594,7 @@ def _process_file(
                     fits_path.stem,
                     slice_len,
                     band_idx=band_idx,  # Pasar el índice de la banda
+                    time_offset=0.0,
                 )
 
     runtime = time.time() - t_start
@@ -715,6 +717,8 @@ def _process_single_chunk(
     chunk_no_bursts = 0
     chunk_max_prob = 0.0
     chunk_snr_list = []
+
+    time_offset_sec = start_sample_global * config.TIME_RESO * config.DOWN_TIME_RATE
     
     # Configurar bandas
     band_configs = (
@@ -763,6 +767,7 @@ def _process_single_chunk(
                 save_dir=waterfall_dispersion_dir,
                 filename=f"{fits_path.stem}_chunk{chunk_idx}",
                 normalize=True,
+                start_time=time_offset_sec,
             )
 
         # Recopilar información de todas las bandas primero
@@ -933,6 +938,7 @@ def _process_single_chunk(
                         save_dir=waterfall_dedispersion_dir,
                         filename=f"{fits_path.stem}_chunk{chunk_idx}_dm{first_dm:.2f}_{band_suffix}",
                         normalize=True,
+                        start_time=time_offset_sec,
                     )
 
                 if first_patch is not None:
@@ -964,6 +970,7 @@ def _process_single_chunk(
                             save_dir=waterfall_dedispersion_dir,
                             filename=f"{fits_path.stem}_chunk{chunk_idx}_dm0.00_{band_suffix}",
                             normalize=True,
+                            start_time=time_offset_sec,
                         )
 
                 # 1) Generar composite - SIEMPRE para comparativas si hay candidatos en este slice
@@ -978,7 +985,7 @@ def _process_single_chunk(
                     first_dm if first_dm is not None else 0.0,
                     top_conf if len(top_conf) > 0 else [],
                     top_boxes if len(top_boxes) > 0 else [],
-                    class_probs_list, 
+                    class_probs_list,
                     comp_path,
                     j,
                     time_slice,
@@ -990,6 +997,7 @@ def _process_single_chunk(
                     off_regions=None,  # Use IQR method
                     thresh_snr=config.SNR_THRESH,
                     band_idx=band_idx,  # Pasar el índice de la banda
+                    time_offset=time_offset_sec,
                 )
 
                 # 4) Generar detecciones de Bow ties (detections) - SIEMPRE
@@ -1009,6 +1017,7 @@ def _process_single_chunk(
                     fits_path.stem,
                     slice_len,
                     band_idx=band_idx,  # Pasar el índice de la banda
+                    time_offset=time_offset_sec,
                 )
     
     runtime = time.time() - t_start

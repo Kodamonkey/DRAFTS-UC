@@ -150,6 +150,7 @@ def plot_waterfall_block(
     save_dir: Path,
     filename: str,
     normalize: bool = False,
+    start_time: float = 0.0,
 ) -> None:
     """Plot a single waterfall block."""
 
@@ -162,7 +163,7 @@ def plot_waterfall_block(
         block = (block - block.min()) / (block.max() - block.min())
 
     profile = block.mean(axis=1)
-    time_start = block_idx * block_size * time_reso
+    time_start = start_time + block_idx * block_size * time_reso
     peak_time = time_start + np.argmax(profile) * time_reso
 
     fig = plt.figure(figsize=(5, 5))
@@ -211,6 +212,7 @@ def save_detection_plot(
     fits_stem: str,
     slice_len: int | None = None,
     band_idx: int = 0,
+    time_offset: float = 0.0,
 ) -> None:
     """Save detection plot with detection and classification probabilities."""
 
@@ -222,7 +224,7 @@ def save_detection_plot(
 
     n_time_ticks = 6
     time_positions = np.linspace(0, 512, n_time_ticks)
-    time_start_slice = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    time_start_slice = time_offset + slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
     time_values = time_start_slice + (time_positions / 512.0) * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
     ax.set_xticks(time_positions)
     ax.set_xticklabels([f"{t:.3f}" for t in time_values])
@@ -371,6 +373,7 @@ def save_plot(
     fits_stem: str,
     slice_len: int,
     band_idx: int = 0,  # Para calcular el rango de frecuencias
+    time_offset: float = 0.0,
 ) -> None:
     """Wrapper around :func:`save_detection_plot` with dynamic slice length."""
 
@@ -394,6 +397,7 @@ def save_plot(
         fits_stem,
         slice_len=slice_len,  # Pasar slice_len explícitamente
         band_idx=band_idx,    # Pasar band_idx para el cálculo de frecuencias
+        time_offset=time_offset,
     )
     config.SLICE_LEN = prev_len
 
@@ -548,6 +552,7 @@ def save_slice_summary(
     off_regions: Optional[List[Tuple[int, int]]] = None,
     thresh_snr: Optional[float] = None,
     band_idx: int = 0,  # Para mostrar el rango de frecuencias
+    time_offset: float = 0.0,
 ) -> None:
     """Save a composite figure summarising detections and waterfalls with SNR analysis.
 
@@ -641,7 +646,7 @@ def save_slice_summary(
 
     n_time_ticks_det = 8
     time_positions_det = np.linspace(0, img_rgb.shape[1] - 1, n_time_ticks_det)
-    time_start_det_slice_abs = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    time_start_det_slice_abs = time_offset + slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
     time_values_det = time_start_det_slice_abs + (time_positions_det / img_rgb.shape[1]) * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
     ax_det.set_xticks(time_positions_det)
     ax_det.set_xticklabels([f"{t:.3f}" for t in time_values_det])
@@ -730,7 +735,7 @@ def save_slice_summary(
     )
 
     block_size_wf_samples = waterfall_block.shape[0]
-    slice_start_abs = slice_idx * block_size_wf_samples * time_reso_ds
+    slice_start_abs = time_offset + slice_idx * block_size_wf_samples * time_reso_ds
     slice_end_abs = slice_start_abs + block_size_wf_samples * time_reso_ds
 
     # === Panel 1: Raw Waterfall con SNR ===

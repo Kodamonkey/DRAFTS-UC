@@ -338,6 +338,8 @@ def _process_file(
     for j in range(time_slice):
         slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
         waterfall_block = data[j * slice_len : (j + 1) * slice_len]
+
+        slice_start_global_sec = j * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
         
         # Verificación básica para arrays válidos
         if waterfall_block.size == 0 or slice_cube.size == 0:
@@ -357,6 +359,7 @@ def _process_file(
                 save_dir=waterfall_dispersion_dir,
                 filename=fits_path.stem,
                 normalize=True,
+                start_time=slice_start_global_sec,
             )
 
         # Recopilar información de todas las bandas primero
@@ -498,6 +501,7 @@ def _process_file(
                         save_dir=waterfall_dedispersion_dir,
                         filename=f"{fits_path.stem}_dm{first_dm:.2f}_{band_suffix}",
                         normalize=True,
+                        start_time=slice_start_global_sec,
                     )
 
                 if first_patch is not None:
@@ -535,6 +539,7 @@ def _process_file(
                             save_dir=waterfall_dedispersion_dir,
                             filename=f"{fits_path.stem}_dm0.00_{band_suffix}",
                             normalize=True,
+                            start_time=slice_start_global_sec,
                         )
 
                 # 1) Generar composite - SIEMPRE para comparativas si hay candidatos en este slice
@@ -587,7 +592,7 @@ def _process_file(
                     img_rgb,
                     top_conf if len(top_conf) > 0 else [],
                     top_boxes if len(top_boxes) > 0 else [],
-                    class_probs_list,   
+                    class_probs_list,
                     out_img_path,
                     j,
                     time_slice,
@@ -596,6 +601,7 @@ def _process_file(
                     fits_path.stem,
                     slice_len,
                     band_idx=band_idx,  # Pasar el índice de la banda
+                    slice_start_time=slice_start_global_sec,
                 )
 
     runtime = time.time() - t_start
@@ -729,7 +735,7 @@ def _process_single_chunk(
     for j in range(time_slice):
         slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
         waterfall_block = data_chunk[j * slice_len : (j + 1) * slice_len]
-        
+
         if slice_cube.size == 0:
             continue
             
@@ -738,7 +744,13 @@ def _process_single_chunk(
             logger.warning(f"Chunk {chunk_idx}, slice {j} tiene arrays vacíos, saltando...")
             continue
         
-        # Preparar directorios para waterfalls individuales  
+        slice_start_global_sec = (
+            (start_sample_global + j * slice_len)
+            * config.TIME_RESO
+            * config.DOWN_TIME_RATE
+        )
+
+        # Preparar directorios para waterfalls individuales
         waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / f"{fits_path.stem}_chunk{chunk_idx}"
         waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / f"{fits_path.stem}_chunk{chunk_idx}"
         
@@ -761,6 +773,7 @@ def _process_single_chunk(
                 save_dir=waterfall_dispersion_dir,
                 filename=f"{fits_path.stem}_chunk{chunk_idx}",
                 normalize=True,
+                start_time=slice_start_global_sec,
             )
 
         # Recopilar información de todas las bandas primero
@@ -931,6 +944,7 @@ def _process_single_chunk(
                         save_dir=waterfall_dedispersion_dir,
                         filename=f"{fits_path.stem}_chunk{chunk_idx}_dm{first_dm:.2f}_{band_suffix}",
                         normalize=True,
+                        start_time=slice_start_global_sec,
                     )
 
                 if first_patch is not None:
@@ -962,6 +976,7 @@ def _process_single_chunk(
                             save_dir=waterfall_dedispersion_dir,
                             filename=f"{fits_path.stem}_chunk{chunk_idx}_dm0.00_{band_suffix}",
                             normalize=True,
+                            start_time=slice_start_global_sec,
                         )
 
                 # 1) Generar composite - SIEMPRE para comparativas si hay candidatos en este slice
@@ -976,7 +991,7 @@ def _process_single_chunk(
                     first_dm if first_dm is not None else 0.0,
                     top_conf if len(top_conf) > 0 else [],
                     top_boxes if len(top_boxes) > 0 else [],
-                    class_probs_list, 
+                    class_probs_list,
                     comp_path,
                     j,
                     time_slice,
@@ -988,6 +1003,7 @@ def _process_single_chunk(
                     off_regions=None,  # Use IQR method
                     thresh_snr=config.SNR_THRESH,
                     band_idx=band_idx,  # Pasar el índice de la banda
+                    slice_start_time=slice_start_global_sec,
                 )
 
                 # 4) Generar detecciones de Bow ties (detections) - SIEMPRE
@@ -998,7 +1014,7 @@ def _process_single_chunk(
                     img_rgb,
                     top_conf if len(top_conf) > 0 else [],
                     top_boxes if len(top_boxes) > 0 else [],
-                    class_probs_list,   
+                    class_probs_list,
                     out_img_path,
                     j,
                     time_slice,
@@ -1007,6 +1023,7 @@ def _process_single_chunk(
                     fits_path.stem,
                     slice_len,
                     band_idx=band_idx,  # Pasar el índice de la banda
+                    slice_start_time=slice_start_global_sec,
                 )
     
     runtime = time.time() - t_start

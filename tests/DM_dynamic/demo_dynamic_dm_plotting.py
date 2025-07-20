@@ -16,7 +16,7 @@ import shutil
 # Importar módulos del pipeline
 from DRAFTS import config
 from DRAFTS.dynamic_dm_range import get_dynamic_dm_range_for_candidate, dm_range_calculator
-from DRAFTS.image_utils import _calculate_dynamic_dm_range, save_detection_plot
+from DRAFTS.visualization import _calculate_dynamic_dm_range, save_detection_plot
 
 def simulate_detection_scenario():
     """Simula un escenario de detección con candidatos en DMs específicos."""

@@ -668,13 +668,14 @@ def _load_fil_chunk(file_path: str, start_sample: int, chunk_size: int) -> np.nd
 
 def _process_single_chunk(
     det_model,
-    cls_model, 
+    cls_model,
     data_chunk: np.ndarray,
     fits_path: Path,
     save_dir: Path,
     chunk_idx: int,
     start_sample_global: int,
-    csv_file: Path
+    csv_file: Path,
+    slice_len: int,
 ) -> dict:
     """Process a single chunk of data."""
     
@@ -697,8 +698,7 @@ def _process_single_chunk(
     height = config.DM_max - config.DM_min + 1
     width_total = data_chunk.shape[0] // config.DOWN_TIME_RATE
     
-    # 🚀 NUEVO SISTEMA SIMPLIFICADO: usar SLICE_LEN ya calculado dinámicamente
-    slice_len = config.SLICE_LEN  # Ya actualizado por update_slice_len_dynamic()
+    # 🚀 NUEVO SISTEMA SIMPLIFICADO: usar el ``slice_len`` proporcionado
     time_slice = (width_total + slice_len - 1) // slice_len
     
     duration_ms, duration_text = get_slice_duration_info(slice_len)
@@ -1056,6 +1056,15 @@ def _process_file_in_chunks(
     # Preparar CSV global
     csv_file = save_dir / f"{fits_path.stem}.candidates.csv"
     _ensure_csv_header(csv_file)
+
+    # Calcular SLICE_LEN dinámicamente usando la misma lógica que en el
+    # procesamiento estándar. Esto garantiza que la duración de los slices
+    # respete el valor configurado en SLICE_DURATION_MS.
+    slice_len, real_duration_ms = update_slice_len_dynamic()
+    logger.info("✅ Sistema de slice simplificado:")
+    logger.info(f"   🎯 Duración objetivo: {config.SLICE_DURATION_MS:.1f} ms")
+    logger.info(f"   � SLICE_LEN calculado: {slice_len} muestras")
+    logger.info(f"   ⏱️  Duración real obtenida: {real_duration_ms:.1f} ms")
     
     for chunk_idx in range(num_chunks):
         logger.info(f"Procesando chunk {chunk_idx + 1}/{num_chunks}")
@@ -1097,8 +1106,15 @@ def _process_file_in_chunks(
             
             # Procesar este chunk usando la lógica existente
             chunk_results = _process_single_chunk(
-                det_model, cls_model, data_chunk, fits_path, save_dir, 
-                chunk_idx, start_sample, csv_file
+                det_model,
+                cls_model,
+                data_chunk,
+                fits_path,
+                save_dir,
+                chunk_idx,
+                start_sample,
+                csv_file,
+                slice_len,
             )
             
             # Agregar información temporal al resultado del chunk

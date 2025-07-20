@@ -1087,11 +1087,10 @@ def _process_file_in_chunks(
         logger.info(f"Procesando chunk {chunk_idx + 1}/{num_chunks}")
         
         # Calcular rango de muestras para este chunk
+        # El inicio de cada chunk debe avanzar `chunk_size - overlap` muestras
+        # respecto al anterior para mantener un solapamiento constante.
         start_sample = chunk_idx * effective_chunk_size
         end_sample = min(start_sample + chunk_size, total_samples)
-        
-        if chunk_idx > 0:
-            start_sample -= overlap  # Agregar overlap con chunk anterior
             
         actual_chunk_size = end_sample - start_sample
         

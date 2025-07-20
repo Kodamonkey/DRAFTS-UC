@@ -139,6 +139,7 @@ def plot_waterfall_block(
     save_dir: Path,
     filename: str,
     normalize: bool = False,
+    start_time: float = 0.0,
 ) -> None:
     """Plot a single waterfall block.
 
@@ -162,6 +163,9 @@ def plot_waterfall_block(
         If ``True``, each frequency channel is scaled to unit mean and clipped
         between the 5th and 95th percentiles prior to plotting. This keeps the
         dynamic range consistent across different ``SLICE_LEN`` and DM ranges.
+    start_time : float, optional
+        Absolute time offset for this block in seconds. Default ``0.0`` keeps
+        the original behaviour where the first block starts at time 0.
     """
 
     block = data_block.copy() if normalize else data_block
@@ -173,7 +177,7 @@ def plot_waterfall_block(
         block = (block - block.min()) / (block.max() - block.min())
 
     profile = block.mean(axis=1)
-    time_start = block_idx * block_size * time_reso
+    time_start = block_idx * block_size * time_reso + start_time
     peak_time = time_start + np.argmax(profile) * time_reso
 
     fig = plt.figure(figsize=(5, 5))
@@ -222,8 +226,16 @@ def save_detection_plot(
     fits_stem: str,
     slice_len: Optional[int] = None,
     band_idx: int = 0,  # Para calcular el rango de frecuencias de la banda
+    slice_start_time: Optional[float] = None,
 ) -> None:
-    """Save detection plot with both detection and classification probabilities."""
+    """Save detection plot with both detection and classification probabilities.
+
+    Parameters
+    ----------
+    slice_start_time : Optional[float]
+        Absolute start time of this slice in seconds. If ``None`` (default), the
+        start time is calculated from ``slice_idx`` and ``slice_len``.
+    """
 
     # Usar slice_len específico o del config
     if slice_len is None:
@@ -235,7 +247,12 @@ def save_detection_plot(
     # Time axis labels
     n_time_ticks = 6
     time_positions = np.linspace(0, 512, n_time_ticks)
-    time_start_slice = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    if slice_start_time is None:
+        time_start_slice = (
+            slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+        )
+    else:
+        time_start_slice = slice_start_time
     time_values = time_start_slice + (
         time_positions / 512.0
     ) * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE

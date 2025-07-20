@@ -1056,6 +1056,15 @@ def _process_file_in_chunks(
     # Preparar CSV global
     csv_file = save_dir / f"{fits_path.stem}.candidates.csv"
     _ensure_csv_header(csv_file)
+
+    # Calcular SLICE_LEN dinámicamente usando la misma lógica que en el
+    # procesamiento estándar. Esto garantiza que la duración de los slices
+    # respete el valor configurado en SLICE_DURATION_MS.
+    slice_len, real_duration_ms = update_slice_len_dynamic()
+    logger.info("✅ Sistema de slice simplificado:")
+    logger.info(f"   🎯 Duración objetivo: {config.SLICE_DURATION_MS:.1f} ms")
+    logger.info(f"   � SLICE_LEN calculado: {slice_len} muestras")
+    logger.info(f"   ⏱️  Duración real obtenida: {real_duration_ms:.1f} ms")
     
     for chunk_idx in range(num_chunks):
         logger.info(f"Procesando chunk {chunk_idx + 1}/{num_chunks}")

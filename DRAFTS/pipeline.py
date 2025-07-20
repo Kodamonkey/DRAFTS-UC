@@ -389,17 +389,24 @@ def _process_file(
             class_probs_list = []
 
             for conf, box in zip(top_conf, top_boxes):
-                dm_val, t_sec, t_sample = pixel_to_physical(
+                dm_val, _, t_sample = pixel_to_physical(
                     (box[0] + box[2]) / 2,
                     (box[1] + box[3]) / 2,
                     slice_len,
                 )
                 snr_val = compute_snr(band_img, tuple(map(int, box)))
                 snr_list.append(snr_val)
-                global_sample = j * slice_len + int(t_sample)
+
+                # Offset dentro del archivo (en muestras downsampleadas)
+                sample_offset_ds = j * slice_len + int(t_sample)
+
+                # Dedispersar utilizando el índice en unidades downsampleadas
                 patch, start_sample = dedisperse_patch(
-                    data, freq_down, dm_val, global_sample
+                    data, freq_down, dm_val, sample_offset_ds
                 )
+                # Calcular índice global en muestras originales y tiempo absoluto
+                global_sample = sample_offset_ds * config.DOWN_TIME_RATE
+                global_t_sec = sample_offset_ds * config.TIME_RESO * config.DOWN_TIME_RATE
                 class_prob, proc_patch = _classify_patch(cls_model, patch)
                 class_probs_list.append(class_prob)  # Agregar a la lista
                 
@@ -414,8 +421,8 @@ def _process_file(
                     band_idx,
                     float(conf),
                     dm_val,
-                    t_sec,
-                    t_sample,
+                    global_t_sec,
+                    global_sample,
                     tuple(map(int, box)),
                     snr_val,
                     class_prob,
@@ -434,7 +441,7 @@ def _process_file(
                 logger.info(
                     "Candidato DM %.2f t=%.3f s conf=%.2f class=%.2f -> %s",
                     dm_val,
-                    t_sec,
+                    global_t_sec,
                     conf,
                     class_prob,
                     "BURST" if is_burst else "no burst",
@@ -822,15 +829,21 @@ def _process_single_chunk(
                     box_center_x = (box[0] + box[2]) / 2
                     box_center_y = (box[1] + box[3]) / 2
                     
-                    dm_val, t_sec, t_sample = pixel_to_physical(
+                    dm_val, _, t_sample = pixel_to_physical(
                         box_center_x,
                         box_center_y,
                         slice_len,
                     )
                     
-                    # Ajustar tiempo global
-                    global_sample = start_sample_global + j * slice_len + int(t_sample)
-                    global_t_sec = global_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+                    # Ajustar tiempo global corrigiendo unidad de muestreo
+                    # ``start_sample_global`` está en unidades originales, mientras
+                    # que ``t_sample`` y ``slice_len`` están ya downsampleados.
+                    sample_offset_ds = j * slice_len + int(t_sample)
+                    global_sample = start_sample_global + sample_offset_ds * config.DOWN_TIME_RATE
+                    global_t_sec = (
+                        start_sample_global * config.TIME_RESO
+                        + sample_offset_ds * config.TIME_RESO * config.DOWN_TIME_RATE
+                    )
                     
                     # Validar box para compute_snr
                     box_int = tuple(map(int, box))
@@ -1095,8 +1108,10 @@ def _process_file_in_chunks(
         actual_chunk_size = end_sample - start_sample
         
         # Calcular tiempo absoluto del chunk
-        chunk_start_time_sec = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
-        chunk_end_time_sec = end_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+        # ``start_sample`` y ``end_sample`` están en unidades originales, por lo
+        # que la conversión a segundos solo involucra ``TIME_RESO``.
+        chunk_start_time_sec = start_sample * config.TIME_RESO
+        chunk_end_time_sec = end_sample * config.TIME_RESO
         
         logger.info(f"Chunk {chunk_idx + 1}: muestras {start_sample:,} a {end_sample:,} ({actual_chunk_size:,} muestras)")
         logger.info(f"Chunk {chunk_idx + 1}: tiempo {chunk_start_time_sec:.1f}s a {chunk_end_time_sec:.1f}s ({chunk_end_time_sec - chunk_start_time_sec:.1f}s duración)")
@@ -1116,8 +1131,8 @@ def _process_file_in_chunks(
                 # Para archivos .fil, podemos cargar solo el chunk específico
                 data_chunk = _load_fil_chunk(str(fits_path), start_sample, actual_chunk_size)
             # Calcular tiempo absoluto del chunk
-            chunk_start_time_sec = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
-            chunk_end_time_sec = end_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+            chunk_start_time_sec = start_sample * config.TIME_RESO
+            chunk_end_time_sec = end_sample * config.TIME_RESO
             chunk_duration_sec = chunk_end_time_sec - chunk_start_time_sec
             
             # Procesar este chunk usando la lógica existente

@@ -7,6 +7,30 @@ from typing import List
 import numpy as np
 from astropy.io import fits
 
+
+def _safe_float(value, default=0.0):
+    """Return ``value`` as ``float`` or ``default`` if conversion fails."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        try:
+            cleaned = str(value).strip().replace("*", "").replace("UNSET", "")
+            return float(cleaned)
+        except (TypeError, ValueError):
+            return default
+
+
+def _safe_int(value, default=0):
+    """Return ``value`` as ``int`` or ``default`` if conversion fails."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            cleaned = str(value).strip().replace("*", "").replace("UNSET", "")
+            return int(float(cleaned))
+        except (TypeError, ValueError):
+            return default
+
 from . import config
 from .summary_utils import _update_summary_with_file_debug
 
@@ -21,23 +45,48 @@ def load_fits_file(file_name: str) -> np.ndarray:
                 subint = hdul["SUBINT"]
                 hdr = subint.header
                 data_array = subint.data["DATA"]
-                nsubint = hdr["NAXIS2"]
-                nchan = hdr["NCHAN"]
-                npol = hdr["NPOL"]
-                nsblk = hdr["NSBLK"]
-                data_array = data_array.reshape(nsubint, nchan, npol, nsblk).swapaxes(1, 2)
-                data_array = data_array.reshape(nsubint * nsblk, npol, nchan)
-                data_array = data_array[:, :2, :]
+                nsubint = _safe_int(hdr.get("NAXIS2", 0))
+                nchan = _safe_int(hdr.get("NCHAN", 0))
+                npol = _safe_int(hdr.get("NPOL", 0))
+                nsblk = _safe_int(hdr.get("NSBLK", 1))
+                # Validar dimensiones antes de reshape
+                if any(x <= 0 for x in [nsubint, nchan, npol, nsblk]):
+                    raise ValueError(
+                        f"Dimensiones inválidas en header FITS: NAXIS2={nsubint}, NCHAN={nchan}, NPOL={npol}, NSBLK={nsblk} (no pueden ser <= 0)"
+                    )
+                try:
+                    data_array = data_array.reshape(nsubint, nchan, npol, nsblk).swapaxes(1, 2)
+                    data_array = data_array.reshape(nsubint * nsblk, npol, nchan)
+                    data_array = data_array[:, :2, :]
+                except Exception as e:
+                    raise ValueError(f"Error al hacer reshape de los datos: {e}")
             else:
                 import fitsio
                 temp_data, h = fitsio.read(file_name, header=True)
                 if "DATA" in temp_data.dtype.names:
-                    data_array = temp_data["DATA"].reshape(h["NAXIS2"] * h["NSBLK"], h["NPOL"], h["NCHAN"])[:, :2, :]
+                    total_samples = _safe_int(h.get("NAXIS2", 1)) * _safe_int(h.get("NSBLK", 1))
+                    num_pols = _safe_int(h.get("NPOL", 2))
+                    num_chans = _safe_int(h.get("NCHAN", 512))
+                    if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
+                        raise ValueError(
+                            f"Dimensiones inválidas en header FITSIO: NAXIS2={h.get('NAXIS2', 1)}, NSBLK={h.get('NSBLK', 1)}, NPOL={num_pols}, NCHAN={num_chans} (no pueden ser <= 0)"
+                        )
+                    try:
+                        data_array = temp_data["DATA"].reshape(total_samples, num_pols, num_chans)[:, :2, :]
+                    except Exception as e:
+                        raise ValueError(f"Error al hacer reshape de los datos (fitsio): {e}")
                 else:
-                    total_samples = h.get("NAXIS2", 1) * h.get("NSBLK", 1)
-                    num_pols = h.get("NPOL", 2)
-                    num_chans = h.get("NCHAN", 512)
-                    data_array = temp_data.reshape(total_samples, num_pols, num_chans)[:, :2, :]
+                    total_samples = _safe_int(h.get("NAXIS2", 1)) * _safe_int(h.get("NSBLK", 1))
+                    num_pols = _safe_int(h.get("NPOL", 2))
+                    num_chans = _safe_int(h.get("NCHAN", 512))
+                    if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
+                        raise ValueError(
+                            f"Dimensiones inválidas en header FITSIO: NAXIS2={h.get('NAXIS2', 1)}, NSBLK={h.get('NSBLK', 1)}, NPOL={num_pols}, NCHAN={num_chans} (no pueden ser <= 0)"
+                        )
+                    try:
+                        data_array = temp_data.reshape(total_samples, num_pols, num_chans)[:, :2, :]
+                    except Exception as e:
+                        raise ValueError(f"Error al hacer reshape de los datos (fitsio): {e}")
     except Exception as e:
         print(f"[Error cargando FITS con fitsio/astropy] {e}")
         try:
@@ -45,7 +94,6 @@ def load_fits_file(file_name: str) -> np.ndarray:
             with fits.open(file_name, memmap=False) as f:
                 data_hdu = None
                 for hdu_item in f:
-                    # Evitar acceder a .data directamente, usar hasattr primero
                     try:
                         if (hdu_item.data is not None and 
                             isinstance(hdu_item.data, np.ndarray) and 
@@ -53,31 +101,37 @@ def load_fits_file(file_name: str) -> np.ndarray:
                             data_hdu = hdu_item
                             break
                     except (TypeError, ValueError):
-                        # Si no se puede acceder a los datos, saltar este HDU
                         continue
-                        
                 if data_hdu is None and len(f) > 1:
                     data_hdu = f[1]
                 elif data_hdu is None:
                     data_hdu = f[0]
-                    
                 h = data_hdu.header
                 try:
                     raw_data = data_hdu.data
                     if raw_data is not None:
-                        data_array = raw_data.reshape(h["NAXIS2"] * h.get("NSBLK", 1), h.get("NPOL", 2), h.get("NCHAN", raw_data.shape[-1]))[:, :2, :]
+                        total_samples = _safe_int(h.get("NAXIS2", 1)) * _safe_int(h.get("NSBLK", 1))
+                        num_pols = _safe_int(h.get("NPOL", 2))
+                        num_chans = _safe_int(h.get("NCHAN", raw_data.shape[-1]))
+                        if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
+                            raise ValueError(
+                                f"Dimensiones inválidas en header fallback: NAXIS2={h.get('NAXIS2', 1)}, NSBLK={h.get('NSBLK', 1)}, NPOL={num_pols}, NCHAN={num_chans} (no pueden ser <= 0)"
+                            )
+                        try:
+                            data_array = raw_data.reshape(total_samples, num_pols, num_chans)[:, :2, :]
+                        except Exception as e:
+                            raise ValueError(f"Error al hacer reshape de los datos (fallback): {e}")
                     else:
                         raise ValueError("No hay datos válidos en el HDU")
                 except (TypeError, ValueError) as e_data:
                     print(f"Error accediendo a datos del HDU: {e_data}")
                     raise ValueError(f"Archivo FITS corrupto: {file_name}")
-                    
         except Exception as e_astropy:
             print(f"Fallo final al cargar con astropy: {e_astropy}")
-            raise ValueError(f"No se puede leer el archivo FITS corrupto: {file_name}")
+            raise ValueError(f"Archivo FITS corrupto: {file_name}") from e_astropy
             
     if data_array is None:
-        raise ValueError(f"No se pudieron cargar los datos de {file_name}")
+        raise ValueError(f"Archivo FITS corrupto: {file_name}")
 
     if global_vars.DATA_NEEDS_REVERSAL:
         print(f">> Invirtiendo eje de frecuencia de los datos cargados para {file_name}")
@@ -133,15 +187,28 @@ def get_obparams(file_name: str) -> None:
             
             hdr = f["SUBINT"].header
             sub_data = f["SUBINT"].data
-            config.TIME_RESO = hdr["TBIN"]
-            config.FREQ_RESO = hdr["NCHAN"]
-            config.FILE_LENG = hdr["NSBLK"] * hdr["NAXIS2"]
-            freq_temp = sub_data["DAT_FREQ"][0].astype(np.float64)
+            # Convertir a tipos numéricos explícitamente por si vengan como strings
+            config.TIME_RESO = _safe_float(hdr.get("TBIN"))
+            config.FREQ_RESO = _safe_int(hdr.get("NCHAN"))
+            config.FILE_LENG = (
+                _safe_int(hdr.get("NSBLK")) * _safe_int(hdr.get("NAXIS2"))
+            )
+
+            try:
+                freq_temp = sub_data["DAT_FREQ"][0].astype(np.float64)
+            except Exception as e:
+                if config.DEBUG_FREQUENCY_ORDER:
+                    print(f"[DEBUG HEADER] Error convirtiendo DAT_FREQ: {e}")
+                    print("[DEBUG HEADER] Usando rango de frecuencias por defecto")
+                nchan = _safe_int(hdr.get("NCHAN", 512), 512)
+                freq_temp = np.linspace(1000, 1500, nchan)
             
             # DEBUG: Headers PSRFITS específicos
             if config.DEBUG_FREQUENCY_ORDER:
                 print(f"📋 [DEBUG HEADER] Headers PSRFITS extraídos:")
-                print(f"📋 [DEBUG HEADER]   TBIN (resolución temporal): {hdr['TBIN']:.2e} s")
+                print(
+                    f"📋 [DEBUG HEADER]   TBIN (resolución temporal): {_safe_float(hdr.get('TBIN')):.2e} s"
+                )
                 print(f"📋 [DEBUG HEADER]   NCHAN (canales): {hdr['NCHAN']}")
                 print(f"📋 [DEBUG HEADER]   NSBLK (muestras por subint): {hdr['NSBLK']}")
                 print(f"📋 [DEBUG HEADER]   NAXIS2 (número de subints): {hdr['NAXIS2']}")
@@ -156,6 +223,11 @@ def get_obparams(file_name: str) -> None:
                 bw = hdr["CHAN_BW"]
                 if isinstance(bw, (list, np.ndarray)):
                     bw = bw[0]
+                # Asegurar que sea float por si proviene como string
+                try:
+                    bw = float(bw)
+                except (TypeError, ValueError):
+                    bw = 0.0
                 if config.DEBUG_FREQUENCY_ORDER:
                     print(f"📋 [DEBUG HEADER]   CHAN_BW detectado: {bw} MHz")
                 if bw < 0:
@@ -204,9 +276,17 @@ def get_obparams(file_name: str) -> None:
                             print(f"📋 [DEBUG HEADER]   {key}: {hdr[key]}")
                 
                 if "DAT_FREQ" in f[data_hdu_index].columns.names:
-                    freq_temp = f[data_hdu_index].data["DAT_FREQ"][0].astype(np.float64)
-                    if config.DEBUG_FREQUENCY_ORDER:
-                        print(f"📋 [DEBUG HEADER] Frecuencias extraídas de columna DAT_FREQ")
+                    try:
+                        freq_temp = f[data_hdu_index].data["DAT_FREQ"][0].astype(np.float64)
+                    except Exception as e:
+                        if config.DEBUG_FREQUENCY_ORDER:
+                            print(f"[DEBUG HEADER] Error convirtiendo DAT_FREQ: {e}")
+                            print("[DEBUG HEADER] Usando rango de frecuencias por defecto")
+                        nchan = _safe_int(hdr.get("NCHAN", 512), 512)
+                        freq_temp = np.linspace(1000, 1500, nchan)
+                    else:
+                        if config.DEBUG_FREQUENCY_ORDER:
+                            print(f"📋 [DEBUG HEADER] Frecuencias extraídas de columna DAT_FREQ")
                 else:
                     freq_axis_num = ''
                     for i in range(1, hdr.get('NAXIS', 0) + 1):
@@ -223,6 +303,16 @@ def get_obparams(file_name: str) -> None:
                         cdelt = hdr.get(f'CDELT{freq_axis_num}', 1)
                         crpix = hdr.get(f'CRPIX{freq_axis_num}', 1)
                         naxis = hdr.get(f'NAXIS{freq_axis_num}', hdr.get('NCHAN', 512))
+                        try:
+                            crval = float(crval)
+                            cdelt = float(cdelt)
+                            crpix = float(crpix)
+                            naxis = int(naxis)
+                        except (TypeError, ValueError):
+                            crval = float(crval) if isinstance(crval, (int, float)) else 0.0
+                            cdelt = float(cdelt) if isinstance(cdelt, (int, float)) else 1.0
+                            crpix = float(crpix) if isinstance(crpix, (int, float)) else 1.0
+                            naxis = int(naxis) if isinstance(naxis, (int, float)) else hdr.get('NCHAN', 512)
                         freq_temp = crval + (np.arange(naxis) - (crpix - 1)) * cdelt
                         
                         if config.DEBUG_FREQUENCY_ORDER:
@@ -241,9 +331,10 @@ def get_obparams(file_name: str) -> None:
                             print(f"📋 [DEBUG HEADER] ⚠️ Usando frecuencias por defecto: 1000-1500 MHz")
                         freq_temp = np.linspace(1000, 1500, hdr.get('NCHAN', 512))
                 
-                config.TIME_RESO = hdr["TBIN"]
-                config.FREQ_RESO = hdr.get("NCHAN", len(freq_temp))
-                config.FILE_LENG = hdr.get("NAXIS2", 0) * hdr.get("NSBLK", 1)
+                # Convertir a tipos numéricos para evitar errores de comparación
+                config.TIME_RESO = _safe_float(hdr.get("TBIN"))
+                config.FREQ_RESO = _safe_int(hdr.get("NCHAN", len(freq_temp)))
+                config.FILE_LENG = _safe_int(hdr.get("NAXIS2", 0)) * _safe_int(hdr.get("NSBLK", 1))
                 
                 # DEBUG: Parámetros finales extraídos
                 if config.DEBUG_FREQUENCY_ORDER:

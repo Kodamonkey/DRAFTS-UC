@@ -10,7 +10,7 @@ from typing import List
 
 try:
     import torch
-except ImportError:  # pragma: no cover - optional dependency
+except ImportError:  
     torch = None
 import numpy as np
 
@@ -340,8 +340,12 @@ def _process_file(
         waterfall_block = data[j * slice_len : (j + 1) * slice_len]
         
         # Verificación básica para arrays válidos
-        if waterfall_block.size == 0 or slice_cube.size == 0:
-            logger.warning("Slice %d tiene arrays vacíos, saltando...", j)
+        if slice_cube.size == 0:
+            logger.warning("Slice %d: slice_cube vacío, saltando...", j)
+            continue
+            
+        if waterfall_block.size == 0:
+            logger.warning("Slice %d: waterfall_block vacío, saltando...", j)
             continue
         
         
@@ -357,6 +361,7 @@ def _process_file(
                 save_dir=waterfall_dispersion_dir,
                 filename=fits_path.stem,
                 normalize=True,
+                absolute_start_time=None,  # 🕐 Usar tiempo relativo para procesamiento estándar
             )
 
         # Recopilar información de todas las bandas primero
@@ -498,6 +503,7 @@ def _process_file(
                         save_dir=waterfall_dedispersion_dir,
                         filename=f"{fits_path.stem}_dm{first_dm:.2f}_{band_suffix}",
                         normalize=True,
+                        absolute_start_time=None,  # 🕐 Usar tiempo relativo para procesamiento estándar
                     )
 
                 if first_patch is not None:
@@ -535,6 +541,7 @@ def _process_file(
                             save_dir=waterfall_dedispersion_dir,
                             filename=f"{fits_path.stem}_dm0.00_{band_suffix}",
                             normalize=True,
+                            absolute_start_time=None,  # 🕐 Usar tiempo relativo para procesamiento estándar
                         )
 
                 # 1) Generar composite - SIEMPRE para comparativas si hay candidatos en este slice
@@ -620,6 +627,13 @@ def _load_fil_chunk(file_path: str, start_sample: int, chunk_size: int) -> np.nd
     """Load a specific chunk from a filterbank file."""
     from .filterbank_io import _read_header
     
+    # 🕐 DEBUG DETALLADO EN _load_fil_chunk
+    logger.info(f"🕐 [DEBUG LOAD CHUNK] Cargando chunk:")
+    logger.info(f"   📁 Archivo: {file_path}")
+    logger.info(f"   📏 start_sample: {start_sample:,}")
+    logger.info(f"   📏 chunk_size: {chunk_size:,}")
+    logger.info(f"   📏 Rango solicitado: {start_sample:,} a {start_sample + chunk_size:,}")
+    
     # Leer header para obtener parámetros
     with open(file_path, "rb") as f:
         header, hdr_len = _read_header(f)
@@ -652,6 +666,17 @@ def _load_fil_chunk(file_path: str, start_sample: int, chunk_size: int) -> np.nd
     # Convertir a array numpy
     data_flat = np.frombuffer(raw_data, dtype=dtype)
     
+    # 🕐 DEBUG: Verificar datos leídos
+    logger.info(f"🕐 [DEBUG LOAD CHUNK] Datos leídos:")
+    logger.info(f"   📏 data_start_offset: {data_start_offset:,} bytes")
+    logger.info(f"   📏 bytes_to_read: {bytes_to_read:,} bytes")
+    logger.info(f"   📏 data_flat.shape: {data_flat.shape}")
+    logger.info(f"   📏 Muestras esperadas: {chunk_size * nchans * nifs}")
+    logger.info(f"   📏 Muestras leídas: {len(data_flat)}")
+    
+    if len(data_flat) != chunk_size * nchans * nifs:
+        logger.warning(f"   ⚠️  DISCREPANCIA: Se leyeron {len(data_flat)} muestras, se esperaban {chunk_size * nchans * nifs}")
+    
     # Reorganizar en formato (tiempo, nifs, frecuencia) para coincidir con load_fil_file
     if len(data_flat) == chunk_size * nchans * nifs:
         data = data_flat.reshape(chunk_size, nifs, nchans)
@@ -668,13 +693,14 @@ def _load_fil_chunk(file_path: str, start_sample: int, chunk_size: int) -> np.nd
 
 def _process_single_chunk(
     det_model,
-    cls_model, 
+    cls_model,
     data_chunk: np.ndarray,
     fits_path: Path,
     save_dir: Path,
     chunk_idx: int,
     start_sample_global: int,
-    csv_file: Path
+    csv_file: Path,
+    slice_len: int,
 ) -> dict:
     """Process a single chunk of data."""
     
@@ -695,14 +721,35 @@ def _process_single_chunk(
     
     # Calcular parámetros para este chunk
     height = config.DM_max - config.DM_min + 1
-    width_total = data_chunk.shape[0] // config.DOWN_TIME_RATE
+    width_total = data_chunk.shape[0]  # Ya está decimado por downsample_data()
     
-    # 🚀 NUEVO SISTEMA SIMPLIFICADO: usar SLICE_LEN ya calculado dinámicamente
-    slice_len = config.SLICE_LEN  # Ya actualizado por update_slice_len_dynamic()
-    time_slice = (width_total + slice_len - 1) // slice_len
+    # 🚀 NUEVO SISTEMA SIMPLIFICADO: usar el ``slice_len`` proporcionado
+    # 🕐 CORRECCIÓN: Los datos ya están decimados, usar división simple
+    time_slice = width_total // slice_len
+    
+    # 🕐 DEBUG DETALLADO DE SLICES
+    logger.info(f"🕐 [DEBUG SLICES] Chunk {chunk_idx}:")
+    logger.info(f"   📏 data_chunk.shape: {data_chunk.shape}")
+    logger.info(f"   📏 width_total: {width_total:,}")
+    logger.info(f"   📏 SLICE_LEN: {slice_len}")
+    logger.info(f"   📊 time_slice calculado: {time_slice}")
+    logger.info(f"   📊 Slices reales (con decimación): {time_slice}")
     
     duration_ms, duration_text = get_slice_duration_info(slice_len)
     logger.info(f"Chunk {chunk_idx}: usando {slice_len} muestras = {duration_text}")
+    
+    # 🕐 CALCULAR TIEMPO ABSOLUTO DEL CHUNK PARA PLOTS
+    chunk_start_time_sec = start_sample_global * config.TIME_RESO * config.DOWN_TIME_RATE
+    
+    # 🕐 DEBUG DETALLADO EN _process_single_chunk
+    logger.info(f"🕐 [DEBUG SINGLE CHUNK] Chunk {chunk_idx}:")
+    logger.info(f"   📏 start_sample_global: {start_sample_global:,}")
+    logger.info(f"   ⏱️  TIME_RESO: {config.TIME_RESO}")
+    logger.info(f"   🔽 DOWN_TIME_RATE: {config.DOWN_TIME_RATE}")
+    logger.info(f"   🕐 chunk_start_time_sec: {chunk_start_time_sec:.3f}s")
+    logger.info(f"   📊 data_chunk.shape: {data_chunk.shape}")
+    
+    logger.info(f"Chunk {chunk_idx}: tiempo absoluto de inicio = {chunk_start_time_sec:.3f}s")
     
     # Generar DM vs tiempo para este chunk
     dm_time = d_dm_time_g(data_chunk, height=height, width=width_total)
@@ -730,12 +777,13 @@ def _process_single_chunk(
         slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
         waterfall_block = data_chunk[j * slice_len : (j + 1) * slice_len]
         
+        # Verificación básica para arrays válidos
         if slice_cube.size == 0:
+            logger.warning(f"Chunk {chunk_idx}, slice {j}: slice_cube vacío, saltando...")
             continue
             
-        # Verificación básica para arrays válidos
-        if waterfall_block.size == 0 or slice_cube.size == 0:
-            logger.warning(f"Chunk {chunk_idx}, slice {j} tiene arrays vacíos, saltando...")
+        if waterfall_block.size == 0:
+            logger.warning(f"Chunk {chunk_idx}, slice {j}: waterfall_block vacío, saltando...")
             continue
         
         # Preparar directorios para waterfalls individuales  
@@ -761,6 +809,7 @@ def _process_single_chunk(
                 save_dir=waterfall_dispersion_dir,
                 filename=f"{fits_path.stem}_chunk{chunk_idx}",
                 normalize=True,
+                absolute_start_time=chunk_start_time_sec,  # 🕐 Pasar tiempo absoluto del chunk
             )
 
         # Recopilar información de todas las bandas primero
@@ -931,15 +980,18 @@ def _process_single_chunk(
                         save_dir=waterfall_dedispersion_dir,
                         filename=f"{fits_path.stem}_chunk{chunk_idx}_dm{first_dm:.2f}_{band_suffix}",
                         normalize=True,
+                        absolute_start_time=chunk_start_time_sec,  # 🕐 Pasar tiempo absoluto del chunk
                     )
 
                 if first_patch is not None:
+                    # 🕐 CORRECCIÓN: Usar tiempo absoluto para patch_plot
+                    patch_start_time_abs = chunk_start_time_sec + first_start
                     save_patch_plot(
                         first_patch,
                         patch_path,
                         freq_ds,
                         config.TIME_RESO * config.DOWN_TIME_RATE,
-                        first_start,
+                        patch_start_time_abs,  # Tiempo absoluto del archivo
                         off_regions=None,  # Use IQR method for robust estimation
                         thresh_snr=config.SNR_THRESH,
                         band_idx=band_idx,  # Pasar el índice de la banda
@@ -962,11 +1014,15 @@ def _process_single_chunk(
                             save_dir=waterfall_dedispersion_dir,
                             filename=f"{fits_path.stem}_chunk{chunk_idx}_dm0.00_{band_suffix}",
                             normalize=True,
+                            absolute_start_time=chunk_start_time_sec,  # 🕐 Pasar tiempo absoluto del chunk
                         )
 
                 # 1) Generar composite - SIEMPRE para comparativas si hay candidatos en este slice
                 composite_dir = save_dir / "Composite" / f"{fits_path.stem}_chunk{chunk_idx}"
                 comp_path = composite_dir / f"slice{j}_band{band_idx}.png"
+                
+                # 🕐 CORRECCIÓN: Calcular tiempo absoluto para save_slice_summary
+                slice_absolute_idx = start_sample_global // slice_len + j  # Índice absoluto del slice
                 save_slice_summary(
                     waterfall_block,
                     dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,  # fallback a waterfall original
@@ -978,7 +1034,7 @@ def _process_single_chunk(
                     top_boxes if len(top_boxes) > 0 else [],
                     class_probs_list, 
                     comp_path,
-                    j,
+                    slice_absolute_idx,  # 🕐 Índice absoluto del slice en el archivo completo
                     time_slice,
                     band_name,
                     band_suffix,
@@ -994,13 +1050,15 @@ def _process_single_chunk(
                 detections_dir = save_dir / "Detections" / f"{fits_path.stem}_chunk{chunk_idx}"
                 detections_dir.mkdir(parents=True, exist_ok=True)
                 out_img_path = detections_dir / f"slice{j}_{band_suffix}.png"
+                
+                # 🕐 CORRECCIÓN: Usar índice absoluto del slice para save_plot
                 save_plot(
                     img_rgb,
                     top_conf if len(top_conf) > 0 else [],
                     top_boxes if len(top_boxes) > 0 else [],
                     class_probs_list,   
                     out_img_path,
-                    j,
+                    slice_absolute_idx,  # 🕐 Índice absoluto del slice en el archivo completo
                     time_slice,
                     band_name,
                     band_suffix,
@@ -1053,9 +1111,21 @@ def _process_file_in_chunks(
     snr_list_global = []
     total_start_time = time.time()
     
+    # Lista para almacenar resultados de chunks para validación
+    chunk_results_list = []
+    
     # Preparar CSV global
     csv_file = save_dir / f"{fits_path.stem}.candidates.csv"
     _ensure_csv_header(csv_file)
+
+    # Calcular SLICE_LEN dinámicamente usando la misma lógica que en el
+    # procesamiento estándar. Esto garantiza que la duración de los slices
+    # respete el valor configurado en SLICE_DURATION_MS.
+    slice_len, real_duration_ms = update_slice_len_dynamic()
+    logger.info("✅ Sistema de slice simplificado:")
+    logger.info(f"   🎯 Duración objetivo: {config.SLICE_DURATION_MS:.1f} ms")
+    logger.info(f"   � SLICE_LEN calculado: {slice_len} muestras")
+    logger.info(f"   ⏱️  Duración real obtenida: {real_duration_ms:.1f} ms")
     
     for chunk_idx in range(num_chunks):
         logger.info(f"Procesando chunk {chunk_idx + 1}/{num_chunks}")
@@ -1072,6 +1142,27 @@ def _process_file_in_chunks(
         # Calcular tiempo absoluto del chunk
         chunk_start_time_sec = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
         chunk_end_time_sec = end_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+        
+        # 🕐 DEBUG DETALLADO DE TIMING
+        logger.info(f"🕐 [DEBUG TIMING] Chunk {chunk_idx + 1}:")
+        logger.info(f"   📏 Muestras: {start_sample:,} a {end_sample:,} ({actual_chunk_size:,})")
+        logger.info(f"   ⏱️  TIME_RESO: {config.TIME_RESO}")
+        logger.info(f"   🔽 DOWN_TIME_RATE: {config.DOWN_TIME_RATE}")
+        logger.info(f"   🕐 Tiempo calculado: {chunk_start_time_sec:.3f}s a {chunk_end_time_sec:.3f}s")
+        logger.info(f"   ⏱️  Duración: {chunk_end_time_sec - chunk_start_time_sec:.3f}s")
+        
+        if chunk_idx > 0:
+            # Calcular gap con chunk anterior
+            prev_start = (chunk_idx - 1) * effective_chunk_size
+            prev_end = min(prev_start + chunk_size, total_samples)
+            if chunk_idx - 1 > 0:
+                prev_start -= overlap
+            prev_end_time = prev_end * config.TIME_RESO * config.DOWN_TIME_RATE
+            gap = chunk_start_time_sec - prev_end_time
+            logger.info(f"   🔗 Gap con chunk anterior: {gap:.3f}s")
+            
+            if abs(gap) > 1.0:  # Gap mayor a 1 segundo
+                logger.warning(f"   ⚠️  GAP GRANDE DETECTADO: {gap:.3f}s - Posible problema de configuración")
         
         logger.info(f"Chunk {chunk_idx + 1}: muestras {start_sample:,} a {end_sample:,} ({actual_chunk_size:,} muestras)")
         logger.info(f"Chunk {chunk_idx + 1}: tiempo {chunk_start_time_sec:.1f}s a {chunk_end_time_sec:.1f}s ({chunk_end_time_sec - chunk_start_time_sec:.1f}s duración)")
@@ -1097,8 +1188,15 @@ def _process_file_in_chunks(
             
             # Procesar este chunk usando la lógica existente
             chunk_results = _process_single_chunk(
-                det_model, cls_model, data_chunk, fits_path, save_dir, 
-                chunk_idx, start_sample, csv_file
+                det_model,
+                cls_model,
+                data_chunk,
+                fits_path,
+                save_dir,
+                chunk_idx,
+                start_sample,
+                csv_file,
+                slice_len,
             )
             
             # Agregar información temporal al resultado del chunk
@@ -1111,6 +1209,9 @@ def _process_file_in_chunks(
                 "duration_sec": chunk_duration_sec,
                 "time_range_str": f"{chunk_start_time_sec:.1f}-{chunk_end_time_sec:.1f}s"
             }
+            
+            # Agregar a la lista para validación
+            chunk_results_list.append(chunk_results)
             
             # Acumular resultados
             total_candidates += chunk_results["n_candidates"]
@@ -1134,6 +1235,9 @@ def _process_file_in_chunks(
     
     total_runtime = time.time() - total_start_time
     
+    # Validar continuidad temporal entre chunks
+    validate_chunk_timing_continuity(chunk_results_list)
+    
     logger.info(f"Procesamiento completo: {total_candidates} candidatos totales en {total_runtime:.1f}s")
     
     return {
@@ -1145,6 +1249,50 @@ def _process_file_in_chunks(
         "mean_snr": float(np.mean(snr_list_global)) if snr_list_global else 0.0,
         "chunks_processed": num_chunks
     }
+
+def validate_chunk_timing_continuity(chunk_results: list) -> None:
+    """Validar la continuidad temporal entre chunks procesados.
+    
+    Parameters
+    ----------
+    chunk_results : list
+        Lista de resultados de chunks con información de timing
+    """
+    if not chunk_results or len(chunk_results) < 2:
+        return
+    
+    logger.info("🔍 VALIDACIÓN DE CONTINUIDAD TEMPORAL ENTRE CHUNKS")
+    logger.info("=" * 60)
+    
+    for i in range(1, len(chunk_results)):
+        prev_chunk = chunk_results[i-1]
+        curr_chunk = chunk_results[i]
+        
+        if "chunk_timing" not in prev_chunk or "chunk_timing" not in curr_chunk:
+            continue
+            
+        prev_end = prev_chunk["chunk_timing"]["end_time_sec"]
+        curr_start = curr_chunk["chunk_timing"]["start_time_sec"]
+        gap = curr_start - prev_end
+        
+        logger.info(f"Chunk {i-1} → Chunk {i}:")
+        logger.info(f"   🕐 Chunk {i-1} termina en: {prev_end:.3f}s")
+        logger.info(f"   🕐 Chunk {i} empieza en: {curr_start:.3f}s")
+        logger.info(f"   🔗 Gap: {gap:.3f}s")
+        
+        if abs(gap) > 1.0:  # Gap mayor a 1 segundo
+            logger.warning(f"   ⚠️  GAP GRANDE DETECTADO: {gap:.3f}s")
+            logger.warning(f"   📊 Posibles causas:")
+            logger.warning(f"      - Configuración incorrecta de TIME_RESO")
+            logger.warning(f"      - DOWN_TIME_RATE no coincide con decimación real")
+            logger.warning(f"      - Problema en _load_fil_chunk")
+            logger.warning(f"      - Error en cálculo de start_sample_global")
+        elif gap < 0:
+            logger.info(f"   ✅ Overlap normal: {abs(gap):.3f}s")
+        else:
+            logger.info(f"   ✅ Continuidad correcta")
+        print()
+
 
 def run_pipeline() -> None:
     """Run the full FRB detection pipeline."""

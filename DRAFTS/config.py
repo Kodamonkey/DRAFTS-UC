@@ -38,12 +38,15 @@ DEBUG_FREQUENCY_ORDER: bool = False         # True = debug orden de frecuencias 
 DATA_DIR = Path("./Data")                        # Directorio con archivos de entrada (.fits, .fil)
 RESULTS_DIR = Path("./Results/ObjectDetection")  # Directorio para guardar resultados
 # --- Lista de targets optimizada para múltiples archivos ---
-FRB_TARGETS = ["FRB20201124_0009"]          # Lista de targets FRB a procesar - Reducida para pruebas
+
+FRB_TARGETS = ["3098_0001_00_8bit"]          # Lista de targets FRB a procesar - Reducida para pruebas
+
 # Para procesar todos: ["FRB20201124_0009", "FRB20180301_0002", "B0355+54_FB_20220918"]
 # Nota: FRB20180301_0002.fits parece estar corrupto - revisar archivo
 
 # --- Configuración de Slice Temporal (ESENCIAL) ---
-SLICE_DURATION_MS: float = 196.0            # Duración deseada de cada slice en milisegundos 
+SLICE_DURATION_MS: float = 142.0             # Duración deseada de cada slice en milisegundos 
+                                            # Ajustado para obtener todos los slices por chunk
                                             # El sistema calculará automáticamente SLICE_LEN según:
                                             # SLICE_LEN = round(SLICE_DURATION_MS / (TIME_RESO × DOWN_TIME_RATE × 1000))
                                             # Valores típicos: 16ms (rápido), 32ms (normal), 64ms (estándar), 128ms (lento)
@@ -59,7 +62,7 @@ SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en vis
 
 # --- Configuración de procesamiento ---
 USE_MULTI_BAND: bool = False                 # Usar análisis multi-banda (Full/Low/High)
-ENABLE_CHUNK_PROCESSING: bool = True        # Procesar archivos grandes en chunks
+ENABLE_CHUNK_PROCESSING: bool = False        # Procesar archivos grandes en chunks
 MAX_SAMPLES_LIMIT: int = 2000000             # Límite de muestras por chunk (memoria) - Reducido para múltiples archivos
 
 # =============================================================================

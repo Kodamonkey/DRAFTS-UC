@@ -9,7 +9,13 @@ def test_chunk_processing():
     print("=== TESTING CHUNK PROCESSING PIPELINE ===")
     
     # Import pipeline functions
-    from DRAFTS.pipeline import _load_fil_chunk, _process_single_chunk, _load_model, _load_class_model
+    from DRAFTS.pipeline import (
+        _load_fil_chunk,
+        _process_single_chunk,
+        _load_model,
+        _load_class_model,
+        update_slice_len_dynamic,
+    )
     from DRAFTS.filterbank_io import get_obparams_fil
     from DRAFTS import config
     
@@ -55,10 +61,19 @@ def test_chunk_processing():
     print("\nTesting chunk processing...")
     try:
         csv_file = save_dir / "test.csv"
-        
+
+        slice_len, _ = update_slice_len_dynamic()
+
         result = _process_single_chunk(
-            det_model, cls_model, data_chunk, fits_path, save_dir,
-            chunk_idx=0, start_sample_global=0, csv_file=csv_file
+            det_model,
+            cls_model,
+            data_chunk,
+            fits_path,
+            save_dir,
+            chunk_idx=0,
+            start_sample_global=0,
+            csv_file=csv_file,
+            slice_len=slice_len,
         )
         
         print(f"✅ Chunk processing completed")

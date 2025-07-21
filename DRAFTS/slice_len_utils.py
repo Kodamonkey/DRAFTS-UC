@@ -48,7 +48,7 @@ def calculate_slice_len_from_duration() -> Tuple[int, float]:
     logger.info(f"   ⏱️  TIME_RESO: {config.TIME_RESO}")
     logger.info(f"   🔽 DOWN_TIME_RATE: {config.DOWN_TIME_RATE}")
     logger.info(f"   📏 SLICE_LEN = {target_duration_s:.6f}s ÷ {config.TIME_RESO} = {calculated_slice_len}")
-    logger.info(f"   📊 Para chunk de 2M muestras decimadas: {2000000 // config.DOWN_TIME_RATE // slice_len} slices")
+    logger.info(f"   📊 Para un archivo de 2M muestras decimadas: {2000000 // config.DOWN_TIME_RATE // slice_len} slices")
     
     if abs(real_duration_ms - config.SLICE_DURATION_MS) > 5.0:
         logger.warning(f"⚠️  Diferencia significativa entre objetivo ({config.SLICE_DURATION_MS:.1f} ms) "

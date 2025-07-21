@@ -24,14 +24,15 @@ def calculate_slice_len_from_duration() -> Tuple[int, float]:
         logger.warning("TIME_RESO no está configurado, usando SLICE_LEN_MIN")
         return config.SLICE_LEN_MIN, config.SLICE_DURATION_MS
     
-    # Fórmula inversa: SLICE_LEN = SLICE_DURATION_MS / (TIME_RESO × DOWN_TIME_RATE × 1000)
+    # 🕐 CORRECCIÓN: SLICE_LEN se calcula para datos YA decimados
+    # Por lo tanto, usar TIME_RESO * DOWN_TIME_RATE
     target_duration_s = config.SLICE_DURATION_MS / 1000.0
     calculated_slice_len = round(target_duration_s / (config.TIME_RESO * config.DOWN_TIME_RATE))
     
     # Aplicar límites mín/máx
     slice_len = max(config.SLICE_LEN_MIN, min(config.SLICE_LEN_MAX, calculated_slice_len))
     
-    # Calcular duración real obtenida
+    # Calcular duración real obtenida (para datos decimados)
     real_duration_s = slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
     real_duration_ms = real_duration_s * 1000.0
     
@@ -41,6 +42,13 @@ def calculate_slice_len_from_duration() -> Tuple[int, float]:
     logger.info(f"🎯 Duración objetivo: {config.SLICE_DURATION_MS:.1f} ms")
     logger.info(f"📏 SLICE_LEN calculado: {slice_len} muestras")
     logger.info(f"⏱️  Duración real obtenida: {real_duration_ms:.1f} ms")
+    
+    # 🕐 DEBUG: Verificar cálculo
+    logger.info(f"🕐 [DEBUG SLICE_LEN] Cálculo:")
+    logger.info(f"   ⏱️  TIME_RESO: {config.TIME_RESO}")
+    logger.info(f"   🔽 DOWN_TIME_RATE: {config.DOWN_TIME_RATE}")
+    logger.info(f"   📏 SLICE_LEN = {target_duration_s:.6f}s ÷ {config.TIME_RESO} = {calculated_slice_len}")
+    logger.info(f"   📊 Para chunk de 2M muestras decimadas: {2000000 // config.DOWN_TIME_RATE // slice_len} slices")
     
     if abs(real_duration_ms - config.SLICE_DURATION_MS) > 5.0:
         logger.warning(f"⚠️  Diferencia significativa entre objetivo ({config.SLICE_DURATION_MS:.1f} ms) "

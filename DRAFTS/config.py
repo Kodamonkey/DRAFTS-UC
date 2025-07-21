@@ -45,7 +45,8 @@ FRB_TARGETS = ["3098_0001_00_8bit"]          # Lista de targets FRB a procesar -
 # Nota: FRB20180301_0002.fits parece estar corrupto - revisar archivo
 
 # --- Configuración de Slice Temporal (ESENCIAL) ---
-SLICE_DURATION_MS: float = 2000.0            # Duración deseada de cada slice en milisegundos 
+SLICE_DURATION_MS: float = 142.0             # Duración deseada de cada slice en milisegundos 
+                                            # Ajustado para obtener todos los slices por chunk
                                             # El sistema calculará automáticamente SLICE_LEN según:
                                             # SLICE_LEN = round(SLICE_DURATION_MS / (TIME_RESO × DOWN_TIME_RATE × 1000))
                                             # Valores típicos: 16ms (rápido), 32ms (normal), 64ms (estándar), 128ms (lento)
@@ -61,7 +62,7 @@ SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en vis
 
 # --- Configuración de procesamiento ---
 USE_MULTI_BAND: bool = False                 # Usar análisis multi-banda (Full/Low/High)
-ENABLE_CHUNK_PROCESSING: bool = True        # Procesar archivos grandes en chunks
+ENABLE_CHUNK_PROCESSING: bool = False        # Procesar archivos grandes en chunks
 MAX_SAMPLES_LIMIT: int = 2000000             # Límite de muestras por chunk (memoria) - Reducido para múltiples archivos
 
 # =============================================================================

@@ -137,21 +137,6 @@ def load_fil_file(file_name: str) -> np.ndarray:
             file_size = os.path.getsize(file_name) - hdr_len
             nsamples = file_size // bytes_per_sample if bytes_per_sample > 0 else 1000
 
-        # Check chunk processing limits
-        if (getattr(config, 'ENABLE_CHUNK_PROCESSING', True) and 
-            nsamples > config.MAX_SAMPLES_LIMIT):
-            print(f"[INFO] Archivo grande detectado ({nsamples} muestras)")
-            print(f"[INFO] Se procesará automáticamente por chunks")
-            config._ORIGINAL_FILE_SAMPLES = nsamples
-            nsamples = min(1000, nsamples)
-        else:
-            max_samples = config.MAX_SAMPLES_LIMIT
-            if nsamples > max_samples:
-                print(f"[WARNING] Archivo muy grande ({nsamples} muestras), limitando a {max_samples}")
-                nsamples = max_samples
-
-        dtype = np.uint8
-        if nbits == 16:
             dtype = np.int16
         elif nbits == 32:
             dtype = np.float32
@@ -251,29 +236,6 @@ def get_obparams_fil(file_name: str) -> None:
                 print(f"📋 [DEBUG FILTERBANK]   Bytes por muestra: {bytes_per_sample}")
                 print(f"📋 [DEBUG FILTERBANK]   Muestras calculadas: {nsamples}")
 
-        # Check chunk processing
-        if (getattr(config, 'ENABLE_CHUNK_PROCESSING', True) and 
-            nsamples > config.MAX_SAMPLES_LIMIT):
-            if config.DEBUG_FREQUENCY_ORDER:
-                print(f"📋 [DEBUG FILTERBANK] Archivo grande detectado ({nsamples:,} muestras)")
-                print(f"📋 [DEBUG FILTERBANK] Se procesará automáticamente por chunks") 
-            print(f"[INFO] Archivo grande detectado ({nsamples} muestras)")
-            config._ORIGINAL_FILE_SAMPLES = nsamples
-        else:
-            max_samples = config.MAX_SAMPLES_LIMIT
-            if nsamples > max_samples:
-                if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"📋 [DEBUG FILTERBANK] Limitando de {nsamples:,} a {max_samples:,} muestras")
-                print(f"[WARNING] Limitando número de muestras de {nsamples} a {max_samples}")
-                nsamples = max_samples
-
-        fch1 = header.get("fch1", 1500.0)
-        foff = header.get("foff", -1.0)
-        freq_temp = fch1 + np.arange(nchans) * foff
-        
-        # DEBUG: Headers Filterbank específicos
-        if config.DEBUG_FREQUENCY_ORDER:
-            print(f"📋 [DEBUG FILTERBANK] Headers Filterbank específicos:")
             print(f"📋 [DEBUG FILTERBANK]   tsamp (resolución temporal): {tsamp:.2e} s")
             print(f"📋 [DEBUG FILTERBANK]   nchans (canales): {nchans}")
             print(f"📋 [DEBUG FILTERBANK]   nifs (polarizaciones): {nifs}")
@@ -377,20 +339,6 @@ def get_obparams_fil(file_name: str) -> None:
         print(f"📁 [DEBUG ARCHIVO FIL]   - Datos originales: ~{size_original_gb:.2f} GB")
         print(f"📁 [DEBUG ARCHIVO FIL]   - Datos después decimación: ~{size_decimated_gb:.2f} GB")
         
-        print(f"📁 [DEBUG ARCHIVO FIL] CHUNKING:")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Procesamiento por chunks: {'SÍ' if config.ENABLE_CHUNK_PROCESSING else 'NO'}")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Límite muestras por chunk: {config.MAX_SAMPLES_LIMIT:,}")
-        if config.FILE_LENG > config.MAX_SAMPLES_LIMIT:
-            num_chunks = int(np.ceil(config.FILE_LENG / config.MAX_SAMPLES_LIMIT))
-            print(f"📁 [DEBUG ARCHIVO FIL]   - Número de chunks estimado: {num_chunks}")
-        else:
-            print(f"📁 [DEBUG ARCHIVO FIL]   - Archivo cabe en memoria: SÍ")
-        
-        print(f"📁 [DEBUG ARCHIVO FIL] CONFIGURACIÓN DE SLICE:")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - SLICE_DURATION_MS configurado: {config.SLICE_DURATION_MS} ms")
-        expected_slice_len = round(config.SLICE_DURATION_MS / (config.TIME_RESO * config.DOWN_TIME_RATE * 1000))
-        print(f"📁 [DEBUG ARCHIVO FIL]   - SLICE_LEN calculado: {expected_slice_len} muestras")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - SLICE_LEN límites: [{config.SLICE_LEN_MIN}, {config.SLICE_LEN_MAX}]")
         
         print(f"📁 [DEBUG ARCHIVO FIL] PROCESAMIENTO:")
         print(f"📁 [DEBUG ARCHIVO FIL]   - Multi-banda habilitado: {'SÍ' if config.USE_MULTI_BAND else 'NO'}")
@@ -466,14 +414,7 @@ def get_obparams_fil(file_name: str) -> None:
                 "time_resolution_after_decimation_sec": config.TIME_RESO * config.DOWN_TIME_RATE,
                 "total_reduction_factor": config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE
             },
-            "chunking": {
-                "chunk_processing_enabled": getattr(config, 'ENABLE_CHUNK_PROCESSING', True),
-                "max_samples_limit": config.MAX_SAMPLES_LIMIT,
-                "file_fits_in_memory": config.FILE_LENG <= config.MAX_SAMPLES_LIMIT,
-                "estimated_chunks": int(np.ceil(config.FILE_LENG / config.MAX_SAMPLES_LIMIT)) if config.FILE_LENG > config.MAX_SAMPLES_LIMIT else 1
-            },
             "slice_config": {
-                "slice_duration_ms_configured": config.SLICE_DURATION_MS,
                 "slice_len_calculated": round(config.SLICE_DURATION_MS / (config.TIME_RESO * config.DOWN_TIME_RATE * 1000)),
                 "slice_len_limits": [config.SLICE_LEN_MIN, config.SLICE_LEN_MAX]
             },
@@ -491,7 +432,6 @@ def get_obparams_fil(file_name: str) -> None:
                 "total_duration_formatted": f"{(config.FILE_LENG * config.TIME_RESO) // 3600:.0f}h {((config.FILE_LENG * config.TIME_RESO) % 3600) // 60:.0f}m {(config.FILE_LENG * config.TIME_RESO) % 60:.1f}s",
                 "sample_rate_hz": 1.0 / config.TIME_RESO,
                 "effective_sample_rate_after_decimation_hz": 1.0 / (config.TIME_RESO * config.DOWN_TIME_RATE),
-                "temporal_continuity_note": "All chunks maintain temporal continuity - global timestamps preserved"
             }
         })
 

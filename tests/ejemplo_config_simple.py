@@ -60,7 +60,6 @@ def ejemplo_uso_pipeline():
     # Mostrar configuración automática relevante
     print("\nConfiguración automática aplicada:")
     print(f"- Procesamiento multi-banda: {'Sí' if USE_MULTI_BAND else 'No'}")
-    print(f"- Chunking automático: {'Sí' if ENABLE_CHUNK_PROCESSING else 'No'}")
     print(f"- Visualización dinámica: {'Sí' if DM_DYNAMIC_RANGE_ENABLE else 'No'}")
     print(f"- Slice temporal automático: {'Sí' if SLICE_LEN_AUTO else 'No'}")
     

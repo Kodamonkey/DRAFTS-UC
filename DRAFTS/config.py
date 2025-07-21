@@ -45,8 +45,8 @@ FRB_TARGETS = ["3098_0001_00_8bit"]          # Lista de targets FRB a procesar -
 # Nota: FRB20180301_0002.fits parece estar corrupto - revisar archivo
 
 # --- Configuración de Slice Temporal (ESENCIAL) ---
-SLICE_DURATION_MS: float = 142.0             # Duración deseada de cada slice en milisegundos 
-                                            # Ajustado para obtener todos los slices por chunk
+SLICE_DURATION_MS: float = 142.0             # Duración deseada de cada slice en milisegundos
+                                            # Ajustado para obtener todos los slices
                                             # El sistema calculará automáticamente SLICE_LEN según:
                                             # SLICE_LEN = round(SLICE_DURATION_MS / (TIME_RESO × DOWN_TIME_RATE × 1000))
                                             # Valores típicos: 16ms (rápido), 32ms (normal), 64ms (estándar), 128ms (lento)
@@ -62,8 +62,6 @@ SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en vis
 
 # --- Configuración de procesamiento ---
 USE_MULTI_BAND: bool = False                 # Usar análisis multi-banda (Full/Low/High)
-ENABLE_CHUNK_PROCESSING: bool = False        # Procesar archivos grandes en chunks
-MAX_SAMPLES_LIMIT: int = 2000000             # Límite de muestras por chunk (memoria) - Reducido para múltiples archivos
 
 # =============================================================================
 # CONFIGURACIÓN MANUAL - Solo configuraciones esenciales
@@ -110,14 +108,6 @@ DATA_NEEDS_REVERSAL: bool = False           # Invertir eje de frecuencia si es n
 # --- Configuración de SNR y visualización (SIMPLIFICADA) ---
 # Solo configuraciones esenciales, las estéticas están en la sección de análisis arriba
 
-# --- Configuración de chunking (ESENCIAL) ---
-# Solo configuración básica, el overlap está en la sección de análisis arriba
-# Referencia de memoria optimizada para múltiples archivos:
-# 100,000 muestras ≈ 512 MB RAM
-# 500,000 muestras ≈ 2.5 GB RAM  ← Configuración actual
-# 1,000,000 muestras ≈ 5 GB RAM
-# 2,000,000 muestras ≈ 10 GB RAM
-
 # =============================================================================
 # INFORMACIÓN ADICIONAL Y NOTAS
 # =============================================================================
@@ -158,7 +148,6 @@ CONFIGURACIÓN SIMPLIFICADA:
    - Información completa del archivo (.fits/.fil)
    - Orden y valores de frecuencias
    - Parámetros de decimación
-   - Configuración de chunking
    - Datos cargados en memoria
    - Dirección de dedispersión
 
@@ -175,12 +164,6 @@ CASOS DE USO TÍPICOS:
 # - banda[1] = Low Band   (mitad inferior del espectro)  
 # - banda[2] = High Band  (mitad superior del espectro)
 
-# --- Notas sobre memoria y chunking ---
-# El procesamiento en chunks es esencial para archivos grandes:
-# - Archivos típicos de FRB pueden ser >30 GB
-# - MAX_SAMPLES_LIMIT controla el tamaño de cada chunk
-# - CHUNK_OVERLAP_SAMPLES evita perder detecciones en bordes
-
 # --- Configuración recomendada para diferentes casos ---
 # Para detecciones de alta precisión:
 #   - DET_PROB = 0.05 (más sensible)
@@ -195,8 +178,6 @@ CASOS DE USO TÍPICOS:
 #   - SLICE_DURATION_MS = 64.0 (duración estándar)
 #
 # Para procesamiento rápido:
-#   - ENABLE_CHUNK_PROCESSING = True
-#   - MAX_SAMPLES_LIMIT = 1000000 (chunks más pequeños)
 #   - USE_MULTI_BAND = False (si no es necesario)
 #   - SLICE_DURATION_MS = 128.0 (slices más largos)
 
@@ -204,21 +185,15 @@ CASOS DE USO TÍPICOS:
 
 # Para ARCHIVO ÚNICO (análisis detallado):
 #   - DEBUG_FREQUENCY_ORDER = True
-#   - MAX_SAMPLES_LIMIT = 2000000
 #   - GENERATE_WATERFALLS = True
-#   - CHUNK_OVERLAP_SAMPLES = 1000
 #
 # Para MÚLTIPLES ARCHIVOS (procesamiento en lote):
 #   - DEBUG_FREQUENCY_ORDER = False  ← Configuración actual
-#   - MAX_SAMPLES_LIMIT = 500000     ← Configuración actual
 #   - GENERATE_WATERFALLS = True
-#   - CHUNK_OVERLAP_SAMPLES = 500    ← Configuración actual
 #   - SKIP_CORRUPTED_FILES = True
 #   - FORCE_GARBAGE_COLLECTION = True
 #
 # Para ARCHIVOS MUY GRANDES (>5GB):
-#   - MAX_SAMPLES_LIMIT = 200000
-#   - CHUNK_OVERLAP_SAMPLES = 200
 #   - REDUCE_VISUALIZATION_QUALITY = True
 #   - USE_MULTI_BAND = False
 #
@@ -226,7 +201,6 @@ CASOS DE USO TÍPICOS:
 #   - GENERATE_WATERFALLS = False
 #   - GENERATE_PATCHES = False
 #   - GENERATE_COMPOSITES = False
-#   - MAX_SAMPLES_LIMIT = 1000000
 
 """
 SOLUCIÓN PARA EL PROBLEMA ACTUAL:
@@ -297,11 +271,6 @@ SLICE_LEN_MIN: int = 32                      # Límite inferior de seguridad par
 SLICE_LEN_MAX: int = 2048                    # Límite superior de seguridad para el cálculo automático de SLICE_LEN
 
 # --- 6. CONFIGURACIONES DE CHUNKING AVANZADAS (POSIBLEMENTE INNECESARIAS) ---
-# UBICACIÓN: Se usan en pipeline.py para procesamiento por chunks
-# PROPÓSITO: Control fino del solapamiento entre chunks
-# IMPACTO: Puede afectar detecciones en bordes, pero valor por defecto funciona
-CHUNK_OVERLAP_SAMPLES: int = 500           # Solapamiento entre chunks
-
 # =============================================================================
 # RECOMENDACIONES PARA ELIMINACIÓN:
 # =============================================================================
@@ -322,14 +291,13 @@ CONFIGURACIONES QUE SE PUEDEN ELIMINAR FÁCILMENTE:
 
 3. BAJA PRIORIDAD PARA ELIMINAR (Podrían ser útiles):
    - SLICE_LEN_MIN, SLICE_LEN_MAX (seguridad)
-   - CHUNK_OVERLAP_SAMPLES (puede afectar detección)
 
 CONFIGURACIONES ESENCIALES QUE NO SE DEBEN ELIMINAR:
 - FRB_TARGETS, DATA_DIR, RESULTS_DIR
 - SLICE_DURATION_MS (configura duración temporal)
 - DM_min, DM_max (rango de dispersión)
 - DET_PROB, CLASS_PROB, SNR_THRESH (umbrales de detección)
-- USE_MULTI_BAND, ENABLE_CHUNK_PROCESSING, MAX_SAMPLES_LIMIT
+- USE_MULTI_BAND
 - MODEL_NAME, MODEL_PATH, CLASS_MODEL_NAME, CLASS_MODEL_PATH
  - DEBUG_FREQUENCY_ORDER
 """

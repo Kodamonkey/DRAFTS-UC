@@ -732,8 +732,25 @@ def plot_waterfalls(
     time_slice: int,
     fits_stem: str,
     out_dir: Path,
+    absolute_start_time: Optional[float] = None,
 ) -> None:
-    """Save frequency--time waterfall plots for each time block."""
+    """Save frequency--time waterfall plots for each time block.
+    
+    Parameters
+    ----------
+    data : np.ndarray
+        Data array to process
+    slice_len : int
+        Length of each slice
+    time_slice : int
+        Number of slices
+    fits_stem : str
+        Base filename
+    out_dir : Path
+        Output directory
+    absolute_start_time : Optional[float]
+        Absolute start time in seconds. If provided, plots will show real file times.
+    """
 
     freq_ds = np.mean(
         config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
@@ -756,6 +773,7 @@ def plot_waterfalls(
             save_dir=out_dir,
             filename=fits_stem,
             normalize=True,
+            absolute_start_time=absolute_start_time,
         )
 
 
@@ -767,8 +785,29 @@ def plot_dedispersed_waterfalls(
     time_slice: int,
     fits_stem: str,
     out_dir: Path,
+    absolute_start_time: Optional[float] = None,
 ) -> None:
-    """Save dedispersed frequency--time waterfall plots for each time block."""
+    """Save dedispersed frequency--time waterfall plots for each time block.
+    
+    Parameters
+    ----------
+    data : np.ndarray
+        Data array to process
+    freq_down : np.ndarray
+        Downsampled frequency array
+    dm : float
+        Dispersion measure value
+    slice_len : int
+        Length of each slice
+    time_slice : int
+        Number of slices
+    fits_stem : str
+        Base filename
+    out_dir : Path
+        Output directory
+    absolute_start_time : Optional[float]
+        Absolute start time in seconds. If provided, plots will show real file times.
+    """
 
     time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -787,5 +826,6 @@ def plot_dedispersed_waterfalls(
             save_dir=out_dir,
             filename=f"{fits_stem}_dm{dm:.2f}",
             normalize=True,
+            absolute_start_time=absolute_start_time,
         )
 

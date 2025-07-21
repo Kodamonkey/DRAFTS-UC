@@ -139,7 +139,7 @@ def plot_waterfall_block(
     save_dir: Path,
     filename: str,
     normalize: bool = False,
-    absolute_start_time: float = None,  # 🕐 NUEVO: Tiempo absoluto de inicio del chunk
+    absolute_start_time: float = None,  # Tiempo absoluto de inicio del bloque
 ) -> None:
     """Plot a single waterfall block.
 
@@ -164,7 +164,7 @@ def plot_waterfall_block(
         between the 5th and 95th percentiles prior to plotting. This keeps the
         dynamic range consistent across different ``SLICE_LEN`` and DM ranges.
     absolute_start_time : float, optional
-        🕐 NUEVO: Tiempo absoluto de inicio del chunk en segundos. Si se proporciona,
+        Tiempo absoluto de inicio del bloque en segundos. Si se proporciona,
         se usa en lugar del cálculo relativo para mostrar tiempos reales del archivo.
     """
 
@@ -180,9 +180,9 @@ def plot_waterfall_block(
     
     # 🕐 CORRECCIÓN: Usar tiempo absoluto si se proporciona, sino usar cálculo relativo
     if absolute_start_time is not None:
-        # 🕐 CORRECCIÓN: Calcular tiempo absoluto correcto para cada slice
-        # absolute_start_time es el tiempo de inicio del chunk
-        # block_idx es el índice del slice dentro del chunk
+        # Calcular tiempo absoluto correcto para cada slice
+        # absolute_start_time es el tiempo de inicio del bloque
+        # block_idx es el índice del slice en el archivo
         # block_size es el tamaño del slice (SLICE_LEN)
         # time_reso es la resolución temporal decimada
         time_start = absolute_start_time + block_idx * block_size * time_reso

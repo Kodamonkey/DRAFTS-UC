@@ -412,14 +412,6 @@ def get_obparams(file_name: str) -> None:
         print(f"📁 [DEBUG ARCHIVO]   - Datos originales: ~{size_original_gb:.2f} GB")
         print(f"📁 [DEBUG ARCHIVO]   - Datos después decimación: ~{size_decimated_gb:.2f} GB")
         
-        print(f"📁 [DEBUG ARCHIVO] CHUNKING:")
-        print(f"📁 [DEBUG ARCHIVO]   - Procesamiento por chunks: {'SÍ' if config.ENABLE_CHUNK_PROCESSING else 'NO'}")
-        print(f"📁 [DEBUG ARCHIVO]   - Límite muestras por chunk: {config.MAX_SAMPLES_LIMIT:,}")
-        if config.FILE_LENG > config.MAX_SAMPLES_LIMIT:
-            num_chunks = int(np.ceil(config.FILE_LENG / config.MAX_SAMPLES_LIMIT))
-            print(f"📁 [DEBUG ARCHIVO]   - Número de chunks estimado: {num_chunks}")
-        else:
-            print(f"📁 [DEBUG ARCHIVO]   - Archivo cabe en memoria: SÍ")
         
         print(f"📁 [DEBUG ARCHIVO] CONFIGURACIÓN DE SLICE:")
         print(f"📁 [DEBUG ARCHIVO]   - SLICE_DURATION_MS configurado: {config.SLICE_DURATION_MS} ms")
@@ -487,12 +479,6 @@ def get_obparams(file_name: str) -> None:
                 "time_resolution_after_decimation_sec": config.TIME_RESO * config.DOWN_TIME_RATE,
                 "total_reduction_factor": config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE
             },
-            "chunking": {
-                "chunk_processing_enabled": getattr(config, 'ENABLE_CHUNK_PROCESSING', True),
-                "max_samples_limit": config.MAX_SAMPLES_LIMIT,
-                "file_fits_in_memory": config.FILE_LENG <= config.MAX_SAMPLES_LIMIT,
-                "estimated_chunks": int(np.ceil(config.FILE_LENG / config.MAX_SAMPLES_LIMIT)) if config.FILE_LENG > config.MAX_SAMPLES_LIMIT else 1
-            },
             "slice_config": {
                 "slice_duration_ms_configured": config.SLICE_DURATION_MS,
                 "slice_len_calculated": round(config.SLICE_DURATION_MS / (config.TIME_RESO * config.DOWN_TIME_RATE * 1000)),
@@ -511,8 +497,7 @@ def get_obparams(file_name: str) -> None:
                 "total_duration_sec": config.FILE_LENG * config.TIME_RESO,
                 "total_duration_formatted": f"{(config.FILE_LENG * config.TIME_RESO) // 3600:.0f}h {((config.FILE_LENG * config.TIME_RESO) % 3600) // 60:.0f}m {(config.FILE_LENG * config.TIME_RESO) % 60:.1f}s",
                 "sample_rate_hz": 1.0 / config.TIME_RESO,
-                "effective_sample_rate_after_decimation_hz": 1.0 / (config.TIME_RESO * config.DOWN_TIME_RATE),
-                "temporal_continuity_note": "All chunks maintain temporal continuity - global timestamps preserved"
+                "effective_sample_rate_after_decimation_hz": 1.0 / (config.TIME_RESO * config.DOWN_TIME_RATE)
             }
         })
 

@@ -209,7 +209,15 @@ def get_obparams_fil(file_name: str) -> None:
     with open(file_name, "rb") as f:
         freq_axis_inverted = False
         header, hdr_len = _read_header(f)
-        
+
+        # extraer nchans, fch1 y foff y construir el eje de frecuencias
+        nchans = header.get("nchans", 512)                 
+        fch1   = header.get("fch1", None)                   
+        foff   = header.get("foff", None)                   
+        if fch1 is None or foff is None:                     
+            raise ValueError(f"Header inválido: faltan fch1={fch1} o foff={foff}") 
+        freq_temp = fch1 + foff * np.arange(nchans)        
+
         # DEBUG: Estructura del archivo filterbank
         if config.DEBUG_FREQUENCY_ORDER:
             print(f"📋 [DEBUG FILTERBANK] Estructura del archivo Filterbank:")

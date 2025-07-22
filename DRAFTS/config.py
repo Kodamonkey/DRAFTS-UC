@@ -45,7 +45,7 @@ FRB_TARGETS = ["3098_0001_00_8bit"]          # Lista de targets FRB a procesar -
 # Nota: FRB20180301_0002.fits parece estar corrupto - revisar archivo
 
 # --- Configuración de Slice Temporal (ESENCIAL) ---
-SLICE_DURATION_MS: float = 142.0             # Duración deseada de cada slice en milisegundos
+SLICE_DURATION_MS: float = 1000.0             # Duración deseada de cada slice en milisegundos
                                             # Ajustado para obtener todos los slices
                                             # El sistema calculará automáticamente SLICE_LEN según:
                                             # SLICE_LEN = round(SLICE_DURATION_MS / (TIME_RESO × DOWN_TIME_RATE × 1000))
@@ -104,6 +104,9 @@ SLICE_LEN: int = 512                        # Número de muestras por slice (cal
 DOWN_FREQ_RATE: int = 1                     # Factor de reducción en frecuencia
 DOWN_TIME_RATE: int = 1                     # Factor de reducción en tiempo
 DATA_NEEDS_REVERSAL: bool = False           # Invertir eje de frecuencia si es necesario
+
+# --- Límites de seguridad ---
+MAX_SAMPLES_LIMIT: int = 100_000_000        # Límite máximo de muestras para archivos .fil (100M)
 
 # --- Configuración de SNR y visualización (SIMPLIFICADA) ---
 # Solo configuraciones esenciales, las estéticas están en la sección de análisis arriba

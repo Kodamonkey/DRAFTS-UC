@@ -201,18 +201,356 @@ def _classify_patch(model, patch: np.ndarray) -> tuple[float, np.ndarray]:
         prob = out.softmax(dim=1)[0, 1].item()
     return prob, proc
 
+
+def _process_block(
+    det_model: torch.nn.Module,
+    cls_model: torch.nn.Module,
+    block: np.ndarray,
+    metadata: dict,
+    fits_path: Path,
+    save_dir: Path,
+    chunk_idx: int,
+) -> dict:
+    """Procesa un bloque de datos y retorna estadísticas del bloque."""
+    
+    # Configurar parámetros temporales para este bloque
+    original_file_leng = config.FILE_LENG
+    config.FILE_LENG = metadata["actual_chunk_size"]
+    
+    try:
+        # Aplicar downsampling al bloque
+        block = downsample_data(block)
+        
+        # Calcular parámetros para este bloque
+        freq_down = np.mean(
+            config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
+            axis=1,
+        )
+        
+        height = config.DM_max - config.DM_min + 1
+        width_total = config.FILE_LENG // config.DOWN_TIME_RATE
+        
+        # Calcular slice_len dinámicamente
+        slice_len, real_duration_ms = update_slice_len_dynamic()
+        time_slice = (width_total + slice_len - 1) // slice_len
+        
+        logger.info(f"🧩 Chunk {chunk_idx:03d}: {metadata['actual_chunk_size']} muestras → {time_slice} slices")
+        
+        # Generar DM-time cube
+        dm_time = d_dm_time_g(block, height=height, width=width_total)
+        
+        # Configurar bandas
+        band_configs = (
+            [
+                (0, "fullband", "Full Band"),
+                (1, "lowband", "Low Band"),
+                (2, "highband", "High Band"),
+            ]
+            if config.USE_MULTI_BAND
+            else [(0, "fullband", "Full Band")]
+        )
+        
+        # Procesar slices
+        cand_counter = 0
+        n_bursts = 0
+        n_no_bursts = 0
+        prob_max = 0.0
+        snr_list = []
+        
+        for j in range(time_slice):
+            slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
+            waterfall_block = block[j * slice_len : (j + 1) * slice_len]
+            
+            if slice_cube.size == 0 or waterfall_block.size == 0:
+                continue
+            
+            # Procesar cada banda
+            for band_idx, band_suffix, band_name in band_configs:
+                band_img = slice_cube[band_idx]
+                img_tensor = preprocess_img(band_img)
+                top_conf, top_boxes = _detect(det_model, img_tensor)
+                
+                if top_boxes is None:
+                    top_conf = []
+                    top_boxes = []
+                
+                # Procesar detecciones y generar visualizaciones
+                first_patch = None
+                first_start = None
+                first_dm = None
+                class_probs_list = []
+                
+                for conf, box in zip(top_conf, top_boxes):
+                    dm_val, t_sec, t_sample = pixel_to_physical(
+                        (box[0] + box[2]) / 2,
+                        (box[1] + box[3]) / 2,
+                        slice_len,
+                    )
+                    snr_val = compute_snr(band_img, tuple(map(int, box)))
+                    snr_list.append(snr_val)
+                    
+                    # Ajustar tiempo global considerando el chunk
+                    global_sample = metadata["start_sample"] + j * slice_len + int(t_sample)
+                    patch, start_sample = dedisperse_patch(
+                        block, freq_down, dm_val, global_sample
+                    )
+                    class_prob, proc_patch = _classify_patch(cls_model, patch)
+                    class_probs_list.append(class_prob)
+                    
+                    is_burst = class_prob >= config.CLASS_PROB
+                    cand_counter += 1
+                    if is_burst:
+                        n_bursts += 1
+                    else:
+                        n_no_bursts += 1
+                    prob_max = max(prob_max, float(conf))
+                    
+                    # Guardar primer patch para visualizaciones
+                    if first_patch is None:
+                        first_patch = proc_patch
+                        first_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+                        first_dm = dm_val
+                    
+                    # Crear candidato y escribir al CSV
+                    cand = Candidate(
+                        f"{fits_path.name}_chunk{chunk_idx:03d}",
+                        j,
+                        band_idx,
+                        float(conf),
+                        dm_val,
+                        t_sec,
+                        t_sample,
+                        tuple(map(int, box)),
+                        snr_val,
+                        class_prob,
+                        is_burst,
+                        f"patch_slice{j}_band{band_idx}_chunk{chunk_idx:03d}.png",
+                    )
+                    
+                    # Escribir al CSV
+                    csv_file = save_dir / f"{fits_path.stem}_chunk{chunk_idx:03d}.candidates.csv"
+                    _ensure_csv_header(csv_file)
+                    _write_candidate_to_csv(csv_file, cand)
+                    
+                    logger.info(
+                        f"🧩 Chunk {chunk_idx:03d} - Candidato DM {dm_val:.2f} t={t_sec:.3f}s conf={conf:.2f} class={class_prob:.2f} → {'BURST' if is_burst else 'no burst'}"
+                    )
+                
+                # Generar visualizaciones si hay detecciones
+                if len(top_conf) > 0:
+                    # Preparar directorios con sufijo de chunk
+                    chunk_suffix = f"_chunk{chunk_idx:03d}"
+                    
+                    # 1. Generar waterfall sin dedispersar
+                    waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / f"{fits_path.stem}{chunk_suffix}"
+                    waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    plot_waterfall_block(
+                        data_block=waterfall_block,
+                        freq=freq_down,
+                        time_reso=config.TIME_RESO * config.DOWN_TIME_RATE,
+                        block_size=waterfall_block.shape[0],
+                        block_idx=j,
+                        save_dir=waterfall_dispersion_dir,
+                        filename=f"{fits_path.stem}{chunk_suffix}",
+                        normalize=True,
+                        absolute_start_time=None,
+                    )
+                    
+                    # 2. Generar waterfall dedispersado
+                    if first_patch is not None:
+                        waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / f"{fits_path.stem}{chunk_suffix}"
+                        waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
+                        
+                        dedisp_block = dedisperse_block(block, freq_down, first_dm, j * slice_len, slice_len)
+                        
+                        if dedisp_block.size > 0:
+                            plot_waterfall_block(
+                                data_block=dedisp_block,
+                                freq=freq_down,
+                                time_reso=config.TIME_RESO * config.DOWN_TIME_RATE,
+                                block_size=dedisp_block.shape[0],
+                                block_idx=j,
+                                save_dir=waterfall_dedispersion_dir,
+                                filename=f"{fits_path.stem}{chunk_suffix}_dm{first_dm:.2f}_{band_suffix}",
+                                normalize=True,
+                                absolute_start_time=None,
+                            )
+                    
+                    # 3. Generar patch plot
+                    if first_patch is not None:
+                        patch_dir = save_dir / "Patches" / f"{fits_path.stem}{chunk_suffix}"
+                        patch_dir.mkdir(parents=True, exist_ok=True)
+                        patch_path = patch_dir / f"patch_slice{j}_band{band_idx}{chunk_suffix}.png"
+                        
+                        save_patch_plot(
+                            first_patch,
+                            patch_path,
+                            freq_down,
+                            config.TIME_RESO * config.DOWN_TIME_RATE,
+                            first_start,
+                            off_regions=None,
+                            thresh_snr=config.SNR_THRESH,
+                            band_idx=band_idx,
+                            band_name=band_name,
+                        )
+                    
+                    # 4. Generar composite
+                    composite_dir = save_dir / "Composite" / f"{fits_path.stem}{chunk_suffix}"
+                    composite_dir.mkdir(parents=True, exist_ok=True)
+                    comp_path = composite_dir / f"slice{j}_band{band_idx}{chunk_suffix}.png"
+                    
+                    img_rgb = postprocess_img(img_tensor)
+                    dedisp_block = dedisperse_block(block, freq_down, first_dm if first_dm is not None else 0.0, j * slice_len, slice_len) if first_dm is not None else None
+                    
+                    save_slice_summary(
+                        waterfall_block,
+                        dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,
+                        img_rgb,
+                        first_patch,
+                        first_start if first_start is not None else 0.0,
+                        first_dm if first_dm is not None else 0.0,
+                        top_conf,
+                        top_boxes,
+                        class_probs_list,
+                        comp_path,
+                        j,
+                        time_slice,
+                        band_name,
+                        band_suffix,
+                        f"{fits_path.stem}{chunk_suffix}",
+                        slice_len,
+                        normalize=True,
+                        off_regions=None,
+                        thresh_snr=config.SNR_THRESH,
+                        band_idx=band_idx,
+                    )
+                    
+                    # 5. Generar detecciones
+                    detections_dir = save_dir / "Detections" / f"{fits_path.stem}{chunk_suffix}"
+                    detections_dir.mkdir(parents=True, exist_ok=True)
+                    out_img_path = detections_dir / f"slice{j}_{band_suffix}{chunk_suffix}.png"
+                    
+                    save_plot(
+                        img_rgb,
+                        top_conf,
+                        top_boxes,
+                        class_probs_list,
+                        out_img_path,
+                        j,
+                        time_slice,
+                        band_name,
+                        band_suffix,
+                        f"{fits_path.stem}{chunk_suffix}",
+                        slice_len,
+                        band_idx=band_idx,
+                    )
+        
+        return {
+            "n_candidates": cand_counter,
+            "n_bursts": n_bursts,
+            "n_no_bursts": n_no_bursts,
+            "max_prob": prob_max,
+            "mean_snr": float(np.mean(snr_list)) if snr_list else 0.0,
+            "time_slice": time_slice,
+        }
+        
+    finally:
+        # Restaurar configuración original
+        config.FILE_LENG = original_file_leng
+
+
+def _process_file_chunked(
+    det_model: torch.nn.Module,
+    cls_model: torch.nn.Module,
+    fits_path: Path,
+    save_dir: Path,
+    chunk_samples: int,
+) -> dict:
+    """Procesa un archivo .fil en bloques usando stream_fil."""
+    
+    import gc
+    from .filterbank_io import stream_fil
+    
+    t_start = time.time()
+    cand_counter_total = 0
+    n_bursts_total = 0
+    n_no_bursts_total = 0
+    prob_max_total = 0.0
+    snr_list_total = []
+    
+    try:
+        # Procesar cada bloque
+        for block, metadata in stream_fil(str(fits_path), chunk_samples):
+            logger.info(f"🧩 Procesando chunk {metadata['chunk_idx']:03d} "
+                       f"({metadata['start_sample']:,} - {metadata['end_sample']:,})")
+            
+            # Procesar bloque
+            block_results = _process_block(
+                det_model, cls_model, block, metadata, 
+                fits_path, save_dir, metadata['chunk_idx']
+            )
+            
+            # Acumular resultados
+            cand_counter_total += block_results["n_candidates"]
+            n_bursts_total += block_results["n_bursts"]
+            n_no_bursts_total += block_results["n_no_bursts"]
+            prob_max_total = max(prob_max_total, block_results["max_prob"])
+            
+            # Limpiar memoria
+            del block
+            gc.collect()
+            if torch is not None and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        
+        runtime = time.time() - t_start
+        logger.info(
+            f"🧩 Archivo completado: {cand_counter_total} candidatos, "
+            f"max prob {prob_max_total:.2f}, ⏱️ {runtime:.1f}s"
+        )
+        
+        return {
+            "n_candidates": cand_counter_total,
+            "n_bursts": n_bursts_total,
+            "n_no_bursts": n_no_bursts_total,
+            "runtime_s": runtime,
+            "max_prob": prob_max_total,
+            "mean_snr": float(np.mean(snr_list_total)) if snr_list_total else 0.0,
+            "status": "completed_chunked"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error procesando archivo por bloques: {e}")
+        return {
+            "n_candidates": 0,
+            "n_bursts": 0,
+            "n_no_bursts": 0,
+            "runtime_s": time.time() - t_start,
+            "max_prob": 0.0,
+            "mean_snr": 0.0,
+            "status": "ERROR_CHUNKED"
+        }
+
 def _process_file(
     det_model: torch.nn.Module,
     cls_model: torch.nn.Module,
     fits_path: Path,
     save_dir: Path,
+    chunk_samples: int = 0,
 ) -> dict:
     """Process a single FITS file and return summary information."""
 
     t_start = time.time()
     logger.info("Procesando %s", fits_path.name)
 
-
+    # Determinar si usar procesamiento por bloques
+    use_chunking = chunk_samples > 0 and fits_path.suffix.lower() == ".fil"
+    
+    if use_chunking:
+        logger.info("🧩 Procesando archivo .fil en bloques de %d muestras", chunk_samples)
+        return _process_file_chunked(det_model, cls_model, fits_path, save_dir, chunk_samples)
+    
+    # Procesamiento normal (modo antiguo)
     try:
         if fits_path.suffix.lower() == ".fits":
             data = load_fits_file(str(fits_path))
@@ -586,13 +924,21 @@ def _process_file(
         "mean_snr": float(np.mean(snr_list)) if snr_list else 0.0,
     }
 
-def run_pipeline() -> None:
-    """Run the full FRB detection pipeline."""
+def run_pipeline(chunk_samples: int = 0) -> None:
+    """Run the full FRB detection pipeline.
+    
+    Args:
+        chunk_samples: Número de muestras por bloque para archivos .fil (0 = modo antiguo)
+    """
 
     print("=== INICIANDO PIPELINE DE DETECCIÓN DE FRB ===")
     print(f"Directorio de datos: {config.DATA_DIR}")
     print(f"Directorio de resultados: {config.RESULTS_DIR}")
     print(f"Targets FRB: {config.FRB_TARGETS}")
+    if chunk_samples > 0:
+        print(f"🧩 Modo chunking habilitado: {chunk_samples:,} muestras por bloque")
+    else:
+        print("📁 Modo normal: carga completa en memoria")
     
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
@@ -630,7 +976,7 @@ def run_pipeline() -> None:
         for fits_path in file_list:
             try:
                 print(f"Procesando archivo: {fits_path.name}")
-                results = _process_file(det_model, cls_model, fits_path, save_dir)
+                results = _process_file(det_model, cls_model, fits_path, save_dir, chunk_samples)
                 summary[fits_path.name] = results
                 
                 # *** GUARDAR RESULTADOS INMEDIATAMENTE EN SUMMARY.JSON ***
@@ -683,6 +1029,8 @@ if __name__ == "__main__":
     parser.add_argument("--results-dir", type=Path, help="Directory for results")
     parser.add_argument("--det-model", type=Path, help="Detection model path")
     parser.add_argument("--class-model", type=Path, help="Classification model path")
+    parser.add_argument("--chunk-samples", type=int, default=0, 
+                       help="Número de muestras por bloque para archivos .fil (0 = modo antiguo)")
     args = parser.parse_args()
 
     if args.data_dir:
@@ -694,4 +1042,4 @@ if __name__ == "__main__":
     if args.class_model:
         config.CLASS_MODEL_PATH = args.class_model
 
-    run_pipeline()
+    run_pipeline(chunk_samples=args.chunk_samples)

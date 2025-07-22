@@ -301,8 +301,26 @@ CONFIGURACIONES ESENCIALES QUE NO SE DEBEN ELIMINAR:
 - DM_min, DM_max (rango de dispersión)
 - DET_PROB, CLASS_PROB, SNR_THRESH (umbrales de detección)
 - USE_MULTI_BAND
-- MODEL_NAME, MODEL_PATH, CLASS_MODEL_NAME, CLASS_MODEL_PATH
+ - MODEL_NAME, MODEL_PATH, CLASS_MODEL_NAME, CLASS_MODEL_PATH
  - DEBUG_FREQUENCY_ORDER
 """
+
+# =============================================================================
+# CONFIGURACIÓN DE GENERACIÓN DE PLOTS
+# =============================================================================
+
+# Si ``PLOT_CONTROL_DEFAULT`` es ``True`` se mantiene el comportamiento
+# estándar de generar los distintos plots únicamente cuando se detecta un
+# candidato.  Al ponerlo en ``False`` se activan los switches individuales para
+# controlar qué visualizaciones se generan independientemente de que haya o no
+# candidatos detectados.
+
+PLOT_CONTROL_DEFAULT: bool = True
+
+PLOT_WATERFALL_DISPERSION: bool = False      # Waterfalls dispersados
+PLOT_WATERFALL_DEDISPERSION: bool = False    # Waterfalls de-dispersados
+PLOT_COMPOSITE: bool = False                 # Figura composite por slice
+PLOT_DETECTION_DM_TIME: bool = False         # Plots de detección DM-tiempo
+PLOT_PATCH_CANDIDATE: bool = False           # Patch del candidato clasificado
 
 # =============================================================================

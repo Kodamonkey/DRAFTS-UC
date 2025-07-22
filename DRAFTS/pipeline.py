@@ -350,8 +350,36 @@ def _process_block(
                         f"🧩 Chunk {chunk_idx:03d} - Candidato DM {dm_val:.2f} t={absolute_candidate_time:.3f}s (chunk: {t_sec:.3f}s) conf={conf:.2f} class={class_prob:.2f} → {'BURST' if is_burst else 'no burst'}"
                     )
                 
-                # Generar visualizaciones si hay detecciones
-                if len(top_conf) > 0:
+                # Determinar qué visualizaciones generar
+                custom_mode = not config.PLOT_CONTROL_DEFAULT
+                plot_wf_disp = (
+                    (not custom_mode and len(top_conf) > 0)
+                    or (custom_mode and config.PLOT_WATERFALL_DISPERSION)
+                )
+                plot_wf_dedisp = (
+                    first_patch is not None
+                    and (
+                        (not custom_mode and len(top_conf) > 0)
+                        or (custom_mode and config.PLOT_WATERFALL_DEDISPERSION)
+                    )
+                )
+                plot_patch = (
+                    first_patch is not None
+                    and (
+                        (not custom_mode and len(top_conf) > 0)
+                        or (custom_mode and config.PLOT_PATCH_CANDIDATE)
+                    )
+                )
+                plot_comp = (
+                    (not custom_mode and len(top_conf) > 0)
+                    or (custom_mode and config.PLOT_COMPOSITE)
+                )
+                plot_det = (
+                    (not custom_mode and len(top_conf) > 0)
+                    or (custom_mode and config.PLOT_DETECTION_DM_TIME)
+                )
+
+                if any([plot_wf_disp, plot_wf_dedisp, plot_patch, plot_comp, plot_det]):
                     # Preparar directorios con sufijo de chunk
                     chunk_suffix = f"_chunk{chunk_idx:03d}"
                     
@@ -368,16 +396,16 @@ def _process_block(
                         save_dir=waterfall_dispersion_dir,
                         filename=f"{fits_path.stem}{chunk_suffix}",
                         normalize=True,
-                        absolute_start_time=slice_start_time_sec,  # 🕐 Tiempo absoluto
+                        absolute_start_time=None,
                     )
                     
                     # 2. Generar waterfall dedispersado
-                    if first_patch is not None:
+                    if plot_wf_dedisp:
                         waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / f"{fits_path.stem}{chunk_suffix}"
                         waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
-                        
+
                         dedisp_block = dedisperse_block(block, freq_down, first_dm, j * slice_len, slice_len)
-                        
+
                         if dedisp_block.size > 0:
                             plot_waterfall_block(
                                 data_block=dedisp_block,
@@ -390,15 +418,12 @@ def _process_block(
                                 normalize=True,
                                 absolute_start_time=slice_start_time_sec,  # 🕐 Tiempo absoluto
                             )
-                    
+
                     # 3. Generar patch plot
-                    if first_patch is not None:
+                    if plot_patch:
                         patch_dir = save_dir / "Patches" / f"{fits_path.stem}{chunk_suffix}"
                         patch_dir.mkdir(parents=True, exist_ok=True)
                         patch_path = patch_dir / f"patch_slice{j}_band{band_idx}{chunk_suffix}.png"
-                        
-                        # 🕐 Ajustar tiempo del patch al tiempo absoluto del archivo
-                        absolute_patch_start = slice_start_time_sec + first_start
                         
                         save_patch_plot(
                             first_patch,
@@ -411,7 +436,7 @@ def _process_block(
                             band_idx=band_idx,
                             band_name=band_name,
                         )
-                    
+
                     # 4. Generar composite
                     composite_dir = save_dir / "Composite" / f"{fits_path.stem}{chunk_suffix}"
                     composite_dir.mkdir(parents=True, exist_ok=True)
@@ -425,7 +450,7 @@ def _process_block(
                         dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,
                         img_rgb,
                         first_patch,
-                        absolute_patch_start if first_patch is not None else slice_start_time_sec,  # 🕐 Tiempo absoluto
+                        first_start if first_start is not None else 0.0,
                         first_dm if first_dm is not None else 0.0,
                         top_conf,
                         top_boxes,
@@ -444,24 +469,27 @@ def _process_block(
                     )
                     
                     # 5. Generar detecciones
-                    detections_dir = save_dir / "Detections" / f"{fits_path.stem}{chunk_suffix}"
-                    detections_dir.mkdir(parents=True, exist_ok=True)
-                    out_img_path = detections_dir / f"slice{j}_{band_suffix}{chunk_suffix}.png"
-                    
-                    save_plot(
-                        img_rgb,
-                        top_conf,
-                        top_boxes,
-                        class_probs_list,
-                        out_img_path,
-                        j,
-                        time_slice,
-                        band_name,
-                        band_suffix,
-                        f"{fits_path.stem}{chunk_suffix}",
-                        slice_len,
-                        band_idx=band_idx,
-                    )
+                    if plot_det:
+                        detections_dir = save_dir / "Detections" / f"{fits_path.stem}{chunk_suffix}"
+                        detections_dir.mkdir(parents=True, exist_ok=True)
+                        out_img_path = detections_dir / f"slice{j}_{band_suffix}{chunk_suffix}.png"
+
+                        img_rgb = postprocess_img(img_tensor) if not plot_comp else img_rgb
+
+                        save_plot(
+                            img_rgb,
+                            top_conf,
+                            top_boxes,
+                            class_probs_list,
+                            out_img_path,
+                            j,
+                            time_slice,
+                            band_name,
+                            band_suffix,
+                            f"{fits_path.stem}{chunk_suffix}",
+                            slice_len,
+                            band_idx=band_idx,
+                        )
         
         return {
             "n_candidates": cand_counter,
@@ -686,19 +714,21 @@ def _process_file(
         
         
         # 2) Generar waterfall sin dedispersar para este slice
-        waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
-        if waterfall_block.size > 0:
-            plot_waterfall_block(
-                data_block=waterfall_block,
-                freq=freq_ds,
-                time_reso=time_reso_ds,
-                block_size=waterfall_block.shape[0],
-                block_idx=j,
-                save_dir=waterfall_dispersion_dir,
-                filename=fits_path.stem,
-                normalize=True,
-                absolute_start_time=None,  # 🕐 Usar tiempo relativo para procesamiento estándar
-            )
+        custom_mode = not config.PLOT_CONTROL_DEFAULT
+        if (not custom_mode) or config.PLOT_WATERFALL_DISPERSION:
+            waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
+            if waterfall_block.size > 0:
+                plot_waterfall_block(
+                    data_block=waterfall_block,
+                    freq=freq_ds,
+                    time_reso=time_reso_ds,
+                    block_size=waterfall_block.shape[0],
+                    block_idx=j,
+                    save_dir=waterfall_dispersion_dir,
+                    filename=fits_path.stem,
+                    normalize=True,
+                    absolute_start_time=None,
+                )
 
         # Recopilar información de todas las bandas primero
         band_results = []
@@ -812,9 +842,23 @@ def _process_file(
             first_dm = band_result['first_dm']
             patch_path = band_result['patch_path']
 
-            
-            # Solo generar visualizaciones complejas si AL MENOS UNA banda en este slice tiene candidatos
-            if slice_has_candidates:
+            custom_mode = not config.PLOT_CONTROL_DEFAULT
+            plot_wf_dedisp = (
+                (slice_has_candidates and not custom_mode) or (custom_mode and config.PLOT_WATERFALL_DEDISPERSION)
+            )
+            plot_patch = (
+                first_patch is not None
+                and (
+                    (slice_has_candidates and not custom_mode)
+                    or (custom_mode and config.PLOT_PATCH_CANDIDATE)
+                )
+            )
+            plot_comp = (
+                (slice_has_candidates and not custom_mode) or (custom_mode and config.PLOT_COMPOSITE)
+            )
+            plot_det = (not custom_mode) or config.PLOT_DETECTION_DM_TIME
+
+            if plot_wf_dedisp or plot_patch or plot_comp:
                 # Preparar valores por defecto para casos sin detecciones en esta banda específica
                 dedisp_block = None
                 if first_patch is not None:
@@ -829,7 +873,7 @@ def _process_file(
                     dedisp_block = dedisperse_block(data, freq_down, first_dm, start, slice_len)
                     
                 
-                if dedisp_block is not None and dedisp_block.size > 0:
+                if plot_wf_dedisp and dedisp_block is not None and dedisp_block.size > 0:
                     plot_waterfall_block(
                         data_block=dedisp_block,
                         freq=freq_down,
@@ -842,7 +886,7 @@ def _process_file(
                         absolute_start_time=None,  # 🕐 Usar tiempo relativo para procesamiento estándar
                     )
 
-                if first_patch is not None:
+                if plot_patch:
                     save_patch_plot(
                         first_patch,
                         patch_path,
@@ -854,7 +898,7 @@ def _process_file(
                         band_idx=band_idx,  # Pasar el índice de la banda
                         band_name=band_name,  # Pasar el nombre de la banda
                     )
-                else:
+                elif plot_wf_dedisp:
                     # Para bandas sin detecciones, crear un parche dummy
                     waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
                     start = j * slice_len
@@ -867,7 +911,7 @@ def _process_file(
                     # Usar DM=0 para banda sin detecciones
                     dedisp_block = dedisperse_block(data, freq_down, 0.0, start, slice_len)
                     
-                    if dedisp_block.size > 0:
+                    if plot_wf_dedisp and dedisp_block.size > 0:
                         plot_waterfall_block(
                             data_block=dedisp_block,
                             freq=freq_down,
@@ -880,10 +924,11 @@ def _process_file(
                             absolute_start_time=None,  # 🕐 Usar tiempo relativo para procesamiento estándar
                         )
 
-                # 1) Generar composite - SIEMPRE para comparativas si hay candidatos en este slice
+            if plot_comp:
+                # 1) Generar composite
                 composite_dir = save_dir / "Composite" / fits_path.stem
                 comp_path = composite_dir / f"slice{j}_band{band_idx}.png"
-                
+
                 # DEBUG: Verificar datos antes de save_slice_summary
                 if config.DEBUG_FREQUENCY_ORDER:
                     print(f"🔍 [DEBUG PIPELINE] Slice {j}, Band {band_idx}")
@@ -901,14 +946,14 @@ def _process_file(
                 
                 save_slice_summary(
                     waterfall_block,
-                    dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,  # fallback a waterfall original
+                    dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,
                     img_rgb,
                     first_patch,
                     first_start if first_start is not None else 0.0,
                     first_dm if first_dm is not None else 0.0,
                     top_conf if len(top_conf) > 0 else [],
                     top_boxes if len(top_boxes) > 0 else [],
-                    class_probs_list, 
+                    class_probs_list,
                     comp_path,
                     j,
                     time_slice,
@@ -917,12 +962,12 @@ def _process_file(
                     fits_path.stem,
                     slice_len,
                     normalize=True,
-                    off_regions=None,  # Use IQR method
+                    off_regions=None,
                     thresh_snr=config.SNR_THRESH,
-                    band_idx=band_idx,  # Pasar el índice de la banda
-                    )
+                    band_idx=band_idx,
+                )
 
-                # 4) Generar detecciones de Bow ties (detections) - SIEMPRE
+            if plot_det:
                 detections_dir = save_dir / "Detections" / fits_path.stem
                 detections_dir.mkdir(parents=True, exist_ok=True)
                 out_img_path = detections_dir / f"slice{j}_{band_suffix}.png"
@@ -930,7 +975,7 @@ def _process_file(
                     img_rgb,
                     top_conf if len(top_conf) > 0 else [],
                     top_boxes if len(top_boxes) > 0 else [],
-                    class_probs_list,   
+                    class_probs_list,
                     out_img_path,
                     j,
                     time_slice,
@@ -938,7 +983,7 @@ def _process_file(
                     band_suffix,
                     fits_path.stem,
                     slice_len,
-                    band_idx=band_idx,  # Pasar el índice de la banda
+                    band_idx=band_idx,
                 )
 
     runtime = time.time() - t_start

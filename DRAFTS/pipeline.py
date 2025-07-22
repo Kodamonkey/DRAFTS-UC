@@ -217,6 +217,14 @@ def _process_block(
     original_file_leng = config.FILE_LENG
     config.FILE_LENG = metadata["actual_chunk_size"]
     
+    # 🕐 CALCULAR TIEMPO ABSOLUTO DESDE INICIO DEL ARCHIVO
+    # Tiempo de inicio del chunk en segundos desde el inicio del archivo
+    chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO
+    chunk_duration_sec = metadata["actual_chunk_size"] * config.TIME_RESO
+    
+    logger.info(f"🕐 Chunk {chunk_idx:03d}: Tiempo {chunk_start_time_sec:.2f}s - {chunk_start_time_sec + chunk_duration_sec:.2f}s "
+               f"(duración: {chunk_duration_sec:.2f}s)")
+    
     try:
         # Aplicar downsampling al bloque
         block = downsample_data(block)
@@ -311,6 +319,9 @@ def _process_block(
                         first_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
                         first_dm = dm_val
                     
+                    # 🕐 Calcular tiempo absoluto del candidato
+                    absolute_candidate_time = slice_start_time_sec + t_sec
+                    
                     # Crear candidato y escribir al CSV
                     cand = Candidate(
                         f"{fits_path.name}_chunk{chunk_idx:03d}",
@@ -318,7 +329,7 @@ def _process_block(
                         band_idx,
                         float(conf),
                         dm_val,
-                        t_sec,
+                        absolute_candidate_time,  # 🕐 Tiempo absoluto desde inicio del archivo
                         t_sample,
                         tuple(map(int, box)),
                         snr_val,
@@ -333,13 +344,16 @@ def _process_block(
                     _write_candidate_to_csv(csv_file, cand)
                     
                     logger.info(
-                        f"🧩 Chunk {chunk_idx:03d} - Candidato DM {dm_val:.2f} t={t_sec:.3f}s conf={conf:.2f} class={class_prob:.2f} → {'BURST' if is_burst else 'no burst'}"
+                        f"🧩 Chunk {chunk_idx:03d} - Candidato DM {dm_val:.2f} t={absolute_candidate_time:.3f}s (chunk: {t_sec:.3f}s) conf={conf:.2f} class={class_prob:.2f} → {'BURST' if is_burst else 'no burst'}"
                     )
                 
                 # Generar visualizaciones si hay detecciones
                 if len(top_conf) > 0:
                     # Preparar directorios con sufijo de chunk
                     chunk_suffix = f"_chunk{chunk_idx:03d}"
+                    
+                    # 🕐 Calcular tiempo absoluto para este slice específico
+                    slice_start_time_sec = chunk_start_time_sec + (j * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE)
                     
                     # 1. Generar waterfall sin dedispersar
                     waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / f"{fits_path.stem}{chunk_suffix}"
@@ -354,7 +368,7 @@ def _process_block(
                         save_dir=waterfall_dispersion_dir,
                         filename=f"{fits_path.stem}{chunk_suffix}",
                         normalize=True,
-                        absolute_start_time=None,
+                        absolute_start_time=slice_start_time_sec,  # 🕐 Tiempo absoluto
                     )
                     
                     # 2. Generar waterfall dedispersado
@@ -374,7 +388,7 @@ def _process_block(
                                 save_dir=waterfall_dedispersion_dir,
                                 filename=f"{fits_path.stem}{chunk_suffix}_dm{first_dm:.2f}_{band_suffix}",
                                 normalize=True,
-                                absolute_start_time=None,
+                                absolute_start_time=slice_start_time_sec,  # 🕐 Tiempo absoluto
                             )
                     
                     # 3. Generar patch plot
@@ -383,12 +397,15 @@ def _process_block(
                         patch_dir.mkdir(parents=True, exist_ok=True)
                         patch_path = patch_dir / f"patch_slice{j}_band{band_idx}{chunk_suffix}.png"
                         
+                        # 🕐 Ajustar tiempo del patch al tiempo absoluto del archivo
+                        absolute_patch_start = slice_start_time_sec + first_start
+                        
                         save_patch_plot(
                             first_patch,
                             patch_path,
                             freq_down,
                             config.TIME_RESO * config.DOWN_TIME_RATE,
-                            first_start,
+                            absolute_patch_start,  # 🕐 Tiempo absoluto
                             off_regions=None,
                             thresh_snr=config.SNR_THRESH,
                             band_idx=band_idx,
@@ -408,7 +425,7 @@ def _process_block(
                         dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,
                         img_rgb,
                         first_patch,
-                        first_start if first_start is not None else 0.0,
+                        absolute_patch_start if first_patch is not None else slice_start_time_sec,  # 🕐 Tiempo absoluto
                         first_dm if first_dm is not None else 0.0,
                         top_conf,
                         top_boxes,

@@ -272,6 +272,9 @@ def _process_block(
             if slice_cube.size == 0 or waterfall_block.size == 0:
                 continue
             
+            # 🕐 Calcular tiempo absoluto para este slice específico (FUERA del bucle de bandas)
+            slice_start_time_sec = chunk_start_time_sec + (j * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE)
+            
             # Procesar cada banda
             for band_idx, band_suffix, band_name in band_configs:
                 band_img = slice_cube[band_idx]
@@ -351,9 +354,6 @@ def _process_block(
                 if len(top_conf) > 0:
                     # Preparar directorios con sufijo de chunk
                     chunk_suffix = f"_chunk{chunk_idx:03d}"
-                    
-                    # 🕐 Calcular tiempo absoluto para este slice específico
-                    slice_start_time_sec = chunk_start_time_sec + (j * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE)
                     
                     # 1. Generar waterfall sin dedispersar
                     waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / f"{fits_path.stem}{chunk_suffix}"
@@ -489,16 +489,34 @@ def _process_file_chunked(
     import gc
     from .filterbank_io import stream_fil
     
+    # 📊 CALCULAR INFORMACIÓN DEL ARCHIVO DE MANERA EFICIENTE
+    logger.info(f"📁 Analizando estructura del archivo: {fits_path.name}")
+    
+    # Calcular información basada en config.FILE_LENG (ya cargado por get_obparams_fil)
+    total_samples = config.FILE_LENG
+    chunk_count = (total_samples + chunk_samples - 1) // chunk_samples  # Redondear hacia arriba
+    total_duration_sec = total_samples * config.TIME_RESO
+    chunk_duration_sec = chunk_samples * config.TIME_RESO
+    
+    logger.info(f"📊 RESUMEN DEL ARCHIVO:")
+    logger.info(f"   🧩 Total de chunks estimado: {chunk_count}")
+    logger.info(f"   📊 Muestras totales: {total_samples:,}")
+    logger.info(f"   🕐 Duración total: {total_duration_sec:.2f} segundos ({total_duration_sec/60:.1f} minutos)")
+    logger.info(f"   📦 Tamaño de chunk: {chunk_samples:,} muestras ({chunk_duration_sec:.2f}s)")
+    logger.info(f"   🔄 Iniciando procesamiento...")
+    
     t_start = time.time()
     cand_counter_total = 0
     n_bursts_total = 0
     n_no_bursts_total = 0
     prob_max_total = 0.0
     snr_list_total = []
+    actual_chunk_count = 0
     
     try:
-        # Procesar cada bloque
+        # Procesar cada bloque (UNA SOLA PASADA)
         for block, metadata in stream_fil(str(fits_path), chunk_samples):
+            actual_chunk_count += 1
             logger.info(f"🧩 Procesando chunk {metadata['chunk_idx']:03d} "
                        f"({metadata['start_sample']:,} - {metadata['end_sample']:,})")
             
@@ -522,8 +540,8 @@ def _process_file_chunked(
         
         runtime = time.time() - t_start
         logger.info(
-            f"🧩 Archivo completado: {cand_counter_total} candidatos, "
-            f"max prob {prob_max_total:.2f}, ⏱️ {runtime:.1f}s"
+            f"🧩 Archivo completado: {actual_chunk_count} chunks procesados, "
+            f"{cand_counter_total} candidatos, max prob {prob_max_total:.2f}, ⏱️ {runtime:.1f}s"
         )
         
         return {

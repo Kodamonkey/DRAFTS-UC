@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import os
 import struct
+import gc
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Generator, Dict, Type
 
 import numpy as np
 
@@ -118,34 +119,134 @@ def _read_non_standard_header(f) -> Tuple[dict, int]:
     return header, 512
 
 
-def load_fil_file(file_name: str) -> np.ndarray:
-    """Load a filterbank file and return the data array in shape (time, pol, channel)."""
-    global_vars = config
-    data_array = None
+def stream_fil(file_name: str, chunk_samples: int = 2_097_152) -> Generator[Tuple[np.ndarray, Dict], None, None]:
+    """
+    Generador que lee un archivo .fil en bloques sin cargar todo en RAM.
+    
+    Args:
+        file_name: Ruta al archivo .fil
+        chunk_samples: Número de muestras por bloque (default: 2M)
+    
+    Yields:
+        Tuple[data_block, metadata]: Bloque de datos (time, pol, chan) y metadatos
+    """
+    # Mapeo de tipos de datos
+    dtype_map: Dict[int, Type] = {
+        8: np.uint8,
+        16: np.int16,
+        32: np.float32,
+        64: np.float64
+    }
     
     try:
+        # Leer header
         with open(file_name, "rb") as f:
             header, hdr_len = _read_header(f)
-
+        
         nchans = header.get("nchans", 512)
         nifs = header.get("nifs", 1)
         nbits = header.get("nbits", 8)
         nsamples = header.get("nsamples")
         
+        # Calcular nsamples si falta
         if nsamples is None:
             bytes_per_sample = nifs * nchans * (nbits // 8)
             file_size = os.path.getsize(file_name) - hdr_len
             nsamples = file_size // bytes_per_sample if bytes_per_sample > 0 else 1000
-
-            dtype = np.int16
-        elif nbits == 32:
-            dtype = np.float32
-        elif nbits == 64:
-            dtype = np.float64
-            
-        print(f"[INFO] Cargando datos: {nsamples} muestras, {nchans} canales, tipo {dtype}")
         
-        # Memory-map the data
+        dtype = dtype_map.get(nbits, np.uint8)
+        
+        print(f"[INFO] Streaming datos: {nsamples} muestras totales, "
+              f"{nchans} canales, tipo {dtype}, chunk_size={chunk_samples}")
+        
+        # Crear memmap para acceso eficiente
+        data_mmap = np.memmap(
+            file_name,
+            dtype=dtype,
+            mode="r",
+            offset=hdr_len,
+            shape=(nsamples, nifs, nchans),
+        )
+        
+        # Procesar en bloques
+        for chunk_idx in range(0, nsamples, chunk_samples):
+            end_sample = min(chunk_idx + chunk_samples, nsamples)
+            actual_chunk_size = end_sample - chunk_idx
+            
+            # Leer bloque actual
+            block = data_mmap[chunk_idx:end_sample].copy()  # Copia solo este bloque
+            
+            # Aplicar reversión de frecuencia si es necesario
+            if config.DATA_NEEDS_REVERSAL:
+                block = np.ascontiguousarray(block[:, :, ::-1])
+            
+            # Convertir a float32 para consistencia
+            if block.dtype != np.float32:
+                block = block.astype(np.float32)
+            
+            # Metadatos del bloque
+            metadata = {
+                "chunk_idx": chunk_idx // chunk_samples,
+                "start_sample": chunk_idx,
+                "end_sample": end_sample,
+                "actual_chunk_size": actual_chunk_size,
+                "total_samples": nsamples,
+                "nchans": nchans,
+                "nifs": nifs,
+                "dtype": str(block.dtype),
+                "shape": block.shape
+            }
+            
+            yield block, metadata
+            
+            # Limpiar memoria
+            del block
+            gc.collect()
+        
+        # Limpiar memmap
+        del data_mmap
+        gc.collect()
+        
+    except Exception as e:
+        print(f"[ERROR] Error en stream_fil: {e}")
+        raise ValueError(f"No se pudo leer el archivo {file_name}") from e
+
+
+def load_fil_file(file_name: str) -> np.ndarray:
+    """
+    Carga un archivo SIGPROC Filterbank (.fil) y devuelve un array
+    con forma (time, pol, channel) en float32.
+    """
+    global_vars = config
+    data_array = None
+
+    try:
+        # ────────────────────── 1. LEER HEADER ───────────────────────────
+        with open(file_name, "rb") as f:
+            header, hdr_len = _read_header(f)
+
+        nchans   = header.get("nchans", 512)
+        nifs     = header.get("nifs",   1)
+        nbits    = header.get("nbits",  8)
+        nsamples = header.get("nsamples")
+
+        # ───── 2. ELEGIR dtype CORRECTO  (Reparo A) ───────────────────────
+        dtype_map = {8:  np.uint8,
+                     16: np.int16,
+                     32: np.float32,
+                     64: np.float64}
+        dtype = dtype_map.get(nbits, np.uint8)
+
+        # ───── 3. CALCULAR nsamples si falta en header ────────────────────
+        if nsamples is None:
+            bytes_per_sample = nifs * nchans * (nbits // 8)
+            file_size = os.path.getsize(file_name) - hdr_len
+            nsamples  = file_size // bytes_per_sample if bytes_per_sample > 0 else 1000
+
+        print(f"[INFO] Cargando datos: {nsamples} muestras, "
+              f"{nchans} canales, tipo {dtype}")
+
+        # ────────────────────── 4. MEMMAP + COPIA ────────────────────────
         try:
             data = np.memmap(
                 file_name,
@@ -154,10 +255,10 @@ def load_fil_file(file_name: str) -> np.ndarray:
                 offset=hdr_len,
                 shape=(nsamples, nifs, nchans),
             )
-            data_array = np.array(data)
+            data_array = np.array(data)        # ⚠️ copia completa a RAM
         except ValueError as e:
             print(f"[WARNING] Error creating memmap: {e}")
-            safe_samples = min(nsamples, 10000)
+            safe_samples = min(nsamples, 10_000)
             data = np.memmap(
                 file_name,
                 dtype=dtype,
@@ -166,20 +267,22 @@ def load_fil_file(file_name: str) -> np.ndarray:
                 shape=(safe_samples, nifs, nchans),
             )
             data_array = np.array(data)
-            
+
     except Exception as e:
         print(f"[Error cargando FIL] {e}")
         try:
-            # Fallback to synthetic data
-            data_array = np.random.rand(1000, 1, 512).astype(np.float32)
+            # Fallback sintético
+            data_array = np.random.rand(1_000, 1, 512).astype(np.float32)
         except Exception:
             raise ValueError(f"No se pudieron cargar los datos de {file_name}")
-            
+
     if data_array is None:
         raise ValueError(f"No se pudieron cargar los datos de {file_name}")
 
+    # ────────────────────── 5. INVERSIÓN FREQ OPCIONAL ───────────────────
     if global_vars.DATA_NEEDS_REVERSAL:
-        print(f">> Invirtiendo eje de frecuencia de los datos cargados para {file_name}")
+        print(f">> Invirtiendo eje de frecuencia de los datos cargados "
+              f"para {file_name}")
         data_array = np.ascontiguousarray(data_array[:, :, ::-1])
     
     # DEBUG: Información de los datos cargados

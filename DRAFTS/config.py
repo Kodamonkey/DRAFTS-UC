@@ -39,7 +39,7 @@ DATA_DIR = Path("./Data")                        # Directorio con archivos de en
 RESULTS_DIR = Path("./Results/ObjectDetection")  # Directorio para guardar resultados
 # --- Lista de targets optimizada para múltiples archivos ---
 
-FRB_TARGETS = ["3098_0001_00_8bit"]          # Lista de targets FRB a procesar - Reducida para pruebas
+FRB_TARGETS = ["3100_0001_00_8bit"]          # Lista de targets FRB a procesar - Reducida para pruebas
 
 # Para procesar todos: ["FRB20201124_0009", "FRB20180301_0002", "B0355+54_FB_20220918"]
 # Nota: FRB20180301_0002.fits parece estar corrupto - revisar archivo

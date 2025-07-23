@@ -695,3 +695,5 @@ if __name__ == "__main__":
         config.CLASS_MODEL_PATH = args.class_model
 
     run_pipeline()
+    
+    

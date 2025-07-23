@@ -33,12 +33,12 @@ except ImportError:  # Si torch no está instalado, lo dejamos como None
 # controlar qué visualizaciones se generan independientemente de que haya o no
 # candidatos detectados.
 
-PLOT_CONTROL_DEFAULT: bool = False
+PLOT_CONTROL_DEFAULT: bool = True
 
-PLOT_WATERFALL_DISPERSION: bool = True      # Waterfalls dispersados
+PLOT_WATERFALL_DISPERSION: bool = False      # Waterfalls dispersados
 PLOT_WATERFALL_DEDISPERSION: bool = False    # Waterfalls de-dispersados
 PLOT_COMPOSITE: bool = False                 # Figura composite por slice
-PLOT_DETECTION_DM_TIME: bool = False         # Plots de detección DM-tiempo
+PLOT_DETECTION_DM_TIME: bool = True          # Plots de detección DM-tiempo
 PLOT_PATCH_CANDIDATE: bool = False           # Patch del candidato clasificado
 
 # =============================================================================    
@@ -78,7 +78,7 @@ DM_min: int = 0                             # DM mínimo en pc cm⁻³
 DM_max: int = 1024                           # DM máximo en pc cm⁻³
 
 # --- Umbrales de detección ---
-DET_PROB: float = 0.5                       # Probabilidad mínima para considerar una detección válida
+DET_PROB: float = 0.4                       # Probabilidad mínima para considerar una detección válida
 CLASS_PROB: float = 0.5                     # Probabilidad mínima para clasificar como burst
 SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en visualizaciones
 

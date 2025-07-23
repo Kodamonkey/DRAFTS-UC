@@ -180,12 +180,9 @@ def plot_waterfall_block(
     
     # 🕐 CORRECCIÓN: Usar tiempo absoluto si se proporciona, sino usar cálculo relativo
     if absolute_start_time is not None:
-        # Calcular tiempo absoluto correcto para cada slice
-        # absolute_start_time es el tiempo de inicio del bloque
-        # block_idx es el índice del slice en el archivo
-        # block_size es el tamaño del slice (SLICE_LEN)
-        # time_reso es la resolución temporal decimada
-        time_start = absolute_start_time + block_idx * block_size * time_reso
+        # absolute_start_time ya es el tiempo de inicio del slice específico
+        # No necesitamos sumar block_idx * block_size * time_reso porque ya está incluido
+        time_start = absolute_start_time
     else:
         time_start = block_idx * block_size * time_reso
         
@@ -222,7 +219,6 @@ def plot_waterfall_block(
     plt.savefig(out_path, dpi=200)
     plt.close()
 
-
 def save_detection_plot(
     img_rgb: np.ndarray,
     top_conf: Iterable,
@@ -237,6 +233,7 @@ def save_detection_plot(
     fits_stem: str,
     slice_len: Optional[int] = None,
     band_idx: int = 0,  # Para calcular el rango de frecuencias de la banda
+    absolute_start_time: Optional[float] = None,  # <-- NUEVO PARÁMETRO
 ) -> None:
     """Save detection plot with both detection and classification probabilities."""
 
@@ -250,7 +247,11 @@ def save_detection_plot(
     # Time axis labels
     n_time_ticks = 6
     time_positions = np.linspace(0, 512, n_time_ticks)
-    time_start_slice = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    # --- CAMBIO: Usar tiempo absoluto si se proporciona ---
+    if absolute_start_time is not None:
+        time_start_slice = absolute_start_time
+    else:
+        time_start_slice = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
     time_values = time_start_slice + (
         time_positions / 512.0
     ) * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE

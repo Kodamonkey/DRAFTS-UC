@@ -128,17 +128,6 @@ def _write_candidate_to_csv(csv_file: Path, candidate: Candidate) -> None:
         logger.error("Error inesperado al escribir CSV: %s", e)
         raise
 
-
-def _slice_parameters(width_total: int, slice_len: int) -> tuple[int, int]:
-    """Return adjusted ``slice_len`` and number of slices for ``width_total``."""
-
-    if width_total == 0:
-        return 0, 0
-    if width_total < slice_len:
-        return width_total, 1
-    return slice_len, width_total // slice_len
-
-
 def _detect(model, img_tensor: np.ndarray) -> tuple[list, list | None]:
     """Run the detection model and return confidences and boxes."""
     from ObjectDet.centernet_utils import get_res
@@ -214,8 +203,8 @@ def _process_block(
     """Procesa un bloque de datos y retorna estadísticas del bloque."""
     
     # Configurar parámetros temporales para este bloque
-    original_file_leng = config.FILE_LENG
-    config.FILE_LENG = metadata["actual_chunk_size"]
+    original_file_leng = config.FILE_LENG # Guardar longitud original del archivo
+    config.FILE_LENG = metadata["actual_chunk_size"] # Actualizar longitud del archivo al tamaño del bloque actual
     
     # 🕐 CALCULAR TIEMPO ABSOLUTO DESDE INICIO DEL ARCHIVO
     # Tiempo de inicio del chunk en segundos desde el inicio del archivo
@@ -227,25 +216,25 @@ def _process_block(
     
     try:
         # Aplicar downsampling al bloque
-        block = downsample_data(block)
+        block = downsample_data(block) # Aplica downsampling según la configuración
         
         # Calcular parámetros para este bloque
         freq_down = np.mean(
             config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
             axis=1,
-        )
+        ) # Promedio de frecuencias después del downsampling
         
-        height = config.DM_max - config.DM_min + 1
-        width_total = config.FILE_LENG // config.DOWN_TIME_RATE
+        height = config.DM_max - config.DM_min + 1 # Altura del cubo DM
+        width_total = config.FILE_LENG // config.DOWN_TIME_RATE # Ancho total del cubo DM-time
         
         # Calcular slice_len dinámicamente
-        slice_len, real_duration_ms = update_slice_len_dynamic()
-        time_slice = (width_total + slice_len - 1) // slice_len
+        slice_len, real_duration_ms = update_slice_len_dynamic() # Actualiza slice_len según la configuración
+        time_slice = (width_total + slice_len - 1) // slice_len # Número de slices por chunk
         
         logger.info(f"🧩 Chunk {chunk_idx:03d}: {metadata['actual_chunk_size']} muestras → {time_slice} slices")
         
         # Generar DM-time cube
-        dm_time = d_dm_time_g(block, height=height, width=width_total)
+        dm_time = d_dm_time_g(block, height=height, width=width_total) # dedispersion del bloque
         
         # Configurar bandas
         band_configs = (
@@ -268,29 +257,29 @@ def _process_block(
         for j in range(time_slice):
             slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
             waterfall_block = block[j * slice_len : (j + 1) * slice_len]
-            
+
             if slice_cube.size == 0 or waterfall_block.size == 0:
                 continue
-            
+
             # 🕐 Calcular tiempo absoluto para este slice específico (FUERA del bucle de bandas)
             slice_start_time_sec = chunk_start_time_sec + (j * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE)
-            
+
             # Procesar cada banda
             for band_idx, band_suffix, band_name in band_configs:
                 band_img = slice_cube[band_idx]
                 img_tensor = preprocess_img(band_img)
                 top_conf, top_boxes = _detect(det_model, img_tensor)
-                
+
                 if top_boxes is None:
                     top_conf = []
                     top_boxes = []
-                
+
                 # Procesar detecciones y generar visualizaciones
                 first_patch = None
                 first_start = None
                 first_dm = None
                 class_probs_list = []
-                
+
                 for conf, box in zip(top_conf, top_boxes):
                     dm_val, t_sec, t_sample = pixel_to_physical(
                         (box[0] + box[2]) / 2,
@@ -299,7 +288,7 @@ def _process_block(
                     )
                     snr_val = compute_snr(band_img, tuple(map(int, box)))
                     snr_list.append(snr_val)
-                    
+
                     # Ajustar tiempo global considerando el chunk
                     global_sample = metadata["start_sample"] + j * slice_len + int(t_sample)
                     patch, start_sample = dedisperse_patch(
@@ -307,7 +296,7 @@ def _process_block(
                     )
                     class_prob, proc_patch = _classify_patch(cls_model, patch)
                     class_probs_list.append(class_prob)
-                    
+
                     is_burst = class_prob >= config.CLASS_PROB
                     cand_counter += 1
                     if is_burst:
@@ -315,16 +304,16 @@ def _process_block(
                     else:
                         n_no_bursts += 1
                     prob_max = max(prob_max, float(conf))
-                    
+
                     # Guardar primer patch para visualizaciones
                     if first_patch is None:
                         first_patch = proc_patch
                         first_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
                         first_dm = dm_val
-                    
+
                     # 🕐 Calcular tiempo absoluto del candidato
                     absolute_candidate_time = slice_start_time_sec + t_sec
-                    
+
                     # Crear candidato y escribir al CSV
                     cand = Candidate(
                         f"{fits_path.name}_chunk{chunk_idx:03d}",
@@ -340,16 +329,16 @@ def _process_block(
                         is_burst,
                         f"patch_slice{j}_band{band_idx}_chunk{chunk_idx:03d}.png",
                     )
-                    
+
                     # Escribir al CSV
                     csv_file = save_dir / f"{fits_path.stem}_chunk{chunk_idx:03d}.candidates.csv"
                     _ensure_csv_header(csv_file)
                     _write_candidate_to_csv(csv_file, cand)
-                    
+
                     logger.info(
                         f"🧩 Chunk {chunk_idx:03d} - Candidato DM {dm_val:.2f} t={absolute_candidate_time:.3f}s (chunk: {t_sec:.3f}s) conf={conf:.2f} class={class_prob:.2f} → {'BURST' if is_burst else 'no burst'}"
                     )
-                
+
                 # Determinar qué visualizaciones generar
                 custom_mode = not config.PLOT_CONTROL_DEFAULT
                 plot_wf_disp = (
@@ -396,7 +385,7 @@ def _process_block(
                         save_dir=waterfall_dispersion_dir,
                         filename=f"{fits_path.stem}{chunk_suffix}",
                         normalize=True,
-                        absolute_start_time=None,
+                        absolute_start_time=slice_start_time_sec,  # 🕐 TIEMPO ABSOLUTO
                     )
                     
                     # 2. Generar waterfall dedispersado
@@ -416,7 +405,7 @@ def _process_block(
                                 save_dir=waterfall_dedispersion_dir,
                                 filename=f"{fits_path.stem}{chunk_suffix}_dm{first_dm:.2f}_{band_suffix}",
                                 normalize=True,
-                                absolute_start_time=slice_start_time_sec,  # 🕐 Tiempo absoluto
+                                absolute_start_time=slice_start_time_sec,  # 🕐 TIEMPO ABSOLUTO
                             )
 
                     # 3. Generar patch plot
@@ -430,7 +419,7 @@ def _process_block(
                             patch_path,
                             freq_down,
                             config.TIME_RESO * config.DOWN_TIME_RATE,
-                            absolute_patch_start,  # 🕐 Tiempo absoluto
+                            slice_start_time_sec,  # 🕐 TIEMPO ABSOLUTO
                             off_regions=None,
                             thresh_snr=config.SNR_THRESH,
                             band_idx=band_idx,
@@ -450,7 +439,7 @@ def _process_block(
                         dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,
                         img_rgb,
                         first_patch,
-                        first_start if first_start is not None else 0.0,
+                        slice_start_time_sec,  # 🕐 TIEMPO ABSOLUTO
                         first_dm if first_dm is not None else 0.0,
                         top_conf,
                         top_boxes,
@@ -489,8 +478,9 @@ def _process_block(
                             f"{fits_path.stem}{chunk_suffix}",
                             slice_len,
                             band_idx=band_idx,
+                            absolute_start_time=slice_start_time_sec,  # 🕐 TIEMPO ABSOLUTO
                         )
-        
+
         return {
             "n_candidates": cand_counter,
             "n_bursts": n_bursts,

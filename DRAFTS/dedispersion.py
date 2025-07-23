@@ -158,6 +158,58 @@ def dedisperse_patch(
         patch[:, idx] = segment[delays[idx] : delays[idx] + patch_len, idx]
     return patch, start
 
+def dedisperse_patch_centered(
+    data: np.ndarray,
+    freq_down: np.ndarray,
+    dm: float,
+    sample: int,
+    patch_len: int = 512,
+) -> tuple[np.ndarray, int]:
+    """Dedisperse ``data`` at ``dm`` around ``sample`` and return a centered patch.
+    
+    This function creates a patch that is centered on the candidate's peak,
+    similar to the original implementation in d-center-main.py.
+
+    Returns
+    -------
+    patch : np.ndarray
+        Dedispersed patch of shape (patch_len, n_freq) centered on the candidate.
+    start : int
+        Start sample used on the original data array.
+    """
+    # Calculate dispersion delays
+    delays = (
+        4.15
+        * dm
+        * (freq_down ** -2 - freq_down.max() ** -2)
+        * 1e3
+        / config.TIME_RESO
+        / config.DOWN_TIME_RATE
+    ).astype(np.int64)
+    
+    max_delay = int(delays.max())
+    
+    # Calculate the center position for the patch
+    # This ensures the candidate's peak is at the center of the patch
+    center_sample = sample
+    start = center_sample - patch_len // 2
+    
+    # Ensure we don't go out of bounds
+    if start < 0:
+        start = 0
+    if start + patch_len + max_delay > data.shape[0]:
+        start = max(0, data.shape[0] - (patch_len + max_delay))
+    
+    # Extract the segment with extra samples for dedispersion
+    segment = data[start : start + patch_len + max_delay]
+    
+    # Create the dedispersed patch
+    patch = np.zeros((patch_len, freq_down.size), dtype=np.float32)
+    for idx in range(freq_down.size):
+        patch[:, idx] = segment[delays[idx] : delays[idx] + patch_len, idx]
+    
+    return patch, start
+
 def dedisperse_block(
     data: np.ndarray,
     freq_down: np.ndarray,

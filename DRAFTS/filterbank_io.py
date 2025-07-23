@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import os
 import struct
+import gc
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Generator, Dict, Type
 
 import numpy as np
 
@@ -118,49 +119,134 @@ def _read_non_standard_header(f) -> Tuple[dict, int]:
     return header, 512
 
 
-def load_fil_file(file_name: str) -> np.ndarray:
-    """Load a filterbank file and return the data array in shape (time, pol, channel)."""
-    global_vars = config
-    data_array = None
+def stream_fil(file_name: str, chunk_samples: int = 2_097_152) -> Generator[Tuple[np.ndarray, Dict], None, None]:
+    """
+    Generador que lee un archivo .fil en bloques sin cargar todo en RAM.
+    
+    Args:
+        file_name: Ruta al archivo .fil
+        chunk_samples: Número de muestras por bloque (default: 2M)
+    
+    Yields:
+        Tuple[data_block, metadata]: Bloque de datos (time, pol, chan) y metadatos
+    """
+    # Mapeo de tipos de datos
+    dtype_map: Dict[int, Type] = {
+        8: np.uint8,
+        16: np.int16,
+        32: np.float32,
+        64: np.float64
+    }
     
     try:
+        # Leer header
         with open(file_name, "rb") as f:
             header, hdr_len = _read_header(f)
-
+        
         nchans = header.get("nchans", 512)
         nifs = header.get("nifs", 1)
         nbits = header.get("nbits", 8)
         nsamples = header.get("nsamples")
         
+        # Calcular nsamples si falta
         if nsamples is None:
             bytes_per_sample = nifs * nchans * (nbits // 8)
             file_size = os.path.getsize(file_name) - hdr_len
             nsamples = file_size // bytes_per_sample if bytes_per_sample > 0 else 1000
-
-        # Check chunk processing limits
-        if (getattr(config, 'ENABLE_CHUNK_PROCESSING', True) and 
-            nsamples > config.MAX_SAMPLES_LIMIT):
-            print(f"[INFO] Archivo grande detectado ({nsamples} muestras)")
-            print(f"[INFO] Se procesará automáticamente por chunks")
-            config._ORIGINAL_FILE_SAMPLES = nsamples
-            nsamples = min(1000, nsamples)
-        else:
-            max_samples = config.MAX_SAMPLES_LIMIT
-            if nsamples > max_samples:
-                print(f"[WARNING] Archivo muy grande ({nsamples} muestras), limitando a {max_samples}")
-                nsamples = max_samples
-
-        dtype = np.uint8
-        if nbits == 16:
-            dtype = np.int16
-        elif nbits == 32:
-            dtype = np.float32
-        elif nbits == 64:
-            dtype = np.float64
-            
-        print(f"[INFO] Cargando datos: {nsamples} muestras, {nchans} canales, tipo {dtype}")
         
-        # Memory-map the data
+        dtype = dtype_map.get(nbits, np.uint8)
+        
+        print(f"[INFO] Streaming datos: {nsamples} muestras totales, "
+              f"{nchans} canales, tipo {dtype}, chunk_size={chunk_samples}")
+        
+        # Crear memmap para acceso eficiente
+        data_mmap = np.memmap(
+            file_name,
+            dtype=dtype,
+            mode="r",
+            offset=hdr_len,
+            shape=(nsamples, nifs, nchans),
+        )
+        
+        # Procesar en bloques
+        for chunk_idx in range(0, nsamples, chunk_samples):
+            end_sample = min(chunk_idx + chunk_samples, nsamples)
+            actual_chunk_size = end_sample - chunk_idx
+            
+            # Leer bloque actual
+            block = data_mmap[chunk_idx:end_sample].copy()  # Copia solo este bloque
+            
+            # Aplicar reversión de frecuencia si es necesario
+            if config.DATA_NEEDS_REVERSAL:
+                block = np.ascontiguousarray(block[:, :, ::-1])
+            
+            # Convertir a float32 para consistencia
+            if block.dtype != np.float32:
+                block = block.astype(np.float32)
+            
+            # Metadatos del bloque
+            metadata = {
+                "chunk_idx": chunk_idx // chunk_samples,
+                "start_sample": chunk_idx,
+                "end_sample": end_sample,
+                "actual_chunk_size": actual_chunk_size,
+                "total_samples": nsamples,
+                "nchans": nchans,
+                "nifs": nifs,
+                "dtype": str(block.dtype),
+                "shape": block.shape
+            }
+            
+            yield block, metadata
+            
+            # Limpiar memoria
+            del block
+            gc.collect()
+        
+        # Limpiar memmap
+        del data_mmap
+        gc.collect()
+        
+    except Exception as e:
+        print(f"[ERROR] Error en stream_fil: {e}")
+        raise ValueError(f"No se pudo leer el archivo {file_name}") from e
+
+
+def load_fil_file(file_name: str) -> np.ndarray:
+    """
+    Carga un archivo SIGPROC Filterbank (.fil) y devuelve un array
+    con forma (time, pol, channel) en float32.
+    """
+    global_vars = config
+    data_array = None
+
+    try:
+        # ────────────────────── 1. LEER HEADER ───────────────────────────
+        with open(file_name, "rb") as f:
+            header, hdr_len = _read_header(f)
+
+        nchans   = header.get("nchans", 512)
+        nifs     = header.get("nifs",   1)
+        nbits    = header.get("nbits",  8)
+        nsamples = header.get("nsamples")
+
+        # ───── 2. ELEGIR dtype CORRECTO  (Reparo A) ───────────────────────
+        dtype_map = {8:  np.uint8,
+                     16: np.int16,
+                     32: np.float32,
+                     64: np.float64}
+        dtype = dtype_map.get(nbits, np.uint8)
+
+        # ───── 3. CALCULAR nsamples si falta en header ────────────────────
+        if nsamples is None:
+            bytes_per_sample = nifs * nchans * (nbits // 8)
+            file_size = os.path.getsize(file_name) - hdr_len
+            nsamples  = file_size // bytes_per_sample if bytes_per_sample > 0 else 1000
+
+        print(f"[INFO] Cargando datos: {nsamples} muestras, "
+              f"{nchans} canales, tipo {dtype}")
+
+        # ────────────────────── 4. MEMMAP + COPIA ────────────────────────
         try:
             data = np.memmap(
                 file_name,
@@ -169,10 +255,10 @@ def load_fil_file(file_name: str) -> np.ndarray:
                 offset=hdr_len,
                 shape=(nsamples, nifs, nchans),
             )
-            data_array = np.array(data)
+            data_array = np.array(data)        # ⚠️ copia completa a RAM
         except ValueError as e:
             print(f"[WARNING] Error creating memmap: {e}")
-            safe_samples = min(nsamples, 10000)
+            safe_samples = min(nsamples, 10_000)
             data = np.memmap(
                 file_name,
                 dtype=dtype,
@@ -181,20 +267,22 @@ def load_fil_file(file_name: str) -> np.ndarray:
                 shape=(safe_samples, nifs, nchans),
             )
             data_array = np.array(data)
-            
+
     except Exception as e:
         print(f"[Error cargando FIL] {e}")
         try:
-            # Fallback to synthetic data
-            data_array = np.random.rand(1000, 1, 512).astype(np.float32)
+            # Fallback sintético
+            data_array = np.random.rand(1_000, 1, 512).astype(np.float32)
         except Exception:
             raise ValueError(f"No se pudieron cargar los datos de {file_name}")
-            
+
     if data_array is None:
         raise ValueError(f"No se pudieron cargar los datos de {file_name}")
 
+    # ────────────────────── 5. INVERSIÓN FREQ OPCIONAL ───────────────────
     if global_vars.DATA_NEEDS_REVERSAL:
-        print(f">> Invirtiendo eje de frecuencia de los datos cargados para {file_name}")
+        print(f">> Invirtiendo eje de frecuencia de los datos cargados "
+              f"para {file_name}")
         data_array = np.ascontiguousarray(data_array[:, :, ::-1])
     
     # DEBUG: Información de los datos cargados
@@ -224,7 +312,15 @@ def get_obparams_fil(file_name: str) -> None:
     with open(file_name, "rb") as f:
         freq_axis_inverted = False
         header, hdr_len = _read_header(f)
-        
+
+        # extraer nchans, fch1 y foff y construir el eje de frecuencias
+        nchans = header.get("nchans", 512)                 
+        fch1   = header.get("fch1", None)                   
+        foff   = header.get("foff", None)                   
+        if fch1 is None or foff is None:                     
+            raise ValueError(f"Header inválido: faltan fch1={fch1} o foff={foff}") 
+        freq_temp = fch1 + foff * np.arange(nchans)        
+
         # DEBUG: Estructura del archivo filterbank
         if config.DEBUG_FREQUENCY_ORDER:
             print(f"📋 [DEBUG FILTERBANK] Estructura del archivo Filterbank:")
@@ -251,29 +347,6 @@ def get_obparams_fil(file_name: str) -> None:
                 print(f"📋 [DEBUG FILTERBANK]   Bytes por muestra: {bytes_per_sample}")
                 print(f"📋 [DEBUG FILTERBANK]   Muestras calculadas: {nsamples}")
 
-        # Check chunk processing
-        if (getattr(config, 'ENABLE_CHUNK_PROCESSING', True) and 
-            nsamples > config.MAX_SAMPLES_LIMIT):
-            if config.DEBUG_FREQUENCY_ORDER:
-                print(f"📋 [DEBUG FILTERBANK] Archivo grande detectado ({nsamples:,} muestras)")
-                print(f"📋 [DEBUG FILTERBANK] Se procesará automáticamente por chunks") 
-            print(f"[INFO] Archivo grande detectado ({nsamples} muestras)")
-            config._ORIGINAL_FILE_SAMPLES = nsamples
-        else:
-            max_samples = config.MAX_SAMPLES_LIMIT
-            if nsamples > max_samples:
-                if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"📋 [DEBUG FILTERBANK] Limitando de {nsamples:,} a {max_samples:,} muestras")
-                print(f"[WARNING] Limitando número de muestras de {nsamples} a {max_samples}")
-                nsamples = max_samples
-
-        fch1 = header.get("fch1", 1500.0)
-        foff = header.get("foff", -1.0)
-        freq_temp = fch1 + np.arange(nchans) * foff
-        
-        # DEBUG: Headers Filterbank específicos
-        if config.DEBUG_FREQUENCY_ORDER:
-            print(f"📋 [DEBUG FILTERBANK] Headers Filterbank específicos:")
             print(f"📋 [DEBUG FILTERBANK]   tsamp (resolución temporal): {tsamp:.2e} s")
             print(f"📋 [DEBUG FILTERBANK]   nchans (canales): {nchans}")
             print(f"📋 [DEBUG FILTERBANK]   nifs (polarizaciones): {nifs}")
@@ -377,20 +450,6 @@ def get_obparams_fil(file_name: str) -> None:
         print(f"📁 [DEBUG ARCHIVO FIL]   - Datos originales: ~{size_original_gb:.2f} GB")
         print(f"📁 [DEBUG ARCHIVO FIL]   - Datos después decimación: ~{size_decimated_gb:.2f} GB")
         
-        print(f"📁 [DEBUG ARCHIVO FIL] CHUNKING:")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Procesamiento por chunks: {'SÍ' if config.ENABLE_CHUNK_PROCESSING else 'NO'}")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Límite muestras por chunk: {config.MAX_SAMPLES_LIMIT:,}")
-        if config.FILE_LENG > config.MAX_SAMPLES_LIMIT:
-            num_chunks = int(np.ceil(config.FILE_LENG / config.MAX_SAMPLES_LIMIT))
-            print(f"📁 [DEBUG ARCHIVO FIL]   - Número de chunks estimado: {num_chunks}")
-        else:
-            print(f"📁 [DEBUG ARCHIVO FIL]   - Archivo cabe en memoria: SÍ")
-        
-        print(f"📁 [DEBUG ARCHIVO FIL] CONFIGURACIÓN DE SLICE:")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - SLICE_DURATION_MS configurado: {config.SLICE_DURATION_MS} ms")
-        expected_slice_len = round(config.SLICE_DURATION_MS / (config.TIME_RESO * config.DOWN_TIME_RATE * 1000))
-        print(f"📁 [DEBUG ARCHIVO FIL]   - SLICE_LEN calculado: {expected_slice_len} muestras")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - SLICE_LEN límites: [{config.SLICE_LEN_MIN}, {config.SLICE_LEN_MAX}]")
         
         print(f"📁 [DEBUG ARCHIVO FIL] PROCESAMIENTO:")
         print(f"📁 [DEBUG ARCHIVO FIL]   - Multi-banda habilitado: {'SÍ' if config.USE_MULTI_BAND else 'NO'}")
@@ -466,14 +525,7 @@ def get_obparams_fil(file_name: str) -> None:
                 "time_resolution_after_decimation_sec": config.TIME_RESO * config.DOWN_TIME_RATE,
                 "total_reduction_factor": config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE
             },
-            "chunking": {
-                "chunk_processing_enabled": getattr(config, 'ENABLE_CHUNK_PROCESSING', True),
-                "max_samples_limit": config.MAX_SAMPLES_LIMIT,
-                "file_fits_in_memory": config.FILE_LENG <= config.MAX_SAMPLES_LIMIT,
-                "estimated_chunks": int(np.ceil(config.FILE_LENG / config.MAX_SAMPLES_LIMIT)) if config.FILE_LENG > config.MAX_SAMPLES_LIMIT else 1
-            },
             "slice_config": {
-                "slice_duration_ms_configured": config.SLICE_DURATION_MS,
                 "slice_len_calculated": round(config.SLICE_DURATION_MS / (config.TIME_RESO * config.DOWN_TIME_RATE * 1000)),
                 "slice_len_limits": [config.SLICE_LEN_MIN, config.SLICE_LEN_MAX]
             },
@@ -491,7 +543,6 @@ def get_obparams_fil(file_name: str) -> None:
                 "total_duration_formatted": f"{(config.FILE_LENG * config.TIME_RESO) // 3600:.0f}h {((config.FILE_LENG * config.TIME_RESO) % 3600) // 60:.0f}m {(config.FILE_LENG * config.TIME_RESO) % 60:.1f}s",
                 "sample_rate_hz": 1.0 / config.TIME_RESO,
                 "effective_sample_rate_after_decimation_hz": 1.0 / (config.TIME_RESO * config.DOWN_TIME_RATE),
-                "temporal_continuity_note": "All chunks maintain temporal continuity - global timestamps preserved"
             }
         })
 

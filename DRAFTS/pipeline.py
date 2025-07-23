@@ -5,6 +5,7 @@ import csv
 import json
 import logging
 import time
+import gc
 from pathlib import Path
 from typing import List
 
@@ -14,9 +15,15 @@ except ImportError:
     torch = None
 import numpy as np
 
+# Importar matplotlib al nivel del módulo para evitar problemas de scope
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    plt = None
+
 from . import config
 from .candidate import Candidate
-from .dedispersion import d_dm_time_g, dedisperse_patch, dedisperse_block
+from .dedispersion import d_dm_time_g, dedisperse_patch, dedisperse_patch_centered, dedisperse_block
 from .metrics import compute_snr
 from .astro_conversions import pixel_to_physical
 from .preprocessing import downsample_data
@@ -40,6 +47,35 @@ from .summary_utils import (
     _update_summary_with_file_debug,
 )
 logger = logging.getLogger(__name__)
+
+
+def _optimize_memory(aggressive: bool = False) -> None:
+    """Optimiza el uso de memoria del sistema.
+    
+    Args:
+        aggressive: Si True, realiza limpieza más agresiva
+    """
+    # Limpieza básica de Python
+    gc.collect()
+    
+    # Limpieza de matplotlib para evitar acumulación de figuras
+    if plt is not None:
+        plt.close('all')  # Cerrar todas las figuras de matplotlib
+    
+    # Limpieza de CUDA si está disponible
+    if torch is not None and torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        
+        if aggressive:
+            # Limpieza más agresiva de CUDA
+            torch.cuda.synchronize()
+            torch.cuda.reset_peak_memory_stats()
+    
+    # Pausa breve para permitir liberación de memoria
+    if aggressive:
+        time.sleep(0.05)  # 50ms para limpieza agresiva
+    else:
+        time.sleep(0.01)  # 10ms para limpieza normal
 
 
 def _load_model() -> torch.nn.Module:
@@ -255,16 +291,43 @@ def _process_block(
         snr_list = []
         
         for j in range(time_slice):
-            slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
-            waterfall_block = block[j * slice_len : (j + 1) * slice_len]
+            # Verificar que tenemos suficientes datos para este slice
+            start_idx = slice_len * j
+            end_idx = slice_len * (j + 1)
+            
+            # Verificar que no excedemos los límites del bloque
+            if start_idx >= block.shape[0]:
+                logger.warning(f"Slice {j}: start_idx ({start_idx}) >= block.shape[0] ({block.shape[0]}), saltando...")
+                continue
+                
+            if end_idx > block.shape[0]:
+                logger.warning(f"Slice {j}: end_idx ({end_idx}) > block.shape[0] ({block.shape[0]}), ajustando...")
+                end_idx = block.shape[0]
+                # Si el slice es muy pequeño, saltarlo
+                if end_idx - start_idx < slice_len // 2:
+                    logger.warning(f"Slice {j}: muy pequeño ({end_idx - start_idx} muestras), saltando...")
+                    continue
+            
+            slice_cube = dm_time[:, :, start_idx : end_idx]
+            waterfall_block = block[start_idx : end_idx]
 
             if slice_cube.size == 0 or waterfall_block.size == 0:
+                logger.warning(f"Slice {j}: datos vacíos, saltando...")
                 continue
 
-            # 🕐 Calcular tiempo absoluto para este slice específico (FUERA del bucle de bandas)
+            # 🕐 Calcular tiempo absoluto para este slice específico
             slice_start_time_sec = chunk_start_time_sec + (j * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE)
 
-            # Procesar cada banda
+            # 🎯 VARIABLES PARA ACUMULAR RESULTADOS DE TODAS LAS BANDAS
+            all_candidates = []
+            all_top_conf = []
+            all_top_boxes = []
+            all_class_probs = []
+            first_patch = None
+            first_dm = None
+            img_rgb_fullband = None
+
+            # Procesar cada banda para detecciones
             for band_idx, band_suffix, band_name in band_configs:
                 band_img = slice_cube[band_idx]
                 img_tensor = preprocess_img(band_img)
@@ -274,12 +337,12 @@ def _process_block(
                     top_conf = []
                     top_boxes = []
 
-                # Procesar detecciones y generar visualizaciones
-                first_patch = None
-                first_start = None
-                first_dm = None
-                class_probs_list = []
+                # Guardar img_rgb de la banda principal (fullband) para visualizaciones
+                if band_idx == 0:
+                    img_rgb_fullband = postprocess_img(img_tensor)
 
+                # Procesar detecciones de esta banda
+                class_probs_list = []
                 for conf, box in zip(top_conf, top_boxes):
                     dm_val, t_sec, t_sample = pixel_to_physical(
                         (box[0] + box[2]) / 2,
@@ -291,7 +354,8 @@ def _process_block(
 
                     # Ajustar tiempo global considerando el chunk
                     global_sample = metadata["start_sample"] + j * slice_len + int(t_sample)
-                    patch, start_sample = dedisperse_patch(
+                    # Usar patch centralizado para mejor visualización del candidato
+                    patch, start_sample = dedisperse_patch_centered(
                         block, freq_down, dm_val, global_sample
                     )
                     class_prob, proc_patch = _classify_patch(cls_model, patch)
@@ -305,10 +369,9 @@ def _process_block(
                         n_no_bursts += 1
                     prob_max = max(prob_max, float(conf))
 
-                    # Guardar primer patch para visualizaciones
+                    # Guardar primer patch para visualizaciones (de cualquier banda)
                     if first_patch is None:
                         first_patch = proc_patch
-                        first_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
                         first_dm = dm_val
 
                     # 🕐 Calcular tiempo absoluto del candidato
@@ -339,40 +402,44 @@ def _process_block(
                         f"🧩 Chunk {chunk_idx:03d} - Candidato DM {dm_val:.2f} t={absolute_candidate_time:.3f}s (chunk: {t_sec:.3f}s) conf={conf:.2f} class={class_prob:.2f} → {'BURST' if is_burst else 'no burst'}"
                     )
 
-                # Determinar qué visualizaciones generar
-                custom_mode = not config.PLOT_CONTROL_DEFAULT
-                plot_wf_disp = (
-                    (not custom_mode and len(top_conf) > 0)
-                    or (custom_mode and config.PLOT_WATERFALL_DISPERSION)
-                )
-                plot_wf_dedisp = (
-                    first_patch is not None
-                    and (
-                        (not custom_mode and len(top_conf) > 0)
-                        or (custom_mode and config.PLOT_WATERFALL_DEDISPERSION)
-                    )
-                )
-                plot_patch = (
-                    first_patch is not None
-                    and (
-                        (not custom_mode and len(top_conf) > 0)
-                        or (custom_mode and config.PLOT_PATCH_CANDIDATE)
-                    )
-                )
-                plot_comp = (
-                    (not custom_mode and len(top_conf) > 0)
-                    or (custom_mode and config.PLOT_COMPOSITE)
-                )
-                plot_det = (
-                    (not custom_mode and len(top_conf) > 0)
-                    or (custom_mode and config.PLOT_DETECTION_DM_TIME)
-                )
+                # Acumular resultados de esta banda
+                all_candidates.extend(zip(top_conf, top_boxes, class_probs_list))
+                all_top_conf.extend(top_conf)
+                all_top_boxes.extend(top_boxes)
+                all_class_probs.extend(class_probs_list)
 
-                if any([plot_wf_disp, plot_wf_dedisp, plot_patch, plot_comp, plot_det]):
-                    # Preparar directorios con sufijo de chunk
-                    chunk_suffix = f"_chunk{chunk_idx:03d}"
-                    
-                    # 1. Generar waterfall sin dedispersar
+            # 🎨 GENERAR VISUALIZACIONES UNA SOLA VEZ POR SLICE (fuera del bucle de bandas)
+            custom_mode = not config.PLOT_CONTROL_DEFAULT
+            plot_wf_disp = (
+                (not custom_mode and len(all_top_conf) > 0)
+                or (custom_mode and config.PLOT_WATERFALL_DISPERSION)
+            )
+            plot_wf_dedisp = (
+                (not custom_mode and len(all_top_conf) > 0)
+                or (custom_mode and config.PLOT_WATERFALL_DEDISPERSION)
+            )
+            plot_patch = (
+                first_patch is not None
+                and (
+                    (not custom_mode and len(all_top_conf) > 0)
+                    or (custom_mode and config.PLOT_PATCH_CANDIDATE)
+                )
+            )
+            plot_comp = (
+                (not custom_mode and len(all_top_conf) > 0)
+                or (custom_mode and config.PLOT_COMPOSITE)
+            )
+            plot_det = (
+                (not custom_mode and len(all_top_conf) > 0)
+                or (custom_mode and config.PLOT_DETECTION_DM_TIME)
+            )
+
+            if any([plot_wf_disp, plot_wf_dedisp, plot_patch, plot_comp, plot_det]):
+                # Preparar directorios con sufijo de chunk
+                chunk_suffix = f"_chunk{chunk_idx:03d}"
+                
+                # 1. Generar waterfall sin dedispersar
+                if plot_wf_disp:
                     waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / f"{fits_path.stem}{chunk_suffix}"
                     waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
                     
@@ -387,99 +454,118 @@ def _process_block(
                         normalize=True,
                         absolute_start_time=slice_start_time_sec,  # 🕐 TIEMPO ABSOLUTO
                     )
-                    
-                    # 2. Generar waterfall dedispersado
-                    if plot_wf_dedisp:
-                        waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / f"{fits_path.stem}{chunk_suffix}"
-                        waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
+                
+                # 2. Generar waterfall dedispersado
+                if plot_wf_dedisp:
+                    waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / f"{fits_path.stem}{chunk_suffix}"
+                    waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
 
-                        dedisp_block = dedisperse_block(block, freq_down, first_dm, j * slice_len, slice_len)
+                    # Usar DM del primer candidato o DM=0 si no hay candidatos
+                    dm_for_dedisp = first_dm if first_dm is not None else 0.0
+                    dedisp_block = dedisperse_block(block, freq_down, dm_for_dedisp, j * slice_len, slice_len)
 
-                        if dedisp_block.size > 0:
-                            plot_waterfall_block(
-                                data_block=dedisp_block,
-                                freq=freq_down,
-                                time_reso=config.TIME_RESO * config.DOWN_TIME_RATE,
-                                block_size=dedisp_block.shape[0],
-                                block_idx=j,
-                                save_dir=waterfall_dedispersion_dir,
-                                filename=f"{fits_path.stem}{chunk_suffix}_dm{first_dm:.2f}_{band_suffix}",
-                                normalize=True,
-                                absolute_start_time=slice_start_time_sec,  # 🕐 TIEMPO ABSOLUTO
-                            )
-
-                    # 3. Generar patch plot
-                    if plot_patch:
-                        patch_dir = save_dir / "Patches" / f"{fits_path.stem}{chunk_suffix}"
-                        patch_dir.mkdir(parents=True, exist_ok=True)
-                        patch_path = patch_dir / f"patch_slice{j}_band{band_idx}{chunk_suffix}.png"
-                        
-                        save_patch_plot(
-                            first_patch,
-                            patch_path,
-                            freq_down,
-                            config.TIME_RESO * config.DOWN_TIME_RATE,
-                            slice_start_time_sec,  # 🕐 TIEMPO ABSOLUTO
-                            off_regions=None,
-                            thresh_snr=config.SNR_THRESH,
-                            band_idx=band_idx,
-                            band_name=band_name,
+                    if dedisp_block.size > 0:
+                        plot_waterfall_block(
+                            data_block=dedisp_block,
+                            freq=freq_down,
+                            time_reso=config.TIME_RESO * config.DOWN_TIME_RATE,
+                            block_size=dedisp_block.shape[0],
+                            block_idx=j,
+                            save_dir=waterfall_dedispersion_dir,
+                            filename=f"{fits_path.stem}{chunk_suffix}_dm{dm_for_dedisp:.2f}",
+                            normalize=True,
+                            absolute_start_time=slice_start_time_sec,  # 🕐 TIEMPO ABSOLUTO
                         )
 
-                    # 4. Generar composite
+                # 3. Generar patch plot
+                if plot_patch and first_patch is not None:
+                    patch_dir = save_dir / "Patches" / f"{fits_path.stem}{chunk_suffix}"
+                    patch_dir.mkdir(parents=True, exist_ok=True)
+                    patch_path = patch_dir / f"patch_slice{j}{chunk_suffix}.png"
+                    
+                    save_patch_plot(
+                        first_patch,
+                        patch_path,
+                        freq_down,
+                        config.TIME_RESO * config.DOWN_TIME_RATE,
+                        slice_start_time_sec,  # 🕐 TIEMPO ABSOLUTO
+                        off_regions=None,
+                        thresh_snr=config.SNR_THRESH,
+                        band_idx=0,  # Usar banda principal
+                        band_name="Full Band",
+                    )
+
+                # 4. Generar composite
+                if plot_comp and img_rgb_fullband is not None:
                     composite_dir = save_dir / "Composite" / f"{fits_path.stem}{chunk_suffix}"
                     composite_dir.mkdir(parents=True, exist_ok=True)
-                    comp_path = composite_dir / f"slice{j}_band{band_idx}{chunk_suffix}.png"
+                    comp_path = composite_dir / f"slice{j}{chunk_suffix}.png"
                     
-                    img_rgb = postprocess_img(img_tensor)
                     dedisp_block = dedisperse_block(block, freq_down, first_dm if first_dm is not None else 0.0, j * slice_len, slice_len) if first_dm is not None else None
                     
                     save_slice_summary(
                         waterfall_block,
                         dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,
-                        img_rgb,
+                        img_rgb_fullband,
                         first_patch,
                         slice_start_time_sec,  # 🕐 TIEMPO ABSOLUTO
                         first_dm if first_dm is not None else 0.0,
-                        top_conf,
-                        top_boxes,
-                        class_probs_list,
+                        all_top_conf,
+                        all_top_boxes,
+                        all_class_probs,
                         comp_path,
                         j,
                         time_slice,
-                        band_name,
-                        band_suffix,
+                        "Full Band",
+                        "fullband",
                         f"{fits_path.stem}{chunk_suffix}",
                         slice_len,
                         normalize=True,
                         off_regions=None,
                         thresh_snr=config.SNR_THRESH,
-                        band_idx=band_idx,
+                        band_idx=0,
+                        absolute_start_time=slice_start_time_sec,  # 🕐 TIEMPO ABSOLUTO
                     )
+                
+                # 5. Generar detecciones (SIEMPRE generar, incluso sin candidatos)
+                if plot_det:
+                    detections_dir = save_dir / "Detections" / f"{fits_path.stem}{chunk_suffix}"
+                    detections_dir.mkdir(parents=True, exist_ok=True)
+                    out_img_path = detections_dir / f"slice{j}{chunk_suffix}.png"
+
+                    # Usar img_rgb_fullband si está disponible, sino crear uno vacío
+                    detection_img = img_rgb_fullband if img_rgb_fullband is not None else np.zeros((512, 512, 3), dtype=np.float32)
                     
-                    # 5. Generar detecciones
-                    if plot_det:
-                        detections_dir = save_dir / "Detections" / f"{fits_path.stem}{chunk_suffix}"
-                        detections_dir.mkdir(parents=True, exist_ok=True)
-                        out_img_path = detections_dir / f"slice{j}_{band_suffix}{chunk_suffix}.png"
+                    save_plot(
+                        detection_img,
+                        all_top_conf if all_top_conf else [],
+                        all_top_boxes if all_top_boxes else [],
+                        all_class_probs if all_class_probs else [],
+                        out_img_path,
+                        j,
+                        time_slice,
+                        "Full Band",
+                        "fullband",
+                        f"{fits_path.stem}{chunk_suffix}",
+                        slice_len,
+                        band_idx=0,
+                        absolute_start_time=slice_start_time_sec,  # 🕐 TIEMPO ABSOLUTO
+                    )
 
-                        img_rgb = postprocess_img(img_tensor) if not plot_comp else img_rgb
-
-                        save_plot(
-                            img_rgb,
-                            top_conf,
-                            top_boxes,
-                            class_probs_list,
-                            out_img_path,
-                            j,
-                            time_slice,
-                            band_name,
-                            band_suffix,
-                            f"{fits_path.stem}{chunk_suffix}",
-                            slice_len,
-                            band_idx=band_idx,
-                            absolute_start_time=slice_start_time_sec,  # 🕐 TIEMPO ABSOLUTO
-                        )
+            # 🧹 LIMPIEZA DE MEMORIA DESPUÉS DE CADA SLICE
+            if j % 10 == 0:  # Cada 10 slices
+                _optimize_memory(aggressive=False)
+            else:
+                # Limpieza básica después de cada slice
+                if plt is not None:
+                    plt.close('all')
+                gc.collect()
+                
+            # 🧹 LIMPIEZA ADICIONAL DESPUÉS DE GENERAR VISUALIZACIONES
+            if any([plot_wf_disp, plot_wf_dedisp, plot_patch, plot_comp, plot_det]):
+                if plt is not None:
+                    plt.close('all')
+                gc.collect()
 
         return {
             "n_candidates": cand_counter,
@@ -550,11 +636,9 @@ def _process_file_chunked(
             n_no_bursts_total += block_results["n_no_bursts"]
             prob_max_total = max(prob_max_total, block_results["max_prob"])
             
-            # Limpiar memoria
+            # 🧹 LIMPIEZA AGRESIVA DE MEMORIA
             del block
-            gc.collect()
-            if torch is not None and torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            _optimize_memory(aggressive=(actual_chunk_count % 5 == 0))  # Limpieza agresiva cada 5 chunks
         
         runtime = time.time() - t_start
         logger.info(

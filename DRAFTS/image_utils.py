@@ -215,7 +215,7 @@ def plot_waterfall_block(
     ax1.set_ylabel("Frequency (MHz)", fontsize=12, fontweight="bold")
 
     out_path = save_dir / f"{filename}-block{block_idx:03d}-peak{peak_time:.2f}.png"
-    plt.tight_layout()
+    plt.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1, hspace=0.2, wspace=0.2)
     plt.savefig(out_path, dpi=200)
     plt.close()
 
@@ -381,13 +381,16 @@ def save_detection_plot(
             )
 
     ax.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
-    plt.tight_layout()
+    plt.subplots_adjust(left=0.08, right=0.92, top=0.92, bottom=0.08, hspace=0.2, wspace=0.2)
+    
     plt.savefig(out_img_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close()
 
     if band_suffix == "fullband":
         fig_cb, ax_cb = plt.subplots(figsize=(13, 8))
-        img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
+        # Convertir img_rgb a uint8 para OpenCV
+        img_rgb_uint8 = (img_rgb * 255).astype(np.uint8)
+        img_gray = cv2.cvtColor(img_rgb_uint8, cv2.COLOR_RGB2GRAY)
         im_cb = ax_cb.imshow(img_gray, origin="lower", aspect="auto", cmap="mako")
         ax_cb.set_xticks(time_positions)
         ax_cb.set_xticklabels([f"{t:.3f}" for t in time_values])
@@ -406,7 +409,7 @@ def save_detection_plot(
         cbar = plt.colorbar(im_cb, ax=ax_cb, shrink=0.8, pad=0.02)
         cbar.set_label("Normalized Intensity", fontsize=10, fontweight="bold")
         ax_cb.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
-        plt.tight_layout()
+        plt.subplots_adjust(left=0.08, right=0.92, top=0.92, bottom=0.08, hspace=0.2, wspace=0.2)
         cb_path = out_img_path.parent / f"{out_img_path.stem}_colorbar{out_img_path.suffix}"
         plt.savefig(cb_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
         plt.close()

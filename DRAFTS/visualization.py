@@ -68,6 +68,52 @@ def get_band_name_with_freq_range(band_idx: int, band_name: str) -> str:
     return f"{band_name} ({freq_min:.0f}-{freq_max:.0f} MHz)"
 
 
+# ...existing code...
+
+def save_detection_plot(
+    img_rgb: np.ndarray,
+    top_conf: Iterable,
+    top_boxes: Iterable | None,
+    class_probs: Iterable | None, 
+    out_img_path: Path,
+    slice_idx: int,
+    time_slice: int,
+    band_name: str,
+    band_suffix: str,
+    det_prob: float,
+    fits_stem: str,
+    slice_len: Optional[int] = None,
+    band_idx: int = 0,  # Para calcular el rango de frecuencias de la banda
+    absolute_start_time: Optional[float] = None,  # <-- NUEVO PARÁMETRO
+) -> None:
+    """Save detection plot with both detection and classification probabilities."""
+
+    # Usar slice_len específico o del config
+    if slice_len is None:
+        slice_len = config.SLICE_LEN
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+    im = ax.imshow(img_rgb, origin="lower", aspect="auto")
+
+    # Time axis labels
+    n_time_ticks = 6
+    time_positions = np.linspace(0, 512, n_time_ticks)
+    # --- CAMBIO: Usar tiempo absoluto si se proporciona ---
+    if absolute_start_time is not None:
+        time_start_slice = absolute_start_time
+    else:
+        time_start_slice = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    time_values = time_start_slice + (
+        time_positions / 512.0
+    ) * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    ax.set_xticks(time_positions)
+    ax.set_xticklabels([f"{t:.3f}" for t in time_values])
+    ax.set_xlabel("Time (s)", fontsize=12, fontweight="bold")
+
+    # ...rest of function unchanged...
+
+# ...existing code...
+
 def save_plot(
     img_rgb: np.ndarray,
     top_conf: Iterable,
@@ -81,6 +127,7 @@ def save_plot(
     fits_stem: str,
     slice_len: int,
     band_idx: int = 0,  # Para calcular el rango de frecuencias
+    absolute_start_time: Optional[float] = None,  # <-- NUEVO PARÁMETRO
 ) -> None:
     """Wrapper around :func:`save_detection_plot` with dynamic slice length."""
 
@@ -104,8 +151,11 @@ def save_plot(
         fits_stem,
         slice_len=slice_len,  # Pasar slice_len explícitamente
         band_idx=band_idx,    # Pasar band_idx para el cálculo de frecuencias
+        absolute_start_time=absolute_start_time,  # <-- PASAR TIEMPO ABSOLUTO
     )
     config.SLICE_LEN = prev_len
+
+# ...existing code...
 
 
 def save_patch_plot(

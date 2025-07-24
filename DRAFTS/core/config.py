@@ -1,3 +1,17 @@
+from __future__ import annotations
+
+
+# Modular band configuration for pipeline
+
+def get_band_configs():
+    return [
+        (0, "fullband", "Full Band"),
+        (1, "lowband", "Low Band"),
+        (2, "highband", "High Band"),
+    ] if USE_MULTI_BAND else [(0, "fullband", "Full Band")]
+
+
+
 """
 Configuración del Pipeline de Detección de FRB
 ===========================================================
@@ -11,7 +25,6 @@ GUÍA DE USO:
 - Configure los parámetros de cada sección según sus necesidades
 - Los parámetros avanzados generalmente no requieren modificación.
 """
-from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional
@@ -39,7 +52,7 @@ DATA_DIR = Path("./Data")                        # Directorio con archivos de en
 RESULTS_DIR = Path("./Results/ObjectDetection")  # Directorio para guardar resultados
 # --- Lista de targets optimizada para múltiples archivos ---
 
-FRB_TARGETS = ["FRB20201124_0009"]          # Lista de targets FRB a procesar - Reducida para pruebas
+FRB_TARGETS = ["3100_0001_00_8bit"]          # Lista de targets FRB a procesar - Reducida para pruebas
 
 # Para procesar todos: ["FRB20201124_0009", "FRB20180301_0002", "B0355+54_FB_20220918"]
 # Nota: FRB20180301_0002.fits parece estar corrupto - revisar archivo

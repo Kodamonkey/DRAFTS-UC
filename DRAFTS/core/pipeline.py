@@ -161,12 +161,12 @@ def _process_block(
             # Verificar que tenemos suficientes datos para este slice
             start_idx = slice_len * j
             end_idx = slice_len * (j + 1)
-            
+
             # Verificar que no excedemos los límites del bloque
             if start_idx >= block.shape[0]:
                 logger.warning(f"Slice {j}: start_idx ({start_idx}) >= block.shape[0] ({block.shape[0]}), saltando...")
                 continue
-                
+
             if end_idx > block.shape[0]:
                 logger.warning(f"Slice {j}: end_idx ({end_idx}) > block.shape[0] ({block.shape[0]}), ajustando...")
                 end_idx = block.shape[0]
@@ -174,7 +174,7 @@ def _process_block(
                 if end_idx - start_idx < slice_len // 2:
                     logger.warning(f"Slice {j}: muy pequeño ({end_idx - start_idx} muestras), saltando...")
                     continue
-            
+
             slice_cube = dm_time[:, :, start_idx : end_idx]
             waterfall_block = block[start_idx : end_idx]
 
@@ -185,24 +185,34 @@ def _process_block(
             # 🕐 Calcular tiempo absoluto para este slice específico
             slice_start_time_sec = chunk_start_time_sec + (j * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE)
 
-            # Procesar slice usando la función existente
-            csv_file = save_dir / f"{fits_path.stem}_chunk{chunk_idx:03d}.candidates.csv"
+            # === CHUNKED FOLDER STRUCTURE FOR PLOTS ===
+            chunk_folder_name = f"{fits_path.stem}_chunk{chunk_idx:03d}"
+            composite_dir = save_dir / "Composite" / chunk_folder_name
+            composite_dir.mkdir(parents=True, exist_ok=True)
+            detections_dir = save_dir / "Detections" / chunk_folder_name
+            detections_dir.mkdir(parents=True, exist_ok=True)
+
+            # Candidate CSV and waterfall folders (already chunked)
+            csv_file = save_dir / f"{chunk_folder_name}.candidates.csv"
             ensure_csv_header(csv_file)
-            waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / f"{fits_path.stem}_chunk{chunk_idx:03d}"
-            waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / f"{fits_path.stem}_chunk{chunk_idx:03d}"
-            
+            waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / chunk_folder_name
+            waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / chunk_folder_name
+
+            # Pass chunked paths to process_slice (these will be used in plot_manager)
             cands, bursts, no_bursts, max_prob = process_slice(
-                j, dm_time, block, slice_len, det_model, cls_model, fits_path, save_dir, 
-                freq_down, csv_file, config.TIME_RESO * config.DOWN_TIME_RATE, band_configs, 
+                j, dm_time, block, slice_len, det_model, cls_model, fits_path, save_dir,
+                freq_down, csv_file, config.TIME_RESO * config.DOWN_TIME_RATE, band_configs,
                 snr_list, waterfall_dispersion_dir, waterfall_dedispersion_dir, config,
-                absolute_start_time=slice_start_time_sec  # 🕐 PASAR TIEMPO ABSOLUTO
+                absolute_start_time=slice_start_time_sec,
+                composite_dir=composite_dir,
+                detections_dir=detections_dir
             )
-            
+
             cand_counter += cands
             n_bursts += bursts
             n_no_bursts += no_bursts
             prob_max = max(prob_max, max_prob)
-            
+
             # LIMPIEZA DE MEMORIA DESPUÉS DE CADA SLICE
             if j % 10 == 0:  # Cada 10 slices
                 _optimize_memory(aggressive=False)

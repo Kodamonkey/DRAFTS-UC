@@ -129,14 +129,34 @@ def process_band(
         "patch_path": patch_path,
     }
 
-def process_slice(j, dm_time, data, slice_len, det_model, cls_model, fits_path, save_dir, freq_down, csv_file, time_reso_ds, band_configs, snr_list, waterfall_dispersion_dir, waterfall_dedispersion_dir, config, absolute_start_time=None):
+def process_slice(
+    j,
+    dm_time,
+    block,
+    slice_len,
+    det_model,
+    cls_model,
+    fits_path,
+    save_dir,
+    freq_down,
+    csv_file,
+    time_reso_ds,
+    band_configs,
+    snr_list,
+    waterfall_dispersion_dir,
+    waterfall_dedispersion_dir,
+    config,
+    absolute_start_time=None,
+    composite_dir=None,
+    detections_dir=None,
+):
     """Procesa un slice con tiempo absoluto para continuidad temporal entre chunks.
     
     Args:
         absolute_start_time: Tiempo absoluto de inicio del slice en segundos desde el inicio del archivo
     """
     slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
-    waterfall_block = data[j * slice_len : (j + 1) * slice_len]
+    waterfall_block = block[j * slice_len : (j + 1) * slice_len]
     if slice_cube.size == 0 or waterfall_block.size == 0:
         logger.warning(f"Slice {j}: slice_cube o waterfall_block vacío, saltando...")
         return 0, 0, 0, 0.0
@@ -166,6 +186,25 @@ def process_slice(j, dm_time, data, slice_len, det_model, cls_model, fits_path, 
     n_no_bursts = 0
     prob_max = 0.0
     
+    fits_stem = fits_path.stem
+    # Use chunked directories if provided
+    if composite_dir is not None:
+        comp_path = composite_dir / f"{fits_stem}_slice{j:03d}.png"
+    else:
+        comp_path = save_dir / "Composite" / f"{fits_stem}_slice{j:03d}.png"
+
+    patch_path = save_dir / "Patch" / f"{fits_stem}_slice{j:03d}.png"
+
+    if detections_dir is not None:
+        out_img_path = detections_dir / f"{fits_stem}_slice{j:03d}.png"
+    else:
+        out_img_path = save_dir / "Detections" / f"{fits_stem}_slice{j:03d}.png"
+
+    # Calculate time_slice if not provided
+    time_slice = block.shape[0] // slice_len
+    if block.shape[0] % slice_len != 0:
+        time_slice += 1
+
     for band_idx, band_suffix, band_name in band_configs:
         band_img = slice_cube[band_idx]
         band_result = process_band(
@@ -176,7 +215,7 @@ def process_slice(j, dm_time, data, slice_len, det_model, cls_model, fits_path, 
             j,
             fits_path,
             save_dir,
-            data,
+            block,
             freq_down,
             csv_file,
             time_reso_ds,
@@ -190,24 +229,19 @@ def process_slice(j, dm_time, data, slice_len, det_model, cls_model, fits_path, 
         prob_max = max(prob_max, band_result["prob_max"])
         if len(band_result["top_conf"]) > 0:
             slice_has_candidates = True
-        
-        composite_dir = save_dir / "Composite" / fits_path.stem
-        comp_path = composite_dir / f"slice{j}_band{band_idx}.png"
-        detections_dir = save_dir / "Detections" / fits_path.stem
-        detections_dir.mkdir(parents=True, exist_ok=True)
-        out_img_path = detections_dir / f"slice{j}_{band_suffix}.png"
+
         dedisp_block = None
-        
+
         if slice_has_candidates:
             if band_result["first_patch"] is not None:
                 waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
                 start = j * slice_len
-                dedisp_block = dedisperse_block(data, freq_down, band_result["first_dm"], start, slice_len)
+                dedisp_block = dedisperse_block(block, freq_down, band_result["first_dm"], start, slice_len)
             else:
                 waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
                 start = j * slice_len
-                dedisp_block = dedisperse_block(data, freq_down, 0.0, start, slice_len)
-            
+                dedisp_block = dedisperse_block(block, freq_down, 0.0, start, slice_len)
+
             save_all_plots(
                 waterfall_block,
                 dedisp_block,
@@ -220,10 +254,10 @@ def process_slice(j, dm_time, data, slice_len, det_model, cls_model, fits_path, 
                 band_result["class_probs_list"],
                 comp_path,
                 j,
-                len(band_configs),
+                time_slice,
                 band_name,
                 band_suffix,
-                fits_path.stem,
+                fits_stem,
                 slice_len,
                 normalize=True,
                 off_regions=None,

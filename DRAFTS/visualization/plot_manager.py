@@ -104,3 +104,4 @@ def save_all_plots(
         band_idx=band_idx,
         absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
     )
+

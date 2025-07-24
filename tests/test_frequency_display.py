@@ -13,8 +13,8 @@ import os
 # Agregar la ruta del módulo DRAFTS al path
 sys.path.insert(0, str(Path(__file__).parent / "DRAFTS"))
 
-from DRAFTS import config
-from DRAFTS.visualization import get_band_frequency_range, get_band_name_with_freq_range
+from DRAFTS.core import config
+from DRAFTS.visualization.visualization import get_band_frequency_range, get_band_name_with_freq_range
 
 def test_frequency_range_functions():
     """Test las funciones de cálculo de rango de frecuencias."""

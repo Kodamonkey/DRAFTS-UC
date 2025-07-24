@@ -24,8 +24,8 @@ from typing import Dict, List, Tuple, Any
 # Configurar path
 sys.path.append(str(Path(__file__).parent))
 
-from DRAFTS import config
-from DRAFTS.pipeline import process_file
+from DRAFTS.core import config
+from DRAFTS.core.pipeline import process_file
 
 def backup_config():
     """Crear backup de la configuración actual."""

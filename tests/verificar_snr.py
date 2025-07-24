@@ -9,13 +9,13 @@ print("=== VERIFICACIÓN DE INTEGRACIÓN SNR ===\n")
 
 # 1. Verificar imports
 try:
-    from DRAFTS import config
+    from DRAFTS.core import config
     print("✓ Config importado correctamente")
     
-    from DRAFTS.snr_utils import compute_snr_profile
+    from DRAFTS.detection.snr_utils import compute_snr_profile
     print("✓ snr_utils importado correctamente")
     
-    from DRAFTS.visualization import save_patch_plot
+    from DRAFTS.visualization.visualization import save_patch_plot
     print("✓ visualization importado correctamente")
     
 except Exception as e:

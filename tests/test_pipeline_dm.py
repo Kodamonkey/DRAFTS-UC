@@ -9,8 +9,8 @@ from pathlib import Path
 # Agregar el directorio DRAFTS al path
 sys.path.insert(0, str(Path(__file__).parent / "DRAFTS"))
 
-from DRAFTS import config
-from DRAFTS.pipeline import process_single_file
+from DRAFTS.core import config
+from DRAFTS.core.pipeline import process_single_file
 
 def test_pipeline_with_dynamic_dm():
     """Test del pipeline completo con DM dinámico."""

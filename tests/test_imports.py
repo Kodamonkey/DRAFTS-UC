@@ -12,19 +12,19 @@ def test_imports():
         print("✅ numpy imported")
         
         print("Importing config...")
-        from DRAFTS import config
+        from DRAFTS.core import config
         print("✅ config imported")
         
         print("Importing filterbank_io...")
-        from DRAFTS.filterbank_io import get_obparams_fil
+        from DRAFTS.io.filterbank_io import get_obparams_fil
         print("✅ filterbank_io imported")
         
         print("Importing preprocessing...")
-        from DRAFTS.preprocessing import downsample_data
+        from DRAFTS.preprocessing.preprocessing import downsample_data
         print("✅ preprocessing imported")
         
         print("Importing dedispersion...")
-        from DRAFTS.dedispersion import d_dm_time_g
+        from DRAFTS.detection.dedispersion import d_dm_time_g
         print("✅ dedispersion imported")
         
         return True

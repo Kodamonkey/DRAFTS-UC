@@ -12,9 +12,9 @@ from pathlib import Path
 import tempfile
 
 # Importar módulos del pipeline
-from DRAFTS import config
-from DRAFTS.image_utils import save_detection_plot, _calculate_dynamic_dm_range
-from DRAFTS.astro_conversions import pixel_to_physical
+from DRAFTS.core import config
+from DRAFTS.visualization.image_utils import save_detection_plot, _calculate_dynamic_dm_range
+from DRAFTS.detection.astro_conversions import pixel_to_physical
 
 def demonstrate_integrated_dm_system():
     """Demuestra el uso integrado del sistema de DM dinámico."""

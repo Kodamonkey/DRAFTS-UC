@@ -13,7 +13,7 @@ import numpy as np
 # Configurar path
 sys.path.append(str(Path(__file__).parent))
 
-from DRAFTS.auto_slice_len import SliceLenOptimizer
+from DRAFTS.core.auto_slice_len import SliceLenOptimizer
 
 def demo_automatic_slice_len():
     """Demuestra el cálculo automático de SLICE_LEN."""

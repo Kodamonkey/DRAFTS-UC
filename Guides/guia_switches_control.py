@@ -9,7 +9,7 @@ entre configuración manual y automática.
 
 def mostrar_configuracion_actual():
     """Muestra el estado actual de los switches de control."""
-    from DRAFTS import config
+    from DRAFTS.core import config
     
     print("=== ESTADO ACTUAL DE SWITCHES DE CONTROL ===")
     print(f"🔧 SLICE_LEN_AUTO = {config.SLICE_LEN_AUTO}")

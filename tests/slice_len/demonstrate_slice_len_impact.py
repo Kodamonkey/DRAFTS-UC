@@ -16,9 +16,9 @@ import numpy as np
 # Configurar path
 sys.path.append(str(Path(__file__).parent))
 
-from DRAFTS import config
-from DRAFTS.astro_conversions import pixel_to_physical
-from DRAFTS.pipeline import _slice_parameters
+from DRAFTS.core import config
+from DRAFTS.detection.astro_conversions import pixel_to_physical
+from DRAFTS.core.pipeline import _slice_parameters
 
 def demonstrate_pixel_conversion():
     """Demostrar conversión pixel-to-physical con diferentes SLICE_LEN."""

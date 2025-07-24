@@ -8,8 +8,8 @@ from typing import Tuple
 
 import numpy as np
 
-from . import config
-from .summary_utils import _update_summary_with_file_debug
+from ..core import config
+from ..core.summary_utils import _update_summary_with_file_debug
 
 
 def _read_int(f) -> int:

@@ -9,7 +9,7 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 try:
-    from DRAFTS.snr_utils import compute_snr_profile, find_snr_peak, inject_synthetic_frb
+    from DRAFTS.detection.snr_utils import compute_snr_profile, find_snr_peak, inject_synthetic_frb
     print("✓ SNR utils imported successfully")
     
     # Test 1: Basic SNR calculation

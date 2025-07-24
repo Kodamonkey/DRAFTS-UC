@@ -11,8 +11,8 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), 'DRAFTS'))
 
 try:
-    from DRAFTS.config import *
-    from DRAFTS.astro_conversions import get_band_frequency_range
+    from DRAFTS.core.config import *
+    from DRAFTS.detection.astro_conversions import get_band_frequency_range
 except ImportError:
     # Definir funciones básicas si no se pueden importar
     def get_band_frequency_range(frequencies, band_idx):

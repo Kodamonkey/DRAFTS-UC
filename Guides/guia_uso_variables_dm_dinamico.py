@@ -6,7 +6,7 @@ Este script muestra ejemplos prácticos de cómo configurar y usar cada variable
 del sistema de DM dinámico para diferentes tipos de observaciones.
 """
 
-from DRAFTS import config
+from DRAFTS.core import config
 import numpy as np
 
 def explain_dm_dynamic_variables():

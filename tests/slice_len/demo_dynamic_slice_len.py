@@ -12,8 +12,8 @@ from pathlib import Path
 # Configurar path
 sys.path.append(str(Path(__file__).parent))
 
-from DRAFTS import config
-from DRAFTS.slice_len_utils import (
+from DRAFTS.core import config
+from DRAFTS.preprocessing.slice_len_utils import (
     calculate_optimal_slice_len,
     get_dynamic_slice_len,
     suggest_slice_duration_for_signal_type,

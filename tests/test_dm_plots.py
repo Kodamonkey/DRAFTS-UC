@@ -12,9 +12,9 @@ from pathlib import Path
 # Agregar el directorio DRAFTS al path
 sys.path.insert(0, str(Path(__file__).parent / "DRAFTS"))
 
-from DRAFTS import config
-from DRAFTS.image_utils import save_detection_plot
-from DRAFTS.visualization import save_slice_summary
+from DRAFTS.core import config
+from DRAFTS.visualization.image_utils import save_detection_plot
+from DRAFTS.visualization.visualization import save_slice_summary
 
 def create_test_plots():
     """Crear plots de prueba con rangos DM dinámicos."""

@@ -11,9 +11,9 @@ from pathlib import Path
 # Agregar el directorio DRAFTS al path
 sys.path.insert(0, str(Path(__file__).parent / "DRAFTS"))
 
-from DRAFTS import config
-from DRAFTS.image_utils import _calculate_dynamic_dm_range
-from DRAFTS.dynamic_dm_range import get_dynamic_dm_range_for_candidate
+from DRAFTS.core import config
+from DRAFTS.visualization.image_utils import _calculate_dynamic_dm_range
+from DRAFTS.preprocessing.dynamic_dm_range import get_dynamic_dm_range_for_candidate
 
 def test_dynamic_dm_range():
     """Test del cálculo de rango DM dinámico."""

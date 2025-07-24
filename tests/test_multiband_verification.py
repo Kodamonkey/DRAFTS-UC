@@ -12,8 +12,8 @@ current_dir = Path(__file__).parent
 drafts_dir = current_dir / "DRAFTS"
 sys.path.insert(0, str(drafts_dir))
 
-from DRAFTS import config
-from DRAFTS.io import load_fits_file
+from DRAFTS.core import config
+from DRAFTS.io.io import load_fits_file
 
 def test_multiband_generation():
     """Prueba que se generen archivos de las 3 bandas."""

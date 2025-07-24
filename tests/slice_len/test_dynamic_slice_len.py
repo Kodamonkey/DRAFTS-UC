@@ -28,7 +28,7 @@ def test_dynamic_slice_len():
     
     # Importar función
     try:
-        from DRAFTS.slice_len_utils import calculate_optimal_slice_len, get_dynamic_slice_len
+        from DRAFTS.preprocessing.slice_len_utils import calculate_optimal_slice_len, get_dynamic_slice_len
         
         print("✅ Módulo importado correctamente")
         

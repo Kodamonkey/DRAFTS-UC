@@ -11,9 +11,9 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 try:
-    from DRAFTS.snr_utils import compute_snr_profile, find_snr_peak, inject_synthetic_frb
-    from DRAFTS.visualization import save_patch_plot
-    from DRAFTS import config
+    from DRAFTS.detection.snr_utils import compute_snr_profile, find_snr_peak, inject_synthetic_frb
+    from DRAFTS.visualization.visualization import save_patch_plot
+    from DRAFTS.core import config
     
     print("✓ Módulos SNR importados exitosamente")
     

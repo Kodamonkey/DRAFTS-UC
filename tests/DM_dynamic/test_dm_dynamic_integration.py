@@ -14,9 +14,9 @@ import shutil
 from unittest.mock import patch
 
 # Importar módulos del pipeline
-from DRAFTS import config
-from DRAFTS.image_utils import save_detection_plot, _calculate_dynamic_dm_range
-from DRAFTS.dynamic_dm_range import get_dynamic_dm_range_for_candidate
+from DRAFTS.core import config
+from DRAFTS.visualization.image_utils import save_detection_plot, _calculate_dynamic_dm_range
+from DRAFTS.preprocessing.dynamic_dm_range import get_dynamic_dm_range_for_candidate
 
 def test_dm_dynamic_integration():
     """Test principal de integración del sistema de DM dinámico."""

@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from DRAFTS.snr_utils import (
+from DRAFTS.detection.snr_utils import (
     compute_snr_profile,
     estimate_sigma_iqr,
     find_snr_peak,

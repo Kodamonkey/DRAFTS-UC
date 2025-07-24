@@ -30,8 +30,14 @@ def save_all_plots(
     freq_down,
     time_reso_ds,
     detections_dir,
-    out_img_path
+    out_img_path,
+    absolute_start_time=None
 ):
+    """Guarda todos los plots con tiempo absoluto para continuidad temporal.
+    
+    Args:
+        absolute_start_time: Tiempo absoluto de inicio del slice en segundos desde el inicio del archivo
+    """
     # Composite plot
     save_slice_summary(
         waterfall_block,
@@ -54,6 +60,7 @@ def save_all_plots(
         off_regions=off_regions,
         thresh_snr=thresh_snr,
         band_idx=band_idx,
+        absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
     )
     # Patch plot
     if first_patch is not None:
@@ -79,7 +86,7 @@ def save_all_plots(
             save_dir=waterfall_dedispersion_dir,
             filename=f"{fits_stem}_dm{first_dm:.2f}_{band_suffix}",
             normalize=normalize,
-            absolute_start_time=None,
+            absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
         )
     # Detections plot
     save_plot(
@@ -95,4 +102,5 @@ def save_all_plots(
         fits_stem,
         slice_len,
         band_idx=band_idx,
+        absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
     )

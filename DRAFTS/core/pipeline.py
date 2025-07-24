@@ -194,7 +194,8 @@ def _process_block(
             cands, bursts, no_bursts, max_prob = process_slice(
                 j, dm_time, block, slice_len, det_model, cls_model, fits_path, save_dir, 
                 freq_down, csv_file, config.TIME_RESO * config.DOWN_TIME_RATE, band_configs, 
-                snr_list, waterfall_dispersion_dir, waterfall_dedispersion_dir, config
+                snr_list, waterfall_dispersion_dir, waterfall_dedispersion_dir, config,
+                absolute_start_time=slice_start_time_sec  # 🕐 PASAR TIEMPO ABSOLUTO
             )
             
             cand_counter += cands

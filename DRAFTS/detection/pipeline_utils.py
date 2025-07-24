@@ -39,8 +39,14 @@ def process_band(
     csv_file,
     time_reso_ds,
     snr_list,
-    config
+    config,
+    absolute_start_time=None
 ):
+    """Procesa una banda con tiempo absoluto para continuidad temporal.
+    
+    Args:
+        absolute_start_time: Tiempo absoluto de inicio del slice en segundos desde el inicio del archivo
+    """
     img_tensor = preprocess_img(band_img)
     top_conf, top_boxes = detect(det_model, img_tensor)
     img_rgb = postprocess_img(img_tensor)
@@ -57,6 +63,7 @@ def process_band(
     n_bursts = 0
     n_no_bursts = 0
     prob_max = 0.0
+    
     for conf, box in zip(top_conf, top_boxes):
         dm_val, t_sec, t_sample = pixel_to_physical(
             (box[0] + box[2]) / 2,
@@ -76,13 +83,20 @@ def process_band(
             first_patch = proc_patch
             first_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
             first_dm = dm_val
+        
+        # 🕐 CALCULAR TIEMPO ABSOLUTO DEL CANDIDATO
+        if absolute_start_time is not None:
+            absolute_candidate_time = absolute_start_time + t_sec
+        else:
+            absolute_candidate_time = t_sec  # Tiempo relativo al slice
+        
         cand = Candidate(
             fits_path.name,
             j,
             band_img.shape[0] if hasattr(band_img, 'shape') else 0,
             float(conf),
             dm_val,
-            t_sec,
+            absolute_candidate_time,  # 🕐 USAR TIEMPO ABSOLUTO
             t_sample,
             tuple(map(int, box)),
             snr_val,
@@ -98,20 +112,15 @@ def process_band(
         prob_max = max(prob_max, float(conf))
         append_candidate(csv_file, cand.to_row())
         logger.info(
-            "Candidato DM %.2f t=%.3f s conf=%.2f class=%.2f -> %s",
-            dm_val,
-            t_sec,
-            conf,
-            class_prob,
-            "BURST" if is_burst else "no burst",
+            f"Candidato DM {dm_val:.2f} t={absolute_candidate_time:.3f}s conf={conf:.2f} class={class_prob:.2f} → {'BURST' if is_burst else 'no burst'}"
         )
     return {
         "top_conf": top_conf,
         "top_boxes": top_boxes,
+        "class_probs_list": class_probs_list,
         "first_patch": first_patch,
         "first_start": first_start,
         "first_dm": first_dm,
-        "class_probs_list": class_probs_list,
         "img_rgb": img_rgb,
         "cand_counter": cand_counter,
         "n_bursts": n_bursts,
@@ -120,12 +129,23 @@ def process_band(
         "patch_path": patch_path,
     }
 
-def process_slice(j, dm_time, data, slice_len, det_model, cls_model, fits_path, save_dir, freq_down, csv_file, time_reso_ds, band_configs, snr_list, waterfall_dispersion_dir, waterfall_dedispersion_dir, config):
+def process_slice(j, dm_time, data, slice_len, det_model, cls_model, fits_path, save_dir, freq_down, csv_file, time_reso_ds, band_configs, snr_list, waterfall_dispersion_dir, waterfall_dedispersion_dir, config, absolute_start_time=None):
+    """Procesa un slice con tiempo absoluto para continuidad temporal entre chunks.
+    
+    Args:
+        absolute_start_time: Tiempo absoluto de inicio del slice en segundos desde el inicio del archivo
+    """
     slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
     waterfall_block = data[j * slice_len : (j + 1) * slice_len]
     if slice_cube.size == 0 or waterfall_block.size == 0:
         logger.warning(f"Slice {j}: slice_cube o waterfall_block vacío, saltando...")
         return 0, 0, 0, 0.0
+    
+    # 🕐 CALCULAR TIEMPO ABSOLUTO DEL SLICE SI NO SE PROPORCIONA
+    if absolute_start_time is None:
+        # Tiempo relativo al chunk (modo antiguo)
+        absolute_start_time = j * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    
     waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
     if waterfall_block.size > 0:
         plot_waterfall_block(
@@ -137,13 +157,15 @@ def process_slice(j, dm_time, data, slice_len, det_model, cls_model, fits_path, 
             save_dir=waterfall_dispersion_dir,
             filename=fits_path.stem,
             normalize=True,
-            absolute_start_time=None,
+            absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
         )
+    
     slice_has_candidates = False
     cand_counter = 0
     n_bursts = 0
     n_no_bursts = 0
     prob_max = 0.0
+    
     for band_idx, band_suffix, band_name in band_configs:
         band_img = slice_cube[band_idx]
         band_result = process_band(
@@ -159,7 +181,8 @@ def process_slice(j, dm_time, data, slice_len, det_model, cls_model, fits_path, 
             csv_file,
             time_reso_ds,
             snr_list,
-            config
+            config,
+            absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
         )
         cand_counter += band_result["cand_counter"]
         n_bursts += band_result["n_bursts"]
@@ -167,12 +190,14 @@ def process_slice(j, dm_time, data, slice_len, det_model, cls_model, fits_path, 
         prob_max = max(prob_max, band_result["prob_max"])
         if len(band_result["top_conf"]) > 0:
             slice_has_candidates = True
+        
         composite_dir = save_dir / "Composite" / fits_path.stem
         comp_path = composite_dir / f"slice{j}_band{band_idx}.png"
         detections_dir = save_dir / "Detections" / fits_path.stem
         detections_dir.mkdir(parents=True, exist_ok=True)
         out_img_path = detections_dir / f"slice{j}_{band_suffix}.png"
         dedisp_block = None
+        
         if slice_has_candidates:
             if band_result["first_patch"] is not None:
                 waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
@@ -182,6 +207,7 @@ def process_slice(j, dm_time, data, slice_len, det_model, cls_model, fits_path, 
                 waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
                 start = j * slice_len
                 dedisp_block = dedisperse_block(data, freq_down, 0.0, start, slice_len)
+            
             save_all_plots(
                 waterfall_block,
                 dedisp_block,
@@ -208,6 +234,8 @@ def process_slice(j, dm_time, data, slice_len, det_model, cls_model, fits_path, 
                 freq_down=freq_down,
                 time_reso_ds=time_reso_ds,
                 detections_dir=detections_dir,
-                out_img_path=out_img_path
+                out_img_path=out_img_path,
+                absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
             )
+    
     return cand_counter, n_bursts, n_no_bursts, prob_max

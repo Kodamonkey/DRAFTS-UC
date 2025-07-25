@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 def detect(model, img_tensor: np.ndarray):
     """Run the detection model and return confidences and boxes."""
-    from ObjectDet.centernet_utils import get_res
+    from training.ObjectDet.centernet_utils import get_res
     try:
         with torch.no_grad():
             hm, wh, offset = model(

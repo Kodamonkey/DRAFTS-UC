@@ -83,7 +83,7 @@ def _load_model() -> torch.nn.Module:
     if torch is None:
         raise ImportError("torch is required to load models")
 
-    from ObjectDet.centernet_model import centernet
+    from training.ObjectDet.centernet_model import centernet
     model = centernet(model_name=config.MODEL_NAME).to(config.DEVICE)
     state = torch.load(config.MODEL_PATH, map_location=config.DEVICE)
     model.load_state_dict(state)
@@ -95,7 +95,7 @@ def _load_class_model() -> torch.nn.Module:
     if torch is None:
         raise ImportError("torch is required to load models")
 
-    from BinaryClass.binary_model import BinaryNet
+    from training.BinaryClass.binary_model import BinaryNet
     model = BinaryNet(config.CLASS_MODEL_NAME, num_classes=2).to(config.DEVICE)
     state = torch.load(config.CLASS_MODEL_PATH, map_location=config.DEVICE)
     model.load_state_dict(state)
@@ -166,7 +166,7 @@ def _write_candidate_to_csv(csv_file: Path, candidate: Candidate) -> None:
 
 def _detect(model, img_tensor: np.ndarray) -> tuple[list, list | None]:
     """Run the detection model and return confidences and boxes."""
-    from ObjectDet.centernet_utils import get_res
+    from training.ObjectDet.centernet_utils import get_res
 
     try:
         with torch.no_grad():

@@ -210,7 +210,7 @@ def _process_block(
                 composite_dir=composite_dir,
                 detections_dir=detections_dir,
                 patches_dir=patches_dir,
-                chunk_idx=chunk_idx # PASAR CHUNK_IDX
+                chunk_idx=chunk_idx 
             )
 
             cand_counter += cands

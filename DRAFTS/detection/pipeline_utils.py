@@ -85,22 +85,26 @@ def process_band(
         if candidate_region.size > 0:
             # Usar compute_snr_profile para consistencia con composite
             snr_profile, _ = compute_snr_profile(candidate_region)
-            snr_val = np.max(snr_profile)  # Tomar el pico del SNR
+            snr_val_raw = np.max(snr_profile)  # Tomar el pico del SNR
         else:
-            snr_val = 0.0
+            snr_val_raw = 0.0
         
-        snr_list.append(snr_val)
+        snr_list.append(snr_val_raw)  # Guardar SNR raw para estadísticas
         global_sample = j * slice_len + int(t_sample)
         patch, start_sample = dedisperse_patch(
             data, freq_down, dm_val, global_sample
         )
         
-        # ✅ CORRECCIÓN: Calcular SNR del patch dedispersado (como en composite)
+        # ✅ CORRECCIÓN: Calcular SNR del patch dedispersado (SNR final para CSV)
+        snr_val = 0.0  # Valor por defecto
         if patch is not None and patch.size > 0:
             from ..detection.snr_utils import find_snr_peak
             snr_patch_profile, _ = compute_snr_profile(patch)
-            snr_val_patch, _, _ = find_snr_peak(snr_patch_profile)
-            snr_val = snr_val_patch  # Usar SNR del patch dedispersado
+            snr_val, _, _ = find_snr_peak(snr_patch_profile)
+            # ✅ IMPORTANTE: Este es el SNR que se guarda en CSV (patch dedispersado)
+        else:
+            # Si no hay patch, usar el SNR raw como fallback
+            snr_val = snr_val_raw
         class_prob, proc_patch = classify_patch(cls_model, patch)
         class_probs_list.append(class_prob)
         is_burst = class_prob >= config.CLASS_PROB
@@ -140,6 +144,10 @@ def process_band(
         append_candidate(csv_file, cand.to_row())
         logger.info(
             f"Candidato DM {dm_val:.2f} t={absolute_candidate_time:.3f}s conf={conf:.2f} class={class_prob:.2f} → {'BURST' if is_burst else 'no burst'}"
+        )
+        # ✅ LOGGING DETALLADO: Mostrar valores de SNR para transparencia
+        logger.info(
+            f"  📊 SNR Raw: {snr_val_raw:.2f}σ, SNR Patch Dedispersado: {snr_val:.2f}σ (guardado en CSV)"
         )
     return {
         "top_conf": top_conf,

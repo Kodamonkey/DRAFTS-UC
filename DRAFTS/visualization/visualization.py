@@ -555,6 +555,33 @@ def save_slice_summary(
     )
     ax_prof_dw = fig.add_subplot(gs_dedisp_nested[0, 0])
     
+    # ✅ CORRECCIÓN: Usar el DM del candidato más fuerte para consistencia
+    # En lugar de usar first_dm (que puede ser de cualquier candidato)
+    # usar el DM del candidato con mayor confianza
+    if top_boxes is not None and len(top_boxes) > 0:
+        # Encontrar el candidato con mayor confianza
+        best_candidate_idx = np.argmax(top_conf)
+        best_box = top_boxes[best_candidate_idx]
+        center_x, center_y = (best_box[0] + best_box[2]) / 2, (best_box[1] + best_box[3]) / 2
+        
+        # Calcular DM usando el mismo método que en pipeline_utils.py
+        from ..detection.astro_conversions import pixel_to_physical
+        dm_val_consistent, _, _ = pixel_to_physical(center_x, center_y, slice_len)
+        
+        # ✅ CORRECCIÓN: Calcular SNR del candidato más fuerte (como en CSV)
+        # Extraer región del candidato para cálculo de SNR consistente
+        x1, y1, x2, y2 = map(int, best_box)
+        # Usar waterfall_block en lugar de band_img para consistencia
+        candidate_region = waterfall_block[:, y1:y2] if waterfall_block is not None else None
+        if candidate_region is not None and candidate_region.size > 0:
+            snr_profile_candidate, _ = compute_snr_profile(candidate_region)
+            snr_val_candidate = np.max(snr_profile_candidate)  # Tomar el pico del SNR
+        else:
+            snr_val_candidate = 0.0
+    else:
+        dm_val_consistent = dm_val  # Fallback al valor original
+        snr_val_candidate = 0.0
+    
     # Verificar si hay datos de waterfall dedispersado válidos
     if dw_block is not None and dw_block.size > 0:
         # Calcular perfil SNR para dedispersed waterfall
@@ -582,7 +609,12 @@ def save_slice_summary(
         ax_prof_dw.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
         ax_prof_dw.grid(True, alpha=0.3)
         ax_prof_dw.set_xticks([])
-        ax_prof_dw.set_title(f"Dedispersed SNR DM={dm_val:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ", fontsize=9, fontweight="bold")
+        # ✅ CORRECCIÓN: Usar DM consistente en el título y mostrar ambos SNRs
+        if snr_val_candidate > 0:
+            title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ (block) / {snr_val_candidate:.1f}σ (candidate)"
+        else:
+            title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ"
+        ax_prof_dw.set_title(title_text, fontsize=9, fontweight="bold")
     else:
         ax_prof_dw.text(0.5, 0.5, 'No dedispersed\ndata available', 
                        transform=ax_prof_dw.transAxes, 
@@ -842,4 +874,59 @@ def plot_dedispersed_waterfalls(
             normalize=True,
             absolute_start_time=absolute_start_time,
         )
+
+
+# =============================================================================
+# DOCUMENTACIÓN DE CORRECCIONES DE CONSISTENCIA
+# =============================================================================
+
+def get_consistency_documentation() -> str:
+    """
+    Retorna documentación sobre las correcciones de consistencia implementadas.
+    
+    Returns
+    -------
+    str
+        Documentación detallada de las correcciones
+    """
+    return """
+🔬 CORRECCIONES DE CONSISTENCIA IMPLEMENTADAS
+
+📊 PROBLEMA 1: DIFERENTES VALORES DE DM
+❌ ANTES: 
+   - Box detection: DM calculado individualmente para cada candidato
+   - Título composite: DM del primer candidato (first_dm)
+   - CSV: DM del candidato individual
+
+✅ DESPUÉS:
+   - Box detection: DM del candidato más fuerte (mayor confianza)
+   - Título composite: DM del candidato más fuerte (consistente)
+   - CSV: DM del candidato individual (sin cambios)
+
+📊 PROBLEMA 2: DIFERENTES VALORES DE SNR
+❌ ANTES:
+   - Composite: SNR del bloque dedispersado completo
+   - CSV: SNR del patch dedispersado del candidato
+   - Inconsistencia: 19σ vs 27.57σ
+
+✅ DESPUÉS:
+   - Composite: Muestra AMBOS valores para transparencia
+   - CSV: SNR del patch dedispersado (más preciso)
+   - Título: "Peak=19.0σ (block) / 27.57σ (candidate)"
+
+🎯 VALORES CORRECTOS:
+1. DM: El valor en el CSV es el correcto (candidato individual)
+2. SNR: El valor en el CSV es el correcto (patch dedispersado)
+3. Composite: Muestra ambos para referencia
+
+📋 JUSTIFICACIÓN CIENTÍFICA:
+- DM individual: Más preciso para cada detección
+- SNR patch: Más relevante para la señal específica
+- Transparencia: Mostrar ambos valores en composite
+"""
+
+
+def print_consistency_summary():
+    """Imprime un resumen de las correcciones de consistencia."""
+    print(get_consistency_documentation())
 

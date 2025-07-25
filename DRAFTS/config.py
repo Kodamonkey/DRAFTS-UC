@@ -48,7 +48,7 @@ DEBUG_FREQUENCY_ORDER: bool = False         # True = debug orden de frecuencias 
 # =============================================================================
 
 # --- Rutas de archivos y datos ---
-DATA_DIR = Path("./Data")                        # Directorio con archivos de entrada (.fits, .fil)
+DATA_DIR = Path("./Data/raw")                        # Directorio con archivos de entrada (.fits, .fil)
 RESULTS_DIR = Path("./Results/ObjectDetection")  # Directorio para guardar resultados
 # --- Lista de targets optimizada para múltiples archivos ---
 

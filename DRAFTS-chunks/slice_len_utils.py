@@ -319,5 +319,5 @@ def print_slice_len_analysis(config_module, file_length: Optional[int] = None):
 
 if __name__ == "__main__":
     # Ejemplo de uso
-    from DRAFTS import config
+    from DRAFTS.core import config
     print_slice_len_analysis(config)

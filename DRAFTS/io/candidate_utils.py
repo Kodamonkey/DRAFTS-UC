@@ -7,9 +7,10 @@ logger = logging.getLogger(__name__)
 
 CANDIDATE_HEADER = [
     "file",
-    "slice",
-    "band",
-    "prob",
+    "chunk_id",  # 🧩 NUEVO: ID del chunk
+    "slice_id",  # 🧩 RENOMBRADO: Más claro que "slice"
+    "band_id",   # 🧩 RENOMBRADO: Más claro que "band"
+    "detection_prob",  # 🧩 RENOMBRADO: Más claro que "prob"
     "dm_pc_cm-3",
     "t_sec",
     "t_sample",

@@ -180,12 +180,9 @@ def plot_waterfall_block(
     
     # 🕐 CORRECCIÓN: Usar tiempo absoluto si se proporciona, sino usar cálculo relativo
     if absolute_start_time is not None:
-        # Calcular tiempo absoluto correcto para cada slice
-        # absolute_start_time es el tiempo de inicio del bloque
-        # block_idx es el índice del slice en el archivo
-        # block_size es el tamaño del slice (SLICE_LEN)
-        # time_reso es la resolución temporal decimada
-        time_start = absolute_start_time + block_idx * block_size * time_reso
+        # absolute_start_time ya es el tiempo de inicio del slice específico
+        # No necesitamos sumar block_idx * block_size * time_reso porque ya está incluido
+        time_start = absolute_start_time
     else:
         time_start = block_idx * block_size * time_reso
         

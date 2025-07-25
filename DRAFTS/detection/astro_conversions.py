@@ -6,8 +6,10 @@ from ..core import config
 def pixel_to_physical(px: float, py: float, slice_len: int) -> tuple[float, float, int]:
     """Translate network pixel coordinates to DM (pc cm⁻³) and time.
     
-    Compatible with DRAFTS original implementation where:
-    DM = (center_y) * (DM_range / 512)
+    EXACTLY compatible with DRAFTS original implementation where:
+    DM = (left_y + right_y) / 2 * (DM_range / 512)
+    
+    Note: DRAFTS original does NOT add DM_min offset, it uses absolute DM values.
 
     Parameters
     ----------
@@ -20,16 +22,16 @@ def pixel_to_physical(px: float, py: float, slice_len: int) -> tuple[float, floa
     -------
     tuple of (dm_val, t_seconds, t_sample)
     """
-    # ✅ CORRECCIÓN: Usar la misma fórmula que DRAFTS original
-    # DRAFTS original: DM = center_y * (DM_range / 512)
+    # ✅ EXACTA COMPATIBILIDAD CON DRAFTS ORIGINAL
+    # DRAFTS original: DM = (left_y + right_y) / 2 * (DM_range / 512)
     # Donde DM_range es el rango total desde DM_min hasta DM_max
     dm_range = config.DM_max - config.DM_min + 1
     scale_dm = dm_range / 512.0
     scale_time = slice_len / 512.0
     
-    # DRAFTS original usa: DM = py * scale_dm (sin offset DM_min)
-    # Pero necesitamos agregar DM_min si el rango no empieza en 0
-    dm_val = config.DM_min + py * scale_dm
+    # ✅ DRAFTS ORIGINAL NO AGREGA DM_min - usa valores absolutos
+    # py ya representa el centro del bounding box (left_y + right_y) / 2
+    dm_val = py * scale_dm
     
     sample_off = px * scale_time
     t_sample = int(sample_off)

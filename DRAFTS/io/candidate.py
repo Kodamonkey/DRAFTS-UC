@@ -8,6 +8,7 @@ from typing import List, Tuple
 @dataclass(slots=True)
 class Candidate:
     file: str
+    chunk_id: int  # 🧩 NUEVO: ID del chunk donde se encontró el candidato
     slice_id: int
     band_id: int
     prob: float
@@ -23,6 +24,7 @@ class Candidate:
     def to_row(self) -> List:
         row = [
             self.file,
+            self.chunk_id,  # 🧩 NUEVO: Incluir chunk_id en CSV
             self.slice_id,
             self.band_id,
             f"{self.prob:.3f}",

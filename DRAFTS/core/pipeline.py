@@ -101,32 +101,33 @@ def _load_class_model() -> torch.nn.Module:
 
 
 def _process_block(
-    det_model: torch.nn.Module,
-    cls_model: torch.nn.Module,
-    block: np.ndarray,
-    metadata: dict,
-    fits_path: Path,
-    save_dir: Path,
-    chunk_idx: int,
-) -> dict:
+    det_model: torch.nn.Module, # Modelo de detección
+    cls_model: torch.nn.Module, # Modelo de clasificación
+    block: np.ndarray, # Bloque de datos
+    metadata: dict, # Metadatos del bloque
+    fits_path: Path, # Path del archivo FITS
+    save_dir: Path, # Path de guardado
+    chunk_idx: int, # Índice del chunk
+    csv_file: Path,  # CSV file por archivo
+) -> dict: 
     """Procesa un bloque de datos y retorna estadísticas del bloque."""
     
     # Configurar parámetros temporales para este bloque
     original_file_leng = config.FILE_LENG # Guardar longitud original del archivo
     config.FILE_LENG = metadata["actual_chunk_size"] # Actualizar longitud del archivo al tamaño del bloque actual
     
-    # 🕐 CALCULAR TIEMPO ABSOLUTO DESDE INICIO DEL ARCHIVO
+    # CALCULAR TIEMPO ABSOLUTO DESDE INICIO DEL ARCHIVO
     # Tiempo de inicio del chunk en segundos desde el inicio del archivo
-    chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO
-    chunk_duration_sec = metadata["actual_chunk_size"] * config.TIME_RESO
+    chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO # Tiempo de inicio del chunk en segundos desde el inicio del archivo
+    chunk_duration_sec = metadata["actual_chunk_size"] * config.TIME_RESO # Duración del chunk en segundos
     
     logger.info(f"🕐 Chunk {chunk_idx:03d}: Tiempo {chunk_start_time_sec:.2f}s - {chunk_start_time_sec + chunk_duration_sec:.2f}s "
                f"(duración: {chunk_duration_sec:.2f}s)")
     
     try:
         # Aplicar downsampling al bloque
-        from ..preprocessing.preprocessing import downsample_data
-        block = downsample_data(block) # Aplica downsampling según la configuración
+        from ..preprocessing.preprocessing import downsample_data # Importar la función de downsampling
+        block = downsample_data(block) # Aplica downsampling según la configuración 
         
         # Calcular parámetros para este bloque
         freq_down = np.mean(
@@ -138,7 +139,7 @@ def _process_block(
         width_total = config.FILE_LENG // config.DOWN_TIME_RATE # Ancho total del cubo DM-time
         
         # Calcular slice_len dinámicamente
-        from ..preprocessing.slice_len_utils import update_slice_len_dynamic
+        from ..preprocessing.slice_len_utils import update_slice_len_dynamic # Importar la función de actualización de slice_len
         slice_len, real_duration_ms = update_slice_len_dynamic() # Actualiza slice_len según la configuración
         time_slice = (width_total + slice_len - 1) // slice_len # Número de slices por chunk
         
@@ -148,41 +149,41 @@ def _process_block(
         dm_time = d_dm_time_g(block, height=height, width=width_total) # dedispersion del bloque
         
         # Configurar bandas
-        band_configs = get_band_configs()
+        band_configs = get_band_configs() # Configuración de bandas (fullband, lowband, highband)
         
         # Procesar slices
-        cand_counter = 0
-        n_bursts = 0
-        n_no_bursts = 0
-        prob_max = 0.0
-        snr_list = []
+        cand_counter = 0 # Contador de candidatos
+        n_bursts = 0 # Contador de candidatos de tipo burst
+        n_no_bursts = 0 # Contador de candidatos de tipo no burst
+        prob_max = 0.0 # Probabilidad máxima de detección
+        snr_list = [] # Lista de SNRs de los candidatos
         
-        for j in range(time_slice):
+        for j in range(time_slice): # Procesar cada slice
             # Verificar que tenemos suficientes datos para este slice
-            start_idx = slice_len * j
-            end_idx = slice_len * (j + 1)
+            start_idx = slice_len * j # Índice de inicio del slice
+            end_idx = slice_len * (j + 1) # Índice de fin del slice
 
             # Verificar que no excedemos los límites del bloque
-            if start_idx >= block.shape[0]:
+            if start_idx >= block.shape[0]: # Si el índice de inicio es mayor o igual al tamaño del bloque
                 logger.warning(f"Slice {j}: start_idx ({start_idx}) >= block.shape[0] ({block.shape[0]}), saltando...")
                 continue
 
-            if end_idx > block.shape[0]:
+            if end_idx > block.shape[0]: # Si el índice de fin es mayor al tamaño del bloque
                 logger.warning(f"Slice {j}: end_idx ({end_idx}) > block.shape[0] ({block.shape[0]}), ajustando...")
-                end_idx = block.shape[0]
+                end_idx = block.shape[0] # Ajustar el índice de fin al tamaño del bloque
                 # Si el slice es muy pequeño, saltarlo
                 if end_idx - start_idx < slice_len // 2:
                     logger.warning(f"Slice {j}: muy pequeño ({end_idx - start_idx} muestras), saltando...")
                     continue
 
-            slice_cube = dm_time[:, :, start_idx : end_idx]
-            waterfall_block = block[start_idx : end_idx]
+            slice_cube = dm_time[:, :, start_idx : end_idx] # Cubo DM-time para este slice
+            waterfall_block = block[start_idx : end_idx] # Bloque de datos para este slice
 
-            if slice_cube.size == 0 or waterfall_block.size == 0:
+            if slice_cube.size == 0 or waterfall_block.size == 0: # Si el cubo o el bloque están vacíos
                 logger.warning(f"Slice {j}: datos vacíos, saltando...")
                 continue
 
-            # 🕐 Calcular tiempo absoluto para este slice específico
+            # Calcular tiempo absoluto para este slice específico
             slice_start_time_sec = chunk_start_time_sec + (j * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE)
 
             # === CHUNKED FOLDER STRUCTURE FOR PLOTS ===
@@ -191,21 +192,25 @@ def _process_block(
             composite_dir.mkdir(parents=True, exist_ok=True)
             detections_dir = save_dir / "Detections" / chunk_folder_name
             detections_dir.mkdir(parents=True, exist_ok=True)
+            patches_dir = save_dir / "Patches" / chunk_folder_name
+            patches_dir.mkdir(parents=True, exist_ok=True)
 
             # Candidate CSV and waterfall folders (already chunked)
-            csv_file = save_dir / f"{chunk_folder_name}.candidates.csv"
-            ensure_csv_header(csv_file)
+            # csv_file = save_dir / f"{chunk_folder_name}.candidates.csv" # Moved outside _process_block
+            # ensure_csv_header(csv_file) # Moved outside _process_block
             waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / chunk_folder_name
             waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / chunk_folder_name
 
             # Pass chunked paths to process_slice (these will be used in plot_manager)
-            cands, bursts, no_bursts, max_prob = process_slice(
+            cands, bursts, no_bursts, max_prob = process_slice( # Procesar el slice
                 j, dm_time, block, slice_len, det_model, cls_model, fits_path, save_dir,
                 freq_down, csv_file, config.TIME_RESO * config.DOWN_TIME_RATE, band_configs,
                 snr_list, waterfall_dispersion_dir, waterfall_dedispersion_dir, config,
                 absolute_start_time=slice_start_time_sec,
                 composite_dir=composite_dir,
-                detections_dir=detections_dir
+                detections_dir=detections_dir,
+                patches_dir=patches_dir,
+                chunk_idx=chunk_idx # PASAR CHUNK_IDX
             )
 
             cand_counter += cands
@@ -249,10 +254,11 @@ def _process_file_chunked(
     logger.info(f"📁 Analizando estructura del archivo: {fits_path.name}")
     
     # Calcular información basada en config.FILE_LENG (ya cargado por get_obparams_fil)
-    total_samples = config.FILE_LENG
+    total_samples = config.FILE_LENG # Longitud total del archivo
     chunk_count = (total_samples + chunk_samples - 1) // chunk_samples  # Redondear hacia arriba
-    total_duration_sec = total_samples * config.TIME_RESO
-    chunk_duration_sec = chunk_samples * config.TIME_RESO
+    
+    total_duration_sec = total_samples * config.TIME_RESO # Duración total del archivo
+    chunk_duration_sec = chunk_samples * config.TIME_RESO # Duración de cada chunk
     
     logger.info(f"📊 RESUMEN DEL ARCHIVO:")
     logger.info(f"   🧩 Total de chunks estimado: {chunk_count}")
@@ -261,38 +267,43 @@ def _process_file_chunked(
     logger.info(f"   📦 Tamaño de chunk: {chunk_samples:,} muestras ({chunk_duration_sec:.2f}s)")
     logger.info(f"   🔄 Iniciando procesamiento...")
     
-    t_start = time.time()
-    cand_counter_total = 0
-    n_bursts_total = 0
-    n_no_bursts_total = 0
-    prob_max_total = 0.0
-    snr_list_total = []
-    actual_chunk_count = 0
+    # Crear un CSV por archivo en lugar de por chunk
+    csv_file = save_dir / f"{fits_path.stem}.candidates.csv" # CSV file por archivo
+    ensure_csv_header(csv_file) # Asegurar que el header del CSV esté presente
+    
+    
+    t_start = time.time() # Tiempo de inicio del procesamiento
+    cand_counter_total = 0 # Contador de candidatos totales
+    n_bursts_total = 0 # Contador de candidatos de tipo burst
+    n_no_bursts_total = 0 # Contador de candidatos de tipo no burst
+    prob_max_total = 0.0 # Probabilidad máxima de detección
+    snr_list_total = [] # Lista de SNRs de los candidatos
+    actual_chunk_count = 0 # Contador de chunks procesados
     
     try:
         # Procesar cada bloque (UNA SOLA PASADA)
-        for block, metadata in stream_fil(str(fits_path), chunk_samples):
-            actual_chunk_count += 1
-            logger.info(f"🧩 Procesando chunk {metadata['chunk_idx']:03d} "
-                       f"({metadata['start_sample']:,} - {metadata['end_sample']:,})")
+        for block, metadata in stream_fil(str(fits_path), chunk_samples): # Procesar cada bloque
+            actual_chunk_count += 1 # Incrementar el contador de chunks procesados
+            logger.info(f"🧩 Procesando chunk {metadata['chunk_idx']:03d} " # Log del chunk actual
+                       f"({metadata['start_sample']:,} - {metadata['end_sample']:,})") # Log del rango de muestras del chunk
             
             # Procesar bloque
-            block_results = _process_block(
-                det_model, cls_model, block, metadata, 
-                fits_path, save_dir, metadata['chunk_idx']
-            )
+            block_results = _process_block( 
+                det_model, cls_model, block, metadata, # Modelos de detección y clasificación
+                fits_path, save_dir, metadata['chunk_idx'], csv_file  # PASAR CSV_FILE
+            ) 
             
             # Acumular resultados
-            cand_counter_total += block_results["n_candidates"]
-            n_bursts_total += block_results["n_bursts"]
-            n_no_bursts_total += block_results["n_no_bursts"]
-            prob_max_total = max(prob_max_total, block_results["max_prob"])
+            cand_counter_total += block_results["n_candidates"] # Acumular el número de candidatos
+            n_bursts_total += block_results["n_bursts"] # Acumular el número de candidatos de tipo burst
+            n_no_bursts_total += block_results["n_no_bursts"] # Acumular el número de candidatos de tipo no burst
+            prob_max_total = max(prob_max_total, block_results["max_prob"]) # Actualizar la probabilidad máxima de detección
             
             # LIMPIEZA AGRESIVA DE MEMORIA
-            del block
+            del block # Liberar memoria del bloque
             _optimize_memory(aggressive=(actual_chunk_count % 5 == 0))  # Limpieza agresiva cada 5 chunks
         
-        runtime = time.time() - t_start
+        runtime = time.time() - t_start # Tiempo de ejecución
         logger.info(
             f"🧩 Archivo completado: {actual_chunk_count} chunks procesados, "
             f"{cand_counter_total} candidatos, max prob {prob_max_total:.2f}, ⏱️ {runtime:.1f}s"
@@ -356,7 +367,7 @@ def _process_file(
         logger.info("🧩 Procesando archivo .fil en bloques de %d muestras", chunk_samples)
         return _process_file_chunked(det_model, cls_model, fits_path, save_dir, chunk_samples)
     
-    # Procesamiento normal (modo antiguo)
+    # Procesamiento normal (modo estandar)
     cand_counter = 0
     n_bursts = 0
     n_no_bursts = 0
@@ -402,7 +413,8 @@ def _process_file(
     snr_list: List[float] = []
     for j in range(time_slice):
         cands, bursts, no_bursts, max_prob = process_slice(
-            j, dm_time, data, slice_len, det_model, cls_model, fits_path, save_dir, freq_down, csv_file, time_reso_ds, band_configs, snr_list, waterfall_dispersion_dir, waterfall_dedispersion_dir, config
+            j, dm_time, data, slice_len, det_model, cls_model, fits_path, save_dir, freq_down, csv_file, time_reso_ds, band_configs, snr_list, waterfall_dispersion_dir, waterfall_dedispersion_dir, config,
+            chunk_idx=0  # 🧩 NUEVO: chunk_idx=0 para archivos no chunked
         )
         cand_counter += cands
         n_bursts += bursts

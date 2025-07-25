@@ -4,6 +4,7 @@ from ..detection.dedispersion import dedisperse_patch
 from ..detection.dedispersion import dedisperse_block
 from ..detection.utils import detect, classify_patch
 from ..detection.metrics import compute_snr
+from ..detection.snr_utils import compute_snr_profile  # 🧩 NUEVO: Importar compute_snr_profile
 from ..detection.astro_conversions import pixel_to_physical
 from ..io.candidate_utils import append_candidate
 from ..io.candidate import Candidate
@@ -40,12 +41,15 @@ def process_band(
     time_reso_ds,
     snr_list,
     config,
-    absolute_start_time=None
+    absolute_start_time=None,
+    patches_dir=None,
+    chunk_idx=None,  # 🧩 NUEVO: ID del chunk
 ):
     """Procesa una banda con tiempo absoluto para continuidad temporal.
     
     Args:
         absolute_start_time: Tiempo absoluto de inicio del slice en segundos desde el inicio del archivo
+        chunk_idx: ID del chunk donde se encuentra este slice
     """
     img_tensor = preprocess_img(band_img)
     top_conf, top_boxes = detect(det_model, img_tensor)
@@ -56,8 +60,11 @@ def process_band(
     first_patch = None
     first_start = None
     first_dm = None
-    patch_dir = save_dir / "Patches" / fits_path.stem
-    patch_path = patch_dir / f"patch_slice{j}_band{band_img.shape[0] if hasattr(band_img, 'shape') else 0}.png"
+    if patches_dir is not None:
+        patch_path = patches_dir / f"patch_slice{j}_band{band_img.shape[0] if hasattr(band_img, 'shape') else 0}.png"
+    else:
+        patch_dir = save_dir / "Patches" / fits_path.stem
+        patch_path = patch_dir / f"patch_slice{j}_band{band_img.shape[0] if hasattr(band_img, 'shape') else 0}.png"
     class_probs_list = []
     cand_counter = 0
     n_bursts = 0
@@ -70,12 +77,30 @@ def process_band(
             (box[1] + box[3]) / 2,
             slice_len,
         )
-        snr_val = compute_snr(band_img, tuple(map(int, box)))
+        
+        # 🧩 CORRECCIÓN: Usar compute_snr_profile para SNR consistente con composite
+        # Extraer región del candidato para cálculo de SNR
+        x1, y1, x2, y2 = map(int, box)
+        candidate_region = band_img[y1:y2, x1:x2]
+        if candidate_region.size > 0:
+            # Usar compute_snr_profile para consistencia con composite
+            snr_profile, _ = compute_snr_profile(candidate_region)
+            snr_val = np.max(snr_profile)  # Tomar el pico del SNR
+        else:
+            snr_val = 0.0
+        
         snr_list.append(snr_val)
         global_sample = j * slice_len + int(t_sample)
         patch, start_sample = dedisperse_patch(
             data, freq_down, dm_val, global_sample
         )
+        
+        # ✅ CORRECCIÓN: Calcular SNR del patch dedispersado (como en composite)
+        if patch is not None and patch.size > 0:
+            from ..detection.snr_utils import find_snr_peak
+            snr_patch_profile, _ = compute_snr_profile(patch)
+            snr_val_patch, _, _ = find_snr_peak(snr_patch_profile)
+            snr_val = snr_val_patch  # Usar SNR del patch dedispersado
         class_prob, proc_patch = classify_patch(cls_model, patch)
         class_probs_list.append(class_prob)
         is_burst = class_prob >= config.CLASS_PROB
@@ -90,16 +115,18 @@ def process_band(
         else:
             absolute_candidate_time = t_sec  # Tiempo relativo al slice
         
+        # 🧩 NUEVO: Usar chunk_idx en el candidato
         cand = Candidate(
             fits_path.name,
-            j,
-            band_img.shape[0] if hasattr(band_img, 'shape') else 0,
+            chunk_idx if chunk_idx is not None else 0,  # 🧩 AGREGAR CHUNK_ID
+            j,  # slice_id
+            band_img.shape[0] if hasattr(band_img, 'shape') else 0,  # band_id
             float(conf),
             dm_val,
             absolute_candidate_time,  # 🕐 USAR TIEMPO ABSOLUTO
             t_sample,
             tuple(map(int, box)),
-            snr_val,
+            snr_val,  # 🧩 SNR CORREGIDO
             class_prob,
             is_burst,
             patch_path.name,
@@ -149,11 +176,14 @@ def process_slice(
     absolute_start_time=None,
     composite_dir=None,
     detections_dir=None,
+    patches_dir=None,
+    chunk_idx=None,  #  ID del chunk
 ):
     """Procesa un slice con tiempo absoluto para continuidad temporal entre chunks.
     
     Args:
         absolute_start_time: Tiempo absoluto de inicio del slice en segundos desde el inicio del archivo
+        chunk_idx: ID del chunk donde se encuentra este slice
     """
     slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
     waterfall_block = block[j * slice_len : (j + 1) * slice_len]
@@ -161,7 +191,7 @@ def process_slice(
         logger.warning(f"Slice {j}: slice_cube o waterfall_block vacío, saltando...")
         return 0, 0, 0, 0.0
     
-    # 🕐 CALCULAR TIEMPO ABSOLUTO DEL SLICE SI NO SE PROPORCIONA
+    # CALCULAR TIEMPO ABSOLUTO DEL SLICE SI NO SE PROPORCIONA
     if absolute_start_time is None:
         # Tiempo relativo al chunk (modo antiguo)
         absolute_start_time = j * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
@@ -169,31 +199,34 @@ def process_slice(
     waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
     if waterfall_block.size > 0:
         plot_waterfall_block(
-            data_block=waterfall_block,
-            freq=freq_down,
-            time_reso=time_reso_ds,
-            block_size=waterfall_block.shape[0],
-            block_idx=j,
-            save_dir=waterfall_dispersion_dir,
-            filename=fits_path.stem,
-            normalize=True,
-            absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
-        )
+            data_block=waterfall_block, # Bloque de datos
+            freq=freq_down, # Frecuencia
+            time_reso=time_reso_ds, # Resolución temporal
+            block_size=waterfall_block.shape[0], # Tamaño del bloque
+            block_idx=j, # Índice del bloque
+            save_dir=waterfall_dispersion_dir, # Directorio de guardado
+            filename=fits_path.stem, # Nombre del archivo
+            normalize=True, # Normalizar
+            absolute_start_time=absolute_start_time, # Tiempo absoluto
+        ) # Guardar el plot
     
-    slice_has_candidates = False
-    cand_counter = 0
-    n_bursts = 0
-    n_no_bursts = 0
-    prob_max = 0.0
+    slice_has_candidates = False # Indica si el slice tiene candidatos
+    cand_counter = 0 # Contador de candidatos
+    n_bursts = 0 # Contador de candidatos de tipo burst
+    n_no_bursts = 0 # Contador de candidatos de tipo no burst
+    prob_max = 0.0 # Probabilidad máxima de detección
     
-    fits_stem = fits_path.stem
+    fits_stem = fits_path.stem # Nombre del archivo
     # Use chunked directories if provided
     if composite_dir is not None:
-        comp_path = composite_dir / f"{fits_stem}_slice{j:03d}.png"
+        comp_path = composite_dir / f"{fits_stem}_slice{j:03d}.png" # Directorio de guardado
     else:
         comp_path = save_dir / "Composite" / f"{fits_stem}_slice{j:03d}.png"
 
-    patch_path = save_dir / "Patch" / f"{fits_stem}_slice{j:03d}.png"
+    if patches_dir is not None:
+        patch_path = patches_dir / f"{fits_stem}_slice{j:03d}.png"
+    else:
+        patch_path = save_dir / "Patches" / f"{fits_stem}_slice{j:03d}.png"
 
     if detections_dir is not None:
         out_img_path = detections_dir / f"{fits_stem}_slice{j:03d}.png"
@@ -201,9 +234,9 @@ def process_slice(
         out_img_path = save_dir / "Detections" / f"{fits_stem}_slice{j:03d}.png"
 
     # Calculate time_slice if not provided
-    time_slice = block.shape[0] // slice_len
-    if block.shape[0] % slice_len != 0:
-        time_slice += 1
+    time_slice = block.shape[0] // slice_len # Tamaño del slice
+    if block.shape[0] % slice_len != 0: # Si el tamaño del bloque no es divisible por el tamaño del slice
+        time_slice += 1 # Incrementar el tamaño del slice
 
     for band_idx, band_suffix, band_name in band_configs:
         band_img = slice_cube[band_idx]
@@ -221,7 +254,9 @@ def process_slice(
             time_reso_ds,
             snr_list,
             config,
-            absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
+            absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
+            patches_dir=patches_dir,  # PASAR CARPETA DE PATCHES POR CHUNK
+            chunk_idx=chunk_idx,  # PASAR CHUNK_ID
         )
         cand_counter += band_result["cand_counter"]
         n_bursts += band_result["n_bursts"]

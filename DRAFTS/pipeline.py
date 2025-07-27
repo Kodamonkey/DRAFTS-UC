@@ -26,11 +26,12 @@ except ImportError:
     plt = None
 
 from . import config
-from .input.data_loader import ensure_csv_header, load_and_preprocess_data, get_obparams, stream_fil, get_obparams_fil
+from .input.data_loader import load_and_preprocess_data, get_obparams, stream_fil, get_obparams_fil
+from .output.candidate_manager import ensure_csv_header
 from .preprocessing.dedispersion import d_dm_time_g
 from .config import get_band_configs
 from .detection_engine import get_pipeline_parameters, process_slice
-from .preprocessing.summary_manager import (
+from .output.summary_manager import (
     _write_summary,
     _update_summary_with_results,
 )

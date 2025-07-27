@@ -112,4 +112,4 @@ def _update_summary_with_results(
     with summary_path.open("w") as f:
         json.dump(summary, f, indent=2)
 
-    logger.info(f"Resultados guardados para {filename} en {summary_path}")
+    logger.info(f"Resultados guardados para {filename} en {summary_path}") 

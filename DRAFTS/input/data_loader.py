@@ -18,7 +18,7 @@ from astropy.io import fits
 # Local imports
 from .. import config
 from ..preprocessing.data_downsampler import downsample_data
-from ..preprocessing.summary_manager import _update_summary_with_file_debug
+from ..output.summary_manager import _update_summary_with_file_debug
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -1095,93 +1095,4 @@ def load_and_preprocess_data(fits_path):
         data = load_fil_file(str(fits_path))
     data = np.vstack([data, data[::-1, :]])
     return downsample_data(data)
-
-
-'''
-CANDIDATE 
-'''
-
-"""Candidate CSV utilities for FRB pipeline."""
-
-CANDIDATE_HEADER = [
-    "file",
-    "chunk_id",  # 🧩 NUEVO: ID del chunk
-    "slice_id",  # 🧩 RENOMBRADO: Más claro que "slice"
-    "band_id",   # 🧩 RENOMBRADO: Más claro que "band"
-    "detection_prob",  # 🧩 RENOMBRADO: Más claro que "prob"
-    "dm_pc_cm-3",
-    "t_sec",
-    "t_sample",
-    "x1",
-    "y1",
-    "x2",
-    "y2",
-    "snr",
-    "class_prob",
-    "is_burst",
-    "patch_file",
-]
-
-def ensure_csv_header(csv_path: Path) -> None:
-    """Create csv_path with the standard candidate header if needed."""
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    if csv_path.exists():
-        return
-    try:
-        with csv_path.open("w", newline="") as f_csv:
-            writer = csv.writer(f_csv)
-            writer.writerow(CANDIDATE_HEADER)
-    except PermissionError as e:
-        logger.error("Error de permisos al crear CSV %s: %s", csv_path, e)
-        raise
-
-def append_candidate(csv_path: Path, candidate_row: list) -> None:
-    """Append a candidate row to the CSV file."""
-    with csv_path.open("a", newline="") as f_csv:
-        writer = csv.writer(f_csv)
-        writer.writerow(candidate_row)
-
-
-"""
-CANDIDATE DATA STRUCTURE
-"""
-
-@dataclass(slots=True)
-class Candidate:
-    """Data structure for detected FRB candidates."""
-    file: str
-    chunk_id: int  # ID del chunk donde se encontró el candidato
-    slice_id: int
-    band_id: int
-    prob: float
-    dm: float
-    t_sec: float
-    t_sample: int
-    box: Tuple[int, int, int, int]
-    snr: float
-    class_prob: float | None = None
-    is_burst: bool | None = None
-    patch_file: str | None = None
-
-    def to_row(self) -> List:
-        """Convert candidate to CSV row format."""
-        row = [
-            self.file,
-            self.chunk_id,  # Incluir chunk_id en CSV
-            self.slice_id,
-            self.band_id,
-            f"{self.prob:.3f}",
-            f"{self.dm:.2f}",
-            f"{self.t_sec:.6f}",
-            self.t_sample,
-            *self.box,
-            f"{self.snr:.2f}",
-        ]
-        if self.class_prob is not None:
-            row.append(f"{self.class_prob:.3f}")
-        if self.is_burst is not None:
-            row.append("burst" if self.is_burst else "no_burst")
-        if self.patch_file is not None:
-            row.append(self.patch_file)
-        return row
 

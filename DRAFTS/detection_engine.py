@@ -7,8 +7,8 @@ from .preprocessing.dedispersion import dedisperse_block
 from .detection.model_interface import detect, classify_patch
 # from .detection.metrics import compute_snr  # Archivo eliminado, no se usa
 from .analysis.snr_utils import compute_snr_profile  
-from .preprocessing.coordinate_converter import pixel_to_physical
-from .input.data_loader import append_candidate, Candidate
+from .preprocessing.dm_candidate_extractor import extract_candidate_dm
+from .output.candidate_manager import append_candidate, Candidate
 from .preprocessing.slice_len_calculator import update_slice_len_dynamic
 import numpy as np
 import logging
@@ -73,7 +73,7 @@ def process_band(
     prob_max = 0.0
     
     for conf, box in zip(top_conf, top_boxes):
-        dm_val, t_sec, t_sample = pixel_to_physical(
+        dm_val, t_sec, t_sample = extract_candidate_dm(
             (box[0] + box[2]) / 2,
             (box[1] + box[3]) / 2,
             slice_len,

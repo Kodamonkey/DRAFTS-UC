@@ -17,7 +17,7 @@ from matplotlib.colors import ListedColormap
 # Local imports
 from .. import config
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
-from ..preprocessing.coordinate_converter import pixel_to_physical
+from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
 from ..preprocessing.dedispersion import dedisperse_block
 from .visualization_ranges import get_dynamic_dm_range_for_candidate
 
@@ -74,7 +74,7 @@ def _calculate_dynamic_dm_range(
     for i, box in enumerate(top_boxes):
         x1, y1, x2, y2 = map(int, box)
         center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
-        dm_val, _, _ = pixel_to_physical(center_x, center_y, slice_len)
+        dm_val, _, _ = extract_candidate_dm(center_x, center_y, slice_len)
         dm_candidates.append(dm_val)
     
     if not dm_candidates:
@@ -344,10 +344,10 @@ def save_detection_plot(
             x1, y1, x2, y2 = map(int, box)
             center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
             
-            # ✅ CORRECCIÓN: Usar el DM REAL (mismo cálculo que pixel_to_physical)
+            # ✅ CORRECCIÓN: Usar el DM REAL (mismo cálculo que extract_candidate_dm)
             # Este es el DM que se usa en dedispersion y se guarda en CSV
-            from ..preprocessing.coordinate_converter import pixel_to_physical
-            dm_val_real, t_sec_real, t_sample_real = pixel_to_physical(center_x, center_y, slice_len)
+            from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
+            dm_val_real, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, slice_len)
             
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
@@ -897,10 +897,10 @@ def save_slice_summary(
             x1, y1, x2, y2 = map(int, box)
             center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
             
-            # ✅ CORRECCIÓN: Usar el DM REAL (mismo cálculo que pixel_to_physical)
+            # ✅ CORRECCIÓN: Usar el DM REAL (mismo cálculo que extract_candidate_dm)
             # Este es el DM que se usa en dedispersion y se guarda en CSV
-            from ..preprocessing.coordinate_converter import pixel_to_physical
-            dm_val_cand, t_sec_real, t_sample_real = pixel_to_physical(center_x, center_y, slice_len)
+            from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
+            dm_val_cand, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, slice_len)
             
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
@@ -1067,8 +1067,8 @@ def save_slice_summary(
         center_x, center_y = (best_box[0] + best_box[2]) / 2, (best_box[1] + best_box[3]) / 2
         
         # Calcular DM usando el mismo método que en pipeline_utils.py
-        from ..preprocessing.coordinate_converter import pixel_to_physical
-        dm_val_consistent, _, _ = pixel_to_physical(center_x, center_y, slice_len)
+        from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
+        dm_val_consistent, _, _ = extract_candidate_dm(center_x, center_y, slice_len)
         
         # ✅ CORRECCIÓN: Calcular SNR del candidato más fuerte (como en CSV)
         # Extraer región del candidato para cálculo de SNR consistente

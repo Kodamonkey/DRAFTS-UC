@@ -1,3 +1,17 @@
+from __future__ import annotations
+
+
+# Modular band configuration for pipeline
+
+def get_band_configs():
+    return [
+        (0, "fullband", "Full Band"),
+        (1, "lowband", "Low Band"),
+        (2, "highband", "High Band"),
+    ] if USE_MULTI_BAND else [(0, "fullband", "Full Band")]
+
+
+
 """
 Configuración del Pipeline de Detección de FRB
 ===========================================================
@@ -11,7 +25,6 @@ GUÍA DE USO:
 - Configure los parámetros de cada sección según sus necesidades
 - Los parámetros avanzados generalmente no requieren modificación.
 """
-from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional
@@ -35,17 +48,17 @@ DEBUG_FREQUENCY_ORDER: bool = False         # True = debug orden de frecuencias 
 # =============================================================================
 
 # --- Rutas de archivos y datos ---
-DATA_DIR = Path("./Data")                        # Directorio con archivos de entrada (.fits, .fil)
+DATA_DIR = Path("./Data/raw")                        # Directorio con archivos de entrada (.fits, .fil)
 RESULTS_DIR = Path("./Results/ObjectDetection")  # Directorio para guardar resultados
 # --- Lista de targets optimizada para múltiples archivos ---
 
-FRB_TARGETS = ["3098_0001_00_8bit"]          # Lista de targets FRB a procesar - Reducida para pruebas
+FRB_TARGETS = ["3100_0001_00_8bit"]          # Lista de targets FRB a procesar - Reducida para pruebas
 
 # Para procesar todos: ["FRB20201124_0009", "FRB20180301_0002", "B0355+54_FB_20220918"]
 # Nota: FRB20180301_0002.fits parece estar corrupto - revisar archivo
 
 # --- Configuración de Slice Temporal (ESENCIAL) ---
-SLICE_DURATION_MS: float = 142.0             # Duración deseada de cada slice en milisegundos
+SLICE_DURATION_MS: float = 1000.0             # Duración deseada de cada slice en milisegundos
                                             # Ajustado para obtener todos los slices
                                             # El sistema calculará automáticamente SLICE_LEN según:
                                             # SLICE_LEN = round(SLICE_DURATION_MS / (TIME_RESO × DOWN_TIME_RATE × 1000))

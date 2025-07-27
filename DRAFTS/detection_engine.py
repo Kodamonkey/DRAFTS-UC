@@ -1,12 +1,15 @@
-from ..visualization.visualization_unified import save_all_plots, plot_waterfall_block, preprocess_img, postprocess_img
-from ..preprocessing.dedispersion import dedisperse_patch
-from ..preprocessing.dedispersion import dedisperse_block
-from .utils import detect, classify_patch
-from .metrics import compute_snr
-from ..analysis.snr_utils import compute_snr_profile  
-from ..preprocessing.astro_conversions import pixel_to_physical
-from ..input.io import append_candidate, Candidate
-from ..utils.slice_len_utils import update_slice_len_dynamic
+"""Detection engine for FRB pipeline - orchestrates detection, classification, and visualization."""
+from __future__ import annotations
+
+from .visualization.visualization_unified import save_all_plots, plot_waterfall_block, preprocess_img, postprocess_img
+from .preprocessing.dedispersion import dedisperse_patch
+from .preprocessing.dedispersion import dedisperse_block
+from .detection.model_interface import detect, classify_patch
+# from .detection.metrics import compute_snr  # Archivo eliminado, no se usa
+from .analysis.snr_utils import compute_snr_profile  
+from .preprocessing.coordinate_converter import pixel_to_physical
+from .input.data_loader import append_candidate, Candidate
+from .preprocessing.slice_len_calculator import update_slice_len_dynamic
 import numpy as np
 import logging
 logger = logging.getLogger(__name__)
@@ -96,7 +99,7 @@ def process_band(
         # ✅ CORRECCIÓN: Calcular SNR del patch dedispersado (SNR final para CSV)
         snr_val = 0.0  # Valor por defecto
         if patch is not None and patch.size > 0:
-            from ..analysis.snr_utils import find_snr_peak
+            from .analysis.snr_utils import find_snr_peak
             snr_patch_profile, _ = compute_snr_profile(patch)
             snr_val, _, _ = find_snr_peak(snr_patch_profile)
             # ✅ IMPORTANTE: Este es el SNR que se guarda en CSV (patch dedispersado)
@@ -313,4 +316,4 @@ def process_slice(
                 absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
             )
     
-    return cand_counter, n_bursts, n_no_bursts, prob_max
+    return cand_counter, n_bursts, n_no_bursts, prob_max 

@@ -1,3 +1,4 @@
+"""Coordinate converter for FRB pipeline - translates pixel coordinates to physical values."""
 from __future__ import annotations
 
 from .. import config

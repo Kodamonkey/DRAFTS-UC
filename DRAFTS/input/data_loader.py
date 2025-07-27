@@ -1,4 +1,4 @@
-"""Input/output helpers for PSRFITS, FITS, and filterbank files."""
+"""Data loader for astronomical files (FITS, PSRFITS, filterbank) and FRB candidate management."""
 from __future__ import annotations
 
 # Standard library imports
@@ -17,8 +17,8 @@ from astropy.io import fits
 
 # Local imports
 from .. import config
-from ..preprocessing.preprocessing import downsample_data
-from ..utils.summary_utils import _update_summary_with_file_debug
+from ..preprocessing.data_downsampler import downsample_data
+from ..preprocessing.summary_manager import _update_summary_with_file_debug
 
 # Setup logger
 logger = logging.getLogger(__name__)

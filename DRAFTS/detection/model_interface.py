@@ -1,4 +1,4 @@
-"""Detection and classification utilities for FRB pipeline."""
+"""Model interface for FRB detection and classification - handles neural network inference."""
 import numpy as np
 import logging
 from .. import config

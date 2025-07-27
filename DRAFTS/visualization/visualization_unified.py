@@ -17,9 +17,9 @@ from matplotlib.colors import ListedColormap
 # Local imports
 from .. import config
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
-from ..preprocessing.astro_conversions import pixel_to_physical
+from ..preprocessing.coordinate_converter import pixel_to_physical
 from ..preprocessing.dedispersion import dedisperse_block
-from ..preprocessing.dynamic_dm_range import get_dynamic_dm_range_for_candidate
+from .visualization_ranges import get_dynamic_dm_range_for_candidate
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -346,7 +346,7 @@ def save_detection_plot(
             
             # ✅ CORRECCIÓN: Usar el DM REAL (mismo cálculo que pixel_to_physical)
             # Este es el DM que se usa en dedispersion y se guarda en CSV
-            from ..preprocessing.astro_conversions import pixel_to_physical
+            from ..preprocessing.coordinate_converter import pixel_to_physical
             dm_val_real, t_sec_real, t_sample_real = pixel_to_physical(center_x, center_y, slice_len)
             
             # Determinar si tenemos probabilidades de clasificación
@@ -899,7 +899,7 @@ def save_slice_summary(
             
             # ✅ CORRECCIÓN: Usar el DM REAL (mismo cálculo que pixel_to_physical)
             # Este es el DM que se usa en dedispersion y se guarda en CSV
-            from ..preprocessing.astro_conversions import pixel_to_physical
+            from ..preprocessing.coordinate_converter import pixel_to_physical
             dm_val_cand, t_sec_real, t_sample_real = pixel_to_physical(center_x, center_y, slice_len)
             
             # Determinar si tenemos probabilidades de clasificación
@@ -1067,7 +1067,7 @@ def save_slice_summary(
         center_x, center_y = (best_box[0] + best_box[2]) / 2, (best_box[1] + best_box[3]) / 2
         
         # Calcular DM usando el mismo método que en pipeline_utils.py
-        from ..preprocessing.astro_conversions import pixel_to_physical
+        from ..preprocessing.coordinate_converter import pixel_to_physical
         dm_val_consistent, _, _ = pixel_to_physical(center_x, center_y, slice_len)
         
         # ✅ CORRECCIÓN: Calcular SNR del candidato más fuerte (como en CSV)

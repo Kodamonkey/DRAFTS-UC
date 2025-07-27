@@ -1,9 +1,4 @@
-"""
-Sistema de ajuste dinámico de rangos DM para visualización centrada en candidatos.
-
-Calcula automáticamente el rango de DM óptimo para centrar los candidatos detectados
-en los plots, mejorando la visualización y resolución de las detecciones.
-"""
+"""Dynamic DM range calculator for visualization - optimizes plot ranges based on detected candidates."""
 
 import numpy as np
 import logging

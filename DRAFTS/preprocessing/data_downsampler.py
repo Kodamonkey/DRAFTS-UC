@@ -1,3 +1,4 @@
+"""Data downsampler for FRB pipeline - reduces temporal and frequency resolution."""
 from __future__ import annotations
 
 import numpy as np

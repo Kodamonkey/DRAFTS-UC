@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..core import config
+from .. import config
 
 
 def downsample_data(data: np.ndarray) -> np.ndarray:

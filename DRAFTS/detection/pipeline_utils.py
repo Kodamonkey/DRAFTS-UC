@@ -1,14 +1,12 @@
-from ..visualization.plot_manager import save_all_plots
-from ..visualization.image_utils import plot_waterfall_block, preprocess_img, postprocess_img
-from ..detection.dedispersion import dedisperse_patch
-from ..detection.dedispersion import dedisperse_block
-from ..detection.utils import detect, classify_patch
-from ..detection.metrics import compute_snr
-from ..detection.snr_utils import compute_snr_profile  # 🧩 NUEVO: Importar compute_snr_profile
-from ..detection.astro_conversions import pixel_to_physical
-from ..io.candidate_utils import append_candidate
-from ..io.candidate import Candidate
-from ..preprocessing.slice_len_utils import update_slice_len_dynamic
+from ..visualization.visualization_unified import save_all_plots, plot_waterfall_block, preprocess_img, postprocess_img
+from ..preprocessing.dedispersion import dedisperse_patch
+from ..preprocessing.dedispersion import dedisperse_block
+from .utils import detect, classify_patch
+from .metrics import compute_snr
+from ..analysis.snr_utils import compute_snr_profile  
+from ..preprocessing.astro_conversions import pixel_to_physical
+from ..input.io import append_candidate, Candidate
+from ..utils.slice_len_utils import update_slice_len_dynamic
 import numpy as np
 import logging
 logger = logging.getLogger(__name__)
@@ -98,7 +96,7 @@ def process_band(
         # ✅ CORRECCIÓN: Calcular SNR del patch dedispersado (SNR final para CSV)
         snr_val = 0.0  # Valor por defecto
         if patch is not None and patch.size > 0:
-            from ..detection.snr_utils import find_snr_peak
+            from ..analysis.snr_utils import find_snr_peak
             snr_patch_profile, _ = compute_snr_profile(patch)
             snr_val, _, _ = find_snr_peak(snr_patch_profile)
             # ✅ IMPORTANTE: Este es el SNR que se guarda en CSV (patch dedispersado)

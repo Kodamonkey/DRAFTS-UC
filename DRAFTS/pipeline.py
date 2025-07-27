@@ -26,18 +26,15 @@ except ImportError:
     plt = None
 
 from . import config
-from ..io.candidate_utils import ensure_csv_header
-from ..detection.dedispersion import d_dm_time_g
-from ..preprocessing.io_utils import load_and_preprocess_data
+from .input.io import ensure_csv_header, load_and_preprocess_data, get_obparams, stream_fil, get_obparams_fil
+from .preprocessing.dedispersion import d_dm_time_g
 from .config import get_band_configs
-from ..detection.pipeline_utils import get_pipeline_parameters, process_slice
-from ..io.io import get_obparams
-from ..io.filterbank_io import get_obparams_fil, stream_fil
-from .summary_utils import (
+from .detection.pipeline_utils import get_pipeline_parameters, process_slice
+from .utils.summary_utils import (
     _write_summary,
     _update_summary_with_results,
 )
-from ..detection.utils import detect, classify_patch
+from .detection.utils import detect, classify_patch
 logger = logging.getLogger(__name__)
 
 
@@ -126,7 +123,7 @@ def _process_block(
     
     try:
         # Aplicar downsampling al bloque
-        from ..preprocessing.preprocessing import downsample_data # Importar la función de downsampling
+        from .preprocessing.preprocessing import downsample_data # Importar la función de downsampling
         block = downsample_data(block) # Aplica downsampling según la configuración 
         
         # Calcular parámetros para este bloque
@@ -139,7 +136,7 @@ def _process_block(
         width_total = config.FILE_LENG // config.DOWN_TIME_RATE # Ancho total del cubo DM-time
         
         # Calcular slice_len dinámicamente
-        from ..preprocessing.slice_len_utils import update_slice_len_dynamic # Importar la función de actualización de slice_len
+        from .utils.slice_len_utils import update_slice_len_dynamic # Importar la función de actualización de slice_len
         slice_len, real_duration_ms = update_slice_len_dynamic() # Actualiza slice_len según la configuración
         time_slice = (width_total + slice_len - 1) // slice_len # Número de slices por chunk
         

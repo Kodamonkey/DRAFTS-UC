@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..core import config
+from .. import config
 
 
 def pixel_to_physical(px: float, py: float, slice_len: int) -> tuple[float, float, int]:

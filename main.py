@@ -1,8 +1,8 @@
 """Wrapper for running the refactored Effelsberg FRB detection pipeline."""
 import argparse
 from pathlib import Path
-from drafts.core.pipeline import run_pipeline
-from drafts.core import config
+from drafts.pipeline import run_pipeline
+from drafts import config
 
 
 def main():

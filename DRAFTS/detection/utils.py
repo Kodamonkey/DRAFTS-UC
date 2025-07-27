@@ -1,7 +1,7 @@
 """Detection and classification utilities for FRB pipeline."""
 import numpy as np
 import logging
-from ..core import config
+from .. import config
 
 try:
     import torch

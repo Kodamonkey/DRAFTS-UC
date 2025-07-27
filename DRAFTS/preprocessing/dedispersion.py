@@ -5,7 +5,7 @@ import logging
 import numpy as np
 from numba import cuda, njit, prange
 
-from ..core import config
+from .. import config
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 from typing import List, Tuple, Optional
 
-from ..core import config
+from .. import config
 
 
 def compute_snr_profile(

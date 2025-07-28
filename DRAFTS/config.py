@@ -21,6 +21,7 @@ except ImportError:
     from user_config import *
 
 import numpy as np
+from pathlib import Path
 try:
     import torch
 except ImportError:  # Si torch no está instalado, lo dejamos como None
@@ -35,7 +36,7 @@ MODEL_NAME = "resnet50"                     # Arquitectura del modelo de detecci
 MODEL_PATH = Path(f"./models/cent_{MODEL_NAME}.pth")  # Ruta al modelo entrenado
 
 # Modelo de clasificación binaria
-CLASS_MODEL_NAME = "resnet18"               # Arquitectura del modelo de clasificación
+CLASS_MODEL_NAME = "resnet50"               # Arquitectura del modelo de clasificación
 CLASS_MODEL_PATH = Path(f"./models/class_{CLASS_MODEL_NAME}.pth")  # Ruta al modelo
 
 # Dispositivo de cómputo
@@ -57,9 +58,7 @@ FILE_LENG: int = 0                          # Longitud del archivo (muestras)
 # Configuración de Slice Temporal (calculada dinámicamente)
 SLICE_LEN: int = 512                        # Número de muestras por slice (calculado automáticamente desde SLICE_DURATION_MS)
 
-# Parámetros de downsampling
-DOWN_FREQ_RATE: int = 1                     # Factor de reducción en frecuencia
-DOWN_TIME_RATE: int = 1                     # Factor de reducción en tiempo
+# Configuración de datos
 DATA_NEEDS_REVERSAL: bool = False           # Invertir eje de frecuencia si es necesario
 
 # =============================================================================
@@ -87,6 +86,18 @@ SLICE_LEN_MIN: int = 32                     # Límite inferior de seguridad para
 SLICE_LEN_MAX: int = 2048                   # Límite superior de seguridad para el cálculo automático de SLICE_LEN
 
 # =============================================================================
+# CONFIGURACIONES AVANZADAS DE VISUALIZACIÓN (SISTEMA)
+# =============================================================================
+
+# Configuraciones de rango DM dinámico (solo para visualización)
+DM_DYNAMIC_RANGE_ENABLE: bool = False       # True = ajustar automáticamente rango DM en plots
+DM_RANGE_FACTOR: float = 0.3                # Factor de rango para plots (±30% del DM óptimo)
+
+# Configuraciones de visualización SNR
+SNR_SHOW_PEAK_LINES: bool = False           # True = mostrar líneas rojas del SNR peak en plots
+SNR_COLORMAP = "viridis"                    # Mapa de colores para waterfalls
+
+# =============================================================================
 # FUNCIONES DE CONFIGURACIÓN DE BANDAS
 # =============================================================================
 
@@ -97,36 +108,3 @@ def get_band_configs():
         (1, "lowband", "Low Band"),
         (2, "highband", "High Band"),
     ] if USE_MULTI_BAND else [(0, "fullband", "Full Band")]
-
-# =============================================================================
-# DOCUMENTACIÓN DEL SISTEMA
-# =============================================================================
-
-"""
-ESTRUCTURA DE CONFIGURACIÓN:
-
-1. user_config.py: Configuraciones del astrónomo/usuario
-   - Parámetros que el usuario debe modificar
-   - Configuraciones de análisis y detección
-   - Rutas de archivos y directorios
-
-2. config.py: Configuraciones del sistema
-   - Configuraciones automáticas
-   - Parámetros de modelos y dispositivos
-   - Configuraciones avanzadas del sistema
-   - Mantiene compatibilidad con código existente
-
-COMPATIBILIDAD:
-- Todos los imports existentes siguen funcionando
-- Las variables se importan desde user_config.py
-- No se requiere modificar código existente
-
-BANDAS DE FRECUENCIA:
-El sistema genera automáticamente 3 bandas:
-- banda[0] = Full Band  (suma completa de frecuencias)
-- banda[1] = Low Band   (mitad inferior del espectro)  
-- banda[2] = High Band  (mitad superior del espectro)
-
-CÁLCULO AUTOMÁTICO DE SLICE_LEN:
-SLICE_LEN = round(SLICE_DURATION_MS / (TIME_RESO × DOWN_TIME_RATE × 1000))
-"""

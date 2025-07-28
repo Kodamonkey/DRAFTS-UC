@@ -1,0 +1,39 @@
+# Config files
+*.ini
+!config/config_template.ini
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+
+# Build directory
+build/
+
+# Distribution / packaging
+*.egg-info/
+dist/
+*.egg
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environment variables
+.env
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# plt style
+*.mplstyle

@@ -197,7 +197,7 @@ def plot_waterfall_block(
     peak_time = time_start + np.argmax(profile) * time_reso
 
     fig = plt.figure(figsize=(5, 5))
-    gs = gridspec.GridSpec(4, 1, height_ratios=[1, 4, 4, 4], hspace=0.05)
+    gs = gridspec.GridSpec(2, 1, height_ratios=[1, 4], hspace=0.05)
 
     ax0 = fig.add_subplot(gs[0, 0])
     ax0.plot(profile, color="royalblue", alpha=0.8, lw=1)
@@ -223,8 +223,7 @@ def plot_waterfall_block(
     ax1.set_ylabel("Frequency (MHz)", fontsize=12, fontweight="bold")
 
     out_path = save_dir / f"{filename}-block{block_idx:03d}-peak{peak_time:.2f}.png"
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=200)
+    plt.savefig(out_path, dpi=200, bbox_inches='tight')
     plt.close()
 
 
@@ -396,7 +395,6 @@ def save_detection_plot(
             )
 
     ax.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
-    plt.tight_layout()
     plt.savefig(out_img_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close()
 
@@ -421,7 +419,6 @@ def save_detection_plot(
         cbar = plt.colorbar(im_cb, ax=ax_cb, shrink=0.8, pad=0.02)
         cbar.set_label("Normalized Intensity", fontsize=10, fontweight="bold")
         ax_cb.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
-        plt.tight_layout()
         cb_path = out_img_path.parent / f"{out_img_path.stem}_colorbar{out_img_path.suffix}"
         plt.savefig(cb_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
         plt.close()
@@ -743,7 +740,6 @@ def save_patch_plot(
     plt.suptitle(f"Candidate Patch - {band_name_with_freq}", fontsize=12, fontweight='bold')
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches='tight')
     plt.close()
     plt.close()
@@ -1293,7 +1289,6 @@ def save_slice_summary(
         ax_patch.set_xlabel("Time (s)", fontsize=9)
         ax_patch.set_ylabel("Frequency (MHz)", fontsize=9)
 
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
     fig.suptitle(
         f"Composite Summary: {fits_stem} - {band_name_with_freq} - Slice {slice_idx:03d}",
         fontsize=14,

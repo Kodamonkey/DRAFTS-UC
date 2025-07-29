@@ -10,7 +10,13 @@ RESULTS_DIR = Path("./Results/ObjectDetection")      # Directorio para guardar r
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-    "3100_0001_00_8bit", 
+    "3096_0001_00_8bit",
+    "3097_0001_00_8bit",
+    "3098_0001_00_8bit",
+    "3099_0001_00_8bit",
+    "3100_0001_00_8bit",
+    "3101_0001_00_8bit",
+    "3102_0001_00_8bit",
 ]
 
 # =============================================================================
@@ -50,7 +56,7 @@ DM_max: int = 1024                          # DM máximo en pc cm⁻³
 # =============================================================================
 
 # Probabilidades mínimas para detección y clasificación
-DET_PROB: float = 0.5                       # Probabilidad mínima para considerar una detección válida
+DET_PROB: float = 0.3                       # Probabilidad mínima para considerar una detección válida
 CLASS_PROB: float = 0.5                     # Probabilidad mínima para clasificar como burst
 
 # Umbral de SNR para resaltar en visualizaciones

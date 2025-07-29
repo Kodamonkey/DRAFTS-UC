@@ -31,8 +31,9 @@ from .preprocessing.dedispersion import d_dm_time_g
 from .config import get_band_configs
 from .detection_engine import get_pipeline_parameters, process_slice
 from .output.summary_manager import (
-    _write_summary,
+    _update_summary_with_file_debug,
     _update_summary_with_results,
+    _write_summary_with_timestamp,  # NUEVA FUNCIÓN
 )
 from .detection.model_interface import detect, classify_patch
 logger = logging.getLogger(__name__)
@@ -410,6 +411,14 @@ def _process_file(
     file_folder_name = fits_path.stem
     chunk_folder_name = "chunk000"  # Para archivos no chunked, usar chunk000
     
+    # Estructura: Results/ObjectDetection/Composite/3096_0001_00_8bit/chunk000/
+    composite_dir = save_dir / "Composite" / file_folder_name / chunk_folder_name
+    composite_dir.mkdir(parents=True, exist_ok=True)
+    detections_dir = save_dir / "Detections" / file_folder_name / chunk_folder_name
+    detections_dir.mkdir(parents=True, exist_ok=True)
+    patches_dir = save_dir / "Patches" / file_folder_name / chunk_folder_name
+    patches_dir.mkdir(parents=True, exist_ok=True)
+    
     # Estructura: Results/ObjectDetection/waterfall_dispersion/3096_0001_00_8bit/chunk000/
     waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / file_folder_name / chunk_folder_name
     waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / file_folder_name / chunk_folder_name
@@ -419,7 +428,10 @@ def _process_file(
     for j in range(time_slice):
         cands, bursts, no_bursts, max_prob = process_slice(
             j, dm_time, data, slice_len, det_model, cls_model, fits_path, save_dir, freq_down, csv_file, time_reso_ds, band_configs, snr_list, waterfall_dispersion_dir, waterfall_dedispersion_dir, config,
-            chunk_idx=0  # 🧩 NUEVO: chunk_idx=0 para archivos no chunked
+            chunk_idx=0,  # chunk_idx=0 para archivos no chunked
+            composite_dir=composite_dir,  # pasar directorio composite
+            detections_dir=detections_dir,  # pasar directorio detections
+            patches_dir=patches_dir  # pasar directorio patches
         )
         cand_counter += cands
         n_bursts += bursts
@@ -542,7 +554,7 @@ def run_pipeline(chunk_samples: int = 0) -> None:
                 })
 
     print("Escribiendo resumen final...")
-    _write_summary(summary, save_dir)
+    _write_summary_with_timestamp(summary, save_dir)
     print("=== PIPELINE COMPLETADO ===")
 
 if __name__ == "__main__":

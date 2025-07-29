@@ -10,13 +10,8 @@ RESULTS_DIR = Path("./Results/ObjectDetection")      # Directorio para guardar r
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-    "3096_0001_00_8bit",
-    "3097_0001_00_8bit",
-    "3098_0001_00_8bit",
-    "3099_0001_00_8bit",
-    "3100_0001_00_8bit",
-    "3101_0001_00_8bit",
-    "3102_0001_00_8bit",
+    "FRB20201124_0009",
+    "B0355+54_FB_20220918",    
 ]
 
 # =============================================================================

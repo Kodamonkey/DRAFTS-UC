@@ -96,7 +96,7 @@ def process_band(
             data, freq_down, dm_val, global_sample
         )
         
-        # ✅ CORRECCIÓN: Calcular SNR del patch dedispersado (SNR final para CSV)
+        # Calcular SNR del patch dedispersado (SNR final para CSV)
         snr_val = 0.0  # Valor por defecto
         if patch is not None and patch.size > 0:
             from .analysis.snr_utils import find_snr_peak

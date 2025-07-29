@@ -344,10 +344,16 @@ def save_detection_plot(
             x1, y1, x2, y2 = map(int, box)
             center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
             
-            # ✅ CORRECCIÓN: Usar el DM REAL (mismo cálculo que extract_candidate_dm)
+            # Usar el DM REAL (mismo cálculo que extract_candidate_dm)
             # Este es el DM que se usa en dedispersion y se guarda en CSV
             from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
             dm_val_real, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, slice_len)
+            
+            # CALCULAR TIEMPO ABSOLUTO DE LA DETECCIÓN
+            if absolute_start_time is not None:
+                detection_time = absolute_start_time + t_sec_real
+            else:
+                detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
             
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
@@ -356,10 +362,11 @@ def save_detection_plot(
                 color = "lime" if is_burst else "orange"
                 burst_status = "BURST" if is_burst else "NO BURST"
                 
-                # Etiqueta completa con toda la información - USANDO DM REAL
+                # Etiqueta completa con tiempo absoluto - USANDO DM REAL
                 label = (
                     f"#{idx+1}\n"
                     f"DM: {dm_val_real:.1f}\n"
+                    f"Time: {detection_time:.3f}s\n"
                     f"Det: {conf:.2f}\n"
                     f"Cls: {class_prob:.2f}\n"
                     f"{burst_status}"
@@ -367,7 +374,7 @@ def save_detection_plot(
             else:
                 # Fallback si no hay probabilidades de clasificación
                 color = "lime"
-                label = f"#{idx+1}\nDM: {dm_val_real:.1f}\nDet: {conf:.2f}"
+                label = f"#{idx+1}\nDM: {dm_val_real:.1f}\nTime: {detection_time:.3f}s\nDet: {conf:.2f}"
             
             # Dibujar rectángulo
             rect = plt.Rectangle(
@@ -902,6 +909,12 @@ def save_slice_summary(
             from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
             dm_val_cand, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, slice_len)
             
+            # CALCULAR TIEMPO ABSOLUTO DE LA DETECCIÓN
+            if absolute_start_time is not None:
+                detection_time = absolute_start_time + t_sec_real
+            else:
+                detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
+            
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
                 class_prob = class_probs[idx]
@@ -909,10 +922,11 @@ def save_slice_summary(
                 color = "lime" if is_burst else "orange"
                 burst_status = "BURST" if is_burst else "NO BURST"
                 
-                # Etiqueta completa con toda la información
+                # Etiqueta completa con tiempo absoluto - USANDO DM REAL
                 label = (
                     f"#{idx+1}\n"
                     f"DM: {dm_val_cand:.1f}\n"
+                    f"Time: {detection_time:.3f}s\n"
                     f"Det: {conf:.2f}\n"
                     f"Cls: {class_prob:.2f}\n"
                     f"{burst_status}"
@@ -920,7 +934,7 @@ def save_slice_summary(
             else:
                 # Fallback si no hay probabilidades de clasificación
                 color = "lime"
-                label = f"#{idx+1}\nDM: {dm_val_cand:.1f}\nDet: {conf:.2f}"
+                label = f"#{idx+1}\nDM: {dm_val_cand:.1f}\nTime: {detection_time:.3f}s\nDet: {conf:.2f}"
             
             # Dibujar rectángulo
             rect = plt.Rectangle(
@@ -955,7 +969,7 @@ def save_slice_summary(
         1, 3, subplot_spec=gs_main[1, 0], width_ratios=[1, 1, 1], wspace=0.3
     )
 
-    # 🕐 CORRECCIÓN: Usar tiempo absoluto del archivo para todos los paneles de waterfalls
+    # CORRECCIÓN: Usar tiempo absoluto del archivo para todos los paneles de waterfalls
     # En lugar de calcular tiempo relativo al chunk
     if absolute_start_time is not None:
         # absolute_start_time ya es el tiempo absoluto de inicio del slice específico
@@ -1064,7 +1078,7 @@ def save_slice_summary(
     )
     ax_prof_dw = fig.add_subplot(gs_dedisp_nested[0, 0])
     
-    # ✅ CORRECCIÓN: Usar el DM del candidato más fuerte para consistencia
+    # Usar el DM del candidato más fuerte para consistencia
     # En lugar de usar first_dm (que puede ser de cualquier candidato)
     # usar el DM del candidato con mayor confianza
     if top_boxes is not None and len(top_boxes) > 0:
@@ -1077,7 +1091,7 @@ def save_slice_summary(
         from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
         dm_val_consistent, _, _ = extract_candidate_dm(center_x, center_y, slice_len)
         
-        # ✅ CORRECCIÓN: Calcular SNR del candidato más fuerte (como en CSV)
+        #  Calcular SNR del candidato más fuerte (como en CSV)
         # Extraer región del candidato para cálculo de SNR consistente
         x1, y1, x2, y2 = map(int, best_box)
         # Usar waterfall_block en lugar de band_img para consistencia
@@ -1118,7 +1132,7 @@ def save_slice_summary(
         ax_prof_dw.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
         ax_prof_dw.grid(True, alpha=0.3)
         ax_prof_dw.set_xticks([])
-        # ✅ CORRECCIÓN: Usar DM consistente en el título y mostrar ambos SNRs
+        # Usar DM consistente en el título y mostrar ambos SNRs
         if snr_val_candidate > 0:
             title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ (block) / {snr_val_candidate:.1f}σ (candidate)"
         else:

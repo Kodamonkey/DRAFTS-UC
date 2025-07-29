@@ -40,7 +40,7 @@ SLICE_DURATION_MS: float = 1000.0
 
 # Factores de reducción para optimizar el procesamiento
 DOWN_FREQ_RATE: int = 1                             # Factor de reducción en frecuencia (1 = sin reducción)
-DOWN_TIME_RATE: int = 8                             # Factor de reducción en tiempo (1 = sin reducción)
+DOWN_TIME_RATE: int = 14                             # Factor de reducción en tiempo (1 = sin reducción)
 
 
 # =============================================================================

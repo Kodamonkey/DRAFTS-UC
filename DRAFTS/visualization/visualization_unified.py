@@ -955,9 +955,16 @@ def save_slice_summary(
         1, 3, subplot_spec=gs_main[1, 0], width_ratios=[1, 1, 1], wspace=0.3
     )
 
-    block_size_wf_samples = waterfall_block.shape[0]
-    slice_start_abs = slice_idx * block_size_wf_samples * time_reso_ds
-    slice_end_abs = slice_start_abs + block_size_wf_samples * time_reso_ds
+    # 🕐 CORRECCIÓN: Usar tiempo absoluto del archivo para todos los paneles de waterfalls
+    # En lugar de calcular tiempo relativo al chunk
+    if absolute_start_time is not None:
+        # absolute_start_time ya es el tiempo absoluto de inicio del slice específico
+        slice_start_abs = absolute_start_time
+    else:
+        # Fallback: calcular tiempo relativo al chunk (modo antiguo)
+        slice_start_abs = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    
+    slice_end_abs = slice_start_abs + slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
 
     # === Panel 1: Raw Waterfall con SNR ===
     gs_waterfall_nested = gridspec.GridSpecFromSubplotSpec(
@@ -1183,7 +1190,16 @@ def save_slice_summary(
         snr_patch, sigma_patch = compute_snr_profile(patch_img, off_regions)
         peak_snr_patch, peak_time_patch, peak_idx_patch = find_snr_peak(snr_patch)
         
-        patch_time_axis = patch_start + np.arange(len(snr_patch)) * time_reso_ds
+        # 🕐 CORRECCIÓN: Usar tiempo absoluto del archivo para el patch
+        # patch_start puede ser tiempo relativo al chunk, necesitamos convertirlo a absoluto
+        if absolute_start_time is not None:
+            # Calcular el tiempo absoluto del patch basado en el tiempo absoluto del slice
+            patch_start_abs = absolute_start_time + (patch_start - (slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE))
+        else:
+            # Fallback: usar patch_start como está (modo antiguo)
+            patch_start_abs = patch_start
+        
+        patch_time_axis = patch_start_abs + np.arange(len(snr_patch)) * time_reso_ds
         ax_patch_prof.plot(patch_time_axis, snr_patch, color="orange", alpha=0.8, lw=1.5, label='Candidate SNR')
         
         # Resaltar regiones sobre threshold

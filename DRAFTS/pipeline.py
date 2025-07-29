@@ -31,8 +31,9 @@ from .preprocessing.dedispersion import d_dm_time_g
 from .config import get_band_configs
 from .detection_engine import get_pipeline_parameters, process_slice
 from .output.summary_manager import (
-    _write_summary,
+    _update_summary_with_file_debug,
     _update_summary_with_results,
+    _write_summary_with_timestamp,  # NUEVA FUNCIÓN
 )
 from .detection.model_interface import detect, classify_patch
 logger = logging.getLogger(__name__)
@@ -183,20 +184,23 @@ def _process_block(
             # Calcular tiempo absoluto para este slice específico
             slice_start_time_sec = chunk_start_time_sec + (j * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE)
 
-            # === CHUNKED FOLDER STRUCTURE FOR PLOTS ===
-            chunk_folder_name = f"{fits_path.stem}_chunk{chunk_idx:03d}"
-            composite_dir = save_dir / "Composite" / chunk_folder_name
+            # Crear carpeta principal del archivo
+            file_folder_name = fits_path.stem
+            chunk_folder_name = f"chunk{chunk_idx:03d}"
+            
+            # Estructura: Results/ObjectDetection/Composite/3096_0001_00_8bit/chunk000/
+            composite_dir = save_dir / "Composite" / file_folder_name / chunk_folder_name
             composite_dir.mkdir(parents=True, exist_ok=True)
-            detections_dir = save_dir / "Detections" / chunk_folder_name
+            detections_dir = save_dir / "Detections" / file_folder_name / chunk_folder_name
             detections_dir.mkdir(parents=True, exist_ok=True)
-            patches_dir = save_dir / "Patches" / chunk_folder_name
+            patches_dir = save_dir / "Patches" / file_folder_name / chunk_folder_name
             patches_dir.mkdir(parents=True, exist_ok=True)
 
             # Candidate CSV and waterfall folders (already chunked)
             # csv_file = save_dir / f"{chunk_folder_name}.candidates.csv" # Moved outside _process_block
             # ensure_csv_header(csv_file) # Moved outside _process_block
-            waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / chunk_folder_name
-            waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / chunk_folder_name
+            waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / file_folder_name / chunk_folder_name
+            waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / file_folder_name / chunk_folder_name
 
             # Pass chunked paths to process_slice (these will be used in plot_manager)
             cands, bursts, no_bursts, max_prob = process_slice( # Procesar el slice
@@ -403,15 +407,31 @@ def _process_file(
     csv_file = save_dir / f"{fits_path.stem}.candidates.csv"
     ensure_csv_header(csv_file)
     band_configs = get_band_configs()
-    waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / fits_path.stem
-    waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / fits_path.stem
+    # === HIERARCHICAL FOLDER STRUCTURE FOR NON-CHUNKED FILES ===
+    file_folder_name = fits_path.stem
+    chunk_folder_name = "chunk000"  # Para archivos no chunked, usar chunk000
+    
+    # Estructura: Results/ObjectDetection/Composite/3096_0001_00_8bit/chunk000/
+    composite_dir = save_dir / "Composite" / file_folder_name / chunk_folder_name
+    composite_dir.mkdir(parents=True, exist_ok=True)
+    detections_dir = save_dir / "Detections" / file_folder_name / chunk_folder_name
+    detections_dir.mkdir(parents=True, exist_ok=True)
+    patches_dir = save_dir / "Patches" / file_folder_name / chunk_folder_name
+    patches_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Estructura: Results/ObjectDetection/waterfall_dispersion/3096_0001_00_8bit/chunk000/
+    waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / file_folder_name / chunk_folder_name
+    waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / file_folder_name / chunk_folder_name
     freq_ds = freq_down
     time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
     snr_list: List[float] = []
     for j in range(time_slice):
         cands, bursts, no_bursts, max_prob = process_slice(
             j, dm_time, data, slice_len, det_model, cls_model, fits_path, save_dir, freq_down, csv_file, time_reso_ds, band_configs, snr_list, waterfall_dispersion_dir, waterfall_dedispersion_dir, config,
-            chunk_idx=0  # 🧩 NUEVO: chunk_idx=0 para archivos no chunked
+            chunk_idx=0,  # chunk_idx=0 para archivos no chunked
+            composite_dir=composite_dir,  # pasar directorio composite
+            detections_dir=detections_dir,  # pasar directorio detections
+            patches_dir=patches_dir  # pasar directorio patches
         )
         cand_counter += cands
         n_bursts += bursts
@@ -534,7 +554,7 @@ def run_pipeline(chunk_samples: int = 0) -> None:
                 })
 
     print("Escribiendo resumen final...")
-    _write_summary(summary, save_dir)
+    _write_summary_with_timestamp(summary, save_dir)
     print("=== PIPELINE COMPLETADO ===")
 
 if __name__ == "__main__":

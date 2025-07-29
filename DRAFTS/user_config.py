@@ -10,13 +10,8 @@ RESULTS_DIR = Path("./Results/ObjectDetection")      # Directorio para guardar r
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-    "3096_0001_00_8bit", 
-    "3097_0001_00_8bit", 
-    "3098_0001_00_8bit", 
-    "3099_0001_00_8bit", 
-    "3100_0001_00_8bit", 
-    "3101_0001_00_8bit", 
-    "3102_0001_00_8bit"
+    "FRB20201124_0009",
+    "B0355+54_FB_20220918",    
 ]
 
 # =============================================================================
@@ -39,8 +34,8 @@ SLICE_DURATION_MS: float = 1000.0
 # =============================================================================
 
 # Factores de reducción para optimizar el procesamiento
-DOWN_FREQ_RATE: int = 1                             # Factor de reducción en frecuencia (1 = sin reducción)
-DOWN_TIME_RATE: int = 14                             # Factor de reducción en tiempo (1 = sin reducción)
+DOWN_FREQ_RATE: int = 1                      # Factor de reducción en frecuencia (1 = sin reducción)
+DOWN_TIME_RATE: int = 14                     # Factor de reducción en tiempo (1 = sin reducción)
 
 
 # =============================================================================
@@ -56,7 +51,7 @@ DM_max: int = 1024                          # DM máximo en pc cm⁻³
 # =============================================================================
 
 # Probabilidades mínimas para detección y clasificación
-DET_PROB: float = 0.5                       # Probabilidad mínima para considerar una detección válida
+DET_PROB: float = 0.3                       # Probabilidad mínima para considerar una detección válida
 CLASS_PROB: float = 0.5                     # Probabilidad mínima para clasificar como burst
 
 # Umbral de SNR para resaltar en visualizaciones

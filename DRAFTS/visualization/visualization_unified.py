@@ -197,7 +197,7 @@ def plot_waterfall_block(
     peak_time = time_start + np.argmax(profile) * time_reso
 
     fig = plt.figure(figsize=(5, 5))
-    gs = gridspec.GridSpec(4, 1, height_ratios=[1, 4, 4, 4], hspace=0.05)
+    gs = gridspec.GridSpec(2, 1, height_ratios=[1, 4], hspace=0.05)
 
     ax0 = fig.add_subplot(gs[0, 0])
     ax0.plot(profile, color="royalblue", alpha=0.8, lw=1)
@@ -223,8 +223,7 @@ def plot_waterfall_block(
     ax1.set_ylabel("Frequency (MHz)", fontsize=12, fontweight="bold")
 
     out_path = save_dir / f"{filename}-block{block_idx:03d}-peak{peak_time:.2f}.png"
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=200)
+    plt.savefig(out_path, dpi=200, bbox_inches='tight')
     plt.close()
 
 
@@ -301,7 +300,7 @@ def save_detection_plot(
         
     title = (
         f"{fits_stem} - {band_name} ({freq_range})\n"
-        f"Slice {slice_idx + 1}/{time_slice} | "
+        f"Slice {slice_idx:03d}/{time_slice} | "
         f"Time Resolution: {config.TIME_RESO * config.DOWN_TIME_RATE * 1e6:.1f} \u03bcs | "
         f"DM Range: {dm_range_info} pc cm⁻\u00b3"
     )
@@ -344,10 +343,16 @@ def save_detection_plot(
             x1, y1, x2, y2 = map(int, box)
             center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
             
-            # ✅ CORRECCIÓN: Usar el DM REAL (mismo cálculo que extract_candidate_dm)
+            # Usar el DM REAL (mismo cálculo que extract_candidate_dm)
             # Este es el DM que se usa en dedispersion y se guarda en CSV
             from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
             dm_val_real, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, slice_len)
+            
+            # CALCULAR TIEMPO ABSOLUTO DE LA DETECCIÓN
+            if absolute_start_time is not None:
+                detection_time = absolute_start_time + t_sec_real
+            else:
+                detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
             
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
@@ -356,10 +361,11 @@ def save_detection_plot(
                 color = "lime" if is_burst else "orange"
                 burst_status = "BURST" if is_burst else "NO BURST"
                 
-                # Etiqueta completa con toda la información - USANDO DM REAL
+                # Etiqueta completa con tiempo absoluto - USANDO DM REAL
                 label = (
                     f"#{idx+1}\n"
                     f"DM: {dm_val_real:.1f}\n"
+                    f"Time: {detection_time:.3f}s\n"
                     f"Det: {conf:.2f}\n"
                     f"Cls: {class_prob:.2f}\n"
                     f"{burst_status}"
@@ -367,7 +373,7 @@ def save_detection_plot(
             else:
                 # Fallback si no hay probabilidades de clasificación
                 color = "lime"
-                label = f"#{idx+1}\nDM: {dm_val_real:.1f}\nDet: {conf:.2f}"
+                label = f"#{idx+1}\nDM: {dm_val_real:.1f}\nTime: {detection_time:.3f}s\nDet: {conf:.2f}"
             
             # Dibujar rectángulo
             rect = plt.Rectangle(
@@ -389,7 +395,6 @@ def save_detection_plot(
             )
 
     ax.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
-    plt.tight_layout()
     plt.savefig(out_img_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close()
 
@@ -414,7 +419,6 @@ def save_detection_plot(
         cbar = plt.colorbar(im_cb, ax=ax_cb, shrink=0.8, pad=0.02)
         cbar.set_label("Normalized Intensity", fontsize=10, fontweight="bold")
         ax_cb.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
-        plt.tight_layout()
         cb_path = out_img_path.parent / f"{out_img_path.stem}_colorbar{out_img_path.suffix}"
         plt.savefig(cb_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
         plt.close()
@@ -736,7 +740,6 @@ def save_patch_plot(
     plt.suptitle(f"Candidate Patch - {band_name_with_freq}", fontsize=12, fontweight='bold')
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches='tight')
     plt.close()
     plt.close()
@@ -902,6 +905,12 @@ def save_slice_summary(
             from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
             dm_val_cand, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, slice_len)
             
+            # CALCULAR TIEMPO ABSOLUTO DE LA DETECCIÓN
+            if absolute_start_time is not None:
+                detection_time = absolute_start_time + t_sec_real
+            else:
+                detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
+            
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
                 class_prob = class_probs[idx]
@@ -909,10 +918,11 @@ def save_slice_summary(
                 color = "lime" if is_burst else "orange"
                 burst_status = "BURST" if is_burst else "NO BURST"
                 
-                # Etiqueta completa con toda la información
+                # Etiqueta completa con tiempo absoluto - USANDO DM REAL
                 label = (
                     f"#{idx+1}\n"
                     f"DM: {dm_val_cand:.1f}\n"
+                    f"Time: {detection_time:.3f}s\n"
                     f"Det: {conf:.2f}\n"
                     f"Cls: {class_prob:.2f}\n"
                     f"{burst_status}"
@@ -920,7 +930,7 @@ def save_slice_summary(
             else:
                 # Fallback si no hay probabilidades de clasificación
                 color = "lime"
-                label = f"#{idx+1}\nDM: {dm_val_cand:.1f}\nDet: {conf:.2f}"
+                label = f"#{idx+1}\nDM: {dm_val_cand:.1f}\nTime: {detection_time:.3f}s\nDet: {conf:.2f}"
             
             # Dibujar rectángulo
             rect = plt.Rectangle(
@@ -947,7 +957,7 @@ def save_slice_summary(
     else:
         dm_range_info += " (full)"
     
-    title_det = f"Detection Map - {fits_stem} ({band_name_with_freq})\nSlice {slice_idx + 1} of {time_slice} | DM Range: {dm_range_info} pc cm⁻³"
+    title_det = f"Detection Map - {fits_stem} ({band_name_with_freq})\nSlice {slice_idx:03d} of {time_slice} | DM Range: {dm_range_info} pc cm⁻³"
     ax_det.set_title(title_det, fontsize=11, fontweight="bold")
     config.SLICE_LEN = prev_len_config
 
@@ -955,7 +965,7 @@ def save_slice_summary(
         1, 3, subplot_spec=gs_main[1, 0], width_ratios=[1, 1, 1], wspace=0.3
     )
 
-    # 🕐 CORRECCIÓN: Usar tiempo absoluto del archivo para todos los paneles de waterfalls
+    # CORRECCIÓN: Usar tiempo absoluto del archivo para todos los paneles de waterfalls
     # En lugar de calcular tiempo relativo al chunk
     if absolute_start_time is not None:
         # absolute_start_time ya es el tiempo absoluto de inicio del slice específico
@@ -1064,7 +1074,7 @@ def save_slice_summary(
     )
     ax_prof_dw = fig.add_subplot(gs_dedisp_nested[0, 0])
     
-    # ✅ CORRECCIÓN: Usar el DM del candidato más fuerte para consistencia
+    # Usar el DM del candidato más fuerte para consistencia
     # En lugar de usar first_dm (que puede ser de cualquier candidato)
     # usar el DM del candidato con mayor confianza
     if top_boxes is not None and len(top_boxes) > 0:
@@ -1077,7 +1087,7 @@ def save_slice_summary(
         from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
         dm_val_consistent, _, _ = extract_candidate_dm(center_x, center_y, slice_len)
         
-        # ✅ CORRECCIÓN: Calcular SNR del candidato más fuerte (como en CSV)
+        #  Calcular SNR del candidato más fuerte (como en CSV)
         # Extraer región del candidato para cálculo de SNR consistente
         x1, y1, x2, y2 = map(int, best_box)
         # Usar waterfall_block en lugar de band_img para consistencia
@@ -1118,7 +1128,7 @@ def save_slice_summary(
         ax_prof_dw.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
         ax_prof_dw.grid(True, alpha=0.3)
         ax_prof_dw.set_xticks([])
-        # ✅ CORRECCIÓN: Usar DM consistente en el título y mostrar ambos SNRs
+        # Usar DM consistente en el título y mostrar ambos SNRs
         if snr_val_candidate > 0:
             title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ (block) / {snr_val_candidate:.1f}σ (candidate)"
         else:
@@ -1279,9 +1289,8 @@ def save_slice_summary(
         ax_patch.set_xlabel("Time (s)", fontsize=9)
         ax_patch.set_ylabel("Frequency (MHz)", fontsize=9)
 
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
     fig.suptitle(
-        f"Composite Summary: {fits_stem} - {band_name_with_freq} - Slice {slice_idx + 1}",
+        f"Composite Summary: {fits_stem} - {band_name_with_freq} - Slice {slice_idx:03d}",
         fontsize=14,
         fontweight="bold",
         y=0.97,

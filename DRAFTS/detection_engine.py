@@ -44,13 +44,15 @@ def process_band(
     config,
     absolute_start_time=None,
     patches_dir=None,
-    chunk_idx=None,  # 🧩 NUEVO: ID del chunk
+    chunk_idx=None,  # ID del chunk
+    band_idx=None,  # ID de la banda
 ):
     """Procesa una banda con tiempo absoluto para continuidad temporal.
     
     Args:
         absolute_start_time: Tiempo absoluto de inicio del slice en segundos desde el inicio del archivo
         chunk_idx: ID del chunk donde se encuentra este slice
+        band_idx: ID de la banda (0=fullband, 1=lowband, 2=highband)
     """
     img_tensor = preprocess_img(band_img)
     top_conf, top_boxes = detect(det_model, img_tensor)
@@ -96,7 +98,7 @@ def process_band(
             data, freq_down, dm_val, global_sample
         )
         
-        # ✅ CORRECCIÓN: Calcular SNR del patch dedispersado (SNR final para CSV)
+        # Calcular SNR del patch dedispersado (SNR final para CSV)
         snr_val = 0.0  # Valor por defecto
         if patch is not None and patch.size > 0:
             from .analysis.snr_utils import find_snr_peak
@@ -123,9 +125,9 @@ def process_band(
         # 🧩 NUEVO: Usar chunk_idx en el candidato
         cand = Candidate(
             fits_path.name,
-            chunk_idx if chunk_idx is not None else 0,  # 🧩 AGREGAR CHUNK_ID
+            chunk_idx if chunk_idx is not None else 0,  # AGREGAR CHUNK_ID
             j,  # slice_id
-            band_img.shape[0] if hasattr(band_img, 'shape') else 0,  # band_id
+            band_idx if band_idx is not None else 0,  # BAND_ID CORRECTO
             float(conf),
             dm_val,
             absolute_candidate_time,  # 🕐 USAR TIEMPO ABSOLUTO
@@ -266,6 +268,7 @@ def process_slice(
             absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
             patches_dir=patches_dir,  # PASAR CARPETA DE PATCHES POR CHUNK
             chunk_idx=chunk_idx,  # PASAR CHUNK_ID
+            band_idx=band_idx,  # PASAR BAND_ID CORRECTO
         )
         cand_counter += band_result["cand_counter"]
         n_bursts += band_result["n_bursts"]
@@ -313,7 +316,7 @@ def process_slice(
                 time_reso_ds=time_reso_ds,
                 detections_dir=detections_dir,
                 out_img_path=out_img_path,
-                absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
+                absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
             )
     
     return cand_counter, n_bursts, n_no_bursts, prob_max 

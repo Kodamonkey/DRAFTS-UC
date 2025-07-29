@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "frb-search"
+description = "FRB search pipeline"
+requires-python = ">=3.10"
+dependencies = [
+    "matplotlib",
+    "pandas",
+    "requests",
+    "sigpyproc @ git+https://github.com/FRBs/sigpyproc3.git@5f7b897b6a7305a43cd21c2403128e07a075647a",
+    "tqdm",
+    "your",
+    "PyPDF2",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dynamic = ["readme", "version"]
+authors = [
+    {name = "Cristóbal Braga", email = "cristobal.braga@ug.uchile.cl"}
+]
+
+[project.scripts]
+simulate_pulse = "frb_search.simulate_pulse:main"
+plot_waterfall = "frb_search.plot_waterfall:main"
+frb_search = "frb_search.frb_search:main"
+candidates = "frb_search.candidates:main"
+converter = "frb_search.converter:main"
+voltage_sim = "frb_search.voltage_sim:main"
+cands_classifier = "frb_search.cands_classifier:main"
+
+[tool.setuptools.packages.find]
+include = ["frb_search*"]
+
+[tool.setuptools.dynamic]
+readme = {file = "README.md", content-type = "text/markdown"}
+version = {attr = "frb_search.__version__"}

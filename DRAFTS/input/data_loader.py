@@ -201,7 +201,7 @@ def get_obparams(file_name: str) -> None:
             sub_data = f["SUBINT"].data
             # Convertir a tipos numéricos explícitamente por si vengan como strings
             config.TIME_RESO = _safe_float(hdr.get("TBIN"))
-            config.FREQ_RESO = _safe_int(hdr.get("NCHAN"))
+            config.FREQ_RESO = _safe_int(hdr.get("NCHAN", 512))
             config.FILE_LENG = (
                 _safe_int(hdr.get("NSBLK")) * _safe_int(hdr.get("NAXIS2"))
             )
@@ -829,14 +829,18 @@ def get_obparams_fil(file_name: str) -> None:
     config.FREQ_RESO = nchans
     config.FILE_LENG = nsamples
 
-    if config.FREQ_RESO >= 512:
-        config.DOWN_FREQ_RATE = max(1, int(round(config.FREQ_RESO / 512)))
-    else:
-        config.DOWN_FREQ_RATE = 1
-    if config.TIME_RESO > 1e-9:
-        config.DOWN_TIME_RATE = max(1, int((49.152 * 16 / 1e6) / config.TIME_RESO))
-    else:
-        config.DOWN_TIME_RATE = 15
+    # RESPETAR CONFIGURACIONES DEL USUARIO - solo calcular automáticamente si no están configuradas
+    if not hasattr(config, 'DOWN_FREQ_RATE') or config.DOWN_FREQ_RATE is None:
+        if config.FREQ_RESO >= 512:
+            config.DOWN_FREQ_RATE = max(1, int(round(config.FREQ_RESO / 512)))
+        else:
+            config.DOWN_FREQ_RATE = 1
+    
+    if not hasattr(config, 'DOWN_TIME_RATE') or config.DOWN_TIME_RATE is None:
+        if config.TIME_RESO > 1e-9:
+            config.DOWN_TIME_RATE = max(1, int((49.152 * 16 / 1e6) / config.TIME_RESO))
+        else:
+            config.DOWN_TIME_RATE = 15
 
     # DEBUG: Información completa del archivo
     if config.DEBUG_FREQUENCY_ORDER:

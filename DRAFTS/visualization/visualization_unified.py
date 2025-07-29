@@ -301,7 +301,7 @@ def save_detection_plot(
         
     title = (
         f"{fits_stem} - {band_name} ({freq_range})\n"
-        f"Slice {slice_idx + 1}/{time_slice} | "
+        f"Slice {slice_idx:03d}/{time_slice} | "
         f"Time Resolution: {config.TIME_RESO * config.DOWN_TIME_RATE * 1e6:.1f} \u03bcs | "
         f"DM Range: {dm_range_info} pc cm⁻\u00b3"
     )
@@ -961,7 +961,7 @@ def save_slice_summary(
     else:
         dm_range_info += " (full)"
     
-    title_det = f"Detection Map - {fits_stem} ({band_name_with_freq})\nSlice {slice_idx + 1} of {time_slice} | DM Range: {dm_range_info} pc cm⁻³"
+    title_det = f"Detection Map - {fits_stem} ({band_name_with_freq})\nSlice {slice_idx:03d} of {time_slice} | DM Range: {dm_range_info} pc cm⁻³"
     ax_det.set_title(title_det, fontsize=11, fontweight="bold")
     config.SLICE_LEN = prev_len_config
 
@@ -1295,7 +1295,7 @@ def save_slice_summary(
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     fig.suptitle(
-        f"Composite Summary: {fits_stem} - {band_name_with_freq} - Slice {slice_idx + 1}",
+        f"Composite Summary: {fits_stem} - {band_name_with_freq} - Slice {slice_idx:03d}",
         fontsize=14,
         fontweight="bold",
         y=0.97,

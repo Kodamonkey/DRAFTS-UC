@@ -6,4 +6,5 @@ models/
 Results/
 
 *.pdf
-.log
+*.log
+*.pyc

@@ -113,9 +113,10 @@ class DRAFTSLogger:
         
         # Handler para archivo (automático si no se especifica)
         if log_file is None:
-            # Crear archivo de log automáticamente en el directorio de resultados
+            # Crear archivo de log automáticamente en la carpeta log/
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            log_file = Path(f"drafts_pipeline_{timestamp}.log")
+            log_dir = Path(__file__).parent / "log"
+            log_file = log_dir / f"drafts_pipeline_{timestamp}.log"
         
         # Asegurar que el directorio del archivo de log existe
         log_file.parent.mkdir(parents=True, exist_ok=True)

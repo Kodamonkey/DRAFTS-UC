@@ -404,7 +404,13 @@ def _process_file(
         data = load_and_preprocess_data(fits_path)
     except ValueError as e:
         if "corrupto" in str(e).lower():
-            logger.error("Archivo corrupto detectado: %s - SALTANDO", fits_path.name)
+            # Mostrar el mensaje detallado del error
+            logger.error("Archivo corrupto detectado: %s", fits_path.name)
+            logger.error("Detalles del error:")
+            for line in str(e).split('\n'):
+                if line.strip():
+                    logger.error("  %s", line.strip())
+            logger.error("Archivo saltado - no se puede procesar")
             return {
                 "n_candidates": 0,
                 "n_bursts": 0,

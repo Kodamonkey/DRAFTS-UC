@@ -80,25 +80,65 @@ def load_fits_file(file_name: str) -> np.ndarray:
                     num_pols = _safe_int(h.get("NPOL", 2))
                     num_chans = _safe_int(h.get("NCHAN", 512))
                     if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
-                        raise ValueError(
-                            f"Dimensiones inválidas en header FITSIO: NAXIS2={h.get('NAXIS2', 1)}, NSBLK={h.get('NSBLK', 1)}, NPOL={num_pols}, NCHAN={num_chans} (no pueden ser <= 0)"
-                        )
+                        # Mensaje detallado explicando el problema
+                        error_details = []
+                        if total_samples <= 0:
+                            error_details.append(f"total_samples={total_samples} (NAXIS2={h.get('NAXIS2', 1)} × NSBLK={h.get('NSBLK', 1)})")
+                        if num_pols <= 0:
+                            error_details.append(f"num_pols={num_pols}")
+                        if num_chans <= 0:
+                            error_details.append(f"num_chans={num_chans}")
+                        
+                        error_msg = f"Dimensiones inválidas en header FITS: {', '.join(error_details)}"
+                        if total_samples <= 0:
+                            error_msg += f"\n  → NSBLK={h.get('NSBLK', 1)} es 0 o negativo, lo que hace imposible calcular el número de muestras temporales"
+                            error_msg += f"\n  → El pipeline necesita datos en formato (tiempo, polarización, canal) pero no puede determinar la dimensión temporal"
+                        if num_pols <= 0:
+                            error_msg += f"\n  → NPOL={num_pols} es 0 o negativo, lo que hace imposible procesar las polarizaciones"
+                        if num_chans <= 0:
+                            error_msg += f"\n  → NCHAN={num_chans} es 0 o negativo, lo que hace imposible procesar los canales de frecuencia"
+                        
+                        raise ValueError(error_msg)
                     try:
                         data_array = temp_data["DATA"].reshape(total_samples, num_pols, num_chans)[:, :2, :]
                     except Exception as e:
-                        raise ValueError(f"Error al hacer reshape de los datos (fitsio): {e}")
+                        raise ValueError(f"Error al hacer reshape de los datos (fitsio): {e}\n  → Los datos no pueden reorganizarse en el formato esperado (tiempo={total_samples}, pol={num_pols}, canal={num_chans})")
                 else:
                     total_samples = _safe_int(h.get("NAXIS2", 1)) * _safe_int(h.get("NSBLK", 1))
                     num_pols = _safe_int(h.get("NPOL", 2))
                     num_chans = _safe_int(h.get("NCHAN", 512))
                     if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
-                        raise ValueError(
-                            f"Dimensiones inválidas en header FITSIO: NAXIS2={h.get('NAXIS2', 1)}, NSBLK={h.get('NSBLK', 1)}, NPOL={num_pols}, NCHAN={num_chans} (no pueden ser <= 0)"
-                        )
+                        # Mensaje detallado explicando el problema
+                        error_details = []
+                        if total_samples <= 0:
+                            error_details.append(f"total_samples={total_samples} (NAXIS2={h.get('NAXIS2', 1)} × NSBLK={h.get('NSBLK', 1)})")
+                        if num_pols <= 0:
+                            error_details.append(f"num_pols={num_pols}")
+                        if num_chans <= 0:
+                            error_details.append(f"num_chans={num_chans}")
+                        
+                        error_msg = f"Dimensiones inválidas en header FITS: {', '.join(error_details)}"
+                        if total_samples <= 0:
+                            error_msg += f"\n  → NSBLK={h.get('NSBLK', 1)} es 0 o negativo, lo que hace imposible calcular el número de muestras temporales"
+                            error_msg += f"\n  → El pipeline necesita datos en formato (tiempo, polarización, canal) pero no puede determinar la dimensión temporal"
+                        if num_pols <= 0:
+                            error_msg += f"\n  → NPOL={num_pols} es 0 o negativo, lo que hace imposible procesar las polarizaciones"
+                        if num_chans <= 0:
+                            error_msg += f"\n  → NCHAN={num_chans} es 0 o negativo, lo que hace imposible procesar los canales de frecuencia"
+                        
+                        raise ValueError(error_msg)
                     try:
                         data_array = temp_data.reshape(total_samples, num_pols, num_chans)[:, :2, :]
                     except Exception as e:
-                        raise ValueError(f"Error al hacer reshape de los datos (fitsio): {e}")
+                        raise ValueError(f"Error al hacer reshape de los datos (fitsio): {e}\n  → Los datos no pueden reorganizarse en el formato esperado (tiempo={total_samples}, pol={num_pols}, canal={num_chans})")
+    except (ValueError, fits.verify.VerifyError) as e:
+        # Re-lanzar errores específicos de archivos corruptos con información adicional
+        if "NSBLK" in str(e) and "0" in str(e):
+            raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → El archivo tiene NSBLK=0 en el header, lo que indica que está mal formateado o corrupto\n  → NSBLK debe ser > 0 para definir el número de muestras por bloque temporal\n  → Recomendación: Verificar el origen del archivo o obtener una versión correcta") from e
+        elif "Dimensiones inválidas" in str(e):
+            raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → {str(e)}\n  → El archivo no puede ser procesado debido a dimensiones inválidas en el header\n  → Recomendación: Verificar la integridad del archivo o usar un archivo diferente") from e
+        else:
+            raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → {str(e)}\n  → El archivo no puede ser leído correctamente\n  → Recomendación: Verificar que el archivo no esté dañado") from e
     except Exception as e:
         print(f"[Error cargando FITS con fitsio/astropy] {e}")
         try:
@@ -126,24 +166,40 @@ def load_fits_file(file_name: str) -> np.ndarray:
                         num_pols = _safe_int(h.get("NPOL", 2))
                         num_chans = _safe_int(h.get("NCHAN", raw_data.shape[-1]))
                         if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
-                            raise ValueError(
-                                f"Dimensiones inválidas en header fallback: NAXIS2={h.get('NAXIS2', 1)}, NSBLK={h.get('NSBLK', 1)}, NPOL={num_pols}, NCHAN={num_chans} (no pueden ser <= 0)"
-                            )
+                            # Mensaje detallado para el fallback también
+                            error_details = []
+                            if total_samples <= 0:
+                                error_details.append(f"total_samples={total_samples} (NAXIS2={h.get('NAXIS2', 1)} × NSBLK={h.get('NSBLK', 1)})")
+                            if num_pols <= 0:
+                                error_details.append(f"num_pols={num_pols}")
+                            if num_chans <= 0:
+                                error_details.append(f"num_chans={num_chans}")
+                            
+                            error_msg = f"Dimensiones inválidas en header fallback: {', '.join(error_details)}"
+                            if total_samples <= 0:
+                                error_msg += f"\n  → NSBLK={h.get('NSBLK', 1)} es 0 o negativo, lo que hace imposible calcular el número de muestras temporales"
+                                error_msg += f"\n  → El pipeline necesita datos en formato (tiempo, polarización, canal) pero no puede determinar la dimensión temporal"
+                            if num_pols <= 0:
+                                error_msg += f"\n  → NPOL={num_pols} es 0 o negativo, lo que hace imposible procesar las polarizaciones"
+                            if num_chans <= 0:
+                                error_msg += f"\n  → NCHAN={num_chans} es 0 o negativo, lo que hace imposible procesar los canales de frecuencia"
+                            
+                            raise ValueError(error_msg)
                         try:
                             data_array = raw_data.reshape(total_samples, num_pols, num_chans)[:, :2, :]
                         except Exception as e:
-                            raise ValueError(f"Error al hacer reshape de los datos (fallback): {e}")
+                            raise ValueError(f"Error al hacer reshape de los datos (fallback): {e}\n  → Los datos no pueden reorganizarse en el formato esperado (tiempo={total_samples}, pol={num_pols}, canal={num_chans})\n  → El archivo puede estar corrupto o tener un formato no compatible")
                     else:
-                        raise ValueError("No hay datos válidos en el HDU")
+                        raise ValueError("No hay datos válidos en el HDU\n  → El archivo FITS no contiene datos procesables\n  → Verificar que el archivo no esté vacío o corrupto")
                 except (TypeError, ValueError) as e_data:
                     print(f"Error accediendo a datos del HDU: {e_data}")
-                    raise ValueError(f"Archivo FITS corrupto: {file_name}")
+                    raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → Error al acceder a los datos del archivo: {e_data}\n  → El archivo puede estar dañado o tener un formato no reconocido")
         except Exception as e_astropy:
             print(f"Fallo final al cargar con astropy: {e_astropy}")
-            raise ValueError(f"Archivo FITS corrupto: {file_name}") from e_astropy
+            raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → Fallo en el método de respaldo con astropy: {e_astropy}\n  → El archivo no puede ser leído por ningún método disponible\n  → Recomendación: Verificar la integridad del archivo o usar un archivo diferente") from e_astropy
             
     if data_array is None:
-        raise ValueError(f"Archivo FITS corrupto: {file_name}")
+        raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → No se pudieron cargar datos válidos del archivo\n  → El archivo puede estar vacío, corrupto o tener un formato no compatible\n  → Recomendación: Verificar la integridad del archivo o usar un archivo diferente")
 
     if global_vars.DATA_NEEDS_REVERSAL:
         print(f">> Invirtiendo eje de frecuencia de los datos cargados para {file_name}")
@@ -151,18 +207,99 @@ def load_fits_file(file_name: str) -> np.ndarray:
     
     # DEBUG: Información de los datos cargados
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"💾 [DEBUG DATOS CARGADOS] Archivo: {file_name}")
-        print(f"💾 [DEBUG DATOS CARGADOS] Shape de datos: {data_array.shape}")
-        print(f"💾 [DEBUG DATOS CARGADOS] Dimensiones: (tiempo={data_array.shape[0]}, pol={data_array.shape[1]}, freq={data_array.shape[2]})")
-        print(f"💾 [DEBUG DATOS CARGADOS] Tipo de datos: {data_array.dtype}")
-        print(f"💾 [DEBUG DATOS CARGADOS] Tamaño en memoria: {data_array.nbytes / (1024**3):.2f} GB")
-        print(f"💾 [DEBUG DATOS CARGADOS] Reversión aplicada: {global_vars.DATA_NEEDS_REVERSAL}")
-        print(f"💾 [DEBUG DATOS CARGADOS] Rango de valores: [{data_array.min():.3f}, {data_array.max():.3f}]")
-        print(f"💾 [DEBUG DATOS CARGADOS] Valor medio: {data_array.mean():.3f}")
-        print(f"💾 [DEBUG DATOS CARGADOS] Desviación estándar: {data_array.std():.3f}")
-        print("💾 [DEBUG DATOS CARGADOS] " + "="*50)
+        print(f"[DEBUG DATOS CARGADOS] Archivo: {file_name}")
+        print(f"[DEBUG DATOS CARGADOS] Shape de datos: {data_array.shape}")
+        print(f"[DEBUG DATOS CARGADOS] Dimensiones: (tiempo={data_array.shape[0]}, pol={data_array.shape[1]}, freq={data_array.shape[2]})")
+        print(f"[DEBUG DATOS CARGADOS] Tipo de datos: {data_array.dtype}")
+        print(f"[DEBUG DATOS CARGADOS] Tamaño en memoria: {data_array.nbytes / (1024**3):.2f} GB")
+        print(f"[DEBUG DATOS CARGADOS] Reversión aplicada: {global_vars.DATA_NEEDS_REVERSAL}")
+        print(f"[DEBUG DATOS CARGADOS] Rango de valores: [{data_array.min():.3f}, {data_array.max():.3f}]")
+        print(f"[DEBUG DATOS CARGADOS] Valor medio: {data_array.mean():.3f}")
+        print(f"[DEBUG DATOS CARGADOS] Desviación estándar: {data_array.std():.3f}")
+        print("[DEBUG DATOS CARGADOS] " + "="*50)
     
     return data_array
+
+
+# =============================================================================
+# EJEMPLOS DE MENSAJES DE ERROR INFORMATIVOS
+# =============================================================================
+"""
+PATRÓN GENERAL PARA MENSAJES DE ERROR INFORMATIVOS:
+
+1. ERRORES DE VALIDACIÓN:
+   try:
+       if valor <= 0:
+           raise ValueError(
+               f"Valor inválido: {valor}\n"
+               f"  → El valor debe ser > 0 para funcionar correctamente\n"
+               f"  → Este valor se usa para calcular {contexto}\n"
+               f"  → Recomendación: Verificar el origen de los datos"
+           )
+   except ValueError as e:
+       logger.error("Error de validación detectado")
+       logger.error("Detalles:")
+       for line in str(e).split('\n'):
+           if line.strip():
+               logger.error("  %s", line.strip())
+
+2. ERRORES DE ARCHIVO:
+   try:
+       with open(archivo) as f:
+           datos = f.read()
+   except FileNotFoundError:
+       raise FileNotFoundError(
+           f"Archivo no encontrado: {archivo}\n"
+           f"  → El archivo no existe en la ruta especificada\n"
+           f"  → Verificar que la ruta sea correcta\n"
+           f"  → Recomendación: Verificar la existencia del archivo"
+       )
+   except PermissionError:
+       raise PermissionError(
+           f"Sin permisos para acceder: {archivo}\n"
+           f"  → No tienes permisos de lectura en este archivo\n"
+           f"  → Verificar permisos del sistema\n"
+           f"  → Recomendación: Ejecutar con permisos adecuados"
+       )
+
+3. ERRORES DE CONFIGURACIÓN:
+   if not config_valida:
+       raise ValueError(
+           f"Configuración inválida en {seccion}\n"
+           f"  → {parametro} = {valor} no es válido\n"
+           f"  → Valores permitidos: {valores_permitidos}\n"
+           f"  → Recomendación: Corregir la configuración"
+       )
+
+4. ERRORES DE MEMORIA:
+   try:
+       array_grande = np.zeros((1000000, 1000000))
+   except MemoryError:
+       raise MemoryError(
+           f"Memoria insuficiente para operación\n"
+           f"  → Se requieren {memoria_necesaria} GB\n"
+           f"  → Memoria disponible: {memoria_disponible} GB\n"
+           f"  → Recomendación: Reducir el tamaño de los datos o liberar memoria"
+       )
+
+5. ERRORES DE RED:
+   try:
+       response = requests.get(url, timeout=10)
+   except requests.Timeout:
+       raise requests.Timeout(
+           f"Timeout al conectar con {url}\n"
+           f"  → La conexión tardó más de 10 segundos\n"
+           f"  → Verificar conectividad de red\n"
+           f"  → Recomendación: Verificar conexión o aumentar timeout"
+       )
+
+BENEFICIOS DE ESTE ENFOQUE:
+- El usuario entiende QUÉ pasó
+- El usuario entiende POR QUÉ pasó
+- El usuario sabe QUÉ hacer para solucionarlo
+- Facilita el debugging y soporte técnico
+- Mejora la experiencia del usuario
+"""
 
 
 def get_obparams(file_name: str) -> None:
@@ -170,15 +307,15 @@ def get_obparams(file_name: str) -> None:
     
     # DEBUG: Información de entrada del archivo
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"📋 [DEBUG HEADER] Iniciando extracción de parámetros de: {file_name}")
-        print(f"📋 [DEBUG HEADER] " + "="*60)
+        print(f"[DEBUG HEADER] Iniciando extracción de parámetros de: {file_name}")
+        print(f"[DEBUG HEADER] " + "="*60)
     
     with fits.open(file_name, memmap=True) as f:
         freq_axis_inverted = False
         
         # DEBUG: Estructura del archivo FITS
         if config.DEBUG_FREQUENCY_ORDER:
-            print(f"📋 [DEBUG HEADER] Estructura del archivo FITS:")
+            print(f"[DEBUG HEADER] Estructura del archivo FITS:")
             for i, hdu in enumerate(f):
                 hdu_type = type(hdu).__name__
                 if hasattr(hdu, 'header') and hdu.header:
@@ -186,16 +323,16 @@ def get_obparams(file_name: str) -> None:
                         ext_name = hdu.header['EXTNAME']
                     else:
                         ext_name = 'PRIMARY' if i == 0 else f'HDU_{i}'
-                    print(f"📋 [DEBUG HEADER]   HDU {i}: {hdu_type} - {ext_name}")
+                    print(f"[DEBUG HEADER]   HDU {i}: {hdu_type} - {ext_name}")
                     if hasattr(hdu, 'columns') and hdu.columns:
-                        print(f"📋 [DEBUG HEADER]     Columnas: {[col.name for col in hdu.columns]}")
+                        print(f"[DEBUG HEADER]     Columnas: {[col.name for col in hdu.columns]}")
                 else:
-                    print(f"📋 [DEBUG HEADER]   HDU {i}: {hdu_type} - Sin header")
+                    print(f"[DEBUG HEADER]   HDU {i}: {hdu_type} - Sin header")
         
         if "SUBINT" in [hdu.name for hdu in f] and "TBIN" in f["SUBINT"].header:
             # DEBUG: Procesando formato PSRFITS
             if config.DEBUG_FREQUENCY_ORDER:
-                print(f"📋 [DEBUG HEADER] Formato detectado: PSRFITS (SUBINT)")
+                print(f"[DEBUG HEADER] Formato detectado: PSRFITS (SUBINT)")
             
             hdr = f["SUBINT"].header
             sub_data = f["SUBINT"].data
@@ -217,19 +354,19 @@ def get_obparams(file_name: str) -> None:
             
             # DEBUG: Headers PSRFITS específicos
             if config.DEBUG_FREQUENCY_ORDER:
-                print(f"📋 [DEBUG HEADER] Headers PSRFITS extraídos:")
+                print(f"[DEBUG HEADER] Headers PSRFITS extraídos:")
                 print(
-                    f"📋 [DEBUG HEADER]   TBIN (resolución temporal): {_safe_float(hdr.get('TBIN')):.2e} s"
+                    f"[DEBUG HEADER]   TBIN (resolución temporal): {_safe_float(hdr.get('TBIN')):.2e} s"
                 )
-                print(f"📋 [DEBUG HEADER]   NCHAN (canales): {hdr['NCHAN']}")
-                print(f"📋 [DEBUG HEADER]   NSBLK (muestras por subint): {hdr['NSBLK']}")
-                print(f"📋 [DEBUG HEADER]   NAXIS2 (número de subints): {hdr['NAXIS2']}")
-                print(f"📋 [DEBUG HEADER]   NPOL (polarizaciones): {hdr.get('NPOL', 'N/A')}")
-                print(f"📋 [DEBUG HEADER]   Total de muestras: {config.FILE_LENG}")
+                print(f"[DEBUG HEADER]   NCHAN (canales): {hdr['NCHAN']}")
+                print(f"[DEBUG HEADER]   NSBLK (muestras por subint): {hdr['NSBLK']}")
+                print(f"[DEBUG HEADER]   NAXIS2 (número de subints): {hdr['NAXIS2']}")
+                print(f"[DEBUG HEADER]   NPOL (polarizaciones): {hdr.get('NPOL', 'N/A')}")
+                print(f"[DEBUG HEADER]   Total de muestras: {config.FILE_LENG}")
                 if 'OBS_MODE' in hdr:
-                    print(f"📋 [DEBUG HEADER]   Modo de observación: {hdr['OBS_MODE']}")
+                    print(f"[DEBUG HEADER]   Modo de observación: {hdr['OBS_MODE']}")
                 if 'SRC_NAME' in hdr:
-                    print(f"📋 [DEBUG HEADER]   Fuente: {hdr['SRC_NAME']}")
+                    print(f"[DEBUG HEADER]   Fuente: {hdr['SRC_NAME']}")
             
             if "CHAN_BW" in hdr:
                 bw = hdr["CHAN_BW"]
@@ -241,19 +378,19 @@ def get_obparams(file_name: str) -> None:
                 except (TypeError, ValueError):
                     bw = 0.0
                 if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"📋 [DEBUG HEADER]   CHAN_BW detectado: {bw} MHz")
+                    print(f"[DEBUG HEADER]   CHAN_BW detectado: {bw} MHz")
                 if bw < 0:
                     freq_axis_inverted = True
                     if config.DEBUG_FREQUENCY_ORDER:
-                        print(f"📋 [DEBUG HEADER]   ⚠️ CHAN_BW negativo - frecuencias invertidas!")
+                        print(f"[DEBUG HEADER]   ⚠️ CHAN_BW negativo - frecuencias invertidas!")
             elif len(freq_temp) > 1 and freq_temp[0] > freq_temp[-1]:
                 freq_axis_inverted = True
                 if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"📋 [DEBUG HEADER]   ⚠️ Frecuencias detectadas en orden descendente!")
+                    print(f"[DEBUG HEADER]   ⚠️ Frecuencias detectadas en orden descendente!")
         else:
             # DEBUG: Procesando formato FITS estándar
             if config.DEBUG_FREQUENCY_ORDER:
-                print(f"📋 [DEBUG HEADER] Formato detectado: FITS estándar (no PSRFITS)")
+                print(f"[DEBUG HEADER] Formato detectado: FITS estándar (no PSRFITS)")
             
             try:
                 data_hdu_index = 0
@@ -274,18 +411,18 @@ def get_obparams(file_name: str) -> None:
                 
                 # DEBUG: HDU seleccionado
                 if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"📋 [DEBUG HEADER] HDU seleccionado para datos: {data_hdu_index}")
+                    print(f"[DEBUG HEADER] HDU seleccionado para datos: {data_hdu_index}")
                 
                 hdr = f[data_hdu_index].header
                 
                 # DEBUG: Headers FITS estándar
                 if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"📋 [DEBUG HEADER] Headers FITS estándar del HDU {data_hdu_index}:")
+                    print(f"[DEBUG HEADER] Headers FITS estándar del HDU {data_hdu_index}:")
                     relevant_keys = ['TBIN', 'NCHAN', 'NAXIS2', 'NSBLK', 'NPOL', 'CRVAL1', 'CRVAL2', 'CRVAL3', 
                                    'CDELT1', 'CDELT2', 'CDELT3', 'CTYPE1', 'CTYPE2', 'CTYPE3']
                     for key in relevant_keys:
                         if key in hdr:
-                            print(f"📋 [DEBUG HEADER]   {key}: {hdr[key]}")
+                            print(f"[DEBUG HEADER]   {key}: {hdr[key]}")
                 
                 if "DAT_FREQ" in f[data_hdu_index].columns.names:
                     try:
@@ -298,7 +435,7 @@ def get_obparams(file_name: str) -> None:
                         freq_temp = np.linspace(1000, 1500, nchan)
                     else:
                         if config.DEBUG_FREQUENCY_ORDER:
-                            print(f"📋 [DEBUG HEADER] Frecuencias extraídas de columna DAT_FREQ")
+                            print(f"[DEBUG HEADER] Frecuencias extraídas de columna DAT_FREQ")
                 else:
                     freq_axis_num = ''
                     for i in range(1, hdr.get('NAXIS', 0) + 1):
@@ -307,8 +444,8 @@ def get_obparams(file_name: str) -> None:
                             break
                     
                     if config.DEBUG_FREQUENCY_ORDER:
-                        print(f"📋 [DEBUG HEADER] Buscando eje de frecuencias en headers WCS...")
-                        print(f"📋 [DEBUG HEADER] Eje de frecuencias detectado: CTYPE{freq_axis_num}" if freq_axis_num else "📋 [DEBUG HEADER] ⚠️ No se encontró eje de frecuencias")
+                        print(f"[DEBUG HEADER] Buscando eje de frecuencias en headers WCS...")
+                        print(f"[DEBUG HEADER] Eje de frecuencias detectado: CTYPE{freq_axis_num}" if freq_axis_num else "📋 [DEBUG HEADER] ⚠️ No se encontró eje de frecuencias")
                     
                     if freq_axis_num:
                         crval = hdr.get(f'CRVAL{freq_axis_num}', 0)
@@ -328,19 +465,19 @@ def get_obparams(file_name: str) -> None:
                         freq_temp = crval + (np.arange(naxis) - (crpix - 1)) * cdelt
                         
                         if config.DEBUG_FREQUENCY_ORDER:
-                            print(f"📋 [DEBUG HEADER] Parámetros WCS frecuencia:")
-                            print(f"📋 [DEBUG HEADER]   CRVAL{freq_axis_num}: {crval} (valor de referencia)")
-                            print(f"📋 [DEBUG HEADER]   CDELT{freq_axis_num}: {cdelt} (incremento por canal)")
-                            print(f"📋 [DEBUG HEADER]   CRPIX{freq_axis_num}: {crpix} (pixel de referencia)")
-                            print(f"📋 [DEBUG HEADER]   NAXIS{freq_axis_num}: {naxis} (número de canales)")
+                            print(f"[DEBUG HEADER] Parámetros WCS frecuencia:")
+                            print(f"[DEBUG HEADER]   CRVAL{freq_axis_num}: {crval} (valor de referencia)")
+                            print(f"[DEBUG HEADER]   CDELT{freq_axis_num}: {cdelt} (incremento por canal)")
+                            print(f"[DEBUG HEADER]   CRPIX{freq_axis_num}: {crpix} (pixel de referencia)")
+                            print(f"[DEBUG HEADER]   NAXIS{freq_axis_num}: {naxis} (número de canales)")
                         
                         if cdelt < 0:
                             freq_axis_inverted = True
                             if config.DEBUG_FREQUENCY_ORDER:
-                                print(f"📋 [DEBUG HEADER]   ⚠️ CDELT negativo - frecuencias invertidas!")
+                                print(f"[DEBUG HEADER]   ⚠️ CDELT negativo - frecuencias invertidas!")
                     else:
                         if config.DEBUG_FREQUENCY_ORDER:
-                            print(f"📋 [DEBUG HEADER] ⚠️ Usando frecuencias por defecto: 1000-1500 MHz")
+                            print(f"[DEBUG HEADER] ⚠️ Usando frecuencias por defecto: 1000-1500 MHz")
                         freq_temp = np.linspace(1000, 1500, hdr.get('NCHAN', 512))
                 
                 # Convertir a tipos numéricos para evitar errores de comparación
@@ -350,15 +487,15 @@ def get_obparams(file_name: str) -> None:
                 
                 # DEBUG: Parámetros finales extraídos
                 if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"📋 [DEBUG HEADER] Parámetros finales FITS estándar:")
-                    print(f"📋 [DEBUG HEADER]   TIME_RESO: {config.TIME_RESO:.2e} s")
-                    print(f"📋 [DEBUG HEADER]   FREQ_RESO: {config.FREQ_RESO}")
-                    print(f"📋 [DEBUG HEADER]   FILE_LENG: {config.FILE_LENG}")
+                    print(f"[DEBUG HEADER] Parámetros finales FITS estándar:")
+                    print(f"[DEBUG HEADER]   TIME_RESO: {config.TIME_RESO:.2e} s")
+                    print(f"[DEBUG HEADER]   FREQ_RESO: {config.FREQ_RESO}")
+                    print(f"[DEBUG HEADER]   FILE_LENG: {config.FILE_LENG}")
                     
             except Exception as e_std:
                 if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"📋 [DEBUG HEADER] ⚠️ Error procesando FITS estándar: {e_std}")
-                    print(f"📋 [DEBUG HEADER] Usando valores por defecto...")
+                    print(f"[DEBUG HEADER] ⚠️ Error procesando FITS estándar: {e_std}")
+                    print(f"[DEBUG HEADER] Usando valores por defecto...")
                 print(f"Error procesando FITS estándar: {e_std}")
                 config.TIME_RESO = 5.12e-5
                 config.FREQ_RESO = 512
@@ -373,69 +510,69 @@ def get_obparams(file_name: str) -> None:
 
     # DEBUG: Orden de frecuencias
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"🔍 [DEBUG FRECUENCIAS] Archivo: {file_name}")
-        print(f"🔍 [DEBUG FRECUENCIAS] freq_axis_inverted detectado: {freq_axis_inverted}")
-        print(f"🔍 [DEBUG FRECUENCIAS] DATA_NEEDS_REVERSAL configurado: {config.DATA_NEEDS_REVERSAL}")
-        print(f"🔍 [DEBUG FRECUENCIAS] Primeras 5 frecuencias: {config.FREQ[:5]}")
-        print(f"🔍 [DEBUG FRECUENCIAS] Últimas 5 frecuencias: {config.FREQ[-5:]}")
-        print(f"🔍 [DEBUG FRECUENCIAS] Frecuencia mínima: {config.FREQ.min():.2f} MHz")
-        print(f"🔍 [DEBUG FRECUENCIAS] Frecuencia máxima: {config.FREQ.max():.2f} MHz")
-        print(f"🔍 [DEBUG FRECUENCIAS] Orden esperado: frecuencias ASCENDENTES (menor a mayor)")
+        print(f"[DEBUG FRECUENCIAS] Archivo: {file_name}")
+        print(f"[DEBUG FRECUENCIAS] freq_axis_inverted detectado: {freq_axis_inverted}")
+        print(f"[DEBUG FRECUENCIAS] DATA_NEEDS_REVERSAL configurado: {config.DATA_NEEDS_REVERSAL}")
+        print(f"[DEBUG FRECUENCIAS] Primeras 5 frecuencias: {config.FREQ[:5]}")
+        print(f"[DEBUG FRECUENCIAS] Últimas 5 frecuencias: {config.FREQ[-5:]}")
+        print(f"[DEBUG FRECUENCIAS] Frecuencia mínima: {config.FREQ.min():.2f} MHz")
+        print(f"[DEBUG FRECUENCIAS] Frecuencia máxima: {config.FREQ.max():.2f} MHz")
+        print(f"[DEBUG FRECUENCIAS] Orden esperado: frecuencias ASCENDENTES (menor a mayor)")
         if config.FREQ[0] < config.FREQ[-1]:
-            print(f"✅ [DEBUG FRECUENCIAS] Orden CORRECTO: {config.FREQ[0]:.2f} < {config.FREQ[-1]:.2f}")
+            print(f"[DEBUG FRECUENCIAS] Orden CORRECTO: {config.FREQ[0]:.2f} < {config.FREQ[-1]:.2f}")
         else:
-            print(f"❌ [DEBUG FRECUENCIAS] Orden INCORRECTO: {config.FREQ[0]:.2f} > {config.FREQ[-1]:.2f}")
-        print(f"🔍 [DEBUG FRECUENCIAS] DOWN_FREQ_RATE: {config.DOWN_FREQ_RATE}")
-        print(f"🔍 [DEBUG FRECUENCIAS] DOWN_TIME_RATE: {config.DOWN_TIME_RATE}")
-        print("🔍 [DEBUG FRECUENCIAS] " + "="*50)
+            print(f"[DEBUG FRECUENCIAS] Orden INCORRECTO: {config.FREQ[0]:.2f} > {config.FREQ[-1]:.2f}")
+        print(f"[DEBUG FRECUENCIAS] DOWN_FREQ_RATE: {config.DOWN_FREQ_RATE}")
+        print(f"[DEBUG FRECUENCIAS] DOWN_TIME_RATE: {config.DOWN_TIME_RATE}")
+        print("[DEBUG FRECUENCIAS] " + "="*50)
 
     # DEBUG: Información completa del archivo
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"📁 [DEBUG ARCHIVO] Información completa del archivo: {file_name}")
-        print(f"📁 [DEBUG ARCHIVO] " + "="*60)
-        print(f"📁 [DEBUG ARCHIVO] DIMENSIONES Y RESOLUCIÓN:")
-        print(f"📁 [DEBUG ARCHIVO]   - Resolución temporal: {config.TIME_RESO:.2e} segundos/muestra")
-        print(f"📁 [DEBUG ARCHIVO]   - Resolución de frecuencia: {config.FREQ_RESO} canales")
-        print(f"📁 [DEBUG ARCHIVO]   - Longitud del archivo: {config.FILE_LENG:,} muestras")
+        print(f"[DEBUG ARCHIVO] Información completa del archivo: {file_name}")
+        print(f"[DEBUG ARCHIVO] " + "="*60)
+        print(f"[DEBUG ARCHIVO] DIMENSIONES Y RESOLUCIÓN:")
+        print(f"[DEBUG ARCHIVO]   - Resolución temporal: {config.TIME_RESO:.2e} segundos/muestra")
+        print(f"[DEBUG ARCHIVO]   - Resolución de frecuencia: {config.FREQ_RESO} canales")
+        print(f"[DEBUG ARCHIVO]   - Longitud del archivo: {config.FILE_LENG:,} muestras")
         
         # Calcular duración total
         duracion_total_seg = config.FILE_LENG * config.TIME_RESO
         duracion_min = duracion_total_seg / 60
         duracion_horas = duracion_min / 60
-        print(f"📁 [DEBUG ARCHIVO]   - Duración total: {duracion_total_seg:.2f} seg ({duracion_min:.2f} min, {duracion_horas:.2f} h)")
+        print(f"[DEBUG ARCHIVO]   - Duración total: {duracion_total_seg:.2f} seg ({duracion_min:.2f} min, {duracion_horas:.2f} h)")
         
-        print(f"📁 [DEBUG ARCHIVO] FRECUENCIAS:")
-        print(f"📁 [DEBUG ARCHIVO]   - Rango total: {config.FREQ.min():.2f} - {config.FREQ.max():.2f} MHz")
-        print(f"📁 [DEBUG ARCHIVO]   - Ancho de banda: {abs(config.FREQ.max() - config.FREQ.min()):.2f} MHz")
-        print(f"📁 [DEBUG ARCHIVO]   - Resolución por canal: {abs(config.FREQ[1] - config.FREQ[0]):.4f} MHz/canal")
-        print(f"📁 [DEBUG ARCHIVO]   - Orden original: {'DESCENDENTE' if freq_axis_inverted else 'ASCENDENTE'}")
-        print(f"📁 [DEBUG ARCHIVO]   - Orden final (post-corrección): {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
+        print(f"[DEBUG ARCHIVO] FRECUENCIAS:")
+        print(f"[DEBUG ARCHIVO]   - Rango total: {config.FREQ.min():.2f} - {config.FREQ.max():.2f} MHz")
+        print(f"[DEBUG ARCHIVO]   - Ancho de banda: {abs(config.FREQ.max() - config.FREQ.min()):.2f} MHz")
+        print(f"[DEBUG ARCHIVO]   - Resolución por canal: {abs(config.FREQ[1] - config.FREQ[0]):.4f} MHz/canal")
+        print(f"[DEBUG ARCHIVO]   - Orden original: {'DESCENDENTE' if freq_axis_inverted else 'ASCENDENTE'}")
+        print(f"[DEBUG ARCHIVO]   - Orden final (post-corrección): {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
         
-        print(f"📁 [DEBUG ARCHIVO] DECIMACIÓN:")
-        print(f"📁 [DEBUG ARCHIVO]   - Factor reducción frecuencia: {config.DOWN_FREQ_RATE}x")
-        print(f"📁 [DEBUG ARCHIVO]   - Factor reducción tiempo: {config.DOWN_TIME_RATE}x")
-        print(f"📁 [DEBUG ARCHIVO]   - Canales después de decimación: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
-        print(f"📁 [DEBUG ARCHIVO]   - Resolución temporal después: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} seg/muestra")
+        print(f"[DEBUG ARCHIVO] DECIMACIÓN:")
+        print(f"[DEBUG ARCHIVO]   - Factor reducción frecuencia: {config.DOWN_FREQ_RATE}x")
+        print(f"[DEBUG ARCHIVO]   - Factor reducción tiempo: {config.DOWN_TIME_RATE}x")
+        print(f"[DEBUG ARCHIVO]   - Canales después de decimación: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
+        print(f"[DEBUG ARCHIVO]   - Resolución temporal después: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} seg/muestra")
         
         # Calcular tamaño aproximado de datos
         size_original_gb = (config.FILE_LENG * config.FREQ_RESO * 4) / (1024**3)  # 4 bytes por float32
         size_decimated_gb = size_original_gb / (config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE)
-        print(f"📁 [DEBUG ARCHIVO] TAMAÑO ESTIMADO:")
-        print(f"📁 [DEBUG ARCHIVO]   - Datos originales: ~{size_original_gb:.2f} GB")
-        print(f"📁 [DEBUG ARCHIVO]   - Datos después decimación: ~{size_decimated_gb:.2f} GB")
+        print(f"[DEBUG ARCHIVO] TAMAÑO ESTIMADO:")
+        print(f"[DEBUG ARCHIVO]   - Datos originales: ~{size_original_gb:.2f} GB")
+        print(f"[DEBUG ARCHIVO]   - Datos después decimación: ~{size_decimated_gb:.2f} GB")
         
         
-        print(f"📁 [DEBUG ARCHIVO] CONFIGURACIÓN DE SLICE:")
-        print(f"📁 [DEBUG ARCHIVO]   - SLICE_DURATION_MS configurado: {config.SLICE_DURATION_MS} ms")
+        print(f"[DEBUG ARCHIVO] CONFIGURACIÓN DE SLICE:")
+        print(f"[DEBUG ARCHIVO]   - SLICE_DURATION_MS configurado: {config.SLICE_DURATION_MS} ms")
         expected_slice_len = round(config.SLICE_DURATION_MS / (config.TIME_RESO * config.DOWN_TIME_RATE * 1000))
-        print(f"📁 [DEBUG ARCHIVO]   - SLICE_LEN calculado: {expected_slice_len} muestras")
-        print(f"📁 [DEBUG ARCHIVO]   - SLICE_LEN límites: [{config.SLICE_LEN_MIN}, {config.SLICE_LEN_MAX}]")
+        print(f"[DEBUG ARCHIVO]   - SLICE_LEN calculado: {expected_slice_len} muestras")
+        print(f"[DEBUG ARCHIVO]   - SLICE_LEN límites: [{config.SLICE_LEN_MIN}, {config.SLICE_LEN_MAX}]")
         
-        print(f"📁 [DEBUG ARCHIVO] PROCESAMIENTO:")
-        print(f"📁 [DEBUG ARCHIVO]   - Multi-banda habilitado: {'SÍ' if config.USE_MULTI_BAND else 'NO'}")
-        print(f"📁 [DEBUG ARCHIVO]   - DM rango: {config.DM_min} - {config.DM_max} pc cm⁻³")
-        print(f"📁 [DEBUG ARCHIVO]   - Umbrales: DET_PROB={config.DET_PROB}, CLASS_PROB={config.CLASS_PROB}, SNR_THRESH={config.SNR_THRESH}")
-        print(f"📁 [DEBUG ARCHIVO] " + "="*60)
+        print(f"[DEBUG ARCHIVO] PROCESAMIENTO:")
+        print(f"[DEBUG ARCHIVO]   - Multi-banda habilitado: {'SÍ' if config.USE_MULTI_BAND else 'NO'}")
+        print(f"[DEBUG ARCHIVO]   - DM rango: {config.DM_min} - {config.DM_max} pc cm⁻³")
+        print(f"[DEBUG ARCHIVO]   - Umbrales: DET_PROB={config.DET_PROB}, CLASS_PROB={config.CLASS_PROB}, SNR_THRESH={config.SNR_THRESH}")
+        print(f"[DEBUG ARCHIVO] " + "="*60)
 
     if config.FREQ_RESO >= 512:
         config.DOWN_FREQ_RATE = max(1, int(round(config.FREQ_RESO / 512)))
@@ -448,17 +585,17 @@ def get_obparams(file_name: str) -> None:
 
     # DEBUG: Configuración final de decimación
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"⚙️ [DEBUG CONFIG FINAL] Configuración final después de get_obparams:")
-        print(f"⚙️ [DEBUG CONFIG FINAL] " + "="*60)
-        print(f"⚙️ [DEBUG CONFIG FINAL] DOWN_FREQ_RATE calculado: {config.DOWN_FREQ_RATE}x")
-        print(f"⚙️ [DEBUG CONFIG FINAL] DOWN_TIME_RATE calculado: {config.DOWN_TIME_RATE}x")
-        print(f"⚙️ [DEBUG CONFIG FINAL] Datos después de decimación:")
-        print(f"⚙️ [DEBUG CONFIG FINAL]   - Canales: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
-        print(f"⚙️ [DEBUG CONFIG FINAL]   - Resolución temporal: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} s/muestra")
-        print(f"⚙️ [DEBUG CONFIG FINAL]   - Reducción total de datos: {config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE}x")
-        print(f"⚙️ [DEBUG CONFIG FINAL] DATA_NEEDS_REVERSAL final: {config.DATA_NEEDS_REVERSAL}")
-        print(f"⚙️ [DEBUG CONFIG FINAL] Orden de frecuencias final: {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
-        print(f"⚙️ [DEBUG CONFIG FINAL] " + "="*60)
+        print(f"[DEBUG CONFIG FINAL] Configuración final después de get_obparams:")
+        print(f"[DEBUG CONFIG FINAL] " + "="*60)
+        print(f"[DEBUG CONFIG FINAL] DOWN_FREQ_RATE calculado: {config.DOWN_FREQ_RATE}x")
+        print(f"[DEBUG CONFIG FINAL] DOWN_TIME_RATE calculado: {config.DOWN_TIME_RATE}x")
+        print(f"[DEBUG CONFIG FINAL] Datos después de decimación:")
+        print(f"[DEBUG CONFIG FINAL]   - Canales: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
+        print(f"[DEBUG CONFIG FINAL]   - Resolución temporal: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} s/muestra")
+        print(f"[DEBUG CONFIG FINAL]   - Reducción total de datos: {config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE}x")
+        print(f"[DEBUG CONFIG FINAL] DATA_NEEDS_REVERSAL final: {config.DATA_NEEDS_REVERSAL}")
+        print(f"[DEBUG CONFIG FINAL] Orden de frecuencias final: {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
+        print(f"[DEBUG CONFIG FINAL] " + "="*60)
 
     # *** GUARDAR DEBUG INFO EN SUMMARY.JSON INMEDIATAMENTE ***
     if config.DEBUG_FREQUENCY_ORDER:
@@ -712,16 +849,16 @@ def load_fil_file(file_name: str) -> np.ndarray:
     
     # DEBUG: Información de los datos cargados
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"💾 [DEBUG DATOS FIL] Archivo: {file_name}")
-        print(f"💾 [DEBUG DATOS FIL] Shape de datos: {data_array.shape}")
-        print(f"💾 [DEBUG DATOS FIL] Dimensiones: (tiempo={data_array.shape[0]}, pol={data_array.shape[1]}, freq={data_array.shape[2]})")
-        print(f"💾 [DEBUG DATOS FIL] Tipo de datos: {data_array.dtype}")
-        print(f"💾 [DEBUG DATOS FIL] Tamaño en memoria: {data_array.nbytes / (1024**3):.2f} GB")
-        print(f"💾 [DEBUG DATOS FIL] Reversión aplicada: {global_vars.DATA_NEEDS_REVERSAL}")
-        print(f"💾 [DEBUG DATOS FIL] Rango de valores: [{data_array.min():.3f}, {data_array.max():.3f}]")
-        print(f"💾 [DEBUG DATOS FIL] Valor medio: {data_array.mean():.3f}")
-        print(f"💾 [DEBUG DATOS FIL] Desviación estándar: {data_array.std():.3f}")
-        print("💾 [DEBUG DATOS FIL] " + "="*50)
+        print(f"[DEBUG DATOS FIL] Archivo: {file_name}")
+        print(f"[DEBUG DATOS FIL] Shape de datos: {data_array.shape}")
+        print(f"[DEBUG DATOS FIL] Dimensiones: (tiempo={data_array.shape[0]}, pol={data_array.shape[1]}, freq={data_array.shape[2]})")
+        print(f"[DEBUG DATOS FIL] Tipo de datos: {data_array.dtype}")
+        print(f"[DEBUG DATOS FIL] Tamaño en memoria: {data_array.nbytes / (1024**3):.2f} GB")
+        print(f"[DEBUG DATOS FIL] Reversión aplicada: {global_vars.DATA_NEEDS_REVERSAL}")
+        print(f"[DEBUG DATOS FIL] Rango de valores: [{data_array.min():.3f}, {data_array.max():.3f}]")
+        print(f"[DEBUG DATOS FIL] Valor medio: {data_array.mean():.3f}")
+        print(f"[DEBUG DATOS FIL] Desviación estándar: {data_array.std():.3f}")
+        print("[DEBUG DATOS FIL] " + "="*50)
     
     return data_array
 
@@ -731,8 +868,8 @@ def get_obparams_fil(file_name: str) -> None:
     
     # DEBUG: Información de entrada del archivo
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"📋 [DEBUG FILTERBANK] Iniciando extracción de parámetros de: {file_name}")
-        print(f"📋 [DEBUG FILTERBANK] " + "="*60)
+        print(f"[DEBUG FILTERBANK] Iniciando extracción de parámetros de: {file_name}")
+        print(f"[DEBUG FILTERBANK] " + "="*60)
     
     with open(file_name, "rb") as f:
         freq_axis_inverted = False
@@ -748,12 +885,12 @@ def get_obparams_fil(file_name: str) -> None:
 
         # DEBUG: Estructura del archivo filterbank
         if config.DEBUG_FREQUENCY_ORDER:
-            print(f"📋 [DEBUG FILTERBANK] Estructura del archivo Filterbank:")
-            print(f"📋 [DEBUG FILTERBANK]   Formato: SIGPROC Filterbank (.fil)")
-            print(f"📋 [DEBUG FILTERBANK]   Tamaño del header: {hdr_len} bytes")
-            print(f"📋 [DEBUG FILTERBANK] Headers extraídos del archivo .fil:")
+            print(f"[DEBUG FILTERBANK] Estructura del archivo Filterbank:")
+            print(f"[DEBUG FILTERBANK]   Formato: SIGPROC Filterbank (.fil)")
+            print(f"[DEBUG FILTERBANK]   Tamaño del header: {hdr_len} bytes")
+            print(f"[DEBUG FILTERBANK] Headers extraídos del archivo .fil:")
             for key, value in header.items():
-                print(f"📋 [DEBUG FILTERBANK]   {key}: {value}")
+                print(f"[DEBUG FILTERBANK]   {key}: {value}")
 
         nchans = header.get("nchans", 512)
         tsamp = header.get("tsamp", 8.192e-5)
@@ -767,10 +904,10 @@ def get_obparams_fil(file_name: str) -> None:
             nsamples = file_size // bytes_per_sample if bytes_per_sample > 0 else 1000
             
             if config.DEBUG_FREQUENCY_ORDER:
-                print(f"📋 [DEBUG FILTERBANK] nsamples no en header, calculando:")
-                print(f"📋 [DEBUG FILTERBANK]   Tamaño archivo: {file_size} bytes")
-                print(f"📋 [DEBUG FILTERBANK]   Bytes por muestra: {bytes_per_sample}")
-                print(f"📋 [DEBUG FILTERBANK]   Muestras calculadas: {nsamples}")
+                print(f"[DEBUG FILTERBANK] nsamples no en header, calculando:")
+                print(f"[DEBUG FILTERBANK]   Tamaño archivo: {file_size} bytes")
+                print(f"[DEBUG FILTERBANK]   Bytes por muestra: {bytes_per_sample}")
+                print(f"[DEBUG FILTERBANK]   Muestras calculadas: {nsamples}")
 
                     # Solo mostrar información esencial en modo debug
         if config.DEBUG_FREQUENCY_ORDER:
@@ -782,7 +919,7 @@ def get_obparams_fil(file_name: str) -> None:
                 print(f"[DEBUG FILTERBANK]   telescope_id: {header['telescope_id']}")
             if 'source_name' in header:
                 print(f"[DEBUG FILTERBANK]   Fuente: {header['source_name']}")
-            print(f"📋 [DEBUG FILTERBANK]   Total de muestras: {nsamples}")
+            print(f"[DEBUG FILTERBANK]   Total de muestras: {nsamples}")
             
             print(f"[DEBUG FILTERBANK] Análisis de frecuencias:")
             print(f"[DEBUG FILTERBANK]   fch1 (freq inicial): {fch1} MHz")
@@ -794,11 +931,11 @@ def get_obparams_fil(file_name: str) -> None:
         if foff < 0:
             freq_axis_inverted = True
             if config.DEBUG_FREQUENCY_ORDER:
-                print(f"[DEBUG FILTERBANK]   ⚠️ foff negativo - frecuencias invertidas!")
+                print(f"[DEBUG FILTERBANK] foff negativo - frecuencias invertidas!")
         elif len(freq_temp) > 1 and freq_temp[0] > freq_temp[-1]:
             freq_axis_inverted = True
             if config.DEBUG_FREQUENCY_ORDER:
-                print(f"[DEBUG FILTERBANK]   ⚠️ Frecuencias detectadas en orden descendente!")
+                print(f"[DEBUG FILTERBANK] Frecuencias detectadas en orden descendente!")
         
         # Aplicar corrección de orden (homólogo a io.py)
         if freq_axis_inverted:
@@ -810,14 +947,14 @@ def get_obparams_fil(file_name: str) -> None:
 
     # DEBUG: Orden de frecuencias
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"🔍 [DEBUG FRECUENCIAS FIL] Archivo: {file_name}")
-        print(f"🔍 [DEBUG FRECUENCIAS FIL] freq_axis_inverted detectado: {freq_axis_inverted}")
-        print(f"🔍 [DEBUG FRECUENCIAS FIL] DATA_NEEDS_REVERSAL configurado: {config.DATA_NEEDS_REVERSAL}")
-        print(f"🔍 [DEBUG FRECUENCIAS FIL] Primeras 5 frecuencias: {config.FREQ[:5]}")
-        print(f"🔍 [DEBUG FRECUENCIAS FIL] Últimas 5 frecuencias: {config.FREQ[-5:]}")
-        print(f"🔍 [DEBUG FRECUENCIAS FIL] Frecuencia mínima: {config.FREQ.min():.2f} MHz")
-        print(f"🔍 [DEBUG FRECUENCIAS FIL] Frecuencia máxima: {config.FREQ.max():.2f} MHz")
-        print(f"🔍 [DEBUG FRECUENCIAS FIL] Orden esperado: frecuencias ASCENDENTES (menor a mayor)")
+        print(f"[DEBUG FRECUENCIAS FIL] Archivo: {file_name}")
+        print(f"[DEBUG FRECUENCIAS FIL] freq_axis_inverted detectado: {freq_axis_inverted}")
+        print(f"[DEBUG FRECUENCIAS FIL] DATA_NEEDS_REVERSAL configurado: {config.DATA_NEEDS_REVERSAL}")
+        print(f"[DEBUG FRECUENCIAS FIL] Primeras 5 frecuencias: {config.FREQ[:5]}")
+        print(f"[DEBUG FRECUENCIAS FIL] Últimas 5 frecuencias: {config.FREQ[-5:]}")
+        print(f"[DEBUG FRECUENCIAS FIL] Frecuencia mínima: {config.FREQ.min():.2f} MHz")
+        print(f"[DEBUG FRECUENCIAS FIL] Frecuencia máxima: {config.FREQ.max():.2f} MHz")
+        print(f"[DEBUG FRECUENCIAS FIL] Orden esperado: frecuencias ASCENDENTES (menor a mayor)")
         if config.FREQ[0] < config.FREQ[-1]:
             print(f"[DEBUG FRECUENCIAS FIL] Orden CORRECTO: {config.FREQ[0]:.2f} < {config.FREQ[-1]:.2f}")
         else:

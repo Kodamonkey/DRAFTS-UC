@@ -772,31 +772,33 @@ def get_obparams_fil(file_name: str) -> None:
                 print(f"📋 [DEBUG FILTERBANK]   Bytes por muestra: {bytes_per_sample}")
                 print(f"📋 [DEBUG FILTERBANK]   Muestras calculadas: {nsamples}")
 
-            print(f"📋 [DEBUG FILTERBANK]   tsamp (resolución temporal): {tsamp:.2e} s")
-            print(f"📋 [DEBUG FILTERBANK]   nchans (canales): {nchans}")
-            print(f"📋 [DEBUG FILTERBANK]   nifs (polarizaciones): {nifs}")
-            print(f"📋 [DEBUG FILTERBANK]   nbits (bits por muestra): {nbits}")
+                    # Solo mostrar información esencial en modo debug
+        if config.DEBUG_FREQUENCY_ORDER:
+            print(f"[DEBUG FILTERBANK]   tsamp (resolución temporal): {tsamp:.2e} s")
+            print(f"[DEBUG FILTERBANK]   nchans (canales): {nchans}")
+            print(f"[DEBUG FILTERBANK]   nifs (polarizaciones): {nifs}")
+            print(f"[DEBUG FILTERBANK]   nbits (bits por muestra): {nbits}")
             if 'telescope_id' in header:
-                print(f"📋 [DEBUG FILTERBANK]   telescope_id: {header['telescope_id']}")
+                print(f"[DEBUG FILTERBANK]   telescope_id: {header['telescope_id']}")
             if 'source_name' in header:
-                print(f"📋 [DEBUG FILTERBANK]   Fuente: {header['source_name']}")
+                print(f"[DEBUG FILTERBANK]   Fuente: {header['source_name']}")
             print(f"📋 [DEBUG FILTERBANK]   Total de muestras: {nsamples}")
             
-            print(f"📋 [DEBUG FILTERBANK] Análisis de frecuencias:")
-            print(f"📋 [DEBUG FILTERBANK]   fch1 (freq inicial): {fch1} MHz")
-            print(f"📋 [DEBUG FILTERBANK]   foff (ancho canal): {foff} MHz")
-            print(f"📋 [DEBUG FILTERBANK]   Primeras 5 freq calculadas: {freq_temp[:5]}")
-            print(f"📋 [DEBUG FILTERBANK]   Últimas 5 freq calculadas: {freq_temp[-5:]}")
+            print(f"[DEBUG FILTERBANK] Análisis de frecuencias:")
+            print(f"[DEBUG FILTERBANK]   fch1 (freq inicial): {fch1} MHz")
+            print(f"[DEBUG FILTERBANK]   foff (ancho canal): {foff} MHz")
+            print(f"[DEBUG FILTERBANK]   Primeras 5 freq calculadas: {freq_temp[:5]}")
+            print(f"[DEBUG FILTERBANK]   Últimas 5 freq calculadas: {freq_temp[-5:]}")
         
         # Detectar inversión de frecuencias (homólogo a io.py)
         if foff < 0:
             freq_axis_inverted = True
             if config.DEBUG_FREQUENCY_ORDER:
-                print(f"📋 [DEBUG FILTERBANK]   ⚠️ foff negativo - frecuencias invertidas!")
+                print(f"[DEBUG FILTERBANK]   ⚠️ foff negativo - frecuencias invertidas!")
         elif len(freq_temp) > 1 and freq_temp[0] > freq_temp[-1]:
             freq_axis_inverted = True
             if config.DEBUG_FREQUENCY_ORDER:
-                print(f"📋 [DEBUG FILTERBANK]   ⚠️ Frecuencias detectadas en orden descendente!")
+                print(f"[DEBUG FILTERBANK]   ⚠️ Frecuencias detectadas en orden descendente!")
         
         # Aplicar corrección de orden (homólogo a io.py)
         if freq_axis_inverted:
@@ -817,12 +819,12 @@ def get_obparams_fil(file_name: str) -> None:
         print(f"🔍 [DEBUG FRECUENCIAS FIL] Frecuencia máxima: {config.FREQ.max():.2f} MHz")
         print(f"🔍 [DEBUG FRECUENCIAS FIL] Orden esperado: frecuencias ASCENDENTES (menor a mayor)")
         if config.FREQ[0] < config.FREQ[-1]:
-            print(f"✅ [DEBUG FRECUENCIAS FIL] Orden CORRECTO: {config.FREQ[0]:.2f} < {config.FREQ[-1]:.2f}")
+            print(f"[DEBUG FRECUENCIAS FIL] Orden CORRECTO: {config.FREQ[0]:.2f} < {config.FREQ[-1]:.2f}")
         else:
-            print(f"❌ [DEBUG FRECUENCIAS FIL] Orden INCORRECTO: {config.FREQ[0]:.2f} > {config.FREQ[-1]:.2f}")
-        print(f"🔍 [DEBUG FRECUENCIAS FIL] DOWN_FREQ_RATE: {config.DOWN_FREQ_RATE}")
-        print(f"🔍 [DEBUG FRECUENCIAS FIL] DOWN_TIME_RATE: {config.DOWN_TIME_RATE}")
-        print("🔍 [DEBUG FRECUENCIAS FIL] " + "="*50)
+            print(f"[DEBUG FRECUENCIAS FIL] Orden INCORRECTO: {config.FREQ[0]:.2f} > {config.FREQ[-1]:.2f}")
+        print(f"[DEBUG FRECUENCIAS FIL] DOWN_FREQ_RATE: {config.DOWN_FREQ_RATE}")
+        print(f"[DEBUG FRECUENCIAS FIL] DOWN_TIME_RATE: {config.DOWN_TIME_RATE}")
+        print("[DEBUG FRECUENCIAS FIL] " + "="*50)
 
     # *** ASIGNAR VARIABLES GLOBALES ANTES DEL DEBUG ***
     config.TIME_RESO = tsamp
@@ -844,61 +846,61 @@ def get_obparams_fil(file_name: str) -> None:
 
     # DEBUG: Información completa del archivo
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"📁 [DEBUG ARCHIVO FIL] Información completa del archivo: {file_name}")
-        print(f"📁 [DEBUG ARCHIVO FIL] " + "="*60)
-        print(f"📁 [DEBUG ARCHIVO FIL] DIMENSIONES Y RESOLUCIÓN:")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Resolución temporal: {config.TIME_RESO:.2e} segundos/muestra")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Resolución de frecuencia: {config.FREQ_RESO} canales")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Longitud del archivo: {config.FILE_LENG:,} muestras")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Bits por muestra: {nbits}")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Polarizaciones: {nifs}")
+        print(f"[DEBUG ARCHIVO FIL] Información completa del archivo: {file_name}")
+        print(f"[DEBUG ARCHIVO FIL] " + "="*60)
+        print(f"[DEBUG ARCHIVO FIL] DIMENSIONES Y RESOLUCIÓN:")
+        print(f"[DEBUG ARCHIVO FIL]   - Resolución temporal: {config.TIME_RESO:.2e} segundos/muestra")
+        print(f"[DEBUG ARCHIVO FIL]   - Resolución de frecuencia: {config.FREQ_RESO} canales")
+        print(f"[DEBUG ARCHIVO FIL]   - Longitud del archivo: {config.FILE_LENG:,} muestras")
+        print(f"[DEBUG ARCHIVO FIL]   - Bits por muestra: {nbits}")
+        print(f"[DEBUG ARCHIVO FIL]   - Polarizaciones: {nifs}")
         
         # Calcular duración total
         duracion_total_seg = config.FILE_LENG * config.TIME_RESO
         duracion_min = duracion_total_seg / 60
         duracion_horas = duracion_min / 60
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Duración total: {duracion_total_seg:.2f} seg ({duracion_min:.2f} min, {duracion_horas:.2f} h)")
+        print(f"[DEBUG ARCHIVO FIL]   - Duración total: {duracion_total_seg:.2f} seg ({duracion_min:.2f} min, {duracion_horas:.2f} h)")
         
-        print(f"📁 [DEBUG ARCHIVO FIL] FRECUENCIAS:")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Rango total: {config.FREQ.min():.2f} - {config.FREQ.max():.2f} MHz")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Ancho de banda: {abs(config.FREQ.max() - config.FREQ.min()):.2f} MHz")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Resolución por canal: {abs(foff):.4f} MHz/canal")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Orden original: {'DESCENDENTE (foff<0)' if foff < 0 else 'ASCENDENTE (foff>0)'}")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Orden final (post-corrección): {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
+        print(f"[DEBUG ARCHIVO FIL] FRECUENCIAS:")
+        print(f"[DEBUG ARCHIVO FIL]   - Rango total: {config.FREQ.min():.2f} - {config.FREQ.max():.2f} MHz")
+        print(f"[DEBUG ARCHIVO FIL]   - Ancho de banda: {abs(config.FREQ.max() - config.FREQ.min()):.2f} MHz")
+        print(f"[DEBUG ARCHIVO FIL]   - Resolución por canal: {abs(foff):.4f} MHz/canal")
+        print(f"[DEBUG ARCHIVO FIL]   - Orden original: {'DESCENDENTE (foff<0)' if foff < 0 else 'ASCENDENTE (foff>0)'}")
+        print(f"[DEBUG ARCHIVO FIL]   - Orden final (post-corrección): {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
         
-        print(f"📁 [DEBUG ARCHIVO FIL] DECIMACIÓN:")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Factor reducción frecuencia: {config.DOWN_FREQ_RATE}x")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Factor reducción tiempo: {config.DOWN_TIME_RATE}x")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Canales después de decimación: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Resolución temporal después: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} seg/muestra")
+        print(f"[DEBUG ARCHIVO FIL] DECIMACIÓN:")
+        print(f"[DEBUG ARCHIVO FIL]   - Factor reducción frecuencia: {config.DOWN_FREQ_RATE}x")
+        print(f"[DEBUG ARCHIVO FIL]   - Factor reducción tiempo: {config.DOWN_TIME_RATE}x")
+        print(f"[DEBUG ARCHIVO FIL]   - Canales después de decimación: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
+        print(f"[DEBUG ARCHIVO FIL]   - Resolución temporal después: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} seg/muestra")
         
         # Calcular tamaño aproximado de datos
         size_original_gb = (config.FILE_LENG * config.FREQ_RESO * (nbits/8)) / (1024**3)
         size_decimated_gb = size_original_gb / (config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE)
-        print(f"📁 [DEBUG ARCHIVO FIL] TAMAÑO ESTIMADO:")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Datos originales: ~{size_original_gb:.2f} GB")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Datos después decimación: ~{size_decimated_gb:.2f} GB")
+        print(f"[DEBUG ARCHIVO FIL] TAMAÑO ESTIMADO:")
+        print(f"[DEBUG ARCHIVO FIL]   - Datos originales: ~{size_original_gb:.2f} GB")
+        print(f"[DEBUG ARCHIVO FIL]   - Datos después decimación: ~{size_decimated_gb:.2f} GB")
         
         
-        print(f"📁 [DEBUG ARCHIVO FIL] PROCESAMIENTO:")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Multi-banda habilitado: {'SÍ' if config.USE_MULTI_BAND else 'NO'}")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - DM rango: {config.DM_min} - {config.DM_max} pc cm⁻³")
-        print(f"📁 [DEBUG ARCHIVO FIL]   - Umbrales: DET_PROB={config.DET_PROB}, CLASS_PROB={config.CLASS_PROB}, SNR_THRESH={config.SNR_THRESH}")
-        print(f"📁 [DEBUG ARCHIVO FIL] " + "="*60)
+        print(f"[DEBUG ARCHIVO FIL] PROCESAMIENTO:")
+        print(f"[DEBUG ARCHIVO FIL]   - Multi-banda habilitado: {'SÍ' if config.USE_MULTI_BAND else 'NO'}")
+        print(f"[DEBUG ARCHIVO FIL]   - DM rango: {config.DM_min} - {config.DM_max} pc cm⁻³")
+        print(f"[DEBUG ARCHIVO FIL]   - Umbrales: DET_PROB={config.DET_PROB}, CLASS_PROB={config.CLASS_PROB}, SNR_THRESH={config.SNR_THRESH}")
+        print(f"[DEBUG ARCHIVO FIL] " + "="*60)
 
     # DEBUG: Configuración final de decimación
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"⚙️ [DEBUG CONFIG FINAL FIL] Configuración final después de get_obparams_fil:")
-        print(f"⚙️ [DEBUG CONFIG FINAL FIL] " + "="*60)
-        print(f"⚙️ [DEBUG CONFIG FINAL FIL] DOWN_FREQ_RATE calculado: {config.DOWN_FREQ_RATE}x")
-        print(f"⚙️ [DEBUG CONFIG FINAL FIL] DOWN_TIME_RATE calculado: {config.DOWN_TIME_RATE}x")
-        print(f"⚙️ [DEBUG CONFIG FINAL FIL] Datos después de decimación:")
-        print(f"⚙️ [DEBUG CONFIG FINAL FIL]   - Canales: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
-        print(f"⚙️ [DEBUG CONFIG FINAL FIL]   - Resolución temporal: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} s/muestra")
-        print(f"⚙️ [DEBUG CONFIG FINAL FIL]   - Reducción total de datos: {config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE}x")
-        print(f"⚙️ [DEBUG CONFIG FINAL FIL] DATA_NEEDS_REVERSAL final: {config.DATA_NEEDS_REVERSAL}")
-        print(f"⚙️ [DEBUG CONFIG FINAL FIL] Orden de frecuencias final: {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
-        print(f"⚙️ [DEBUG CONFIG FINAL FIL] " + "="*60)
+        print(f"[DEBUG CONFIG FINAL FIL] Configuración final después de get_obparams_fil:")
+        print(f"[DEBUG CONFIG FINAL FIL] " + "="*60)
+        print(f"[DEBUG CONFIG FINAL FIL] DOWN_FREQ_RATE calculado: {config.DOWN_FREQ_RATE}x")
+        print(f"[DEBUG CONFIG FINAL FIL] DOWN_TIME_RATE calculado: {config.DOWN_TIME_RATE}x")
+        print(f"[DEBUG CONFIG FINAL FIL] Datos después de decimación:")
+        print(f"[DEBUG CONFIG FINAL FIL]   - Canales: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
+        print(f"[DEBUG CONFIG FINAL FIL]   - Resolución temporal: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} s/muestra")
+        print(f"[DEBUG CONFIG FINAL FIL]   - Reducción total de datos: {config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE}x")
+        print(f"[DEBUG CONFIG FINAL FIL] DATA_NEEDS_REVERSAL final: {config.DATA_NEEDS_REVERSAL}")
+        print(f"[DEBUG CONFIG FINAL FIL] Orden de frecuencias final: {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
+        print(f"[DEBUG CONFIG FINAL FIL] " + "="*60)
 
     print(f"[INFO] Parámetros del archivo .fil cargados exitosamente:")
     print(f"  - Canales: {nchans}")

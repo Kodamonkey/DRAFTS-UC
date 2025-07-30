@@ -92,6 +92,18 @@ def process_band(
     n_no_bursts = 0
     prob_max = 0.0
     
+    # Variables para seleccionar el mejor candidato para el Composite
+    best_patch = None
+    best_start = None
+    best_dm = None
+    best_is_burst = False
+    first_patch = None  # Mantener para compatibilidad (primer candidato)
+    first_start = None
+    first_dm = None
+    
+    # Lista para almacenar todos los candidatos procesados
+    all_candidates = []
+    
     for conf, box in zip(top_conf, top_boxes):
         dm_val, t_sec, t_sample = extract_candidate_dm(
             (box[0] + box[2]) / 2,
@@ -99,7 +111,7 @@ def process_band(
             slice_len,
         )
         
-        # 🧩 CORRECCIÓN: Usar compute_snr_profile para SNR consistente con composite
+        # Usar compute_snr_profile para SNR consistente con composite
         # Extraer región del candidato para cálculo de SNR
         x1, y1, x2, y2 = map(int, box)
         candidate_region = band_img[y1:y2, x1:x2]
@@ -122,25 +134,54 @@ def process_band(
             from .analysis.snr_utils import find_snr_peak
             snr_patch_profile, _ = compute_snr_profile(patch)
             snr_val, _, _ = find_snr_peak(snr_patch_profile)
-            # ✅ IMPORTANTE: Este es el SNR que se guarda en CSV (patch dedispersado)
+            # IMPORTANTE: Este es el SNR que se guarda en CSV (patch dedispersado)
         else:
             # Si no hay patch, usar el SNR raw como fallback
             snr_val = snr_val_raw
         class_prob, proc_patch = classify_patch(cls_model, patch)
         class_probs_list.append(class_prob)
         is_burst = class_prob >= config.CLASS_PROB
+        
+        # LÓGICA DE SELECCIÓN DEL MEJOR CANDIDATO PARA COMPOSITE
+        # Guardar el primer candidato para compatibilidad
         if first_patch is None:
             first_patch = proc_patch
             first_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
             first_dm = dm_val
         
-        # 🕐 CALCULAR TIEMPO ABSOLUTO DEL CANDIDATO
+        # Almacenar información del candidato para análisis posterior
+        candidate_info = {
+            'patch': proc_patch,
+            'start': start_sample * config.TIME_RESO * config.DOWN_TIME_RATE,
+            'dm': dm_val,
+            'is_burst': is_burst,
+            'confidence': conf,
+            'class_prob': class_prob
+        }
+        all_candidates.append(candidate_info)
+        
+        # SELECCIÓN INTELIGENTE: Priorizar candidatos BURST sobre NO BURST
+        if best_patch is None:
+            # Primer candidato siempre se guarda como fallback
+            best_patch = proc_patch
+            best_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+            best_dm = dm_val
+            best_is_burst = is_burst
+        elif is_burst and not best_is_burst:
+            # Si encontramos un BURST y el mejor actual es NO BURST, actualizar
+            best_patch = proc_patch
+            best_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+            best_dm = dm_val
+            best_is_burst = is_burst
+        # Si ambos son BURST o ambos son NO BURST, mantener el primero (orden de detección)
+        
+        # CALCULAR TIEMPO ABSOLUTO DEL CANDIDATO
         if absolute_start_time is not None:
             absolute_candidate_time = absolute_start_time + t_sec
         else:
             absolute_candidate_time = t_sec  # Tiempo relativo al slice
         
-        # 🧩 NUEVO: Usar chunk_idx en el candidato
+        # Usar chunk_idx en el candidato
         cand = Candidate(
             fits_path.name,
             chunk_idx if chunk_idx is not None else 0,  # AGREGAR CHUNK_ID
@@ -148,10 +189,10 @@ def process_band(
             band_idx if band_idx is not None else 0,  # BAND_ID CORRECTO
             float(conf),
             dm_val,
-            absolute_candidate_time,  # 🕐 USAR TIEMPO ABSOLUTO
+            absolute_candidate_time,  # USAR TIEMPO ABSOLUTO
             t_sample,
             tuple(map(int, box)),
-            snr_val,  # 🧩 SNR CORREGIDO
+            snr_val,  # SNR CORREGIDO
             class_prob,
             is_burst,
             patch_path.name,
@@ -177,19 +218,38 @@ def process_band(
             logger.info(
                 f"SNR Raw: {snr_val_raw:.2f}σ, SNR Patch Dedispersado: {snr_val:.2f}σ (guardado en CSV)"
             )
+    # SELECCIONAR EL CANDIDATO FINAL PARA EL COMPOSITE
+    # Si hay múltiples candidatos, priorizar BURST sobre NO BURST
+    # Si no hay BURST, usar el primer candidato
+    final_patch = best_patch if best_patch is not None else first_patch
+    final_start = best_start if best_start is not None else first_start
+    final_dm = best_dm if best_dm is not None else first_dm
+    
+    # Log informativo sobre la selección del candidato
+    if len(all_candidates) > 1:
+        burst_count = sum(1 for c in all_candidates if c['is_burst'])
+        if global_logger:
+            global_logger.logger.info(
+                f"{Colors.OKCYAN}Slice {j} - {band_name}: {len(all_candidates)} candidatos "
+                f"({burst_count} BURST, {len(all_candidates) - burst_count} NO BURST). "
+                f"Seleccionado: {'BURST' if best_is_burst else 'NO BURST'} (DM={final_dm:.2f}){Colors.ENDC}"
+            )
+    
     return {
         "top_conf": top_conf,
         "top_boxes": top_boxes,
         "class_probs_list": class_probs_list,
-        "first_patch": first_patch,
-        "first_start": first_start,
-        "first_dm": first_dm,
+        "first_patch": final_patch,  # USAR EL MEJOR CANDIDATO SELECCIONADO
+        "first_start": final_start,  # USAR EL MEJOR CANDIDATO SELECCIONADO
+        "first_dm": final_dm,        # USAR EL MEJOR CANDIDATO SELECCIONADO
         "img_rgb": img_rgb,
         "cand_counter": cand_counter,
         "n_bursts": n_bursts,
         "n_no_bursts": n_no_bursts,
         "prob_max": prob_max,
         "patch_path": patch_path,
+        "best_is_burst": best_is_burst,  # INFORMACIÓN ADICIONAL PARA DEBUG
+        "total_candidates": len(all_candidates),  # INFORMACIÓN ADICIONAL PARA DEBUG
     }
 
 def process_slice(

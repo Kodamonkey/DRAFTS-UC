@@ -4,3 +4,6 @@ docs/
 legacy/
 models/
 Results/
+
+*.pdf
+.log

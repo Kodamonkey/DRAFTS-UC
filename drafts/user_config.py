@@ -10,7 +10,7 @@ RESULTS_DIR = Path("./Results/ObjectDetection")      # Directorio para guardar r
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-    "2017-04-03-08-16-13_142_0003_t39.977"
+    "2017-04-03-0825_13_0003"
 ]
 
 # =============================================================================
@@ -19,7 +19,7 @@ FRB_TARGETS = [
 
 # Duración de cada slice temporal (milisegundos)
 # El sistema calcula automáticamente SLICE_LEN según los metadatos del archivo
-SLICE_DURATION_MS: float = 500.0
+SLICE_DURATION_MS: float = 1000.0
 
 # Valores recomendados:
 # - 16.0 ms: Análisis muy rápido (puede perder detalle)
@@ -43,14 +43,14 @@ DOWN_TIME_RATE: int = 1                      # Factor de reducción en tiempo (1
 
 # Rango de Dispersion Measure para búsqueda
 DM_min: int = 0                             # DM mínimo en pc cm⁻³
-DM_max: int = 3000                          # DM máximo en pc cm⁻³
+DM_max: int = 1770                          # DM máximo en pc cm⁻³
 
 # =============================================================================
 # UMBRALES DE DETECCIÓN
 # =============================================================================
 
 # Probabilidades mínimas para detección y clasificación
-DET_PROB: float = 0.2                       # Probabilidad mínima para considerar una detección válida
+DET_PROB: float = 0.1                       # Probabilidad mínima para considerar una detección válida
 CLASS_PROB: float = 0.5                     # Probabilidad mínima para clasificar como burst
 
 # Umbral de SNR para resaltar en visualizaciones

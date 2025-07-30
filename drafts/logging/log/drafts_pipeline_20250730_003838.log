@@ -1,0 +1,589 @@
+[INFO] Logs guardándose en: /mnt/d/Seba - Dev/DRAFTS-UC/drafts/logging/log/drafts_pipeline_20250730_003838.log
+[INFO] [38;5;39mINICIANDO PIPELINE DE DETECCIÓN DE FRB[0m
+[INFO] [94mLeyenda de Colores:[0m
+[INFO] [38;5;39m Pipeline: Operaciones principales del pipeline[0m
+[INFO] [38;5;87m Archivos: Procesamiento de archivos[0m
+[INFO] [38;5;220m Procesamiento: Chunks y Slices[0m
+[INFO] [38;5;82m Detección: Candidatos detectados[0m
+[INFO] [38;5;213m GPU: Operaciones de GPU[0m
+[INFO] [93m Advertencia: Problemas no críticos[0m
+[INFO] [38;5;196m Error: Fallos críticos[0m
+[INFO] [96m Debug: Información detallada (solo en modo DEBUG)[0m
+[INFO] 
+[INFO] Datos: Data/raw
+[INFO] Resultados: Results/ObjectDetection
+[INFO] Targets: ['2017-04-03-0825_13_0003']
+[INFO] Chunking: 2,097,152 muestras/bloque
+[INFO] Cargando modelos...
+[INFO] Modelos cargados exitosamente
+[INFO] Buscando archivos para target: 2017-04-03-0825_13_0003
+[INFO] Archivos encontrados: ['2017-04-03-0825_13_0003.fits']
+[INFO] Leyendo parámetros desde: 2017-04-03-0825_13_0003.fits
+[INFO] Parámetros de observación cargados
+[INFO] [38;5;87m Procesando: 2017-04-03-0825_13_0003.fits[0m
+[INFO] Muestras: 1,638,400
+[INFO] Duración: 0.9 min
+[INFO] Canales: 32
+[INFO] Configuración de slice:
+[INFO] Duración objetivo: 500.0 ms
+[INFO] SLICE_LEN: 651 muestras
+[INFO] Duración real: 500.0 ms
+[INFO] [38;5;220m Progreso: slice 000/104 (0.0%) (chunk 000)[0m
+[INFO] [38;5;220m Procesando slice 000 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 0)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=572.7 t=0.154s conf=0.12 class=0.03 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.71σ[0m
+[INFO] [38;5;82m Slice 000 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 000 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 001 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 1)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=627.4 t=0.622s conf=0.16 class=0.03 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.86σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=627.5 t=0.829s conf=0.10 class=0.64 → BURST[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 4.16σ[0m
+[INFO] [38;5;82m Slice 001 completado: 2 candidatos (1 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 001 completado: 2 candidatos (1 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 002 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 2)[0m
+[INFO] [38;5;220m Procesando slice 003 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 3)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=463.2 t=1.991s conf=0.10 class=0.07 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.93σ[0m
+[INFO] [38;5;82m Slice 003 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 003 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 004 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 4)[0m
+[INFO] [38;5;220m Procesando slice 005 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 5)[0m
+[INFO] [38;5;220m Procesando slice 006 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 6)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=614.2 t=3.146s conf=0.16 class=0.02 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.54σ[0m
+[INFO] [38;5;82m Slice 006 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 006 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 007 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 7)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=613.8 t=3.637s conf=0.14 class=0.04 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.63σ[0m
+[INFO] [38;5;82m Slice 007 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 007 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 008 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 8)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=641.6 t=4.083s conf=0.12 class=0.02 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.86σ[0m
+[INFO] [38;5;82m Slice 008 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 008 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 009 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 9)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=1152.9 t=4.537s conf=0.11 class=0.03 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.61σ[0m
+[INFO] [38;5;82m Slice 009 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 009 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Progreso: slice 010/104 (9.5%) (chunk 000)[0m
+[INFO] [38;5;220m Procesando slice 010 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 10)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=1152.6 t=5.024s conf=0.11 class=0.36 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.57σ[0m
+[INFO] [38;5;82m Slice 010 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 010 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 011 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 11)[0m
+[INFO] [38;5;220m Procesando slice 012 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 12)[0m
+[INFO] [38;5;220m Procesando slice 013 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 13)[0m
+[INFO] [38;5;220m Procesando slice 014 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 14)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=558.3 t=7.122s conf=0.11 class=0.11 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.88σ[0m
+[INFO] [38;5;82m Slice 014 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 014 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 015 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 15)[0m
+[INFO] [38;5;220m Procesando slice 016 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 16)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=642.0 t=8.012s conf=0.15 class=0.01 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.86σ[0m
+[INFO] [38;5;82m Slice 016 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 016 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 017 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 17)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=615.0 t=8.989s conf=0.15 class=0.19 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.76σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=627.2 t=8.591s conf=0.12 class=0.10 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.02σ[0m
+[INFO] [38;5;82m Slice 017 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 017 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 018 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 18)[0m
+[INFO] [38;5;220m Procesando slice 019 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 19)[0m
+[INFO] [38;5;220m Progreso: slice 020/104 (19.0%) (chunk 000)[0m
+[INFO] [38;5;220m Procesando slice 020 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 20)[0m
+[INFO] [38;5;220m Procesando slice 021 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 21)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=558.4 t=10.863s conf=0.10 class=0.01 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.95σ[0m
+[INFO] [38;5;82m Slice 021 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 021 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 022 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 22)[0m
+[INFO] [38;5;220m Procesando slice 023 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 23)[0m
+[INFO] [38;5;82m Full Band: 3 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=655.5 t=11.520s conf=0.13 class=0.02 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.39σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=613.8 t=11.879s conf=0.12 class=0.06 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.18σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=627.8 t=11.630s conf=0.11 class=0.02 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.03σ[0m
+[INFO] [38;5;82m Slice 023 completado: 3 candidatos (0 bursts, 3 no bursts)[0m
+[INFO] [38;5;82m Slice 023 completado: 3 candidatos (0 bursts, 3 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 024 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 24)[0m
+[INFO] [38;5;220m Procesando slice 025 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 25)[0m
+[INFO] [38;5;220m Procesando slice 026 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 26)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=628.2 t=13.250s conf=0.14 class=0.02 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.69σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=628.9 t=13.012s conf=0.14 class=0.03 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.87σ[0m
+[INFO] [38;5;82m Slice 026 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 026 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 027 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 27)[0m
+[INFO] [38;5;220m Procesando slice 028 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 28)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=615.1 t=14.004s conf=0.20 class=0.13 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.18σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=641.6 t=14.094s conf=0.14 class=0.03 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.89σ[0m
+[INFO] [38;5;82m Slice 028 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 028 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 029 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 29)[0m
+[INFO] [38;5;220m Progreso: slice 030/104 (28.6%) (chunk 000)[0m
+[INFO] [38;5;220m Procesando slice 030 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 30)[0m
+[INFO] [38;5;220m Procesando slice 031 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 31)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=613.3 t=15.754s conf=0.11 class=0.09 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.01σ[0m
+[INFO] [38;5;82m Slice 031 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 031 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 032 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 32)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=628.3 t=16.012s conf=0.15 class=0.02 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.52σ[0m
+[INFO] [38;5;82m Slice 032 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 032 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 033 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 33)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=628.6 t=16.504s conf=0.11 class=0.09 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.78σ[0m
+[INFO] [38;5;82m Slice 033 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 033 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 034 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 34)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=613.3 t=17.379s conf=0.12 class=0.08 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.60σ[0m
+[INFO] [38;5;82m Slice 034 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 034 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 035 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 35)[0m
+[INFO] [38;5;220m Procesando slice 036 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 36)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=669.7 t=18.007s conf=0.18 class=0.04 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.31σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=600.2 t=18.113s conf=0.14 class=0.02 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.35σ[0m
+[INFO] [38;5;82m Slice 036 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 036 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 037 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 37)[0m
+[INFO] [38;5;82m Full Band: 3 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=600.7 t=18.508s conf=0.15 class=0.01 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.67σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=613.6 t=18.708s conf=0.12 class=0.02 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.05σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=613.8 t=18.626s conf=0.10 class=0.03 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.75σ[0m
+[INFO] [38;5;82m Slice 037 completado: 3 candidatos (0 bursts, 3 no bursts)[0m
+[INFO] [38;5;82m Slice 037 completado: 3 candidatos (0 bursts, 3 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 038 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 38)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=629.1 t=19.007s conf=0.13 class=0.01 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.81σ[0m
+[INFO] [38;5;82m Slice 038 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 038 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 039 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 39)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=641.9 t=19.605s conf=0.20 class=0.04 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.36σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=627.6 t=19.820s conf=0.12 class=0.05 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.93σ[0m
+[INFO] [38;5;82m Slice 039 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 039 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Progreso: slice 040/104 (38.1%) (chunk 000)[0m
+[INFO] [38;5;220m Procesando slice 040 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 40)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=1152.7 t=20.023s conf=0.16 class=0.03 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.11σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=572.4 t=20.313s conf=0.12 class=0.02 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.89σ[0m
+[INFO] [38;5;82m Slice 040 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 040 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 041 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 41)[0m
+[INFO] [38;5;220m Procesando slice 042 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 42)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=613.5 t=21.137s conf=0.14 class=0.05 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.76σ[0m
+[INFO] [38;5;82m Slice 042 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 042 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 043 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 43)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=627.9 t=21.523s conf=0.13 class=0.02 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.39σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=599.8 t=21.910s conf=0.12 class=0.06 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.46σ[0m
+[INFO] [38;5;82m Slice 043 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 043 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 044 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 44)[0m
+[INFO] [38;5;220m Procesando slice 045 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 45)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=628.0 t=22.621s conf=0.12 class=0.04 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.26σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=641.7 t=22.531s conf=0.10 class=0.03 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.06σ[0m
+[INFO] [38;5;82m Slice 045 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 045 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 046 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 46)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=1153.2 t=23.027s conf=0.19 class=0.06 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.01σ[0m
+[INFO] [38;5;82m Slice 046 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 046 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 047 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 47)[0m
+[INFO] [38;5;220m Procesando slice 048 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 48)[0m
+[INFO] [38;5;220m Procesando slice 049 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 49)[0m
+[INFO] [38;5;220m Progreso: slice 050/104 (47.6%) (chunk 000)[0m
+[INFO] [38;5;220m Procesando slice 050 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 50)[0m
+[INFO] [38;5;220m Procesando slice 051 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 51)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=654.8 t=25.561s conf=0.14 class=0.11 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.07σ[0m
+[INFO] [38;5;82m Slice 051 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 051 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 052 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 52)[0m
+[INFO] [38;5;220m Procesando slice 053 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 53)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=572.4 t=26.652s conf=0.14 class=0.03 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.89σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=1110.7 t=26.648s conf=0.11 class=0.02 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.59σ[0m
+[INFO] [38;5;82m Slice 053 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 053 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 054 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 54)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=628.0 t=27.375s conf=0.11 class=0.15 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.24σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=627.9 t=27.077s conf=0.10 class=0.06 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.17σ[0m
+[INFO] [38;5;82m Slice 054 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 054 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 055 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 55)[0m
+[INFO] [38;5;220m Procesando slice 056 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 56)[0m
+[INFO] [38;5;220m Procesando slice 057 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 57)[0m
+[INFO] [38;5;220m Procesando slice 058 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 58)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=1152.8 t=29.034s conf=0.11 class=0.09 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.37σ[0m
+[INFO] [38;5;82m Slice 058 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 058 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 059 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 59)[0m
+[INFO] [38;5;220m Progreso: slice 060/104 (57.1%) (chunk 000)[0m
+[INFO] [38;5;220m Procesando slice 060 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 60)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=1152.8 t=30.046s conf=0.12 class=0.01 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.48σ[0m
+[INFO] [38;5;82m Slice 060 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 060 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 061 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 61)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=587.3 t=30.503s conf=0.19 class=0.05 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.18σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=586.0 t=30.877s conf=0.13 class=0.13 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.72σ[0m
+[INFO] [38;5;82m Slice 061 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 061 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 062 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 62)[0m
+[INFO] [38;5;220m Procesando slice 063 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 63)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=614.9 t=31.510s conf=0.12 class=0.05 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.89σ[0m
+[INFO] [38;5;82m Slice 063 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 063 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 064 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 64)[0m
+[INFO] [38;5;220m Procesando slice 065 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 65)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=586.1 t=32.764s conf=0.12 class=0.09 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.62σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=641.6 t=32.585s conf=0.11 class=0.06 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.35σ[0m
+[INFO] [38;5;82m Slice 065 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 065 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 066 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 66)[0m
+[INFO] [38;5;220m Procesando slice 067 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 67)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=696.7 t=33.585s conf=0.17 class=0.58 → BURST[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.43σ[0m
+[INFO] [38;5;82m Slice 067 completado: 1 candidatos (1 bursts, 0 no bursts)[0m
+[INFO] [38;5;82m Slice 067 completado: 1 candidatos (1 bursts, 0 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 068 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 68)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=572.5 t=34.121s conf=0.13 class=0.09 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.39σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=586.5 t=34.175s conf=0.11 class=0.03 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.37σ[0m
+[INFO] [38;5;82m Slice 068 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 068 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 069 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 69)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=642.3 t=34.734s conf=0.12 class=0.02 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 4.78σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=628.3 t=34.530s conf=0.10 class=0.01 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.11σ[0m
+[INFO] [38;5;82m Slice 069 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 069 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Progreso: slice 070/104 (66.7%) (chunk 000)[0m
+[INFO] [38;5;220m Procesando slice 070 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 70)[0m
+[INFO] [38;5;220m Procesando slice 071 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 71)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=655.3 t=35.573s conf=0.15 class=0.11 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.82σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=572.4 t=35.866s conf=0.13 class=0.12 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.33σ[0m
+[INFO] [38;5;82m Slice 071 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 071 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 072 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 72)[0m
+[INFO] [38;5;220m Procesando slice 073 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 73)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=601.1 t=36.505s conf=0.21 class=0.05 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.44σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=1249.8 t=36.504s conf=0.13 class=0.08 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.44σ[0m
+[INFO] [38;5;82m Slice 073 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 073 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 074 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 74)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=586.0 t=37.163s conf=0.11 class=0.02 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.91σ[0m
+[INFO] [38;5;82m Slice 074 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 074 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 075 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 75)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=600.3 t=37.772s conf=0.14 class=0.01 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.85σ[0m
+[INFO] [38;5;82m Slice 075 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 075 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 076 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 76)[0m
+[INFO] [38;5;220m Procesando slice 077 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 77)[0m
+[INFO] [38;5;220m Procesando slice 078 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 78)[0m
+[INFO] [38;5;220m Procesando slice 079 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 79)[0m
+[INFO] [38;5;220m Progreso: slice 080/104 (76.2%) (chunk 000)[0m
+[INFO] [38;5;220m Procesando slice 080 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 80)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=572.1 t=40.206s conf=0.13 class=0.67 → BURST[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.94σ[0m
+[INFO] [38;5;82m Slice 080 completado: 1 candidatos (1 bursts, 0 no bursts)[0m
+[INFO] [38;5;82m Slice 080 completado: 1 candidatos (1 bursts, 0 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 081 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 81)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=628.8 t=40.503s conf=0.10 class=0.04 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.80σ[0m
+[INFO] [38;5;82m Slice 081 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 081 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 082 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 82)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=628.0 t=41.084s conf=0.16 class=0.02 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 4.03σ[0m
+[INFO] [38;5;82m Slice 082 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 082 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 083 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 83)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=1166.3 t=41.533s conf=0.11 class=0.02 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.23σ[0m
+[INFO] [38;5;82m Slice 083 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 083 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 084 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 84)[0m
+[INFO] [38;5;220m Procesando slice 085 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 85)[0m
+[INFO] [38;5;220m Procesando slice 086 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 86)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=1153.1 t=43.013s conf=0.18 class=0.09 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.39σ[0m
+[INFO] [38;5;82m Slice 086 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 086 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 087 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 87)[0m
+[INFO] [38;5;82m Full Band: 2 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=640.9 t=43.549s conf=0.11 class=0.08 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.20σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=599.9 t=43.721s conf=0.10 class=0.06 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.80σ[0m
+[INFO] [38;5;82m Slice 087 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;82m Slice 087 completado: 2 candidatos (0 bursts, 2 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 088 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 88)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=1152.6 t=44.026s conf=0.12 class=0.03 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.22σ[0m
+[INFO] [38;5;82m Slice 088 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 088 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 089 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 89)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=655.3 t=44.526s conf=0.11 class=0.05 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.33σ[0m
+[INFO] [38;5;82m Slice 089 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 089 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Progreso: slice 090/104 (85.7%) (chunk 000)[0m
+[INFO] [38;5;220m Procesando slice 090 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 90)[0m
+[INFO] [38;5;220m Procesando slice 091 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 91)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=1166.3 t=45.545s conf=0.14 class=0.09 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.82σ[0m
+[INFO] [38;5;82m Slice 091 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 091 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 092 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 92)[0m
+[INFO] [38;5;82m Full Band: 3 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=642.7 t=46.002s conf=0.15 class=0.44 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 4.73σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=1097.8 t=46.409s conf=0.14 class=0.05 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.07σ[0m
+[INFO] [38;5;82m Candidato encontrado: DM=642.1 t=46.174s conf=0.12 class=0.08 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 4.83σ[0m
+[INFO] [38;5;82m Slice 092 completado: 3 candidatos (0 bursts, 3 no bursts)[0m
+[INFO] [38;5;82m Slice 092 completado: 3 candidatos (0 bursts, 3 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 093 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 93)[0m
+[INFO] [38;5;220m Procesando slice 094 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 94)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=628.3 t=47.014s conf=0.12 class=0.05 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.99σ[0m
+[INFO] [38;5;82m Slice 094 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 094 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 095 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 95)[0m
+[INFO] [38;5;220m Procesando slice 096 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 96)[0m
+[INFO] [38;5;220m Procesando slice 097 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 97)[0m
+[INFO] [38;5;220m Procesando slice 098 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 98)[0m
+[INFO] [38;5;220m Procesando slice 099 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 99)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=571.6 t=49.787s conf=0.12 class=0.09 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 3.25σ[0m
+[INFO] [38;5;82m Slice 099 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 099 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Progreso: slice 100/104 (95.2%) (chunk 000)[0m
+[INFO] [38;5;220m Procesando slice 100 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 100)[0m
+[INFO] [38;5;220m Procesando slice 101 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 101)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=627.8 t=50.916s conf=0.10 class=0.03 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.86σ[0m
+[INFO] [38;5;82m Slice 101 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 101 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;220m Procesando slice 102 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 102)[0m
+[INFO] [38;5;220m Procesando slice 103 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 103)[0m
+[INFO] [38;5;220m Procesando slice 104 (chunk 000)[0m
+[INFO] [38;5;220m Procesando Full Band (slice 104)[0m
+[INFO] [38;5;82m Full Band: 1 candidatos detectados[0m
+[INFO] [38;5;82m Candidato encontrado: DM=629.0 t=52.001s conf=0.18 class=0.04 → NO burst[0m
+[INFO] [96m SNR Raw: 0.00σ, SNR Patch: 2.92σ[0m
+[INFO] [38;5;82m Slice 104 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;82m Slice 104 completado: 1 candidatos (0 bursts, 1 no bursts)[0m
+[INFO] [38;5;87m 2017-04-03-0825_13_0003.fits: 81 candidatos, max prob 0.21, 370.5s[0m
+[INFO] Escribiendo resumen final...
+[INFO] [38;5;39m PIPELINE COMPLETADO[0m
+[INFO] Resumen: 1 archivos, 81 candidatos, 3 bursts
+[INFO] Tiempo total: 370.5s

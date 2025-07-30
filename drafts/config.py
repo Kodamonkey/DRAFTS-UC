@@ -108,3 +108,180 @@ def get_band_configs():
         (1, "lowband", "Low Band"),
         (2, "highband", "High Band"),
     ] if USE_MULTI_BAND else [(0, "fullband", "Full Band")]
+
+
+# =============================================================================
+# VALIDACIÓN DE CONFIGURACIÓN CON MENSAJES INFORMATIVOS
+# =============================================================================
+
+def validate_configuration():
+    """
+    Valida la configuración del sistema y genera mensajes de error informativos.
+    
+    Esta función verifica que todos los parámetros críticos estén configurados
+    correctamente antes de ejecutar el pipeline.
+    """
+    errors = []
+    
+    # Validar parámetros de frecuencia
+    if FREQ_RESO <= 0:
+        errors.append(
+            f"FREQ_RESO={FREQ_RESO} es inválido\n"
+            f"  → FREQ_RESO debe ser > 0 para procesar datos de frecuencia\n"
+            f"  → Este valor se extrae del header del archivo FITS/FIL\n"
+            f"  → Recomendación: Verificar que el archivo de datos sea válido"
+        )
+    
+    if TIME_RESO <= 0:
+        errors.append(
+            f"TIME_RESO={TIME_RESO} es inválido\n"
+            f"  → TIME_RESO debe ser > 0 para procesar datos temporales\n"
+            f"  → Este valor se extrae del header del archivo FITS/FIL\n"
+            f"  → Recomendación: Verificar que el archivo de datos sea válido"
+        )
+    
+    if FILE_LENG <= 0:
+        errors.append(
+            f"FILE_LENG={FILE_LENG} es inválido\n"
+            f"  → FILE_LENG debe ser > 0 para procesar datos\n"
+            f"  → Este valor indica el número total de muestras temporales\n"
+            f"  → Recomendación: Verificar que el archivo de datos sea válido"
+        )
+    
+    # Validar configuración de slice
+    if SLICE_LEN < SLICE_LEN_MIN or SLICE_LEN > SLICE_LEN_MAX:
+        errors.append(
+            f"SLICE_LEN={SLICE_LEN} está fuera del rango válido [{SLICE_LEN_MIN}, {SLICE_LEN_MAX}]\n"
+            f"  → SLICE_LEN debe estar entre {SLICE_LEN_MIN} y {SLICE_LEN_MAX} muestras\n"
+            f"  → Este valor se calcula automáticamente desde SLICE_DURATION_MS\n"
+            f"  → Recomendación: Ajustar SLICE_DURATION_MS en user_config.py"
+        )
+    
+    # Validar rangos DM
+    if DM_RANGE_MIN_WIDTH <= 0 or DM_RANGE_MAX_WIDTH <= 0:
+        errors.append(
+            f"Rangos DM inválidos: MIN={DM_RANGE_MIN_WIDTH}, MAX={DM_RANGE_MAX_WIDTH}\n"
+            f"  → Ambos valores deben ser > 0\n"
+            f"  → Estos valores definen los límites del rango DM dinámico\n"
+            f"  → Recomendación: Verificar configuración de rangos DM"
+        )
+    
+    if DM_RANGE_MIN_WIDTH >= DM_RANGE_MAX_WIDTH:
+        errors.append(
+            f"Rangos DM inconsistentes: MIN={DM_RANGE_MIN_WIDTH} >= MAX={DM_RANGE_MAX_WIDTH}\n"
+            f"  → DM_RANGE_MIN_WIDTH debe ser < DM_RANGE_MAX_WIDTH\n"
+            f"  → Recomendación: Ajustar los valores de rango DM"
+        )
+    
+    # Validar configuración de modelos
+    if not MODEL_PATH.exists():
+        errors.append(
+            f"Modelo de detección no encontrado: {MODEL_PATH}\n"
+            f"  → El archivo del modelo no existe en la ruta especificada\n"
+            f"  → Verificar que el modelo esté entrenado y guardado\n"
+            f"  → Recomendación: Entrenar el modelo o verificar la ruta"
+        )
+    
+    if not CLASS_MODEL_PATH.exists():
+        errors.append(
+            f"Modelo de clasificación no encontrado: {CLASS_MODEL_PATH}\n"
+            f"  → El archivo del modelo no existe en la ruta especificada\n"
+            f"  → Verificar que el modelo esté entrenado y guardado\n"
+            f"  → Recomendación: Entrenar el modelo o verificar la ruta"
+        )
+    
+    # Validar configuración de dispositivo
+    if torch is not None and torch.cuda.is_available():
+        try:
+            # Verificar que CUDA funcione correctamente
+            test_tensor = torch.zeros(1).cuda()
+            del test_tensor
+        except Exception as e:
+            errors.append(
+                f"Error con CUDA: {e}\n"
+                f"  → CUDA está disponible pero no funciona correctamente\n"
+                f"  → Verificar drivers de NVIDIA y instalación de PyTorch\n"
+                f"  → Recomendación: Reinstalar PyTorch con soporte CUDA o usar CPU"
+            )
+    
+    # Si hay errores, lanzar excepción con todos los errores
+    if errors:
+        error_message = "Configuración del sistema inválida:\n\n"
+        for i, error in enumerate(errors, 1):
+            error_message += f"{i}. {error}\n\n"
+        error_message += "Corrija estos errores antes de ejecutar el pipeline."
+        
+        raise ValueError(error_message)
+    
+    return True
+
+
+def check_model_files():
+    """
+    Verifica que los archivos de modelo existan y sean accesibles.
+    
+    Returns:
+        dict: Diccionario con el estado de cada modelo
+    """
+    model_status = {}
+    
+    # Verificar modelo de detección
+    if MODEL_PATH.exists():
+        try:
+            # Intentar cargar el modelo para verificar que no esté corrupto
+            if torch is not None:
+                state = torch.load(MODEL_PATH, map_location='cpu')
+                model_status['detection'] = {
+                    'exists': True,
+                    'size_mb': MODEL_PATH.stat().st_size / (1024 * 1024),
+                    'state_dict_keys': len(state.keys()) if isinstance(state, dict) else 0
+                }
+            else:
+                model_status['detection'] = {
+                    'exists': True,
+                    'size_mb': MODEL_PATH.stat().st_size / (1024 * 1024),
+                    'note': 'PyTorch no disponible para verificación completa'
+                }
+        except Exception as e:
+            model_status['detection'] = {
+                'exists': True,
+                'error': f"Modelo corrupto: {e}",
+                'recommendation': 'Reentrenar el modelo'
+            }
+    else:
+        model_status['detection'] = {
+            'exists': False,
+            'error': f"Archivo no encontrado: {MODEL_PATH}",
+            'recommendation': 'Entrenar el modelo o verificar la ruta'
+        }
+    
+    # Verificar modelo de clasificación
+    if CLASS_MODEL_PATH.exists():
+        try:
+            if torch is not None:
+                state = torch.load(CLASS_MODEL_PATH, map_location='cpu')
+                model_status['classification'] = {
+                    'exists': True,
+                    'size_mb': CLASS_MODEL_PATH.stat().st_size / (1024 * 1024),
+                    'state_dict_keys': len(state.keys()) if isinstance(state, dict) else 0
+                }
+            else:
+                model_status['classification'] = {
+                    'exists': True,
+                    'size_mb': CLASS_MODEL_PATH.stat().st_size / (1024 * 1024),
+                    'note': 'PyTorch no disponible para verificación completa'
+                }
+        except Exception as e:
+            model_status['classification'] = {
+                'exists': True,
+                'error': f"Modelo corrupto: {e}",
+                'recommendation': 'Reentrenar el modelo'
+            }
+    else:
+        model_status['classification'] = {
+            'exists': False,
+            'error': f"Archivo no encontrado: {CLASS_MODEL_PATH}",
+            'recommendation': 'Entrenar el modelo o verificar la ruta'
+        }
+    
+    return model_status

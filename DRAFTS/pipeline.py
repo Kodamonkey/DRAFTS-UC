@@ -33,7 +33,7 @@ from .detection_engine import get_pipeline_parameters, process_slice
 from .output.summary_manager import (
     _update_summary_with_file_debug,
     _update_summary_with_results,
-    _write_summary_with_timestamp,  # NUEVA FUNCIÓN
+    _write_summary_with_timestamp, 
 )
 from .detection.model_interface import detect, classify_patch
 logger = logging.getLogger(__name__)
@@ -119,7 +119,7 @@ def _process_block(
     chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO # Tiempo de inicio del chunk en segundos desde el inicio del archivo
     chunk_duration_sec = metadata["actual_chunk_size"] * config.TIME_RESO # Duración del chunk en segundos
     
-    logger.info(f"🕐 Chunk {chunk_idx:03d}: Tiempo {chunk_start_time_sec:.2f}s - {chunk_start_time_sec + chunk_duration_sec:.2f}s "
+    logger.info(f"Chunk {chunk_idx:03d}: Tiempo {chunk_start_time_sec:.2f}s - {chunk_start_time_sec + chunk_duration_sec:.2f}s "
                f"(duración: {chunk_duration_sec:.2f}s)")
     
     try:
@@ -141,7 +141,7 @@ def _process_block(
         slice_len, real_duration_ms = update_slice_len_dynamic() # Actualiza slice_len según la configuración
         time_slice = (width_total + slice_len - 1) // slice_len # Número de slices por chunk
         
-        logger.info(f"🧩 Chunk {chunk_idx:03d}: {metadata['actual_chunk_size']} muestras → {time_slice} slices")
+        logger.info(f"Chunk {chunk_idx:03d}: {metadata['actual_chunk_size']} muestras → {time_slice} slices")
         
         # Generar DM-time cube
         dm_time = d_dm_time_g(block, height=height, width=width_total) # dedispersion del bloque
@@ -157,6 +157,15 @@ def _process_block(
         snr_list = [] # Lista de SNRs de los candidatos
         
         for j in range(time_slice): # Procesar cada slice
+            # Mensaje de progreso cada 10 slices o en el primer slice
+            if j % 10 == 0 or j == 0:
+                try:
+                    from .logging.logging_config import get_global_logger
+                    global_logger = get_global_logger()
+                    global_logger.slice_progress(j, time_slice, chunk_idx)
+                except ImportError:
+                    pass
+            
             # Verificar que tenemos suficientes datos para este slice
             start_idx = slice_len * j # Índice de inicio del slice
             end_idx = slice_len * (j + 1) # Índice de fin del slice
@@ -218,6 +227,15 @@ def _process_block(
             n_bursts += bursts
             n_no_bursts += no_bursts
             prob_max = max(prob_max, max_prob)
+            
+            # Mensaje de resumen del slice si tiene candidatos
+            if cands > 0:
+                try:
+                    from .logging.logging_config import get_global_logger
+                    global_logger = get_global_logger()
+                    global_logger.slice_completed(j, cands, bursts, no_bursts)
+                except ImportError:
+                    pass
 
             # LIMPIEZA DE MEMORIA DESPUÉS DE CADA SLICE
             if j % 10 == 0:  # Cada 10 slices
@@ -228,6 +246,14 @@ def _process_block(
                     plt.close('all')
                 gc.collect()
 
+        # Mensaje de resumen del chunk
+        try:
+            from .logging.logging_config import get_global_logger
+            global_logger = get_global_logger()
+            global_logger.chunk_completed(chunk_idx, cand_counter, n_bursts, n_no_bursts)
+        except ImportError:
+            pass
+        
         return {
             "n_candidates": cand_counter,
             "n_bursts": n_bursts,
@@ -251,8 +277,8 @@ def _process_file_chunked(
 ) -> dict:
     """Procesa un archivo .fil en bloques usando stream_fil."""
     
-    # 📊 CALCULAR INFORMACIÓN DEL ARCHIVO DE MANERA EFICIENTE
-    logger.info(f"📁 Analizando estructura del archivo: {fits_path.name}")
+    # CALCULAR INFORMACIÓN DEL ARCHIVO DE MANERA EFICIENTE
+    logger.info(f"Analizando estructura del archivo: {fits_path.name}")
     
     # Calcular información basada en config.FILE_LENG (ya cargado por get_obparams_fil)
     total_samples = config.FILE_LENG # Longitud total del archivo
@@ -261,12 +287,12 @@ def _process_file_chunked(
     total_duration_sec = total_samples * config.TIME_RESO # Duración total del archivo
     chunk_duration_sec = chunk_samples * config.TIME_RESO # Duración de cada chunk
     
-    logger.info(f"📊 RESUMEN DEL ARCHIVO:")
-    logger.info(f"   🧩 Total de chunks estimado: {chunk_count}")
-    logger.info(f"   📊 Muestras totales: {total_samples:,}")
-    logger.info(f"   🕐 Duración total: {total_duration_sec:.2f} segundos ({total_duration_sec/60:.1f} minutos)")
-    logger.info(f"   📦 Tamaño de chunk: {chunk_samples:,} muestras ({chunk_duration_sec:.2f}s)")
-    logger.info(f"   🔄 Iniciando procesamiento...")
+    logger.info(f"RESUMEN DEL ARCHIVO:")
+    logger.info(f"   Total de chunks estimado: {chunk_count}")
+    logger.info(f"   Muestras totales: {total_samples:,}")
+    logger.info(f"   Duración total: {total_duration_sec:.2f} segundos ({total_duration_sec/60:.1f} minutos)")
+    logger.info(f"   Tamaño de chunk: {chunk_samples:,} muestras ({chunk_duration_sec:.2f}s)")
+    logger.info(f"   Iniciando procesamiento...")
     
     # Crear un CSV por archivo en lugar de por chunk
     csv_file = save_dir / f"{fits_path.stem}.candidates.csv" # CSV file por archivo
@@ -285,7 +311,7 @@ def _process_file_chunked(
         # Procesar cada bloque (UNA SOLA PASADA)
         for block, metadata in stream_fil(str(fits_path), chunk_samples): # Procesar cada bloque
             actual_chunk_count += 1 # Incrementar el contador de chunks procesados
-            logger.info(f"🧩 Procesando chunk {metadata['chunk_idx']:03d} " # Log del chunk actual
+            logger.info(f"Procesando chunk {metadata['chunk_idx']:03d} " # Log del chunk actual
                        f"({metadata['start_sample']:,} - {metadata['end_sample']:,})") # Log del rango de muestras del chunk
             
             # Procesar bloque
@@ -306,7 +332,7 @@ def _process_file_chunked(
         
         runtime = time.time() - t_start # Tiempo de ejecución
         logger.info(
-            f"🧩 Archivo completado: {actual_chunk_count} chunks procesados, "
+            f"Archivo completado: {actual_chunk_count} chunks procesados, "
             f"{cand_counter_total} candidatos, max prob {prob_max_total:.2f}, ⏱️ {runtime:.1f}s"
         )
         
@@ -365,7 +391,7 @@ def _process_file(
     use_chunking = chunk_samples > 0 and fits_path.suffix.lower() == ".fil"
     
     if use_chunking:
-        logger.info("🧩 Procesando archivo .fil en bloques de %d muestras", chunk_samples)
+        logger.info("Procesando archivo .fil en bloques de %d muestras", chunk_samples)
         return _process_file_chunked(det_model, cls_model, fits_path, save_dir, chunk_samples)
     
     # Procesamiento normal (modo estandar)
@@ -391,11 +417,11 @@ def _process_file(
         else:
             raise
     freq_down, height, width_total, slice_len, real_duration_ms, time_slice, slice_duration = get_pipeline_parameters(config)
-    logger.info("✅ Sistema de slice simplificado:")
-    logger.info(f"   🎯 Duración objetivo: {config.SLICE_DURATION_MS:.1f} ms")
-    logger.info(f"   🧩 SLICE_LEN calculado: {slice_len} muestras")
-    logger.info(f"   ⏱️  Duración real obtenida: {real_duration_ms:.1f} ms")
-    logger.info(f"   📊 Archivo: {config.FILE_LENG} muestras → {time_slice} slices")
+    logger.info("Sistema de slice simplificado:")
+    logger.info(f"   Duración objetivo: {config.SLICE_DURATION_MS:.1f} ms")
+    logger.info(f"   SLICE_LEN calculado: {slice_len} muestras")
+    logger.info(f"   Duración real obtenida: {real_duration_ms:.1f} ms")
+    logger.info(f"   Archivo: {config.FILE_LENG} muestras → {time_slice} slices")
     dm_time = d_dm_time_g(data, height=height, width=width_total)
     logger.info(
         "Análisis de %s con %d slices de %d muestras (%.3f s cada uno)",
@@ -426,6 +452,15 @@ def _process_file(
     time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
     snr_list: List[float] = []
     for j in range(time_slice):
+        # Mensaje de progreso cada 10 slices o en el primer slice
+        if j % 10 == 0 or j == 0:
+            try:
+                from .logging.logging_config import get_global_logger
+                global_logger = get_global_logger()
+                global_logger.slice_progress(j, time_slice, 0)  # chunk_idx=0 para archivos no chunked
+            except ImportError:
+                pass
+        
         cands, bursts, no_bursts, max_prob = process_slice(
             j, dm_time, data, slice_len, det_model, cls_model, fits_path, save_dir, freq_down, csv_file, time_reso_ds, band_configs, snr_list, waterfall_dispersion_dir, waterfall_dedispersion_dir, config,
             chunk_idx=0,  # chunk_idx=0 para archivos no chunked
@@ -437,6 +472,15 @@ def _process_file(
         n_bursts += bursts
         n_no_bursts += no_bursts
         prob_max = max(prob_max, max_prob)
+        
+        # Mensaje de resumen del slice si tiene candidatos
+        if cands > 0:
+            try:
+                from .logging.logging_config import get_global_logger
+                global_logger = get_global_logger()
+                global_logger.slice_completed(j, cands, bursts, no_bursts)
+            except ImportError:
+                pass
     runtime = time.time() - t_start
     logger.info(
         "\u25b6 %s: %d candidatos, max prob %.2f, \u23f1 %.1f s",
@@ -466,52 +510,61 @@ def run_pipeline(chunk_samples: int = 0) -> None:
     Args:
         chunk_samples: Número de muestras por bloque para archivos .fil (0 = modo antiguo)
     """
-
-    print("=== INICIANDO PIPELINE DE DETECCIÓN DE FRB ===")
-    print(f"Directorio de datos: {config.DATA_DIR}")
-    print(f"Directorio de resultados: {config.RESULTS_DIR}")
-    print(f"Targets FRB: {config.FRB_TARGETS}")
-    if chunk_samples > 0:
-        print(f"Modo chunking habilitado: {chunk_samples:,} muestras por bloque")
-    else:
-        print("Modo normal: carga completa en memoria")
+    from .logging.logging_config import setup_logging, get_global_logger, set_global_logger
     
-    logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+    # Configurar logging
+    logger = setup_logging(level="INFO", use_colors=True)
+    set_global_logger(logger)
+    
+    # Configuración del pipeline
+    pipeline_config = {
+        'data_dir': str(config.DATA_DIR),
+        'results_dir': str(config.RESULTS_DIR),
+        'targets': config.FRB_TARGETS,
+        'chunk_samples': chunk_samples
+    }
+    
+    logger.pipeline_start(pipeline_config)
 
     save_dir = config.RESULTS_DIR / config.MODEL_NAME
     save_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Directorio de guardado: {save_dir}")
     
-    print("Cargando modelos...")
+    logger.logger.info("Cargando modelos...")
     det_model = _load_detection_model()
     cls_model = _load_class_model()
-    print("Modelos cargados exitosamente")
+    logger.logger.info("Modelos cargados exitosamente")
 
     summary: dict[str, dict] = {}
     for frb in config.FRB_TARGETS:
-        print(f"\nBuscando archivos para target: {frb}")
+        logger.logger.info(f"Buscando archivos para target: {frb}")
         file_list = _find_data_files(frb)
-        print(f"Archivos encontrados: {[f.name for f in file_list]}")
+        logger.logger.info(f"Archivos encontrados: {[f.name for f in file_list]}")
         if not file_list:
-            print(f"No se encontraron archivos para {frb}")
+            logger.logger.warning(f"No se encontraron archivos para {frb}")
             continue
 
         try:
             first_file = file_list[0]
-            print(f"Leyendo parámetros de observación desde: {first_file.name}")
+            logger.logger.info(f"Leyendo parámetros desde: {first_file.name}")
             if first_file.suffix.lower() == ".fits":
                 get_obparams(str(first_file))
             else:
                 get_obparams_fil(str(first_file))
-            print("Parámetros de observación cargados exitosamente")
+            logger.logger.info("Parámetros de observación cargados")
         except Exception as e:
-            print(f"[ERROR] Error obteniendo parámetros de observación: {e}")
-            logger.error("Error obteniendo parámetros de observación: %s", e)
+            logger.logger.error(f"Error obteniendo parámetros: {e}")
             continue
             
         for fits_path in file_list:
             try:
-                print(f"Procesando archivo: {fits_path.name}")
+                # Información del archivo para logging
+                file_info = {
+                    'samples': config.FILE_LENG,
+                    'duration_min': (config.FILE_LENG * config.TIME_RESO) / 60,
+                    'channels': config.FREQ_RESO
+                }
+                logger.file_processing_start(fits_path.name, file_info)
+                
                 results = _process_file(det_model, cls_model, fits_path, save_dir, chunk_samples)
                 summary[fits_path.name] = results
                 
@@ -526,10 +579,9 @@ def run_pipeline(chunk_samples: int = 0) -> None:
                     "status": results.get("status", "completed")
                 })
                 
-                print(f"Archivo {fits_path.name} procesado exitosamente")
+                logger.file_processing_end(fits_path.name, results)
             except Exception as e:
-                print(f"[ERROR] Error procesando {fits_path.name}: {e}")
-                logger.error("Error procesando %s: %s", fits_path.name, e)
+                logger.logger.error(f"Error procesando {fits_path.name}: {e}")
                 error_results = {
                     "n_candidates": 0,
                     "n_bursts": 0,
@@ -553,9 +605,9 @@ def run_pipeline(chunk_samples: int = 0) -> None:
                     "error_message": str(e)
                 })
 
-    print("Escribiendo resumen final...")
+    logger.logger.info("Escribiendo resumen final...")
     _write_summary_with_timestamp(summary, save_dir)
-    print("=== PIPELINE COMPLETADO ===")
+    logger.pipeline_end(summary)
 
 if __name__ == "__main__":
     import argparse

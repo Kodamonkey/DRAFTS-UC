@@ -54,12 +54,30 @@ def process_band(
         chunk_idx: ID del chunk donde se encuentra este slice
         band_idx: ID de la banda (0=fullband, 1=lowband, 2=highband)
     """
+    # Obtener el logger global para mensajes informativos
+    try:
+        from .logging.logging_config import get_global_logger, Colors
+        global_logger = get_global_logger()
+    except ImportError:
+        global_logger = None
+    
+    # Mensaje de inicio de procesamiento de banda
+    band_names = ["Full Band", "Low Band", "High Band"]
+    band_name = band_names[band_idx] if band_idx is not None and band_idx < len(band_names) else f"Band {band_idx}"
+    if global_logger:
+        global_logger.processing_band(band_name, j)
+    
     img_tensor = preprocess_img(band_img)
     top_conf, top_boxes = detect(det_model, img_tensor)
     img_rgb = postprocess_img(img_tensor)
     if top_boxes is None:
         top_conf = []
         top_boxes = []
+    
+    # Mensaje sobre detecciones encontradas
+    if global_logger:
+        global_logger.band_candidates(band_name, len(top_conf))
+    
     first_patch = None
     first_start = None
     first_dm = None
@@ -145,13 +163,20 @@ def process_band(
             n_no_bursts += 1
         prob_max = max(prob_max, float(conf))
         append_candidate(csv_file, cand.to_row())
-        logger.info(
-            f"Candidato DM {dm_val:.2f} t={absolute_candidate_time:.3f}s conf={conf:.2f} class={class_prob:.2f} → {'BURST' if is_burst else 'no burst'}"
-        )
-        # ✅ LOGGING DETALLADO: Mostrar valores de SNR para transparencia
-        logger.info(
-            f"  📊 SNR Raw: {snr_val_raw:.2f}σ, SNR Patch Dedispersado: {snr_val:.2f}σ (guardado en CSV)"
-        )
+        
+        # Mensaje informativo sobre el candidato encontrado
+        try:
+            from .logging.logging_config import get_global_logger
+            global_logger = get_global_logger()
+            global_logger.candidate_detected(dm_val, absolute_candidate_time, conf, class_prob, is_burst, snr_val_raw, snr_val)
+        except ImportError:
+            # Fallback al logger original
+            logger.info(
+                f"Candidato DM {dm_val:.2f} t={absolute_candidate_time:.3f}s conf={conf:.2f} class={class_prob:.2f} → {'BURST' if is_burst else 'no burst'}"
+            )
+            logger.info(
+                f"SNR Raw: {snr_val_raw:.2f}σ, SNR Patch Dedispersado: {snr_val:.2f}σ (guardado en CSV)"
+            )
     return {
         "top_conf": top_conf,
         "top_boxes": top_boxes,
@@ -196,6 +221,18 @@ def process_slice(
         absolute_start_time: Tiempo absoluto de inicio del slice en segundos desde el inicio del archivo
         chunk_idx: ID del chunk donde se encuentra este slice
     """
+    # Obtener el logger global para mensajes informativos
+    try:
+        from .logging.logging_config import get_global_logger, Colors
+        global_logger = get_global_logger()
+    except ImportError:
+        global_logger = None
+    
+    # Mensaje de inicio de procesamiento del slice
+    if global_logger:
+        chunk_info = f" (chunk {chunk_idx:03d})" if chunk_idx is not None else ""
+        global_logger.logger.info(f"{Colors.PROCESSING} Procesando slice {j:03d}{chunk_info}{Colors.ENDC}")
+    
     slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
     waterfall_block = block[j * slice_len : (j + 1) * slice_len]
     if slice_cube.size == 0 or waterfall_block.size == 0:
@@ -206,6 +243,10 @@ def process_slice(
     if absolute_start_time is None:
         # Tiempo relativo al chunk (modo antiguo)
         absolute_start_time = j * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    
+    # Mensaje sobre creación de waterfall dispersado
+    if global_logger:
+        global_logger.logger.debug(f"{Colors.OKCYAN} Creando waterfall dispersado para slice {j}{Colors.ENDC}")
     
     waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
     if waterfall_block.size > 0:
@@ -280,15 +321,27 @@ def process_slice(
         dedisp_block = None
 
         if slice_has_candidates:
+            # Mensaje sobre candidatos encontrados en este slice
+            if global_logger:
+                global_logger.slice_completed(j, cand_counter, n_bursts, n_no_bursts)
+            
             if band_result["first_patch"] is not None:
                 waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
                 start = j * slice_len
                 dedisp_block = dedisperse_block(block, freq_down, band_result["first_dm"], start, slice_len)
+                if global_logger:
+                    global_logger.creating_waterfall("dedispersado", j, band_result["first_dm"])
             else:
                 waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
                 start = j * slice_len
                 dedisp_block = dedisperse_block(block, freq_down, 0.0, start, slice_len)
+                if global_logger:
+                    global_logger.creating_waterfall("dedispersado", j, 0.0)
 
+            # Mensaje sobre creación de plots
+            if global_logger:
+                global_logger.generating_plots()
+            
             save_all_plots(
                 waterfall_block,
                 dedisp_block,
@@ -318,5 +371,9 @@ def process_slice(
                 out_img_path=out_img_path,
                 absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
             )
+        else:
+            # Mensaje cuando no hay candidatos
+            if global_logger:
+                global_logger.logger.debug(f"{Colors.OKCYAN} Slice {j}: Sin candidatos detectados{Colors.ENDC}")
     
     return cand_counter, n_bursts, n_no_bursts, prob_max 

@@ -10,8 +10,7 @@ RESULTS_DIR = Path("./Results/ObjectDetection")      # Directorio para guardar r
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-    "FRB20201124_0009",
-    "B0355+54_FB_20220918",    
+    "3100_0001_00_8bit"
 ]
 
 # =============================================================================
@@ -65,9 +64,16 @@ SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en vis
 USE_MULTI_BAND: bool = False                # True = usar análisis multi-banda, False = solo banda completa
 
 # =============================================================================
-# CONFIGURACIÓN DE DEBUG Y DIAGNÓSTICO
+# CONFIGURACIÓN DE LOGGING Y DEBUG
 # =============================================================================
 
 # Debug de frecuencias y archivos
 DEBUG_FREQUENCY_ORDER: bool = False         # True = mostrar información detallada de frecuencias y archivos
                                            # False = modo silencioso (recomendado para procesamiento en lote)
+
+# Configuración de logging
+LOG_LEVEL: str = "INFO"                     # Nivel de logging: DEBUG, INFO, WARNING, ERROR
+LOG_COLORS: bool = True                     # Usar colores en la consola
+LOG_FILE: bool = False                      # Guardar logs en archivo
+GPU_VERBOSE: bool = False                   # Mostrar mensajes detallados de GPU
+SHOW_PROGRESS: bool = True                  # Mostrar barras de progreso

@@ -48,7 +48,61 @@ Our pipeline offers three key components:
 
 📄 **Publication:** [DRAFTS: A Deep Learning-Based Radio Fast Transient Search Pipeline (arXiv:2410.03200)](https://arxiv.org/abs/2410.03200)
 
-## New Features - SNR Analysis Integration
+## New Features
+
+### 🆕 Sistema Automático de Parámetros
+
+**¡Configuración simplificada!** Ahora solo necesitas configurar `SLICE_DURATION_MS` en `user_config.py` y el sistema calcula automáticamente todos los demás parámetros optimizados.
+
+#### 🚀 Uso Básico
+
+```python
+# En user_config.py - Solo esto:
+SLICE_DURATION_MS: float = 64.0  # Duración deseada de cada slice en ms
+
+# Ejecución:
+python main.py  # Modo automático por defecto
+```
+
+#### ✨ Características
+
+- **Cálculo automático** de `chunk_samples` optimizado para memoria
+- **Optimización inteligente** basada en hardware disponible
+- **Validación automática** de todos los parámetros
+- **Logs informativos** del proceso de cálculo
+- **Compatibilidad total** con el sistema existente
+
+#### 📊 Configuraciones Típicas
+
+| Caso de Uso     | SLICE_DURATION_MS | Descripción                               |
+| --------------- | ----------------- | ----------------------------------------- |
+| FRB rápidos     | 32.0 ms           | Slices cortos para pulsos muy rápidos     |
+| FRB general     | 64.0 ms           | Balance entre sensibilidad y velocidad    |
+| Pulsos largos   | 128.0 ms          | Slices más largos para pulsos extendidos  |
+| Señales débiles | 256.0 ms          | Mayor integración temporal para mejor SNR |
+
+📖 **Documentación completa**: [Sistema Automático de Parámetros](docs/SISTEMA_AUTOMATICO.md)
+
+### 🆕 Optimización de Carpetas
+
+**¡Organización inteligente!** El sistema ahora solo crea carpetas cuando realmente hay contenido para guardar, evitando carpetas vacías y mejorando la eficiencia.
+
+#### 🗂️ Características
+
+- **Carpetas inteligentes**: Solo se crean cuando hay candidatos
+- **Ahorro de espacio**: Eliminación de carpetas vacías
+- **Mejor navegación**: Encontrar resultados más fácilmente
+- **Rendimiento optimizado**: Menos operaciones de I/O
+
+#### 📁 Tipos Optimizados
+
+| Carpeta                   | Comportamiento          |
+| ------------------------- | ----------------------- |
+| `Composite/`              | Solo si hay candidatos  |
+| `Detections/`             | Solo si hay detecciones |
+| `Patches/`                | Solo si hay patches     |
+| `waterfall_dispersion/`   | Solo si hay datos       |
+| `waterfall_dedispersion/` | Solo si hay candidatos  |
 
 ### 🆕 Signal-to-Noise Ratio (SNR) Analysis
 
@@ -113,7 +167,6 @@ This creates test outputs in `test_snr_output/` to verify SNR functionality.
 - **Improved Filtering**: Easy identification of high-significance candidates
 - **Statistical Analysis**: Built-in significance calculation considering multiple trials
 - **Robust Processing**: IQR-based noise estimation handles challenging noise environments
-
 
 ## Installation
 

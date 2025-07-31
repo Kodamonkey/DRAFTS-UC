@@ -197,19 +197,17 @@ def _process_block(
             file_folder_name = fits_path.stem
             chunk_folder_name = f"chunk{chunk_idx:03d}"
             
-            # Estructura: Results/ObjectDetection/Composite/3096_0001_00_8bit/chunk000/
-            composite_dir = save_dir / "Composite" / file_folder_name / chunk_folder_name
-            composite_dir.mkdir(parents=True, exist_ok=True)
-            detections_dir = save_dir / "Detections" / file_folder_name / chunk_folder_name
-            detections_dir.mkdir(parents=True, exist_ok=True)
-            patches_dir = save_dir / "Patches" / file_folder_name / chunk_folder_name
-            patches_dir.mkdir(parents=True, exist_ok=True)
-
             # Candidate CSV and waterfall folders (already chunked)
             # csv_file = save_dir / f"{chunk_folder_name}.candidates.csv" # Moved outside _process_block
             # ensure_csv_header(csv_file) # Moved outside _process_block
             waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / file_folder_name / chunk_folder_name
             waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / file_folder_name / chunk_folder_name
+
+            # Estructura de carpetas para plots (se crearán solo si hay candidatos)
+            # Results/ObjectDetection/Composite/3096_0001_00_8bit/chunk000/
+            composite_dir = save_dir / "Composite" / file_folder_name / chunk_folder_name
+            detections_dir = save_dir / "Detections" / file_folder_name / chunk_folder_name
+            patches_dir = save_dir / "Patches" / file_folder_name / chunk_folder_name
 
             # Pass chunked paths to process_slice (these will be used in plot_manager)
             cands, bursts, no_bursts, max_prob = process_slice( # Procesar el slice
@@ -514,7 +512,8 @@ def run_pipeline(chunk_samples: int = 0) -> None:
     """Run the full FRB detection pipeline.
     
     Args:
-        chunk_samples: Número de muestras por bloque para archivos .fil (0 = modo antiguo)
+        chunk_samples: Número de muestras por bloque para archivos .fil 
+                      (0 = cálculo automático basado en SLICE_DURATION_MS)
     """
     from .logging.logging_config import setup_logging, get_global_logger, set_global_logger
     
@@ -557,6 +556,25 @@ def run_pipeline(chunk_samples: int = 0) -> None:
             else:
                 get_obparams_fil(str(first_file))
             logger.logger.info("Parámetros de observación cargados")
+            
+            # CALCULAR PARÁMETROS DE PROCESAMIENTO AUTOMÁTICAMENTE
+            from .preprocessing.slice_len_calculator import get_processing_parameters, validate_processing_parameters
+            
+            if chunk_samples == 0:  # Modo automático
+                processing_params = get_processing_parameters()
+                if validate_processing_parameters(processing_params):
+                    chunk_samples = processing_params['chunk_samples']
+                    logger.logger.info(f"Parámetros calculados automáticamente:")
+                    logger.logger.info(f"   • Slice: {processing_params['slice_len']} muestras ({processing_params['slice_duration_ms']:.1f} ms)")
+                    logger.logger.info(f"   • Chunk: {chunk_samples:,} muestras ({processing_params['chunk_duration_sec']:.1f}s)")
+                    logger.logger.info(f"   • Slices por chunk: {processing_params['slices_per_chunk']}")
+                    logger.logger.info(f"   • Total estimado: {processing_params['total_chunks']} chunks, {processing_params['total_slices']} slices")
+                else:
+                    logger.logger.error("Parámetros calculados inválidos, usando valores por defecto")
+                    chunk_samples = 2_097_152  # 2MB por defecto
+            else:
+                logger.logger.info(f"Usando chunk_samples manual: {chunk_samples:,}")
+                
         except Exception as e:
             logger.logger.error(f"Error obteniendo parámetros: {e}")
             continue

@@ -13,8 +13,8 @@ def main():
     parser.add_argument(
         "--chunk-samples", 
         type=int, 
-        default=2_097_152,
-        help="Número de muestras por bloque para archivos .fil (0 = modo antiguo, default: 2M)"
+        default=0,
+        help="Número de muestras por bloque para archivos .fil (0 = cálculo automático basado en SLICE_DURATION_MS, default: 0)"
     )
     parser.add_argument(
         "--data-dir", 

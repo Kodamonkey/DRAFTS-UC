@@ -457,32 +457,37 @@ def save_all_plots(
     Args:
         absolute_start_time: Tiempo absoluto de inicio del slice en segundos desde el inicio del archivo
     """
-    # Composite plot
-    save_slice_summary(
-        waterfall_block,
-        dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,
-        img_rgb,
-        first_patch,
-        first_start if first_start is not None else 0.0,
-        first_dm if first_dm is not None else 0.0,
-        top_conf if len(top_conf) > 0 else [],
-        top_boxes if len(top_boxes) > 0 else [],
-        class_probs_list,
-        comp_path,
-        j,
-        time_slice,
-        band_name,
-        band_suffix,
-        fits_stem,
-        slice_len,
-        normalize=normalize,
-        off_regions=off_regions,
-        thresh_snr=thresh_snr,
-        band_idx=band_idx,
-        absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
-    )
-    # Patch plot
-    if first_patch is not None:
+    # Crear carpetas solo cuando se van a generar plots
+    # Composite plot - crear carpeta solo si se va a generar
+    if comp_path is not None:
+        comp_path.parent.mkdir(parents=True, exist_ok=True)
+        save_slice_summary(
+            waterfall_block,
+            dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,
+            img_rgb,
+            first_patch,
+            first_start if first_start is not None else 0.0,
+            first_dm if first_dm is not None else 0.0,
+            top_conf if len(top_conf) > 0 else [],
+            top_boxes if len(top_boxes) > 0 else [],
+            class_probs_list,
+            comp_path,
+            j,
+            time_slice,
+            band_name,
+            band_suffix,
+            fits_stem,
+            slice_len,
+            normalize=normalize,
+            off_regions=off_regions,
+            thresh_snr=thresh_snr,
+            band_idx=band_idx,
+            absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
+        )
+    
+    # Patch plot - crear carpeta solo si hay patch para guardar
+    if first_patch is not None and patch_path is not None:
+        patch_path.parent.mkdir(parents=True, exist_ok=True)
         save_patch_plot(
             first_patch,
             patch_path,
@@ -494,8 +499,10 @@ def save_all_plots(
             band_idx=band_idx,
             band_name=band_name,
         )
-    # Waterfall dedispersed
+    
+    # Waterfall dedispersed - crear carpeta solo si hay datos dedispersados
     if dedisp_block is not None and dedisp_block.size > 0:
+        waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
         plot_waterfall_block(
             data_block=dedisp_block,
             freq=freq_down,
@@ -507,22 +514,25 @@ def save_all_plots(
             normalize=normalize,
             absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
         )
-    # Detections plot
-    save_plot(
-        img_rgb,
-        top_conf if len(top_conf) > 0 else [],
-        top_boxes if len(top_boxes) > 0 else [],
-        class_probs_list,
-        out_img_path,
-        j,
-        time_slice,
-        band_name,
-        band_suffix,
-        fits_stem,
-        slice_len,
-        band_idx=band_idx,
-        absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
-    )
+    
+    # Detections plot - crear carpeta solo si se va a generar
+    if out_img_path is not None:
+        out_img_path.parent.mkdir(parents=True, exist_ok=True)
+        save_plot(
+            img_rgb,
+            top_conf if len(top_conf) > 0 else [],
+            top_boxes if len(top_boxes) > 0 else [],
+            class_probs_list,
+            out_img_path,
+            j,
+            time_slice,
+            band_name,
+            band_suffix,
+            fits_stem,
+            slice_len,
+            band_idx=band_idx,
+            absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
+        )
 
 def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
     """Get the frequency range (min, max) for a specific band.

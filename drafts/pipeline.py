@@ -11,6 +11,10 @@ import time
 import gc
 from pathlib import Path
 from typing import List
+import os
+import sys
+import json
+import shutil
 
 try:
     import torch
@@ -251,6 +255,45 @@ def _process_block(
             global_logger.chunk_completed(chunk_idx, cand_counter, n_bursts, n_no_bursts)
         except ImportError:
             pass
+        
+        # =============================================================================
+        # REORGANIZACIÓN DE CHUNKS CON FRBs
+        # =============================================================================
+        # Si este chunk contiene al menos un candidato BURST, moverlo a ChunksWithFRBs
+        if n_bursts > 0:
+            try:
+                # Crear la carpeta ChunksWithFRBs si no existe
+                chunks_with_frbs_dir = save_dir / "Composite" / file_folder_name / "ChunksWithFRBs"
+                chunks_with_frbs_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Verificar si la carpeta del chunk existe y contiene plots
+                chunk_dir = save_dir / "Composite" / file_folder_name / chunk_folder_name
+                if chunk_dir.exists():
+                    # Verificar si hay al menos un plot en la carpeta
+                    png_files = list(chunk_dir.glob("*.png"))
+                    if png_files:
+                        # Mover la carpeta completa del chunk a ChunksWithFRBs
+                        destination_dir = chunks_with_frbs_dir / chunk_folder_name
+                        
+                        # Si la carpeta de destino ya existe, eliminarla primero
+                        if destination_dir.exists():
+                            shutil.rmtree(destination_dir)
+                        
+                        # Mover la carpeta
+                        shutil.move(str(chunk_dir), str(destination_dir))
+                        
+                        logger.info(f"Chunk {chunk_idx:03d} movido a ChunksWithFRBs "
+                                  f"(contiene {n_bursts} candidatos BURST)")
+                        
+
+                    else:
+                        logger.warning(f"Chunk {chunk_idx:03d} tiene {n_bursts} BURST pero no contiene plots, "
+                                     f"no se moverá a ChunksWithFRBs")
+                else:
+                    logger.warning(f"Carpeta del chunk {chunk_idx:03d} no existe, no se puede mover")
+                    
+            except Exception as e:
+                logger.error(f"Error moviendo chunk {chunk_idx:03d} a ChunksWithFRBs: {e}")
         
         return {
             "n_candidates": cand_counter,

@@ -431,6 +431,7 @@ def process_slice(
                 detections_dir=detections_dir,
                 out_img_path=out_img_path,
                 absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
+                chunk_idx=chunk_idx,  # PASAR CHUNK_ID
             )
         else:
             # Mensaje cuando no hay candidatos

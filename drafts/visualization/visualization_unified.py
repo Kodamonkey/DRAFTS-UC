@@ -450,7 +450,8 @@ def save_all_plots(
     time_reso_ds,
     detections_dir,
     out_img_path,
-    absolute_start_time=None
+    absolute_start_time=None,
+    chunk_idx=None  # PARÁMETRO PARA CHUNK
 ):
     """Guarda todos los plots con tiempo absoluto para continuidad temporal.
     
@@ -483,6 +484,7 @@ def save_all_plots(
             thresh_snr=thresh_snr,
             band_idx=band_idx,
             absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
+            chunk_idx=chunk_idx,  # 🆕 PASAR CHUNK_ID
         )
     
     # Patch plot - crear carpeta solo si hay patch para guardar
@@ -777,6 +779,7 @@ def save_slice_summary(
     thresh_snr: Optional[float] = None,
     band_idx: int = 0,  # Para mostrar el rango de frecuencias
     absolute_start_time: Optional[float] = None,  # 🕐 NUEVO PARÁMETRO PARA TIEMPO ABSOLUTO
+    chunk_idx: Optional[int] = None,  # 🆕 NUEVO PARÁMETRO PARA CHUNK
 ) -> None:
     """Save a composite figure summarising detections and waterfalls with SNR analysis.
 
@@ -794,6 +797,8 @@ def save_slice_summary(
         Band index for frequency range calculation
     absolute_start_time : Optional[float]
         Tiempo absoluto de inicio del slice en segundos desde el inicio del archivo
+    chunk_idx : Optional[int]
+        Índice del chunk al que pertenece este slice
     """
 
     # Get band frequency range for display
@@ -1299,8 +1304,14 @@ def save_slice_summary(
         ax_patch.set_xlabel("Time (s)", fontsize=9)
         ax_patch.set_ylabel("Frequency (MHz)", fontsize=9)
 
+    # Crear título con información de chunk si está disponible
+    if chunk_idx is not None:
+        title = f"Composite Summary: {fits_stem} - {band_name_with_freq} - Chunk {chunk_idx:03d} - Slice {slice_idx:03d}"
+    else:
+        title = f"Composite Summary: {fits_stem} - {band_name_with_freq} - Slice {slice_idx:03d}"
+    
     fig.suptitle(
-        f"Composite Summary: {fits_stem} - {band_name_with_freq} - Slice {slice_idx:03d}",
+        title,
         fontsize=14,
         fontweight="bold",
         y=0.97,

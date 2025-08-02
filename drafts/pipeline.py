@@ -123,6 +123,18 @@ def _process_block(
     chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO # Tiempo de inicio del chunk en segundos desde el inicio del archivo
     chunk_duration_sec = metadata["actual_chunk_size"] * config.TIME_RESO # Duración del chunk en segundos
     
+    # =============================================================================
+    # LOGGING INFORMATIVO DETALLADO DEL CHUNK
+    # =============================================================================
+    logger.info(
+        f"INICIANDO CHUNK {chunk_idx:03d}:\n"
+        f"   • Muestras en chunk: {metadata['actual_chunk_size']:,} / {metadata['total_samples']:,} totales\n"
+        f"   • Rango de muestras: [{metadata['start_sample']:,} → {metadata['end_sample']:,}]\n"
+        f"   • Tiempo absoluto: {chunk_start_time_sec:.3f}s → {chunk_start_time_sec + chunk_duration_sec:.3f}s\n"
+        f"   • Duración del chunk: {chunk_duration_sec:.2f}s\n"
+        f"   • Progreso del archivo: {(metadata['start_sample'] / metadata['total_samples']) * 100:.1f}%"
+    )
+    
     logger.info(f"Chunk {chunk_idx:03d}: Tiempo {chunk_start_time_sec:.2f}s - {chunk_start_time_sec + chunk_duration_sec:.2f}s "
                f"(duración: {chunk_duration_sec:.2f}s)")
     
@@ -174,24 +186,93 @@ def _process_block(
             start_idx = slice_len * j # Índice de inicio del slice
             end_idx = slice_len * (j + 1) # Índice de fin del slice
 
+            # =============================================================================
+            # LOGGING INFORMATIVO DETALLADO PARA AJUSTES Y SALTOS
+            # =============================================================================
+            
+            # Información base del slice
+            slice_info = {
+                'slice_idx': j,
+                'slice_len': slice_len,
+                'start_idx': start_idx,
+                'end_idx_calculado': end_idx,
+                'block_shape': block.shape[0],
+                'chunk_idx': chunk_idx,
+                'tiempo_absoluto_inicio': chunk_start_time_sec + (j * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE),
+                'duracion_slice_esperada_ms': slice_len * config.TIME_RESO * config.DOWN_TIME_RATE * 1000
+            }
+
             # Verificar que no excedemos los límites del bloque
             if start_idx >= block.shape[0]: # Si el índice de inicio es mayor o igual al tamaño del bloque
-                logger.warning(f"Slice {j}: start_idx ({start_idx}) >= block.shape[0] ({block.shape[0]}), saltando...")
+                logger.warning(
+                    f"SALTANDO SLICE {j} (chunk {chunk_idx}):\n"
+                    f"   • start_idx ({start_idx}) >= block.shape[0] ({block.shape[0]})\n"
+                    f"   • Slice fuera de límites - no hay datos que procesar\n"
+                    f"   • Tiempo absoluto: {slice_info['tiempo_absoluto_inicio']:.3f}s\n"
+                    f"   • Duración esperada: {slice_info['duracion_slice_esperada_ms']:.1f}ms\n"
+                    f"   • Datos disponibles en bloque: {block.shape[0]} muestras\n"
+                    f"   • Razón: El slice empieza después del final del bloque"
+                )
                 continue
 
             if end_idx > block.shape[0]: # Si el índice de fin es mayor al tamaño del bloque
-                logger.warning(f"Slice {j}: end_idx ({end_idx}) > block.shape[0] ({block.shape[0]}), ajustando...")
+                # Calcular información antes del ajuste
+                muestras_esperadas = end_idx - start_idx
+                muestras_disponibles = block.shape[0] - start_idx
+                porcentaje_ajuste = ((end_idx - block.shape[0]) / (end_idx - start_idx)) * 100
+                
+                logger.warning(
+                    f"AJUSTANDO SLICE {j} (chunk {chunk_idx}):\n"
+                    f"   • end_idx calculado ({end_idx}) > block.shape[0] ({block.shape[0]})\n"
+                    f"   • Muestras esperadas: {muestras_esperadas}\n"
+                    f"   • Muestras disponibles: {muestras_disponibles}\n"
+                    f"   • Ajuste necesario: {end_idx - block.shape[0]} muestras ({porcentaje_ajuste:.1f}%)\n"
+                    f"   • Tiempo absoluto: {slice_info['tiempo_absoluto_inicio']:.3f}s\n"
+                    f"   • Duración esperada: {slice_info['duracion_slice_esperada_ms']:.1f}ms\n"
+                    f"   • Razón: Último slice del chunk con datos residuales"
+                )
+                
                 end_idx = block.shape[0] # Ajustar el índice de fin al tamaño del bloque
+                
                 # Si el slice es muy pequeño, saltarlo
                 if end_idx - start_idx < slice_len // 2:
-                    logger.warning(f"Slice {j}: muy pequeño ({end_idx - start_idx} muestras), saltando...")
+                    logger.warning(
+                        f"SALTANDO SLICE {j} (chunk {chunk_idx}) - MUY PEQUEÑO:\n"
+                        f"   • Tamaño después del ajuste: {end_idx - start_idx} muestras\n"
+                        f"   • Tamaño mínimo requerido: {slice_len // 2} muestras\n"
+                        f"   • Porcentaje del tamaño esperado: {((end_idx - start_idx) / slice_len) * 100:.1f}%\n"
+                        f"   • Tiempo absoluto: {slice_info['tiempo_absoluto_inicio']:.3f}s\n"
+                        f"   • Razón: Slice demasiado pequeño para procesamiento efectivo"
+                    )
                     continue
 
+            # =============================================================================
+            # PROCESAMIENTO DEL SLICE
+            # =============================================================================
+            
             slice_cube = dm_time[:, :, start_idx : end_idx] # Cubo DM-time para este slice
             waterfall_block = block[start_idx : end_idx] # Bloque de datos para este slice
 
+            # Log informativo del slice que se va a procesar
+            slice_tiempo_real_ms = (end_idx - start_idx) * config.TIME_RESO * config.DOWN_TIME_RATE * 1000
+            logger.info(
+                f"PROCESANDO SLICE {j} (chunk {chunk_idx}):\n"
+                f"   • Rango de muestras: [{start_idx} → {end_idx}] ({end_idx - start_idx} muestras)\n"
+                f"   • Tiempo absoluto: {slice_info['tiempo_absoluto_inicio']:.3f}s\n"
+                f"   • Duración real: {slice_tiempo_real_ms:.1f}ms\n"
+                f"   • Shape del slice: {slice_cube.shape}\n"
+                f"   • Datos del waterfall: {waterfall_block.shape}"
+            )
+
             if slice_cube.size == 0 or waterfall_block.size == 0: # Si el cubo o el bloque están vacíos
-                logger.warning(f"Slice {j}: datos vacíos, saltando...")
+                logger.warning(
+                    f"SALTANDO SLICE {j} (chunk {chunk_idx}) - DATOS VACÍOS:\n"
+                    f"   • slice_cube.size: {slice_cube.size}\n"
+                    f"   • waterfall_block.size: {waterfall_block.size}\n"
+                    f"   • Rango de muestras: [{start_idx} → {end_idx}]\n"
+                    f"   • Tiempo absoluto: {slice_info['tiempo_absoluto_inicio']:.3f}s\n"
+                    f"   • Razón: No hay datos útiles para procesar"
+                )
                 continue
 
             # Calcular tiempo absoluto para este slice específico

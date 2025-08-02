@@ -308,8 +308,9 @@ def process_slice(
     if global_logger:
         global_logger.logger.debug(f"{Colors.OKCYAN} Creando waterfall dispersado para slice {j}{Colors.ENDC}")
     
-    waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
+    # Crear carpeta de waterfall dispersado solo si hay datos para procesar
     if waterfall_block.size > 0:
+        waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
         plot_waterfall_block(
             data_block=waterfall_block, # Bloque de datos
             freq=freq_down, # Frecuencia
@@ -430,6 +431,7 @@ def process_slice(
                 detections_dir=detections_dir,
                 out_img_path=out_img_path,
                 absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
+                chunk_idx=chunk_idx,  # PASAR CHUNK_ID
             )
         else:
             # Mensaje cuando no hay candidatos

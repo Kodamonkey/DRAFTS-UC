@@ -72,8 +72,8 @@ DM_RANGE_MAX_WIDTH: float = 300.0           # Ancho máximo del rango DM en pc c
 
 # Configuraciones de plots estéticas (sistema)
 DM_PLOT_MARGIN_FACTOR: float = 0.25         # Margen adicional para evitar bordes (25%)
-DM_PLOT_MIN_RANGE: float = 120.0            # Rango mínimo del plot en pc cm⁻³
-DM_PLOT_MAX_RANGE: float = 400.0            # Rango máximo del plot en pc cm⁻³
+DM_PLOT_MIN_RANGE: float = 0.0            # Rango mínimo del plot en pc cm⁻³
+DM_PLOT_MAX_RANGE: float = 1024.0            # Rango máximo del plot en pc cm⁻³
 DM_PLOT_DEFAULT_RANGE: float = 250.0        # Rango por defecto sin candidatos
 DM_RANGE_DEFAULT_VISUALIZATION: str = "detailed"  # Tipo de visualización por defecto
 

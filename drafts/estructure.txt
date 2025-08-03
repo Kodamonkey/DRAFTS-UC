@@ -1,0 +1,63 @@
+drafts/
+├── __init__.py
+├── config.py                    # ⚙️ CONFIGURACIÓN
+├── main_pipeline.py            # �� ENTRADA PRINCIPAL
+│
+├── data_loading/             # �� PASO 1: CARGAR DATOS
+│    ├── __init__.py              # 🎯 Punto de entrada principal
+│    ├── fits_loader.py           # 📊 Cargar archivos FITS
+│    ├── fil_loader.py            # 📊 Cargar archivos FIL  
+│    ├── data_validator.py        # ✅ Validar datos cargados
+│    ├── metadata_extractor.py    # 📋 Extraer metadatos de archivos
+│    ├── stream_processor.py      # 🔄 Procesamiento en chunks/streaming
+│    ├── header_parser.py         # Parsing de headers específicos
+│    ├── data_preprocessor.py     # 🔧 Preprocesamiento básico
+│    └── format_detector.py       # 🔍 Detección automática de formatos
+│
+├── preprocessing/            # 🔧 PASO 2: PREPROCESAR DATOS
+│   ├── __init__.py
+│   ├── downsampling.py         # Reducir resolución de datos
+│   ├── dedispersion.py         # Aplicar dedispersión
+│   ├── dm_calculator.py        # Calcular rangos DM
+│   └── slice_calculator.py     # Calcular tamaño de slices
+│
+├── detection/                # �� PASO 3: DETECTAR CANDIDATOS
+│   ├── __init__.py
+│   ├── model_loader.py         # Cargar modelos de ML
+│   ├── candidate_detector.py   # Detectar candidatos
+│   ├── candidate_classifier.py # Clasificar candidatos
+│   └── snr_analyzer.py         # Analizar SNR
+│
+├── analysis/                 # 📊 PASO 4: ANALIZAR RESULTADOS
+│   ├── __init__.py
+│   ├── candidate_analyzer.py   # Analizar candidatos
+│   ├── statistics_calculator.py # Calcular estadísticas
+│   └── quality_assessor.py     # Evaluar calidad
+│
+├── visualization/            # 📈 PASO 5: CREAR VISUALIZACIONES
+│   ├── __init__.py
+│   ├── waterfall_plotter.py    # Crear plots de waterfall
+│   ├── candidate_plotter.py    # Crear plots de candidatos
+│   ├── summary_plotter.py      # Crear plots de resumen
+│   └── patch_plotter.py        # Crear plots de patches
+│
+├── output/                   # 💾 PASO 6: GUARDAR RESULTADOS
+│   ├── __init__.py
+│   ├── csv_writer.py           # Escribir archivos CSV
+│   ├── summary_writer.py       # Escribir resúmenes
+│   ├── plot_saver.py           # Guardar plots
+│   └── results_organizer.py    # Organizar resultados
+│
+├── shared/                     # 🔄 COMPARTIDO ENTRE PASOS
+│   ├── __init__.py
+│   ├── data_structures.py      # Estructuras de datos (Candidate, etc.)
+│   ├── logging_system.py       # Sistema de logging
+│   ├── memory_manager.py       # Gestión de memoria
+│   └── error_handler.py        # Manejo de errores
+│
+└── utils/                      # 🛠️ HERRAMIENTAS AUXILIARES
+    ├── __init__.py
+    ├── file_utils.py           # Utilidades de archivos
+    ├── math_utils.py           # Utilidades matemáticas
+    ├── time_utils.py           # Utilidades de tiempo
+    └── validation_utils.py     # Utilidades de validación

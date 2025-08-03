@@ -140,7 +140,7 @@ def _process_block(
     
     try:
         # Aplicar downsampling al bloque
-        from .preprocessing.data_downsampler import downsample_data # Importar la función de downsampling
+        from .preprocessing import downsample_data # Importar la función de downsampling
         block = downsample_data(block) # Aplica downsampling según la configuración 
         
         # Calcular parámetros para este bloque

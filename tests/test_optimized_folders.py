@@ -19,8 +19,12 @@ from drafts.logging.logging_config import setup_logging
 def test_optimized_folders():
     """Prueba que las carpetas solo se crean cuando hay candidatos."""
     
-    # Configurar logging
-    logger = setup_logging(level="INFO")
+    # Configurar logging usando configuraciones del sistema
+    try:
+        from drafts.config import LOG_LEVEL, LOG_COLORS
+        logger = setup_logging(level=LOG_LEVEL, use_colors=LOG_COLORS)
+    except ImportError:
+        logger = setup_logging(level="INFO")
     
     print("🧪 PRUEBA: Optimización de Carpetas")
     print("=" * 50)

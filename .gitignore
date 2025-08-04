@@ -1,7 +1,7 @@
 venv_drafts/
 Data/
-docs/
-legacy/
+#docs/
+#legacy/
 models/
 Results/
 

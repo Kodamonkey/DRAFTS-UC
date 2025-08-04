@@ -176,17 +176,17 @@ def plot_waterfall_block(
         se usa en lugar del cálculo relativo para mostrar tiempos reales del archivo.
     """
 
-    block = data_block.copy() if normalize else data_block
+    block = data_block.copy() if normalize else data_block 
     if normalize:
-        block += 1
-        block /= np.mean(block, axis=0)
+        block += 1 
+        block /= np.mean(block, axis=0) 
         vmin, vmax = np.nanpercentile(block, [5, 95])
         block = np.clip(block, vmin, vmax)
         block = (block - block.min()) / (block.max() - block.min())
 
-    profile = block.mean(axis=1)
+    profile = block.mean(axis=1) 
     
-    # 🕐 CORRECCIÓN: Usar tiempo absoluto si se proporciona, sino usar cálculo relativo
+    # Usar tiempo absoluto si se proporciona, sino usar cálculo relativo
     if absolute_start_time is not None:
         # absolute_start_time ya es el tiempo de inicio del slice específico
         # No necesitamos sumar block_idx * block_size * time_reso porque ya está incluido
@@ -241,7 +241,7 @@ def save_detection_plot(
     fits_stem: str,
     slice_len: Optional[int] = None,
     band_idx: int = 0,  # Para calcular el rango de frecuencias de la banda
-    absolute_start_time: Optional[float] = None,  # 🕐 NUEVO PARÁMETRO PARA TIEMPO ABSOLUTO
+    absolute_start_time: Optional[float] = None,  #TIEMPO ABSOLUTO
 ) -> None:
     """Save detection plot with both detection and classification probabilities."""
 
@@ -256,7 +256,7 @@ def save_detection_plot(
     n_time_ticks = 6
     time_positions = np.linspace(0, 512, n_time_ticks)
     
-    # 🕐 USAR TIEMPO ABSOLUTO SI SE PROPORCIONA
+    # USAR TIEMPO ABSOLUTO SI SE PROPORCIONA
     if absolute_start_time is not None:
         time_start_slice = absolute_start_time
     else:
@@ -483,8 +483,8 @@ def save_all_plots(
             off_regions=off_regions,
             thresh_snr=thresh_snr,
             band_idx=band_idx,
-            absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
-            chunk_idx=chunk_idx,  # 🆕 PASAR CHUNK_ID
+            absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
+            chunk_idx=chunk_idx,  # PASAR CHUNK_ID
         )
     
     # Patch plot - crear carpeta solo si hay patch para guardar
@@ -514,7 +514,7 @@ def save_all_plots(
             save_dir=waterfall_dedispersion_dir,
             filename=f"{fits_stem}_dm{first_dm:.2f}_{band_suffix}",
             normalize=normalize,
-            absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
+            absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
         )
     
     # Detections plot - crear carpeta solo si se va a generar

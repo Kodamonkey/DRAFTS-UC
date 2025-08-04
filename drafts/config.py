@@ -98,6 +98,17 @@ SNR_SHOW_PEAK_LINES: bool = False           # True = mostrar líneas rojas del S
 SNR_COLORMAP = "viridis"                    # Mapa de colores para waterfalls
 
 # =============================================================================
+# CONFIGURACIÓN DE LOGGING Y SISTEMA
+# =============================================================================
+
+# Configuración de logging
+LOG_LEVEL: str = "INFO"                     # Nivel de logging: DEBUG, INFO, WARNING, ERROR
+LOG_COLORS: bool = True                     # Usar colores en la consola
+LOG_FILE: bool = False                      # Guardar logs en archivo
+GPU_VERBOSE: bool = False                   # Mostrar mensajes detallados de GPU
+SHOW_PROGRESS: bool = True                  # Mostrar barras de progreso
+
+# =============================================================================
 # FUNCIONES DE CONFIGURACIÓN DE BANDAS
 # =============================================================================
 

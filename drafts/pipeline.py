@@ -641,8 +641,19 @@ def run_pipeline(chunk_samples: int = 0) -> None:
     """
     from .logging.logging_config import setup_logging, get_global_logger, set_global_logger
     
-    # Configurar logging
-    logger = setup_logging(level="INFO", use_colors=True)
+    # Configurar logging usando configuraciones del sistema
+    log_file = None
+    if config.LOG_FILE:
+        from pathlib import Path
+        log_dir = Path("./logs")
+        log_dir.mkdir(exist_ok=True)
+        log_file = log_dir / f"drafts_pipeline_{int(time.time())}.log"
+    
+    logger = setup_logging(
+        level=config.LOG_LEVEL, 
+        use_colors=config.LOG_COLORS,
+        log_file=log_file
+    )
     set_global_logger(logger)
     
     # Configuración del pipeline

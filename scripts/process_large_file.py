@@ -31,14 +31,26 @@ logger = logging.getLogger(__name__)
 
 def setup_logging(level: str = "INFO") -> None:
     """Setup logging configuration."""
-    logging.basicConfig(
-        level=getattr(logging, level.upper()),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler('chunking_process.log')
-        ]
-    )
+    try:
+        # Intentar usar el sistema de logging de DRAFTS
+        from drafts.logging.logging_config import setup_logging as drafts_setup_logging
+        from drafts.config import LOG_LEVEL, LOG_COLORS
+        
+        # Usar configuración del sistema si no se especifica nivel
+        if level == "INFO":
+            level = LOG_LEVEL
+        
+        drafts_setup_logging(level=level, use_colors=LOG_COLORS)
+    except ImportError:
+        # Fallback al logging básico si no se puede importar DRAFTS
+        logging.basicConfig(
+            level=getattr(logging, level.upper()),
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.StreamHandler(sys.stdout),
+                logging.FileHandler('chunking_process.log')
+            ]
+        )
 
 
 def get_memory_usage() -> float:

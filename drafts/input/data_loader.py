@@ -77,7 +77,7 @@ def load_fits_file(file_name: str) -> np.ndarray:
                 temp_data, h = fitsio.read(file_name, header=True)
                 if "DATA" in temp_data.dtype.names:
                     total_samples = _safe_int(h.get("NAXIS2", 1)) * _safe_int(h.get("NSBLK", 1))
-                    num_pols = _safe_int(h.get("NPOL", 2))
+                    num_pols = _safe_int(h.get("NPOL", 2)) 
                     num_chans = _safe_int(h.get("NCHAN", 512))
                     if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
                         # Mensaje detallado explicando el problema
@@ -220,88 +220,6 @@ def load_fits_file(file_name: str) -> np.ndarray:
     
     return data_array
 
-
-# =============================================================================
-# EJEMPLOS DE MENSAJES DE ERROR INFORMATIVOS
-# =============================================================================
-"""
-PATRÓN GENERAL PARA MENSAJES DE ERROR INFORMATIVOS:
-
-1. ERRORES DE VALIDACIÓN:
-   try:
-       if valor <= 0:
-           raise ValueError(
-               f"Valor inválido: {valor}\n"
-               f"  → El valor debe ser > 0 para funcionar correctamente\n"
-               f"  → Este valor se usa para calcular {contexto}\n"
-               f"  → Recomendación: Verificar el origen de los datos"
-           )
-   except ValueError as e:
-       logger.error("Error de validación detectado")
-       logger.error("Detalles:")
-       for line in str(e).split('\n'):
-           if line.strip():
-               logger.error("  %s", line.strip())
-
-2. ERRORES DE ARCHIVO:
-   try:
-       with open(archivo) as f:
-           datos = f.read()
-   except FileNotFoundError:
-       raise FileNotFoundError(
-           f"Archivo no encontrado: {archivo}\n"
-           f"  → El archivo no existe en la ruta especificada\n"
-           f"  → Verificar que la ruta sea correcta\n"
-           f"  → Recomendación: Verificar la existencia del archivo"
-       )
-   except PermissionError:
-       raise PermissionError(
-           f"Sin permisos para acceder: {archivo}\n"
-           f"  → No tienes permisos de lectura en este archivo\n"
-           f"  → Verificar permisos del sistema\n"
-           f"  → Recomendación: Ejecutar con permisos adecuados"
-       )
-
-3. ERRORES DE CONFIGURACIÓN:
-   if not config_valida:
-       raise ValueError(
-           f"Configuración inválida en {seccion}\n"
-           f"  → {parametro} = {valor} no es válido\n"
-           f"  → Valores permitidos: {valores_permitidos}\n"
-           f"  → Recomendación: Corregir la configuración"
-       )
-
-4. ERRORES DE MEMORIA:
-   try:
-       array_grande = np.zeros((1000000, 1000000))
-   except MemoryError:
-       raise MemoryError(
-           f"Memoria insuficiente para operación\n"
-           f"  → Se requieren {memoria_necesaria} GB\n"
-           f"  → Memoria disponible: {memoria_disponible} GB\n"
-           f"  → Recomendación: Reducir el tamaño de los datos o liberar memoria"
-       )
-
-5. ERRORES DE RED:
-   try:
-       response = requests.get(url, timeout=10)
-   except requests.Timeout:
-       raise requests.Timeout(
-           f"Timeout al conectar con {url}\n"
-           f"  → La conexión tardó más de 10 segundos\n"
-           f"  → Verificar conectividad de red\n"
-           f"  → Recomendación: Verificar conexión o aumentar timeout"
-       )
-
-BENEFICIOS DE ESTE ENFOQUE:
-- El usuario entiende QUÉ pasó
-- El usuario entiende POR QUÉ pasó
-- El usuario sabe QUÉ hacer para solucionarlo
-- Facilita el debugging y soporte técnico
-- Mejora la experiencia del usuario
-"""
-
-
 def get_obparams(file_name: str) -> None:
     """Extract observation parameters and populate :mod:`config`."""
     
@@ -382,11 +300,11 @@ def get_obparams(file_name: str) -> None:
                 if bw < 0:
                     freq_axis_inverted = True
                     if config.DEBUG_FREQUENCY_ORDER:
-                        print(f"[DEBUG HEADER]   ⚠️ CHAN_BW negativo - frecuencias invertidas!")
+                        print(f"[DEBUG HEADER] CHAN_BW negativo - frecuencias invertidas!")
             elif len(freq_temp) > 1 and freq_temp[0] > freq_temp[-1]:
                 freq_axis_inverted = True
                 if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"[DEBUG HEADER]   ⚠️ Frecuencias detectadas en orden descendente!")
+                    print(f"[DEBUG HEADER] Frecuencias detectadas en orden descendente!")
         else:
             # DEBUG: Procesando formato FITS estándar
             if config.DEBUG_FREQUENCY_ORDER:
@@ -474,10 +392,10 @@ def get_obparams(file_name: str) -> None:
                         if cdelt < 0:
                             freq_axis_inverted = True
                             if config.DEBUG_FREQUENCY_ORDER:
-                                print(f"[DEBUG HEADER]   ⚠️ CDELT negativo - frecuencias invertidas!")
+                                print(f"[DEBUG HEADER]   CDELT negativo - frecuencias invertidas!")
                     else:
                         if config.DEBUG_FREQUENCY_ORDER:
-                            print(f"[DEBUG HEADER] ⚠️ Usando frecuencias por defecto: 1000-1500 MHz")
+                            print(f"[DEBUG HEADER] Usando frecuencias por defecto: 1000-1500 MHz")
                         freq_temp = np.linspace(1000, 1500, hdr.get('NCHAN', 512))
                 
                 # Convertir a tipos numéricos para evitar errores de comparación

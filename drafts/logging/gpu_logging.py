@@ -13,12 +13,19 @@ from contextlib import contextmanager
 logger = logging.getLogger(__name__)
 
 # Configuración global para mensajes GPU
-GPU_VERBOSE = False  # Controla si mostrar mensajes detallados de GPU
+# Se obtiene desde config.py para mantener consistencia
+def get_gpu_verbose():
+    """Obtiene la configuración GPU_VERBOSE desde config.py."""
+    try:
+        from ..config import GPU_VERBOSE
+        return GPU_VERBOSE
+    except ImportError:
+        return False  # Valor por defecto si no se puede importar
 
 def set_gpu_verbose(verbose: bool = False):
     """Configura si mostrar mensajes detallados de GPU."""
-    global GPU_VERBOSE
-    GPU_VERBOSE = verbose
+    # Esta función se mantiene por compatibilidad, pero ahora usa config.py
+    pass  # La configuración se maneja directamente en config.py
 
 @contextmanager
 def gpu_context(operation: str, suppress_messages: bool = True):
@@ -63,7 +70,7 @@ def log_gpu_operation(operation: str, success: bool = True, details: Optional[st
         
         if success:
             global_logger.gpu_info(f"{operation}")
-            if GPU_VERBOSE and details:
+            if get_gpu_verbose() and details:
                 global_logger.gpu_info(f"{details}", level="DEBUG")
         else:
             global_logger.gpu_info(f"{operation}", level="ERROR")
@@ -82,7 +89,7 @@ def log_gpu_memory_operation(operation: str, bytes_allocated: int = 0):
         operation: Tipo de operación ('alloc', 'free', 'init')
         bytes_allocated: Bytes involucrados
     """
-    if not GPU_VERBOSE:
+    if not get_gpu_verbose():
         return
     
     try:
@@ -139,4 +146,4 @@ def filter_cuda_messages(message: str) -> bool:
         return False
     
     # Por defecto, mostrar solo si GPU_VERBOSE está activado
-    return GPU_VERBOSE 
+    return get_gpu_verbose() 

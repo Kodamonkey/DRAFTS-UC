@@ -451,16 +451,37 @@ def save_all_plots(
     detections_dir,
     out_img_path,
     absolute_start_time=None,
-    chunk_idx=None  # PARÁMETRO PARA CHUNK
+    chunk_idx=None,  # PARÁMETRO PARA CHUNK
+    config=None  # PARÁMETRO PARA ACCEDER A LAS FLAGS DE CONFIGURACIÓN
 ):
     """Guarda todos los plots con tiempo absoluto para continuidad temporal.
     
     Args:
         absolute_start_time: Tiempo absoluto de inicio del slice en segundos desde el inicio del archivo
+        config: Módulo de configuración para acceder a las flags de visualización
     """
+    # Importar configuración si no se proporciona
+    if config is None:
+        try:
+            from .. import config as config_module
+            config = config_module
+        except ImportError:
+            # Fallback: crear plots solo si hay candidatos (comportamiento original)
+            config = type('Config', (), {
+                'ALWAYS_CREATE_COMPOSITE': False,
+                'ALWAYS_CREATE_DETECTIONS': False,
+                'ALWAYS_CREATE_WATERFALL_DEDISP': False
+            })()
+    
+    # Determinar si hay candidatos para lógica condicional
+    # Convertir a listas si son arrays numpy para evitar errores de comparación
+    top_conf_list = list(top_conf) if hasattr(top_conf, '__iter__') else []
+    top_boxes_list = list(top_boxes) if hasattr(top_boxes, '__iter__') else []
+    has_candidates = len(top_conf_list) > 0 and len(top_boxes_list) > 0
+    
     # Crear carpetas solo cuando se van a generar plots
-    # Composite plot - crear carpeta solo si se va a generar
-    if comp_path is not None:
+    # Composite plot - crear si hay candidatos O si está habilitado crear siempre
+    if comp_path is not None and (has_candidates or config.ALWAYS_CREATE_COMPOSITE):
         comp_path.parent.mkdir(parents=True, exist_ok=True)
         save_slice_summary(
             waterfall_block,
@@ -469,8 +490,8 @@ def save_all_plots(
             first_patch,
             first_start if first_start is not None else 0.0,
             first_dm if first_dm is not None else 0.0,
-            top_conf if len(top_conf) > 0 else [],
-            top_boxes if len(top_boxes) > 0 else [],
+            top_conf_list if len(top_conf_list) > 0 else [],
+            top_boxes_list if len(top_boxes_list) > 0 else [],
             class_probs_list,
             comp_path,
             j,
@@ -502,8 +523,8 @@ def save_all_plots(
             band_name=band_name,
         )
     
-    # Waterfall dedispersed - crear carpeta solo si hay datos dedispersados
-    if dedisp_block is not None and dedisp_block.size > 0:
+    # Waterfall dedispersed - crear si hay datos dedispersados O si está habilitado crear siempre
+    if dedisp_block is not None and dedisp_block.size > 0 and (has_candidates or config.ALWAYS_CREATE_WATERFALL_DEDISP):
         waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
         plot_waterfall_block(
             data_block=dedisp_block,
@@ -517,13 +538,13 @@ def save_all_plots(
             absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
         )
     
-    # Detections plot - crear carpeta solo si se va a generar
-    if out_img_path is not None:
+    # Detections plot - crear si hay candidatos O si está habilitado crear siempre
+    if out_img_path is not None and (has_candidates or config.ALWAYS_CREATE_DETECTIONS):
         out_img_path.parent.mkdir(parents=True, exist_ok=True)
         save_plot(
             img_rgb,
-            top_conf if len(top_conf) > 0 else [],
-            top_boxes if len(top_boxes) > 0 else [],
+            top_conf_list if len(top_conf_list) > 0 else [],
+            top_boxes_list if len(top_boxes_list) > 0 else [],
             class_probs_list,
             out_img_path,
             j,
@@ -1262,10 +1283,10 @@ def save_slice_summary(
     if patch_img is not None and patch_img.size > 0:
         # DEBUG: Verificar candidate patch
         if config.DEBUG_FREQUENCY_ORDER:
-            print(f"🔍 [DEBUG PATCH] Candidate patch shape: {patch_img.shape}")
-            print(f"🔍 [DEBUG PATCH] Transpose para imshow: {patch_img.T.shape}")
-            print(f"🔍 [DEBUG PATCH] .T[0, :] (primera freq) primeras 5 muestras: {patch_img.T[0, :5]}")
-            print(f"🔍 [DEBUG PATCH] .T[-1, :] (última freq) primeras 5 muestras: {patch_img.T[-1, :5]}")
+            print(f"[DEBUG PATCH] Candidate patch shape: {patch_img.shape}")
+            print(f"[DEBUG PATCH] Transpose para imshow: {patch_img.T.shape}")
+            print(f"[DEBUG PATCH] .T[0, :] (primera freq) primeras 5 muestras: {patch_img.T[0, :5]}")
+            print(f"[DEBUG PATCH] .T[-1, :] (última freq) primeras 5 muestras: {patch_img.T[-1, :5]}")
         
         ax_patch.imshow(
             patch_img.T,

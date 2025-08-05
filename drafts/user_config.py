@@ -10,7 +10,7 @@ RESULTS_DIR = Path("./Results/ObjectDetection")      # Directorio para guardar r
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-    "2017-04-03-08-16-13_142_0003_t39.977"
+    "3100_0001_00_8bit"
 ]
 
 # =============================================================================
@@ -18,7 +18,7 @@ FRB_TARGETS = [
 # =============================================================================
 
 # Duración de cada slice temporal (milisegundos)
-SLICE_DURATION_MS: float = 300.0
+SLICE_DURATION_MS: float = 1000.0
 
 # =============================================================================
 # CONFIGURACIÓN DE DOWNSAMPLING
@@ -60,5 +60,17 @@ USE_MULTI_BAND: bool = False                # True = usar análisis multi-banda,
 # =============================================================================
 
 # Debug de frecuencias y archivos
-DEBUG_FREQUENCY_ORDER: bool = True        # True = mostrar información detallada de frecuencias y archivos
+DEBUG_FREQUENCY_ORDER: bool = False        # True = mostrar información detallada de frecuencias y archivos
                                             # False = modo silencioso (recomendado para procesamiento en lote)
+
+# =============================================================================
+# CONFIGURACIÓN DE VISUALIZACIÓN OBLIGATORIA
+# =============================================================================
+
+# Control de creación de plots independientemente de candidatos
+ALWAYS_CREATE_COMPOSITE: bool = True     # True = crear Composite Plot en cada slice (con o sin candidatos)
+ALWAYS_CREATE_DETECTIONS: bool = False    # True = crear Detection Plot en cada slice (con o sin candidatos)
+ALWAYS_CREATE_WATERFALL_DEDISP: bool = False  # True = crear Waterfall De-dispersed en cada slice (con o sin candidatos)
+
+# Nota: Si todas las flags están en False, solo se crean plots cuando hay candidatos detectados
+# Si alguna flag está en True, se creará el plot correspondiente en cada slice procesado

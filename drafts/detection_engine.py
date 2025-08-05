@@ -252,7 +252,7 @@ def process_band(
         "total_candidates": len(all_candidates),  # INFORMACIÓN ADICIONAL PARA DEBUG
     }
 
-def process_slice(
+def process_slice( 
     j,
     dm_time,
     block,
@@ -376,43 +376,77 @@ def process_slice(
         n_bursts += band_result["n_bursts"]
         n_no_bursts += band_result["n_no_bursts"]
         prob_max = max(prob_max, band_result["prob_max"])
-        if len(band_result["top_conf"]) > 0:
+        # Convertir a lista si es array numpy para evitar errores de comparación
+        top_conf_list = list(band_result["top_conf"]) if hasattr(band_result["top_conf"], '__iter__') else []
+        if len(top_conf_list) > 0:
             slice_has_candidates = True
 
         dedisp_block = None
 
-        if slice_has_candidates:
-            # Mensaje sobre candidatos encontrados en este slice
-            if global_logger:
+        # NUEVA LÓGICA: Determinar si se deben crear plots basado en flags de configuración
+        should_create_plots = (
+            slice_has_candidates or  # Crear si hay candidatos (comportamiento original)
+            config.ALWAYS_CREATE_COMPOSITE or  # O si está habilitado crear siempre Composite
+            config.ALWAYS_CREATE_DETECTIONS or  # O si está habilitado crear siempre Detections
+            config.ALWAYS_CREATE_WATERFALL_DEDISP  # O si está habilitado crear siempre Waterfall De-dispersed
+        )
+
+        if should_create_plots:
+            # Mensaje sobre candidatos encontrados en este slice (si los hay)
+            if slice_has_candidates and global_logger:
                 global_logger.slice_completed(j, cand_counter, n_bursts, n_no_bursts)
             
+            # Preparar datos para plots
             if band_result["first_patch"] is not None:
-                waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
-                start = j * slice_len
-                dedisp_block = dedisperse_block(block, freq_down, band_result["first_dm"], start, slice_len)
-                if global_logger:
-                    global_logger.creating_waterfall("dedispersado", j, band_result["first_dm"])
+                # Usar datos del candidato detectado
+                plot_patch = band_result["first_patch"]
+                plot_start = band_result["first_start"]
+                plot_dm = band_result["first_dm"]
+                plot_top_conf = band_result["top_conf"]
+                plot_top_boxes = band_result["top_boxes"]
+                plot_class_probs = band_result["class_probs_list"]
+                
+                # Crear waterfall de-dispersed si está habilitado o hay candidatos
+                if config.ALWAYS_CREATE_WATERFALL_DEDISP or slice_has_candidates:
+                    waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
+                    start = j * slice_len
+                    dedisp_block = dedisperse_block(block, freq_down, plot_dm, start, slice_len)
+                    if global_logger:
+                        global_logger.creating_waterfall("dedispersado", j, plot_dm)
             else:
-                waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
-                start = j * slice_len
-                dedisp_block = dedisperse_block(block, freq_down, 0.0, start, slice_len)
-                if global_logger:
-                    global_logger.creating_waterfall("dedispersado", j, 0.0)
+                # No hay candidatos, usar valores por defecto para plots obligatorios
+                plot_patch = None
+                plot_start = 0.0
+                plot_dm = 0.0
+                plot_top_conf = []
+                plot_top_boxes = []
+                plot_class_probs = []
+                
+                # Crear waterfall de-dispersed con DM=0 si está habilitado
+                if config.ALWAYS_CREATE_WATERFALL_DEDISP:
+                    waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
+                    start = j * slice_len
+                    dedisp_block = dedisperse_block(block, freq_down, 0.0, start, slice_len)
+                    if global_logger:
+                        global_logger.creating_waterfall("dedispersado", j, 0.0)
 
             # Mensaje sobre creación de plots
             if global_logger:
-                global_logger.generating_plots()
+                if slice_has_candidates:
+                    global_logger.generating_plots()
+                else:
+                    global_logger.logger.debug(f"{Colors.OKCYAN} Creando plots obligatorios para slice {j} (sin candidatos){Colors.ENDC}")
             
             save_all_plots(
                 waterfall_block,
                 dedisp_block,
                 band_result["img_rgb"],
-                band_result["first_patch"],
-                band_result["first_start"],
-                band_result["first_dm"],
-                band_result["top_conf"],
-                band_result["top_boxes"],
-                band_result["class_probs_list"],
+                plot_patch,
+                plot_start,
+                plot_dm,
+                plot_top_conf,
+                plot_top_boxes,
+                plot_class_probs,
                 comp_path,
                 j,
                 time_slice,
@@ -432,9 +466,10 @@ def process_slice(
                 out_img_path=out_img_path,
                 absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
                 chunk_idx=chunk_idx,  # PASAR CHUNK_ID
+                config=config,  # PASAR CONFIGURACIÓN PARA LAS FLAGS DE VISUALIZACIÓN
             )
         else:
-            # Mensaje cuando no hay candidatos
+            # Mensaje cuando no hay candidatos y no se requieren plots obligatorios
             if global_logger:
                 global_logger.logger.debug(f"{Colors.OKCYAN} Slice {j}: Sin candidatos detectados{Colors.ENDC}")
     

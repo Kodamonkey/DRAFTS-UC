@@ -303,7 +303,8 @@ def _process_block(
                 composite_dir=composite_dir,
                 detections_dir=detections_dir,
                 patches_dir=patches_dir,
-                chunk_idx=chunk_idx 
+                chunk_idx=chunk_idx,
+                force_plots=config.FORCE_PLOTS,
             )
 
             cand_counter += cands
@@ -594,7 +595,8 @@ def _process_file(
             chunk_idx=0,  # chunk_idx=0 para archivos no chunked
             composite_dir=composite_dir,  # pasar directorio composite
             detections_dir=detections_dir,  # pasar directorio detections
-            patches_dir=patches_dir  # pasar directorio patches
+            patches_dir=patches_dir,  # pasar directorio patches
+            force_plots=config.FORCE_PLOTS,
         )
         cand_counter += cands
         n_bursts += bursts

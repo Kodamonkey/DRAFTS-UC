@@ -274,6 +274,7 @@ def process_slice(
     detections_dir=None,
     patches_dir=None,
     chunk_idx=None,  #  ID del chunk
+    force_plots: bool = False,
 ):
     """Procesa un slice con tiempo absoluto para continuidad temporal entre chunks.
     
@@ -381,28 +382,18 @@ def process_slice(
 
         dedisp_block = None
 
-        if slice_has_candidates:
-            # Mensaje sobre candidatos encontrados en este slice
-            if global_logger:
+        if slice_has_candidates or force_plots:
+            if slice_has_candidates and global_logger:
                 global_logger.slice_completed(j, cand_counter, n_bursts, n_no_bursts)
-            
-            if band_result["first_patch"] is not None:
-                waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
-                start = j * slice_len
-                dedisp_block = dedisperse_block(block, freq_down, band_result["first_dm"], start, slice_len)
-                if global_logger:
-                    global_logger.creating_waterfall("dedispersado", j, band_result["first_dm"])
-            else:
-                waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
-                start = j * slice_len
-                dedisp_block = dedisperse_block(block, freq_down, 0.0, start, slice_len)
-                if global_logger:
-                    global_logger.creating_waterfall("dedispersado", j, 0.0)
 
-            # Mensaje sobre creación de plots
+            dm_to_use = band_result["first_dm"] if band_result["first_dm"] is not None else 0.0
+            waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
+            start = j * slice_len
+            dedisp_block = dedisperse_block(block, freq_down, dm_to_use, start, slice_len)
             if global_logger:
+                global_logger.creating_waterfall("dedispersado", j, dm_to_use)
                 global_logger.generating_plots()
-            
+
             save_all_plots(
                 waterfall_block,
                 dedisp_block,
@@ -432,9 +423,9 @@ def process_slice(
                 out_img_path=out_img_path,
                 absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
                 chunk_idx=chunk_idx,  # PASAR CHUNK_ID
+                force_plots=force_plots,
             )
         else:
-            # Mensaje cuando no hay candidatos
             if global_logger:
                 global_logger.logger.debug(f"{Colors.OKCYAN} Slice {j}: Sin candidatos detectados{Colors.ENDC}")
     

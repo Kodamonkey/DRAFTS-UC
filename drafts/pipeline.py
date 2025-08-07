@@ -42,7 +42,6 @@ from .output.summary_manager import (
 from .detection.model_interface import detect, classify_patch
 logger = logging.getLogger(__name__)
 
-
 def _optimize_memory(aggressive: bool = False) -> None:
     """Optimiza el uso de memoria del sistema.
     

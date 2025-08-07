@@ -1,9 +1,7 @@
 """Slice length calculator for FRB pipeline - dynamically calculates optimal temporal segmentation."""
 import logging
 from typing import Tuple, Optional
-import numpy as np
 import psutil
-import os
 
 from .. import config
 
@@ -46,114 +44,86 @@ def calculate_slice_len_from_duration() -> Tuple[int, float]:
     return slice_len, real_duration_ms
 
 
-def calculate_optimal_chunk_size() -> int:
-    """
-    Calcula el tamaño óptimo de chunk basado en SLICE_DURATION_MS y optimización de memoria.
-    
-    Estrategia:
-    1. Calcular cuántos slices caben en un chunk razonable (ej: 100-500 slices)
-    2. Considerar memoria disponible del sistema
-    3. Optimizar para evitar fragmentación de memoria
-    4. Asegurar que el chunk sea múltiplo del slice_len
-    
+def calculate_optimal_chunk_size(slice_len: Optional[int] = None) -> int:
+    """Determina cuántas muestras puede contener un chunk.
+
+    El cálculo se basa únicamente en la duración objetivo de cada slice y en la
+    memoria disponible del sistema. Si el archivo completo (tras la reducción en
+    frecuencia y tiempo) cabe en memoria, se procesa en un solo chunk. De lo
+    contrario se calcula el máximo número de muestras que ocupa como mucho el
+    25%% de la memoria disponible. El resultado siempre es múltiplo de
+    ``slice_len`` para que los slices encajen exactamente.
+
+    Args:
+        slice_len: Número de muestras de un slice. Si es ``None`` se calcula a
+            partir de :data:`config.SLICE_DURATION_MS`.
+
     Returns:
-        int: Tamaño óptimo de chunk en muestras
+        int: muestras por chunk.
     """
-    if config.TIME_RESO <= 0 or config.FILE_LENG <= 0:
+    if slice_len is None:
+        slice_len, _ = calculate_slice_len_from_duration()
+
+    if config.FILE_LENG <= 0 or config.FREQ_RESO <= 0 or config.TIME_RESO <= 0:
         logger.warning("Metadatos del archivo no disponibles, usando chunk por defecto")
-        return 2_097_152  # 2MB por defecto
-    
-    # Obtener slice_len actualizado
-    slice_len, _ = calculate_slice_len_from_duration()
-    
-    # Estrategia 1: Chunk que contenga ~200-300 slices (balance entre memoria y eficiencia)
-    target_slices_per_chunk = 250 # numero de slices por chunk
-    chunk_samples_from_slices = slice_len * target_slices_per_chunk # muestras por chunk segun numero de slices
-    
-    # Estrategia 2: Basado en duración de chunk (ej: 30-60 segundos)
-    target_chunk_duration_sec = 45.0  # duracion de chunk en segundos
-    chunk_samples_from_duration = int(target_chunk_duration_sec / (config.TIME_RESO * config.DOWN_TIME_RATE)) # muestras por chunk segun duracion
-    
-    # Estrategia 3: Basado en memoria disponible
-    try:
-        available_memory_gb = psutil.virtual_memory().available / (1024**3)
-        # Usar máximo 25% de memoria disponible para un chunk
-        max_memory_per_chunk_gb = available_memory_gb * 0.25 # memoria disponible por chunk
-        
-        # Estimar memoria por muestra (asumiendo float32 = 4 bytes)
-        bytes_per_sample = 4  # float32
-        max_samples_from_memory = int((max_memory_per_chunk_gb * 1024**3) / bytes_per_sample) # muestras por chunk segun memoria disponible
-        
-        # Ajustar por número de canales de frecuencia
-        if config.FREQ_RESO > 0:
-            max_samples_from_memory = max_samples_from_memory // config.FREQ_RESO
-        
-        chunk_samples_from_memory = max_samples_from_memory
-    except Exception as e:
-        logger.warning(f"No se pudo obtener información de memoria: {e}")
-        chunk_samples_from_memory = 10_000_000  # 10M muestras por defecto
-    
-    # Estrategia 4: Límites prácticos
-    min_chunk_samples = slice_len * 50   # Mínimo 50 slices por chunk
-    max_chunk_samples = slice_len * 1000 # Máximo 1000 slices por chunk
-    
-    # Seleccionar el valor más conservador (menor) entre las estrategias
-    candidate_chunk_sizes = [
-        chunk_samples_from_slices,
-        chunk_samples_from_duration,
-        chunk_samples_from_memory,
-        max_chunk_samples
-    ]
-    
-    # Filtrar valores válidos y seleccionar el menor
-    valid_chunk_sizes = [size for size in candidate_chunk_sizes if min_chunk_samples <= size <= max_chunk_samples]
-    
-    if not valid_chunk_sizes:
-        logger.warning("No se encontraron tamaños de chunk válidos, usando valor por defecto")
-        return slice_len * 200  # 200 slices por defecto
-    
-    optimal_chunk_size = min(valid_chunk_sizes)
-    
-    # Asegurar que sea múltiplo del slice_len para evitar fragmentación
-    slices_in_chunk = optimal_chunk_size // slice_len
-    optimal_chunk_size = slices_in_chunk * slice_len
-    
-    # Log informativo
-    chunk_duration_sec = optimal_chunk_size * config.TIME_RESO * config.DOWN_TIME_RATE
-    slices_per_chunk = optimal_chunk_size // slice_len
-    
-    logger.info(f"Chunk óptimo calculado: {optimal_chunk_size:,} muestras "
-                f"({chunk_duration_sec:.1f}s, {slices_per_chunk} slices)")
-    
-    return optimal_chunk_size
+        return slice_len * 200
+
+    total_samples = config.FILE_LENG // max(1, config.DOWN_TIME_RATE)
+    n_channels = max(1, config.FREQ_RESO // max(1, config.DOWN_FREQ_RATE))
+    bytes_per_sample = 4 * n_channels
+    available_bytes = psutil.virtual_memory().available
+    file_bytes = total_samples * bytes_per_sample
+
+    if file_bytes <= available_bytes * 0.8:
+        chunk_samples = total_samples
+    else:
+        max_samples = int((available_bytes * 0.25) / bytes_per_sample)
+        chunk_samples = max(slice_len, min(max_samples, total_samples))
+
+    chunk_samples = (chunk_samples // slice_len) * slice_len
+    if chunk_samples == 0:
+        chunk_samples = slice_len
+
+    chunk_duration_sec = chunk_samples * config.TIME_RESO * config.DOWN_TIME_RATE
+    slices_per_chunk = chunk_samples // slice_len
+    logger.info(
+        f"Chunk óptimo calculado: {chunk_samples:,} muestras "
+        f"({chunk_duration_sec:.1f}s, {slices_per_chunk} slices)"
+    )
+
+    return chunk_samples
 
 
 def get_processing_parameters() -> dict:
-    """
-    Calcula todos los parámetros de procesamiento basados en SLICE_DURATION_MS.
-    
+    """Calcula automáticamente todos los parámetros de chunking y slicing.
+
+    A partir de :data:`config.SLICE_DURATION_MS` se determina ``slice_len`` y el
+    número máximo de muestras que puede manejar un chunk sin agotar la memoria
+    disponible.  También se calculan el número total de chunks y slices y las
+    muestras residuales que no forman un slice completo.
+
     Returns:
-        dict: Diccionario con todos los parámetros calculados
+        dict: Parámetros de procesamiento calculados.
     """
-    # Calcular slice_len
     slice_len, real_duration_ms = calculate_slice_len_from_duration()
-    
-    # Calcular chunk_size óptimo
-    chunk_samples = calculate_optimal_chunk_size()
-    
-    # Calcular parámetros adicionales
+    chunk_samples = calculate_optimal_chunk_size(slice_len)
+
     if config.FILE_LENG > 0:
-        total_slices = (config.FILE_LENG + slice_len - 1) // slice_len
-        total_chunks = (config.FILE_LENG + chunk_samples - 1) // chunk_samples
+        total_samples = config.FILE_LENG // max(1, config.DOWN_TIME_RATE)
+        total_slices = total_samples // slice_len
+        leftover_samples = total_samples % slice_len
+        total_chunks = (total_samples + chunk_samples - 1) // chunk_samples
         total_duration_sec = config.FILE_LENG * config.TIME_RESO
     else:
+        total_samples = 0
         total_slices = 0
+        leftover_samples = 0
         total_chunks = 0
         total_duration_sec = 0
-    
+
     chunk_duration_sec = chunk_samples * config.TIME_RESO * config.DOWN_TIME_RATE
     slices_per_chunk = chunk_samples // slice_len
-    
+
     parameters = {
         'slice_len': slice_len,
         'slice_duration_ms': real_duration_ms,
@@ -163,9 +133,15 @@ def get_processing_parameters() -> dict:
         'total_slices': total_slices,
         'total_chunks': total_chunks,
         'total_duration_sec': total_duration_sec,
+        'leftover_samples': leftover_samples,
         'memory_optimized': True
     }
-    
+
+    if leftover_samples > 0:
+        logger.info(
+            f"Último chunk tendrá {leftover_samples} muestras sin completar un slice"
+        )
+
     return parameters
 
 
@@ -224,6 +200,12 @@ def validate_processing_parameters(parameters: dict) -> bool:
     
     if parameters['slices_per_chunk'] > 2000:
         errors.append(f"slices_per_chunk ({parameters['slices_per_chunk']}) muy grande")
+
+    leftover = parameters.get('leftover_samples', 0)
+    if leftover >= parameters['slice_len']:
+        errors.append(
+            f"leftover_samples ({leftover}) debería ser menor que slice_len ({parameters['slice_len']})"
+        )
     
     if errors:
         logger.error("Parámetros de procesamiento inválidos:")

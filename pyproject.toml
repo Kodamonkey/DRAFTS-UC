@@ -247,8 +247,8 @@ omit = [
     "*/__pycache__/*",
     "*/venv/*",
     "*/env/*",
-    "*/\.venv/*",
-    "*/\.env/*",
+    "*/.venv/*",
+    "*/.env/*",
     "*/evaluation/*",
     "*/legacy/*",
     "*/training/*",
@@ -301,51 +301,11 @@ templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
-intersphinx_mapping = {
-    "python": ("https://docs.python.org/3", None),
-    "numpy": ("https://numpy.org/doc/stable", None),
-    "scipy": ("https://docs.scipy.org/doc/scipy", None),
-    "matplotlib": ("https://matplotlib.org/stable", None),
-    "astropy": ("https://docs.astropy.org/en/stable", None),
-    "torch": ("https://pytorch.org/docs/stable", None),
-    "pandas": ("https://pandas.pydata.org/docs", None),
-}
+# intersphinx_mapping disabled
 
-[tool.pre-commit]
-repos = [
-    {
-        repo = "https://github.com/pre-commit/pre-commit-hooks",
-        rev = "v4.4.0",
-        hooks = [
-            {id = "trailing-whitespace"},
-            {id = "end-of-file-fixer"},
-            {id = "check-yaml"},
-            {id = "check-added-large-files"},
-            {id = "check-merge-conflict"},
-            {id = "check-case-conflict"},
-        ],
-    },
-    {
-        repo = "https://github.com/psf/black",
-        rev = "23.3.0",
-        hooks = [{id = "black"}],
-    },
-    {
-        repo = "https://github.com/pycqa/isort",
-        rev = "5.12.0",
-        hooks = [{id = "isort"}],
-    },
-    {
-        repo = "https://github.com/pycqa/flake8",
-        rev = "6.0.0",
-        hooks = [{id = "flake8"}],
-    },
-    {
-        repo = "https://github.com/pre-commit/mirrors-mypy",
-        rev = "v1.3.0",
-        hooks = [{id = "mypy"}],
-    },
-]
+
+# [tool.pre-commit] section removed
+
 
 [tool.ruff]
 target-version = "py38"

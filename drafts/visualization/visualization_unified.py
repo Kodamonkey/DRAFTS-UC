@@ -319,6 +319,19 @@ def save_detection_plot(
             verticalalignment="top",
             fontweight="bold",
         )
+    else:
+        # Mostrar información de debug cuando no hay detecciones
+        debug_info = "No detections found (debug mode)"
+        ax.text(
+            0.02,
+            0.98,
+            debug_info,
+            transform=ax.transAxes,
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.8),
+            fontsize=10,
+            verticalalignment="top",
+            fontweight="bold",
+        )
 
     tech_info = (
         f"Model: {config.MODEL_NAME.upper()}\n"
@@ -458,6 +471,7 @@ def save_all_plots(
     
     Args:
         absolute_start_time: Tiempo absoluto de inicio del slice en segundos desde el inicio del archivo
+        force_plots: Si True, genera todos los plots independientemente de si hay candidatos
     """
     # Crear carpetas solo cuando se van a generar plots
     # Composite plot - crear carpeta solo si se va a generar
@@ -484,14 +498,22 @@ def save_all_plots(
             off_regions=off_regions,
             thresh_snr=thresh_snr,
             band_idx=band_idx,
-            absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
-            chunk_idx=chunk_idx,  # 🆕 PASAR CHUNK_ID
+            absolute_start_time=absolute_start_time,  
+            chunk_idx=chunk_idx,  
         )
     
     # Patch plot - crear carpeta solo si hay patch o si se fuerza en modo debug
     if patch_path is not None and (first_patch is not None or force_plots):
         patch_path.parent.mkdir(parents=True, exist_ok=True)
-        patch_data = first_patch if first_patch is not None else np.zeros((10, 10))
+        # Si force_plots=True pero no hay patch, crear un patch vacío para debug
+        if first_patch is not None:
+            patch_data = first_patch
+        elif force_plots:
+            # Crear un patch de ejemplo para debug cuando no hay candidatos
+            patch_data = np.zeros((10, 10)) if waterfall_block is None else waterfall_block[:10, :10]
+        else:
+            patch_data = np.zeros((10, 10))
+        
         save_patch_plot(
             patch_data,
             patch_path,
@@ -504,20 +526,23 @@ def save_all_plots(
             band_name=band_name,
         )
     
-    # Waterfall dedispersed - crear carpeta solo si hay datos dedispersados
-    if dedisp_block is not None and dedisp_block.size > 0:
+    # Waterfall dedispersed - crear carpeta solo si hay datos dedispersados o si se fuerza
+    if (dedisp_block is not None and dedisp_block.size > 0) or force_plots:
         waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
-        plot_waterfall_block(
-            data_block=dedisp_block,
-            freq=freq_down,
-            time_reso=time_reso_ds,
-            block_size=dedisp_block.shape[0],
-            block_idx=j,
-            save_dir=waterfall_dedispersion_dir,
-            filename=f"{fits_stem}_dm{first_dm:.2f}_{band_suffix}",
-            normalize=normalize,
-            absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
-        )
+        # Si force_plots=True pero no hay dedisp_block, usar waterfall_block
+        plot_data = dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block
+        if plot_data is not None and plot_data.size > 0:
+            plot_waterfall_block(
+                data_block=plot_data,
+                freq=freq_down,
+                time_reso=time_reso_ds,
+                block_size=plot_data.shape[0],
+                block_idx=j,
+                save_dir=waterfall_dedispersion_dir,
+                filename=f"{fits_stem}_dm{first_dm:.2f}_{band_suffix}" if first_dm is not None else f"{fits_stem}_dm0.00_{band_suffix}",
+                normalize=normalize,
+                absolute_start_time=absolute_start_time,  
+            )
     
     # Detections plot - crear carpeta solo si se va a generar
     if out_img_path is not None:
@@ -751,7 +776,10 @@ def save_patch_plot(
     cbar.set_label('Normalized Intensity', fontsize=9, fontweight='bold')
 
     # Add title with band frequency range information
-    plt.suptitle(f"Candidate Patch - {band_name_with_freq}", fontsize=12, fontweight='bold')
+    title = f"Candidate Patch - {band_name_with_freq}"
+    if patch.size == 0 or np.all(patch == 0):
+        title += " (Debug - No Data)"
+    plt.suptitle(title, fontsize=12, fontweight='bold')
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=150, bbox_inches='tight')
@@ -820,7 +848,7 @@ def save_slice_summary(
         print(f"🔍 [DEBUG PLOTS] Composite summary para: {fits_stem}")
         print(f"🔍 [DEBUG PLOTS] Band: {band_name_with_freq}")
         print(f"🔍 [DEBUG PLOTS] freq_ds shape: {freq_ds.shape}")
-        print(f"🔍 [DEBUG PLOTS] freq_ds.min(): {freq_ds.min():.2f} MHz")
+        print(f"�� [DEBUG PLOTS] freq_ds.min(): {freq_ds.min():.2f} MHz")
         print(f"🔍 [DEBUG PLOTS] freq_ds.max(): {freq_ds.max():.2f} MHz")
         print(f"🔍 [DEBUG PLOTS] waterfall_block shape: {waterfall_block.shape if waterfall_block is not None else 'None'}")
         print(f"🔍 [DEBUG PLOTS] dedispersed_block shape: {dedispersed_block.shape if dedispersed_block is not None else 'None'}")
@@ -1062,7 +1090,6 @@ def save_slice_summary(
         n_freq_ticks = 6
         freq_tick_positions = np.linspace(freq_ds.min(), freq_ds.max(), n_freq_ticks)
         ax_wf.set_yticks(freq_tick_positions)
-        ax_wf.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
 
         n_time_ticks = 5
         time_tick_positions = np.linspace(slice_start_abs, slice_end_abs, n_time_ticks)
@@ -1117,6 +1144,9 @@ def save_slice_summary(
     else:
         dm_val_consistent = dm_val  # Fallback al valor original
         snr_val_candidate = 0.0
+        # Agregar información de debug cuando no hay candidatos
+        if config.FORCE_PLOTS:
+            logger.debug(f"🔍 [DEBUG] No candidatos detectados en slice {slice_idx}, pero force_plots=True")
     
     # Verificar si hay datos de waterfall dedispersado válidos
     if dw_block is not None and dw_block.size > 0:

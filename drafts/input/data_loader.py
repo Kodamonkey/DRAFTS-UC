@@ -574,14 +574,25 @@ def get_obparams(file_name: str) -> None:
         print(f"[DEBUG ARCHIVO]   - Umbrales: DET_PROB={config.DET_PROB}, CLASS_PROB={config.CLASS_PROB}, SNR_THRESH={config.SNR_THRESH}")
         print(f"[DEBUG ARCHIVO] " + "="*60)
 
-    if config.FREQ_RESO >= 512:
-        config.DOWN_FREQ_RATE = max(1, int(round(config.FREQ_RESO / 512)))
-    else:
-        config.DOWN_FREQ_RATE = 1
-    if config.TIME_RESO > 1e-9:
-        config.DOWN_TIME_RATE = max(1, int((49.152 * 16 / 1e6) / config.TIME_RESO))
-    else:
-        config.DOWN_TIME_RATE = 15
+    # RESPETAR CONFIGURACIONES DEL USUARIO - solo calcular automáticamente si no están configuradas
+    # Verificar si los valores fueron configurados por el usuario (no son los valores por defecto del sistema)
+    user_configured_freq = getattr(config, 'DOWN_FREQ_RATE', None)
+    user_configured_time = getattr(config, 'DOWN_TIME_RATE', None)
+    
+    # Solo calcular automáticamente si no están configurados o son valores por defecto del sistema
+    if user_configured_freq is None or user_configured_freq == 1:  # 1 es el valor por defecto del sistema
+        if config.FREQ_RESO >= 512:
+            config.DOWN_FREQ_RATE = max(1, int(round(config.FREQ_RESO / 512)))
+        else:
+            config.DOWN_FREQ_RATE = 1
+    
+    # Verificar si el usuario ha configurado explícitamente DOWN_TIME_RATE
+    # Solo calcular automáticamente si el valor no está configurado o es el valor por defecto del sistema
+    if user_configured_time is None:  # Solo calcular automáticamente si no está configurado
+        if config.TIME_RESO > 1e-9:
+            config.DOWN_TIME_RATE = max(1, int((49.152 * 16 / 1e6) / config.TIME_RESO))
+        else:
+            config.DOWN_TIME_RATE = 15
 
     # DEBUG: Configuración final de decimación
     if config.DEBUG_FREQUENCY_ORDER:
@@ -969,13 +980,20 @@ def get_obparams_fil(file_name: str) -> None:
     config.FILE_LENG = nsamples
 
     # RESPETAR CONFIGURACIONES DEL USUARIO - solo calcular automáticamente si no están configuradas
-    if not hasattr(config, 'DOWN_FREQ_RATE') or config.DOWN_FREQ_RATE is None:
+    # Verificar si los valores fueron configurados por el usuario (no son los valores por defecto del sistema)
+    user_configured_freq = getattr(config, 'DOWN_FREQ_RATE', None)
+    user_configured_time = getattr(config, 'DOWN_TIME_RATE', None)
+    
+    # Solo calcular automáticamente si no están configurados o son valores por defecto del sistema
+    if user_configured_freq is None or user_configured_freq == 1:  # 1 es el valor por defecto del sistema
         if config.FREQ_RESO >= 512:
             config.DOWN_FREQ_RATE = max(1, int(round(config.FREQ_RESO / 512)))
         else:
             config.DOWN_FREQ_RATE = 1
     
-    if not hasattr(config, 'DOWN_TIME_RATE') or config.DOWN_TIME_RATE is None:
+    # Verificar si el usuario ha configurado explícitamente DOWN_TIME_RATE
+    # Solo calcular automáticamente si el valor no está configurado o es el valor por defecto del sistema
+    if user_configured_time is None:  # Solo calcular automáticamente si no está configurado
         if config.TIME_RESO > 1e-9:
             config.DOWN_TIME_RATE = max(1, int((49.152 * 16 / 1e6) / config.TIME_RESO))
         else:

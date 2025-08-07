@@ -684,16 +684,14 @@ def run_pipeline(chunk_samples: int = 0) -> None:
             
             # CALCULAR PARÁMETROS DE PROCESAMIENTO AUTOMÁTICAMENTE
             from .preprocessing.slice_len_calculator import get_processing_parameters, validate_processing_parameters
+            from .logging.chunking_logging import display_detailed_chunking_info
             
             if chunk_samples == 0:  # Modo automático
                 processing_params = get_processing_parameters()
                 if validate_processing_parameters(processing_params):
                     chunk_samples = processing_params['chunk_samples']
-                    logger.logger.info(f"Parámetros calculados automáticamente:")
-                    logger.logger.info(f"   • Slice: {processing_params['slice_len']} muestras ({processing_params['slice_duration_ms']:.1f} ms)")
-                    logger.logger.info(f"   • Chunk: {chunk_samples:,} muestras ({processing_params['chunk_duration_sec']:.1f}s)")
-                    logger.logger.info(f"   • Slices por chunk: {processing_params['slices_per_chunk']}")
-                    logger.logger.info(f"   • Total estimado: {processing_params['total_chunks']} chunks, {processing_params['total_slices']} slices")
+                    # Mostrar información detallada del sistema de chunking
+                    display_detailed_chunking_info(processing_params)
                 else:
                     logger.logger.error("Parámetros calculados inválidos, usando valores por defecto")
                     chunk_samples = 2_097_152  # 2MB por defecto

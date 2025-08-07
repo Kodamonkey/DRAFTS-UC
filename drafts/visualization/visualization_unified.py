@@ -451,7 +451,8 @@ def save_all_plots(
     detections_dir,
     out_img_path,
     absolute_start_time=None,
-    chunk_idx=None  # PARÁMETRO PARA CHUNK
+    chunk_idx=None,  # PARÁMETRO PARA CHUNK
+    force_plots: bool = False,
 ):
     """Guarda todos los plots con tiempo absoluto para continuidad temporal.
     
@@ -487,15 +488,16 @@ def save_all_plots(
             chunk_idx=chunk_idx,  # 🆕 PASAR CHUNK_ID
         )
     
-    # Patch plot - crear carpeta solo si hay patch para guardar
-    if first_patch is not None and patch_path is not None:
+    # Patch plot - crear carpeta solo si hay patch o si se fuerza en modo debug
+    if patch_path is not None and (first_patch is not None or force_plots):
         patch_path.parent.mkdir(parents=True, exist_ok=True)
+        patch_data = first_patch if first_patch is not None else np.zeros((10, 10))
         save_patch_plot(
-            first_patch,
+            patch_data,
             patch_path,
             freq_down,
             time_reso_ds,
-            first_start,
+            first_start if first_start is not None else 0.0,
             off_regions=off_regions,
             thresh_snr=thresh_snr,
             band_idx=band_idx,

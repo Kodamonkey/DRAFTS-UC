@@ -108,39 +108,92 @@ def get_processing_parameters() -> dict:
     slice_len, real_duration_ms = calculate_slice_len_from_duration()
     chunk_samples = calculate_optimal_chunk_size(slice_len)
 
-    if config.FILE_LENG > 0:
-        total_samples = config.FILE_LENG // max(1, config.DOWN_TIME_RATE)
-        total_slices = total_samples // slice_len
-        leftover_samples = total_samples % slice_len
-        total_chunks = (total_samples + chunk_samples - 1) // chunk_samples
-        total_duration_sec = config.FILE_LENG * config.TIME_RESO
-    else:
-        total_samples = 0
-        total_slices = 0
-        leftover_samples = 0
-        total_chunks = 0
-        total_duration_sec = 0
-
-    chunk_duration_sec = chunk_samples * config.TIME_RESO * config.DOWN_TIME_RATE
+    # =============================================================================
+    # CÁLCULOS DETALLADOS DEL SISTEMA DE CHUNKING
+    # =============================================================================
+    
+    # Parámetros del archivo original
+    total_samples_original = config.FILE_LENG if config.FILE_LENG > 0 else 0
+    total_channels_original = config.FREQ_RESO if config.FREQ_RESO > 0 else 0
+    time_reso_original = config.TIME_RESO if config.TIME_RESO > 0 else 0.000064
+    
+    # Parámetros después del downsampling
+    down_time_rate = max(1, config.DOWN_TIME_RATE)
+    down_freq_rate = max(1, config.DOWN_FREQ_RATE)
+    total_samples_downsampled = total_samples_original // down_time_rate
+    total_channels_downsampled = total_channels_original // down_freq_rate
+    time_reso_downsampled = time_reso_original * down_time_rate
+    
+    # Duración del archivo
+    total_duration_sec = total_samples_original * time_reso_original
+    total_duration_min = total_duration_sec / 60.0
+    
+    # Cálculos de slices
+    samples_per_slice = slice_len
     slices_per_chunk = chunk_samples // slice_len
-
+    total_slices = total_samples_downsampled // slice_len
+    leftover_samples = total_samples_downsampled % slice_len
+    
+    # Cálculos de chunks usando "regla de 3"
+    total_chunks = (total_samples_downsampled + chunk_samples - 1) // chunk_samples
+    chunk_duration_sec = chunk_samples * time_reso_downsampled
+    
+    # Estimación de RAM
+    bytes_per_sample = 4 * total_channels_downsampled  # float32
+    total_file_size_gb = (total_samples_downsampled * bytes_per_sample) / (1024**3)
+    chunk_size_gb = (chunk_samples * bytes_per_sample) / (1024**3)
+    
+    # Memoria disponible
+    available_memory_gb = psutil.virtual_memory().available / (1024**3)
+    total_memory_gb = psutil.virtual_memory().total / (1024**3)
+    
+    # Verificar si el archivo completo cabe en RAM
+    can_load_full_file = total_file_size_gb <= available_memory_gb * 0.8
+    
     parameters = {
+        # Parámetros del usuario
+        'slice_duration_ms_target': config.SLICE_DURATION_MS,
+        'down_time_rate': down_time_rate,
+        'down_freq_rate': down_freq_rate,
+        
+        # Parámetros del archivo original
+        'total_samples_original': total_samples_original,
+        'total_channels_original': total_channels_original,
+        'time_reso_original': time_reso_original,
+        'total_duration_sec': total_duration_sec,
+        'total_duration_min': total_duration_min,
+        
+        # Parámetros después del downsampling
+        'total_samples_downsampled': total_samples_downsampled,
+        'total_channels_downsampled': total_channels_downsampled,
+        'time_reso_downsampled': time_reso_downsampled,
+        
+        # Parámetros calculados
         'slice_len': slice_len,
-        'slice_duration_ms': real_duration_ms,
+        'slice_duration_ms_real': real_duration_ms,
+        'samples_per_slice': samples_per_slice,
         'chunk_samples': chunk_samples,
         'chunk_duration_sec': chunk_duration_sec,
         'slices_per_chunk': slices_per_chunk,
-        'total_slices': total_slices,
         'total_chunks': total_chunks,
-        'total_duration_sec': total_duration_sec,
+        'total_slices': total_slices,
         'leftover_samples': leftover_samples,
-        'memory_optimized': True
+        
+        # Información de memoria
+        'total_file_size_gb': total_file_size_gb,
+        'chunk_size_gb': chunk_size_gb,
+        'available_memory_gb': available_memory_gb,
+        'total_memory_gb': total_memory_gb,
+        'can_load_full_file': can_load_full_file,
+        
+        # Flags de estado
+        'memory_optimized': True,
+        'has_leftover_samples': leftover_samples > 0,
+        
+        # Backward compatibility - mantener las claves antiguas
+        'slice_duration_ms': real_duration_ms,  # Para compatibilidad con código existente
+        'total_duration_sec': total_duration_sec,  # Para compatibilidad con código existente
     }
-
-    if leftover_samples > 0:
-        logger.info(
-            f"Último chunk tendrá {leftover_samples} muestras sin completar un slice"
-        )
 
     return parameters
 
@@ -195,10 +248,10 @@ def validate_processing_parameters(parameters: dict) -> bool:
         errors.append(f"chunk_samples ({parameters['chunk_samples']}) muy grande")
     
     # Validar slices_per_chunk
-    if parameters['slices_per_chunk'] < 10:
+    if parameters['slices_per_chunk'] < 5:
         errors.append(f"slices_per_chunk ({parameters['slices_per_chunk']}) muy pequeño")
     
-    if parameters['slices_per_chunk'] > 2000:
+    if parameters['slices_per_chunk'] > 5000:  # Aumentado para permitir más downsampling
         errors.append(f"slices_per_chunk ({parameters['slices_per_chunk']}) muy grande")
 
     leftover = parameters.get('leftover_samples', 0)

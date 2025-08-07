@@ -64,7 +64,7 @@ DEBUG_FREQUENCY_ORDER: bool = False        # True = mostrar información detalla
                                            # False = modo silencioso (recomendado para procesamiento en lote)
 
 # Forzar generación de plots incluso sin candidatos (modo debug)
-FORCE_PLOTS: bool = False                  # True = siempre generar plots para inspección
+FORCE_PLOTS: bool = True                  # True = siempre generar plots para inspección
 
 # Configuración de logging
 LOG_LEVEL: str = "INFO"                     # Nivel de logging: DEBUG, INFO, WARNING, ERROR

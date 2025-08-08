@@ -119,8 +119,9 @@ def _process_block(
     
     # CALCULAR TIEMPO ABSOLUTO DESDE INICIO DEL ARCHIVO
     # Tiempo de inicio del chunk en segundos desde el inicio del archivo
-    chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO # Tiempo de inicio del chunk en segundos desde el inicio del archivo
-    chunk_duration_sec = metadata["actual_chunk_size"] * config.TIME_RESO # Duración del chunk en segundos
+    # CORRECCIÓN: Usar tiempo efectivo después del downsampling
+    chunk_start_time_sec = metadata["start_sample"] * (config.TIME_RESO * config.DOWN_TIME_RATE) # Tiempo de inicio del chunk en segundos desde el inicio del archivo
+    chunk_duration_sec = metadata["actual_chunk_size"] * (config.TIME_RESO * config.DOWN_TIME_RATE) # Duración del chunk en segundos
     
     # =============================================================================
     # LOGGING INFORMATIVO DETALLADO DEL CHUNK
@@ -281,9 +282,7 @@ def _process_block(
             file_folder_name = fits_path.stem
             chunk_folder_name = f"chunk{chunk_idx:03d}"
             
-            # Candidate CSV and waterfall folders (already chunked)
-            # csv_file = save_dir / f"{chunk_folder_name}.candidates.csv" # Moved outside _process_block
-            # ensure_csv_header(csv_file) # Moved outside _process_block
+
             waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / file_folder_name / chunk_folder_name
             waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / file_folder_name / chunk_folder_name
 

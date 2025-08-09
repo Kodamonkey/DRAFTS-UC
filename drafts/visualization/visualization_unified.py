@@ -270,7 +270,7 @@ def save_detection_plot(
     slice_duration_sec = slice_samples * config.TIME_RESO * config.DOWN_TIME_RATE
     time_values = time_start_slice + (time_positions / 512.0) * slice_duration_sec
     ax.set_xticks(time_positions)
-    ax.set_xticklabels([f"{t:.3f}" for t in time_values])
+    ax.set_xticklabels([f"{t:.6f}" for t in time_values])
     ax.set_xlabel("Time (s)", fontsize=12, fontweight="bold")
 
     # DM axis labels - AQUÍ ESTÁ LA INTEGRACIÓN DEL DM DINÁMICO
@@ -302,10 +302,13 @@ def save_detection_plot(
     else:
         dm_range_info += " (full)"
         
+    # Mostrar duración exacta del slice en el título (ms con alta precisión)
+    exact_slice_ms = slice_duration_sec * 1000.0
     title = (
         f"{fits_stem} - {band_name} ({freq_range})\n"
         f"Slice {slice_idx:03d}/{time_slice} | "
-        f"Time Resolution: {config.TIME_RESO * config.DOWN_TIME_RATE * 1e6:.1f} \u03bcs | "
+        f"Slice duration: {exact_slice_ms:.6f} ms | "
+        f"Time Resolution: {config.TIME_RESO * config.DOWN_TIME_RATE * 1e6:.3f} \u03bcs | "
         f"DM Range: {dm_range_info} pc cm⁻\u00b3"
     )
     ax.set_title(title, fontsize=11, fontweight="bold", pad=20)
@@ -420,7 +423,7 @@ def save_detection_plot(
         img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
         im_cb = ax_cb.imshow(img_gray, origin="lower", aspect="auto", cmap="mako")
         ax_cb.set_xticks(time_positions)
-        ax_cb.set_xticklabels([f"{t:.3f}" for t in time_values])
+        ax_cb.set_xticklabels([f"{t:.6f}" for t in time_values])
         ax_cb.set_xlabel("Time (s)", fontsize=12, fontweight="bold")
         ax_cb.set_yticks(dm_positions)
         ax_cb.set_yticklabels([f"{dm:.0f}" for dm in dm_values])
@@ -1023,7 +1026,13 @@ def save_slice_summary(
     else:
         dm_range_info += " (full)"
     
-    title_det = f"Detection Map - {fits_stem} ({band_name_with_freq})\nSlice {slice_idx:03d} of {time_slice} | DM Range: {dm_range_info} pc cm⁻³"
+    # Precisión: mostrar duración exacta del slice considerando los índices reales usados
+    exact_slice_ms_det = (slice_len * (config.TIME_RESO * config.DOWN_TIME_RATE)) * 1000.0
+    title_det = (
+        f"Detection Map - {fits_stem} ({band_name_with_freq})\n"
+        f"Slice {slice_idx:03d} of {time_slice} | Duration: {exact_slice_ms_det:.6f} ms | "
+        f"DM Range: {dm_range_info} pc cm⁻³"
+    )
     ax_det.set_title(title_det, fontsize=11, fontweight="bold")
     config.SLICE_LEN = prev_len_config
 
@@ -1115,7 +1124,8 @@ def save_slice_summary(
         n_time_ticks = 5
         time_tick_positions = np.linspace(slice_start_abs, slice_end_abs, n_time_ticks)
         ax_wf.set_xticks(time_tick_positions)
-        ax_wf.set_xticklabels([f"{t:.3f}" for t in time_tick_positions])
+        # Mostrar tiempo con mayor precisión para que el usuario vea el tiempo exacto
+        ax_wf.set_xticklabels([f"{t:.6f}" for t in time_tick_positions])
         ax_wf.set_xlabel("Time (s)", fontsize=9)
         ax_wf.set_ylabel("Frequency (MHz)", fontsize=9)
         
@@ -1238,7 +1248,7 @@ def save_slice_summary(
         ax_dw.set_yticks(freq_tick_positions)
         ax_dw.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
         ax_dw.set_xticks(time_tick_positions)
-        ax_dw.set_xticklabels([f"{t:.3f}" for t in time_tick_positions])
+        ax_dw.set_xticklabels([f"{t:.6f}" for t in time_tick_positions])
         ax_dw.set_xlabel("Time (s)", fontsize=9)
         ax_dw.set_ylabel("Frequency (MHz)", fontsize=9)
         
@@ -1335,7 +1345,7 @@ def save_slice_summary(
         n_patch_time_ticks = 5
         patch_tick_positions = np.linspace(patch_time_axis[0], patch_time_axis[-1], n_patch_time_ticks)
         ax_patch.set_xticks(patch_tick_positions)
-        ax_patch.set_xticklabels([f"{t:.3f}" for t in patch_tick_positions])
+        ax_patch.set_xticklabels([f"{t:.6f}" for t in patch_tick_positions])
 
         ax_patch.set_yticks(freq_tick_positions)
         ax_patch.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])

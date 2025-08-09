@@ -51,12 +51,18 @@ def display_detailed_chunking_info(parameters: Dict[str, Any]) -> None:
     # =============================================================================
     # PARÁMETROS CALCULADOS
     # =============================================================================
-    logger.logger.info("PARÁMETROS CALCULADOS:")
-    logger.logger.info(f"   • Muestras por slice: {parameters['samples_per_slice']:,}")
-    logger.logger.info(f"   • Muestras por chunk: {parameters['chunk_samples']:,}")
-    logger.logger.info(f"   • Total de chunks: {parameters['total_chunks']}")
-    logger.logger.info(f"   • Slices por chunk: {parameters['slices_per_chunk']}")
-    logger.logger.info(f"   • Total de slices: {parameters['total_slices']:,}")
+    logger.logger.info("PARÁMETROS CALCULADOS (previos y alineados a streaming):")
+    logger.logger.info(f"   • Muestras por slice (decimado): {parameters['samples_per_slice']:,}")
+    logger.logger.info(f"   • Muestras por chunk (decimado teórico): {parameters['chunk_samples']:,}")
+    logger.logger.info(f"   • Muestras por chunk (original para streaming): {parameters.get('chunk_samples_stream_original', 0):,}")
+    logger.logger.info(f"   • Muestras por chunk (decimado efectivo en streaming): {parameters.get('chunk_samples_stream_decimated', 0):,}")
+    logger.logger.info(f"   • Slices por chunk (preview teórico): {parameters['slices_per_chunk']}")
+    logger.logger.info(f"   • Slices por chunk (preview alineado a streaming): {parameters.get('slices_per_chunk_stream_estimate', 0)}")
+    logger.logger.info(f"   • Duración de chunk (teórica, decimado): {parameters['chunk_duration_sec']:.3f} s")
+    logger.logger.info(f"   • Duración de chunk (streaming, original): {parameters.get('chunk_duration_stream_sec', 0.0):.3f} s")
+    logger.logger.info(f"   • Total de chunks (estimado): {parameters['total_chunks']}")
+    logger.logger.info(f"   • Total de slices (global): {parameters['total_slices']:,}")
+    logger.logger.info("Nota: El planificador por chunk imprimirá el número real por chunk en ejecución.")
     
     # =============================================================================
     # DURACIONES
@@ -165,3 +171,59 @@ def log_slice_configuration(slice_config: Dict[str, Any]) -> None:
     logger.logger.info(f"   • Muestras por slice: {slice_config.get('samples_per_slice', 0):,}")
     logger.logger.info(f"   • Duración real: {slice_config.get('real_duration_ms', 0):.1f} ms")
     logger.logger.info(f"   • Precisión: {slice_config.get('precision_percent', 0):.1f}%")
+
+
+def log_chunk_budget(budget: Dict[str, Any]) -> None:
+    """
+    Registra el presupuesto de memoria y cálculo de tamaño de chunk cuando el planificador está activo.
+    
+    Args:
+        budget: Dict con llaves esperadas:
+            - bytes_per_sample
+            - available_bytes
+            - usable_bytes
+            - nsamp_max_raw
+            - nsamp_max_aligned
+            - slice_len
+            - chunk_samples
+            - down_time_rate
+            - down_freq_rate
+    """
+    logger = get_global_logger()
+    logger.logger.info("PRESUPUESTO DE CHUNKING (planificador)")
+    logger.logger.info(f"   • Bytes por muestra: {budget.get('bytes_per_sample', 0):,}")
+    logger.logger.info(f"   • Memoria disponible: {budget.get('available_bytes', 0) / (1024**3):.2f} GB")
+    logger.logger.info(f"   • Usable tras overhead: {budget.get('usable_bytes', 0) / (1024**3):.2f} GB")
+    logger.logger.info(f"   • nsamp_max (raw): {budget.get('nsamp_max_raw', 0):,}")
+    logger.logger.info(f"   • nsamp_max alineado a slice_len: {budget.get('nsamp_max_aligned', 0):,}")
+    logger.logger.info(f"   • slice_len: {budget.get('slice_len', 0):,} muestras")
+    logger.logger.info(f"   • chunk_samples final: {budget.get('chunk_samples', 0):,} muestras")
+    logger.logger.info(f"   • Downsampling: tiempo={budget.get('down_time_rate', 1)}x, freq={budget.get('down_freq_rate', 1)}x")
+
+
+def log_slice_plan_summary(chunk_idx: int, plan: Dict[str, Any]) -> None:
+    """Registra un resumen del plan de slices para un chunk.
+
+    Muestra número de slices, duración media y algunos ejemplos de límites.
+    """
+    logger = get_global_logger()
+    n = plan.get("n_slices", 0)
+    avg_ms = plan.get("avg_ms", 0.0)
+    delta_ms = plan.get("delta_ms", 0.0)
+    slices = plan.get("slices", [])
+    logger.logger.info(f"PLAN DE SLICES (chunk {chunk_idx:03d})")
+    logger.logger.info(f"   • n_slices: {n}")
+    logger.logger.info(f"   • duración media por slice: {avg_ms:.6f} ms (Δ={delta_ms:+.6f} ms respecto a objetivo)")
+    if slices:
+        lengths = [sl.length for sl in slices]
+        logger.logger.info(f"   • tamaño de slice (muestras): min={min(lengths)}, max={max(lengths)}, mediana={sorted(lengths)[len(lengths)//2]}")
+        # Mostrar primeros 2 y último para trazabilidad
+        preview = []
+        for idx in [0, 1, len(slices) - 1]:
+            if 0 <= idx < len(slices):
+                sl = slices[idx]
+                preview.append(f"[{idx:04d}] {sl.start_idx}→{sl.end_idx} ({sl.length} muestras, {sl.duration_ms:.6f} ms)")
+        if preview:
+            logger.logger.info("   • ejemplos: ")
+            for line in preview:
+                logger.logger.info(f"      {line}")

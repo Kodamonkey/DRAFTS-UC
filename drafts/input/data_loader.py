@@ -19,6 +19,7 @@ from astropy.io import fits
 from .. import config
 from ..preprocessing.data_downsampler import downsample_data
 from ..output.summary_manager import _update_summary_with_file_debug
+from .. import config
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -1254,6 +1255,7 @@ def load_and_preprocess_data(fits_path):
         data = load_fits_file(str(fits_path))
     else:
         data = load_fil_file(str(fits_path))
-    data = np.vstack([data, data[::-1, :]])
+    # El procesamiento estándar no debe duplicar temporalmente los datos.
+    # Simplemente aplicar el downsampling según configuración.
     return downsample_data(data)
 

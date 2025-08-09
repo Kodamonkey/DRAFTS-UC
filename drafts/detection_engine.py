@@ -275,6 +275,8 @@ def process_slice(
     patches_dir=None,
     chunk_idx=None,  #  ID del chunk
     force_plots: bool = False,
+    slice_start_idx: int | None = None,  # NUEVO: inicio del slice en muestras (dominio decimado)
+    slice_end_idx: int | None = None,    # NUEVO: fin exclusivo del slice (dominio decimado)
 ):
     """Procesa un slice con tiempo absoluto para continuidad temporal entre chunks.
     
@@ -294,8 +296,16 @@ def process_slice(
         chunk_info = f" (chunk {chunk_idx:03d})" if chunk_idx is not None else ""
         global_logger.logger.info(f"{Colors.PROCESSING} Procesando slice {j:03d}{chunk_info}{Colors.ENDC}")
     
-    slice_cube = dm_time[:, :, slice_len * j : slice_len * (j + 1)]
-    waterfall_block = block[j * slice_len : (j + 1) * slice_len]
+    # Permitir slicing dinámico: si se proveen índices usar esos; si no, usar esquema uniforme
+    if slice_start_idx is not None and slice_end_idx is not None:
+        start_idx = int(slice_start_idx)
+        end_idx = int(slice_end_idx)
+    else:
+        start_idx = slice_len * j
+        end_idx = slice_len * (j + 1)
+
+    slice_cube = dm_time[:, :, start_idx:end_idx]
+    waterfall_block = block[start_idx:end_idx]
     if slice_cube.size == 0 or waterfall_block.size == 0:
         logger.warning(f"Slice {j}: slice_cube o waterfall_block vacío, saltando...")
         return 0, 0, 0, 0.0
@@ -303,7 +313,7 @@ def process_slice(
     # CALCULAR TIEMPO ABSOLUTO DEL SLICE SI NO SE PROPORCIONA
     if absolute_start_time is None:
         # Tiempo relativo al chunk (modo antiguo)
-        absolute_start_time = j * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+        absolute_start_time = start_idx * config.TIME_RESO * config.DOWN_TIME_RATE
     
     # Mensaje sobre creación de waterfall dispersado
     if global_logger:
@@ -347,10 +357,10 @@ def process_slice(
     else:
         out_img_path = save_dir / "Detections" / f"{fits_stem}_slice{j:03d}.png"
 
-    # Calculate time_slice if not provided
-    time_slice = block.shape[0] // slice_len # Tamaño del slice
-    if block.shape[0] % slice_len != 0: # Si el tamaño del bloque no es divisible por el tamaño del slice
-        time_slice += 1 # Incrementar el tamaño del slice
+    # Calcular cantidad de slices total en este bloque para propósitos de visualización
+    time_slice = block.shape[0] // slice_len
+    if block.shape[0] % slice_len != 0:
+        time_slice += 1
 
     for band_idx, band_suffix, band_name in band_configs:
         band_img = slice_cube[band_idx]
@@ -388,8 +398,9 @@ def process_slice(
 
             dm_to_use = band_result["first_dm"] if band_result["first_dm"] is not None else 0.0
             waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
-            start = j * slice_len
-            dedisp_block = dedisperse_block(block, freq_down, dm_to_use, start, slice_len)
+            start = start_idx
+            block_len = end_idx - start_idx
+            dedisp_block = dedisperse_block(block, freq_down, dm_to_use, start, block_len)
             if global_logger:
                 global_logger.creating_waterfall("dedispersado", j, dm_to_use)
                 global_logger.generating_plots()
@@ -410,7 +421,7 @@ def process_slice(
                 band_name,
                 band_suffix,
                 fits_stem,
-                slice_len,
+                end_idx - start_idx,
                 normalize=True,
                 off_regions=None,
                 thresh_snr=config.SNR_THRESH,

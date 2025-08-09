@@ -4,6 +4,7 @@ from typing import Tuple, Optional
 import psutil
 
 from .. import config
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +107,52 @@ def get_processing_parameters() -> dict:
         dict: Parámetros de procesamiento calculados.
     """
     slice_len, real_duration_ms = calculate_slice_len_from_duration()
-    chunk_samples = calculate_optimal_chunk_size(slice_len)
+    # Calcular chunk_samples usando planificador si está habilitado
+    if getattr(config, 'USE_PLANNED_CHUNKING', False):
+        # Estimar bytes por muestra después de downsampling en frecuencia
+        down_time_rate = max(1, config.DOWN_TIME_RATE)
+        down_freq_rate = max(1, config.DOWN_FREQ_RATE)
+        total_channels_downsampled = max(1, config.FREQ_RESO // down_freq_rate)
+        bytes_per_sample = 4 * total_channels_downsampled  # float32
+
+        # Presupuesto de memoria
+        if getattr(config, 'MAX_CHUNK_BYTES', None):
+            usable_bytes = config.MAX_CHUNK_BYTES / max(1.0, getattr(config, 'OVERHEAD_FACTOR', 1.3))
+        else:
+            vm = psutil.virtual_memory()
+            usable_bytes = (vm.available * getattr(config, 'MAX_RAM_FRACTION', 0.25)) / max(1.0, getattr(config, 'OVERHEAD_FACTOR', 1.3))
+
+        nsamp_max = max(1, int(usable_bytes // bytes_per_sample))
+
+        # Si nsamp_max es menor que slice_len, al menos 1 slice por chunk
+        if nsamp_max < slice_len:
+            chunk_samples = slice_len
+        else:
+            # Ajustar a múltiplo de slice_len para contigüidad perfecta
+            chunk_samples = (nsamp_max // slice_len) * slice_len
+            if chunk_samples == 0:
+                chunk_samples = slice_len
+
+        # Log de presupuesto de chunking
+        try:
+            from ..logging.chunking_logging import log_chunk_budget
+            import psutil as _ps
+            vm = _psutil = psutil.virtual_memory()
+            log_chunk_budget({
+                'bytes_per_sample': bytes_per_sample,
+                'available_bytes': vm.available,
+                'usable_bytes': usable_bytes,
+                'nsamp_max_raw': nsamp_max,
+                'nsamp_max_aligned': (nsamp_max // slice_len) * slice_len,
+                'slice_len': slice_len,
+                'chunk_samples': chunk_samples,
+                'down_time_rate': down_time_rate,
+                'down_freq_rate': down_freq_rate,
+            })
+        except Exception:
+            pass
+    else:
+        chunk_samples = calculate_optimal_chunk_size(slice_len)
 
     # =============================================================================
     # CÁLCULOS DETALLADOS DEL SISTEMA DE CHUNKING
@@ -128,7 +174,7 @@ def get_processing_parameters() -> dict:
     total_duration_sec = total_samples_original * time_reso_original
     total_duration_min = total_duration_sec / 60.0
     
-    # Cálculos de slices
+    # Cálculos de slices (en dominio decimado)
     samples_per_slice = slice_len
     slices_per_chunk = chunk_samples // slice_len
     total_slices = total_samples_downsampled // slice_len
@@ -149,6 +195,15 @@ def get_processing_parameters() -> dict:
     
     # Verificar si el archivo completo cabe en RAM
     can_load_full_file = total_file_size_gb <= available_memory_gb * 0.8
+
+    # === Estimación realista alineada con streaming ===
+    # El streamer recibe tamaños en dominio ORIGINAL (pre-decimación). Si en ejecución
+    # se pasa chunk_samples como si fuera original, el tamaño decimado efectivo por chunk
+    # será chunk_samples // down_time_rate. Anticipamos esa realidad aquí para el preview.
+    stream_chunk_samples_original = chunk_samples
+    stream_chunk_samples_decimated = max(1, stream_chunk_samples_original // down_time_rate)
+    slices_per_chunk_stream_estimate = stream_chunk_samples_decimated // slice_len
+    chunk_duration_stream_sec = stream_chunk_samples_original * time_reso_original
     
     parameters = {
         # Parámetros del usuario
@@ -172,9 +227,15 @@ def get_processing_parameters() -> dict:
         'slice_len': slice_len,
         'slice_duration_ms_real': real_duration_ms,
         'samples_per_slice': samples_per_slice,
+        # Importante: chunk_samples está en el dominio decimado.
+        # Estimaciones alineadas a streaming (dominio original):
+        'chunk_samples_stream_original': stream_chunk_samples_original,
+        'chunk_samples_stream_decimated': stream_chunk_samples_decimated,
+        'slices_per_chunk_stream_estimate': slices_per_chunk_stream_estimate,
+        'chunk_duration_stream_sec': chunk_duration_stream_sec,
         'chunk_samples': chunk_samples,
         'chunk_duration_sec': chunk_duration_sec,
-        'slices_per_chunk': slices_per_chunk,
+        'slices_per_chunk': min(slices_per_chunk, total_slices),
         'total_chunks': total_chunks,
         'total_slices': total_slices,
         'leftover_samples': leftover_samples,

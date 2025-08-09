@@ -9,16 +9,6 @@ from .. import config
 
 logger = logging.getLogger(__name__)
 
-
-def _write_summary(summary: dict, save_path: Path) -> None:
-    """Write global summary information to ``summary.json``."""
-
-    summary_path = save_path / "summary.json"
-    with summary_path.open("w") as f_json:
-        json.dump(summary, f_json, indent=2)
-    logger.info("Resumen global escrito en %s", summary_path)
-
-
 def _write_summary_with_timestamp(summary: dict, save_path: Path, preserve_history: bool = True) -> None:
     """
     Write summary with timestamp and optionally preserve historical summaries.
@@ -220,64 +210,3 @@ def _update_summary_with_results(
         json.dump(summary, f, indent=2)
 
     logger.info(f"Resultados guardados para {filename} en {summary_path}") 
-
-
-def get_execution_history(save_path: Path, limit: int = 10) -> list:
-    """
-    Get recent execution history from master summary.
-    
-    Parameters
-    ----------
-    save_path : Path
-        Directory containing the master summary
-    limit : int
-        Maximum number of recent executions to return
-        
-    Returns
-    -------
-    list
-        List of recent execution records
-    """
-    master_path = save_path / "summary_master.json"
-    if not master_path.exists():
-        return []
-    
-    try:
-        with master_path.open("r") as f:
-            master_summary = json.load(f)
-        
-        history = master_summary.get("execution_history", [])
-        return history[-limit:] if limit > 0 else history
-        
-    except Exception as e:
-        logger.error(f"Error leyendo historial de ejecuciones: {e}")
-        return []
-
-
-def get_cumulative_stats(save_path: Path) -> dict:
-    """
-    Get cumulative statistics from all executions.
-    
-    Parameters
-    ----------
-    save_path : Path
-        Directory containing the master summary
-        
-    Returns
-    -------
-    dict
-        Cumulative statistics
-    """
-    master_path = save_path / "summary_master.json"
-    if not master_path.exists():
-        return {}
-    
-    try:
-        with master_path.open("r") as f:
-            master_summary = json.load(f)
-        
-        return master_summary.get("cumulative_stats", {})
-        
-    except Exception as e:
-        logger.error(f"Error leyendo estadísticas acumuladas: {e}")
-        return {} 

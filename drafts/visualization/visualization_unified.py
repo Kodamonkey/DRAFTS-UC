@@ -38,84 +38,48 @@ def _calculate_dynamic_dm_range(
     fallback_dm_max: int = None,
     confidence_scores: Iterable | None = None
 ) -> Tuple[float, float]:
-    """
-    Calcula el rango DM dinámico basado en los candidatos detectados.
-    
-    Parameters
-    ----------
-    top_boxes : Iterable | None
-        Bounding boxes de los candidatos detectados
-    slice_len : int
-        Longitud del slice temporal
-    fallback_dm_min : int, optional
-        DM mínimo de fallback si no se puede calcular dinámicamente
-    fallback_dm_max : int, optional
-        DM máximo de fallback si no se puede calcular dinámicamente
-    confidence_scores : Iterable | None, optional
-        Puntuaciones de confianza para cada candidato
-        
-    Returns
-    -------
-    Tuple[float, float]
-        (dm_plot_min, dm_plot_max) para el rango DM dinámico
-    """
-    
-    # Si no hay candidatos o DM dinámico deshabilitado, usar rango completo
-    if (not getattr(config, 'DM_DYNAMIC_RANGE_ENABLE', True) or 
-        top_boxes is None or 
-        len(top_boxes) == 0):
-        
+    """Delegado unificado: usa visualization_ranges para rango DM dinámico."""
+    if (not getattr(config, 'DM_DYNAMIC_RANGE_ENABLE', True)
+        or top_boxes is None
+        or len(top_boxes) == 0):
         dm_min = fallback_dm_min if fallback_dm_min is not None else config.DM_min
         dm_max = fallback_dm_max if fallback_dm_max is not None else config.DM_max
         return float(dm_min), float(dm_max)
-    
-    # Extraer DMs de los candidatos
-    dm_candidates = []
-    for i, box in enumerate(top_boxes):
+
+    dm_candidates: List[float] = []
+    for box in top_boxes:
         x1, y1, x2, y2 = map(int, box)
         center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
         dm_val, _, _ = extract_candidate_dm(center_x, center_y, slice_len)
         dm_candidates.append(dm_val)
-    
     if not dm_candidates:
         dm_min = fallback_dm_min if fallback_dm_min is not None else config.DM_min
         dm_max = fallback_dm_max if fallback_dm_max is not None else config.DM_max
         return float(dm_min), float(dm_max)
-    
-    # Usar el candidato más fuerte (mejor confianza) como referencia
+
     if confidence_scores is not None and len(confidence_scores) > 0:
-        best_idx = np.argmax(confidence_scores)
-        dm_optimal = dm_candidates[best_idx]
-        confidence = confidence_scores[best_idx]
+        best_idx = int(np.argmax(confidence_scores))
+        dm_optimal = float(dm_candidates[best_idx])
+        confidence = float(confidence_scores[best_idx])
     else:
-        # Si no hay confianza, usar el DM mediano
-        dm_optimal = np.median(dm_candidates)
-        confidence = 0.8  # Valor por defecto
-    
-    # Calcular rango dinámico
+        dm_optimal = float(np.median(dm_candidates))
+        confidence = 0.8
+
     try:
-        # Obtener parámetros de configuración
-        range_factor = getattr(config, 'DM_RANGE_FACTOR', 0.2)
-        min_width = getattr(config, 'DM_RANGE_MIN_WIDTH', 50.0)
-        max_width = getattr(config, 'DM_RANGE_MAX_WIDTH', 200.0)
-        
-        dm_plot_min, dm_plot_max = get_dynamic_dm_range_for_candidate(
+        return get_dynamic_dm_range_for_candidate(
             dm_optimal=dm_optimal,
             config_module=config,
             visualization_type=getattr(config, 'DM_RANGE_DEFAULT_VISUALIZATION', 'detailed'),
             confidence=confidence,
-            range_factor=range_factor,
-            min_range_width=min_width,
-            max_range_width=max_width
+            range_factor=getattr(config, 'DM_RANGE_FACTOR', 0.2),
+            min_range_width=getattr(config, 'DM_RANGE_MIN_WIDTH', 50.0),
+            max_range_width=getattr(config, 'DM_RANGE_MAX_WIDTH', 200.0),
         )
     except Exception as e:
-        # En caso de error, usar rango completo
         print(f"[WARNING] Error calculando rango DM dinámico: {e}")
         dm_min = fallback_dm_min if fallback_dm_min is not None else config.DM_min
         dm_max = fallback_dm_max if fallback_dm_max is not None else config.DM_max
         return float(dm_min), float(dm_max)
-    
-    return dm_plot_min, dm_plot_max
 
 
 def preprocess_img(img: np.ndarray) -> np.ndarray:
@@ -259,8 +223,7 @@ def save_detection_plot(
     # Time axis labels
     n_time_ticks = 6
     time_positions = np.linspace(0, 512, n_time_ticks)
-    
-    # 🕐 USAR TIEMPO ABSOLUTO SI SE PROPORCIONA
+
     if absolute_start_time is not None:
         time_start_slice = absolute_start_time
     else:
@@ -648,10 +611,7 @@ def save_plot(
     absolute_start_time: Optional[float] = None,  # 🕐 NUEVO PARÁMETRO PARA TIEMPO ABSOLUTO
     slice_samples: Optional[int] = None,  # 🕐 NUEVO: muestras reales en el slice
 ) -> None:
-    """Wrapper around :func:`save_detection_plot` with dynamic slice length."""
-
-    prev_len = config.SLICE_LEN
-    config.SLICE_LEN = slice_len
+    """Wrapper fino sin mutar estado global; pasa slice_len explícito."""
     
     # Agregar información de rango de frecuencias al nombre de la banda
     band_name_with_freq = get_band_name_with_freq_range(band_idx, band_name)
@@ -673,8 +633,7 @@ def save_plot(
         absolute_start_time=absolute_start_time, 
         slice_samples=slice_samples,
     )
-    
-    config.SLICE_LEN = prev_len
+    # No modificar config.SLICE_LEN global
 
 
 def save_patch_plot(

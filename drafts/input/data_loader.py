@@ -1104,7 +1104,11 @@ def get_obparams_fil(file_name: str) -> None:
     # (El guardado de debug ahora se unifica en _save_file_debug_info)
 
 
-def stream_fil(file_name: str, chunk_samples: int = 2_097_152) -> Generator[Tuple[np.ndarray, Dict], None, None]:
+def stream_fil(
+    file_name: str,
+    chunk_samples: int = 2_097_152,
+    overlap_samples: int = 0,
+) -> Generator[Tuple[np.ndarray, Dict], None, None]:
     """
     Generador que lee un archivo .fil en bloques sin cargar todo en RAM.
     
@@ -1143,7 +1147,7 @@ def stream_fil(file_name: str, chunk_samples: int = 2_097_152) -> Generator[Tupl
         dtype = dtype_map.get(nbits, np.uint8)
         
         print(f"[INFO] Streaming datos: {nsamples} muestras totales, "
-              f"{nchans} canales, tipo {dtype}, chunk_size={chunk_samples}")
+              f"{nchans} canales, tipo {dtype}, chunk_size={chunk_samples}, overlap={overlap_samples}")
         
         # Crear memmap para acceso eficiente
         data_mmap = np.memmap(
@@ -1155,12 +1159,17 @@ def stream_fil(file_name: str, chunk_samples: int = 2_097_152) -> Generator[Tupl
         )
         
         # Procesar en bloques
-        for chunk_idx in range(0, nsamples, chunk_samples):
-            end_sample = min(chunk_idx + chunk_samples, nsamples)
-            actual_chunk_size = end_sample - chunk_idx
-            
-            # Leer bloque actual
-            block = data_mmap[chunk_idx:end_sample].copy()  # Copia solo este bloque
+        for chunk_start in range(0, nsamples, chunk_samples):
+            valid_start = chunk_start
+            valid_end = min(chunk_start + chunk_samples, nsamples)
+            actual_chunk_size = valid_end - valid_start
+
+            # Rango con solapamiento aplicado (en crudo)
+            start_with_overlap = max(0, valid_start - overlap_samples)
+            end_with_overlap = min(nsamples, valid_end + overlap_samples)
+
+            # Leer bloque con solapamiento
+            block = data_mmap[start_with_overlap:end_with_overlap].copy()
             
             # Aplicar reversión de frecuencia si es necesario
             if config.DATA_NEEDS_REVERSAL:
@@ -1172,10 +1181,14 @@ def stream_fil(file_name: str, chunk_samples: int = 2_097_152) -> Generator[Tupl
             
             # Metadatos del bloque
             metadata = {
-                "chunk_idx": chunk_idx // chunk_samples,
-                "start_sample": chunk_idx,
-                "end_sample": end_sample,
-                "actual_chunk_size": actual_chunk_size,
+                "chunk_idx": valid_start // chunk_samples,
+                "start_sample": valid_start,               # inicio válido (sin solape)
+                "end_sample": valid_end,                   # fin válido (sin solape)
+                "actual_chunk_size": actual_chunk_size,    # tamaño válido
+                "block_start_sample": start_with_overlap,  # inicio del bloque con solape
+                "block_end_sample": end_with_overlap,      # fin del bloque con solape
+                "overlap_left": valid_start - start_with_overlap,
+                "overlap_right": end_with_overlap - valid_end,
                 "total_samples": nsamples,
                 "nchans": nchans,
                 "nifs": nifs,

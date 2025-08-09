@@ -1064,7 +1064,7 @@ def save_slice_summary(
             print(f"🔍 [DEBUG RAW WF] .T[0, :] (primera freq) primeras 5 muestras: {wf_block.T[0, :5]}")
             print(f"🔍 [DEBUG RAW WF] .T[-1, :] (última freq) primeras 5 muestras: {wf_block.T[-1, :5]}")
         
-        ax_wf.imshow(
+        im_wf = ax_wf.imshow(
             wf_block.T,
             origin="lower",
             cmap="mako",
@@ -1092,6 +1092,24 @@ def save_slice_summary(
         if 'peak_snr_wf' in locals() and config.SNR_SHOW_PEAK_LINES:
             ax_wf.axvline(x=time_axis_wf[peak_idx_wf], color=config.SNR_HIGHLIGHT_COLOR, 
                          linestyle='-', alpha=0.8, linewidth=2)
+
+        # Sombrear zona inválida por falta de solape (opcional)
+        try:
+            if getattr(config, 'SHADE_INVALID_TAIL', True):
+                # Calcular muestras inválidas máximas por Δt_max
+                nu_min = freq_ds.min()
+                nu_max = freq_ds.max()
+                dt_max_ms = 4.1488 * max(config.DM_min, 0) * 0.0  # placeholder para claridad
+                # usar DM_max real del plot para sobreestimar
+                dm_max_plot = getattr(config, 'DM_max', 0)
+                dt_max_sec = 4.1488e-3 * dm_max_plot * (nu_min**-2 - nu_max**-2)
+                invalid_samp = max(0, int(np.ceil(dt_max_sec / (config.TIME_RESO * config.DOWN_TIME_RATE))))
+                if invalid_samp > 0:
+                    tail_start = slice_end_abs - invalid_samp * (config.TIME_RESO * config.DOWN_TIME_RATE)
+                    if tail_start < slice_end_abs:
+                        ax_wf.axvspan(tail_start, slice_end_abs, color='k', alpha=0.08, label='zona inválida')
+        except Exception:
+            pass
     else:
         ax_wf.text(0.5, 0.5, 'No waterfall data available', 
                   transform=ax_wf.transAxes, 
@@ -1192,7 +1210,7 @@ def save_slice_summary(
             print(f"🔍 [DEBUG DED WF] .T[-1, :] (última freq) primeras 5 muestras: {dw_block.T[-1, :5]}")
             print(f"🔍 [DEBUG DED WF] ¿Es diferente al raw? Diff promedio: {np.mean(np.abs(dw_block - wf_block)) if wf_block is not None else 'N/A'}")
         
-        ax_dw.imshow(
+        im_dw = ax_dw.imshow(
             dw_block.T,
             origin="lower",
             cmap="mako",
@@ -1215,6 +1233,21 @@ def save_slice_summary(
         if 'peak_snr_dw' in locals() and config.SNR_SHOW_PEAK_LINES:
             ax_dw.axvline(x=time_axis_dw[peak_idx_dw], color=config.SNR_HIGHLIGHT_COLOR, 
                          linestyle='-', alpha=0.8, linewidth=2)
+
+        # Sombrear cola inválida igual que en raw
+        try:
+            if getattr(config, 'SHADE_INVALID_TAIL', True):
+                nu_min = freq_ds.min()
+                nu_max = freq_ds.max()
+                dm_max_plot = getattr(config, 'DM_max', 0)
+                dt_max_sec = 4.1488e-3 * dm_max_plot * (nu_min**-2 - nu_max**-2)
+                invalid_samp = max(0, int(np.ceil(dt_max_sec / (config.TIME_RESO * config.DOWN_TIME_RATE))))
+                if invalid_samp > 0:
+                    tail_start = slice_end_abs - invalid_samp * (config.TIME_RESO * config.DOWN_TIME_RATE)
+                    if tail_start < slice_end_abs:
+                        ax_dw.axvspan(tail_start, slice_end_abs, color='k', alpha=0.08, label='zona inválida')
+        except Exception:
+            pass
     else:
         ax_dw.text(0.5, 0.5, 'No dedispersed data available', 
                   transform=ax_dw.transAxes, 

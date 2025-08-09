@@ -333,14 +333,7 @@ def _process_block(
             n_no_bursts += no_bursts
             prob_max = max(prob_max, max_prob)
             
-            # Mensaje de resumen del slice si tiene candidatos
-            if cands > 0:
-                try:
-                    from .logging.logging_config import get_global_logger
-                    global_logger = get_global_logger()
-                    global_logger.slice_completed(j, cands, bursts, no_bursts)
-                except ImportError:
-                    pass
+            # Evitar log duplicado: el resumen de slice se registra dentro de detection_engine.process_slice
 
             # LIMPIEZA DE MEMORIA DESPUÉS DE CADA SLICE
             if j % 10 == 0:  # Cada 10 slices
@@ -624,14 +617,7 @@ def _process_file(
         n_no_bursts += no_bursts
         prob_max = max(prob_max, max_prob)
         
-        # Mensaje de resumen del slice si tiene candidatos
-        if cands > 0:
-            try:
-                from .logging.logging_config import get_global_logger
-                global_logger = get_global_logger()
-                global_logger.slice_completed(j, cands, bursts, no_bursts)
-            except ImportError:
-                pass
+        # Evitar log duplicado: el resumen de slice se registra dentro de detection_engine.process_slice
     runtime = time.time() - t_start
     logger.info(
         "\u25b6 %s: %d candidatos, max prob %.2f, \u23f1 %.1f s",

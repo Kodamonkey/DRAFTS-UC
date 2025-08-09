@@ -18,7 +18,7 @@ FRB_TARGETS = [
 # =============================================================================
 
 # Duración de cada slice temporal (milisegundos)
-SLICE_DURATION_MS: float = 500.0
+SLICE_DURATION_MS: float = 500.0 # Testear con 1034
 
 # =============================================================================
 # CONFIGURACIÓN DE DOWNSAMPLING
@@ -34,8 +34,8 @@ DOWN_TIME_RATE: int = 14                     # Factor de reducción en tiempo (1
 # =============================================================================
 
 # Rango de Dispersion Measure para búsqueda
-DM_min: int = 500                             # DM mínimo en pc cm⁻³
-DM_max: int = 600                          # DM máximo en pc cm⁻³
+DM_min: int = 0                             # DM mínimo en pc cm⁻³
+DM_max: int = 1024                          # DM máximo en pc cm⁻³
 
 # =============================================================================
 # UMBRALES DE DETECCIÓN
@@ -88,3 +88,13 @@ OVERHEAD_FACTOR: float = 1.3                # Factor de overhead por copias/buff
 # Tolerancias y límites de slicing
 TIME_TOL_MS: float = 0.1                    # Tolerancia temporal al ajustar la duración objetivo del slice
 MAX_SLICE_COUNT: int = 5000                 # Límite superior de slices por chunk
+
+# =============================================================================
+# FLAGS AVANZADOS PARA MITIGAR ARTEFACTOS Y MEJORAR ESTABILIDAD
+# =============================================================================
+
+# Pre-whitening por canal antes de construir el cubo DM–tiempo (z-score por canal)
+PREWHITEN_BEFORE_DM: bool = True
+
+# Sombrear visualmente la cola inválida en los waterfalls cuando no hay solapamiento
+SHADE_INVALID_TAIL: bool = True

@@ -304,6 +304,27 @@ def process_slice(
         start_idx = slice_len * j
         end_idx = slice_len * (j + 1)
 
+    # Log: muestras exactas usadas en el slice (dominio decimado)
+    try:
+        real_samples = end_idx - start_idx
+        if global_logger:
+            chunk_info = f" (chunk {chunk_idx:03d})" if chunk_idx is not None else ""
+            global_logger.logger.info(
+                f"{Colors.PROCESSING} Slice {j:03d}{chunk_info}: {real_samples} muestras reales "
+                f"(decimado) [{start_idx}→{end_idx}){Colors.ENDC}"
+            )
+        else:
+            logger.info(
+                f"Slice {j:03d}: {end_idx - start_idx} muestras reales (decimado) "
+                f"[{start_idx}→{end_idx})"
+            )
+    except Exception:
+        # Fallback silencioso si falla el logger global/Colors
+        logger.info(
+            f"Slice {j:03d}: {end_idx - start_idx} muestras reales (decimado) "
+            f"[{start_idx}→{end_idx})"
+        )
+
     slice_cube = dm_time[:, :, start_idx:end_idx]
     waterfall_block = block[start_idx:end_idx]
     if slice_cube.size == 0 or waterfall_block.size == 0:

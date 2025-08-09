@@ -34,8 +34,8 @@ DOWN_TIME_RATE: int = 14                     # Factor de reducción en tiempo (1
 # =============================================================================
 
 # Rango de Dispersion Measure para búsqueda
-DM_min: int = 0                             # DM mínimo en pc cm⁻³
-DM_max: int = 1024                          # DM máximo en pc cm⁻³
+DM_min: int = 500                             # DM mínimo en pc cm⁻³
+DM_max: int = 600                          # DM máximo en pc cm⁻³
 
 # =============================================================================
 # UMBRALES DE DETECCIÓN

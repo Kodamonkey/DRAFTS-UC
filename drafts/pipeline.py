@@ -115,16 +115,17 @@ def _process_block(
     """Procesa un bloque de datos y retorna estadísticas del bloque."""
     
     # Configurar parámetros temporales para este bloque
-    original_file_leng = config.FILE_LENG # Guardar longitud original del archivo
-    config.FILE_LENG = metadata["actual_chunk_size"] # Actualizar longitud del archivo al tamaño del bloque actual
+    original_file_leng = config.FILE_LENG
+    # Tamaño válido (sin solape) después del downsampling
+    config.FILE_LENG = metadata["actual_chunk_size"]
     
     # CALCULAR TIEMPO ABSOLUTO DESDE INICIO DEL ARCHIVO
     # Tiempo de inicio del chunk en segundos desde el inicio del archivo
     # CORRECCIÓN: Usar tiempo efectivo después del downsampling
     # Importante: el offset absoluto del chunk se calcula en base al tiempo por muestra original (sin downsampling)
     # El factor de downsampling temporal sólo aplica a duraciones dentro de datos ya decimados.
-    chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO  # Tiempo absoluto desde inicio del archivo
-    chunk_duration_sec = metadata["actual_chunk_size"] * config.TIME_RESO  # Duración real del chunk
+    chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO
+    chunk_duration_sec = metadata["actual_chunk_size"] * config.TIME_RESO
     
     # =============================================================================
     # LOGGING INFORMATIVO DETALLADO DEL CHUNK
@@ -144,7 +145,8 @@ def _process_block(
     try:
         # Aplicar downsampling al bloque
         from .preprocessing.data_downsampler import downsample_data # Importar la función de downsampling
-        block = downsample_data(block) # Aplica downsampling según la configuración 
+        # Aplica downsampling manteniendo la estructura (incluye solape crudo)
+        block = downsample_data(block)
         
         # Calcular parámetros para este bloque
         freq_down = np.mean(
@@ -152,8 +154,14 @@ def _process_block(
             axis=1,
         ) # Promedio de frecuencias después del downsampling
         
-        height = config.DM_max - config.DM_min + 1 # Altura del cubo DM
-        width_total = config.FILE_LENG // config.DOWN_TIME_RATE # Ancho total del cubo DM-time
+        height = config.DM_max - config.DM_min + 1
+
+        # Ancho válido (sin solape) tras decimación
+        width_total = config.FILE_LENG // config.DOWN_TIME_RATE
+
+        # Calcular solapamiento equivalente en muestras decimadas
+        overlap_left_ds = int((metadata.get("overlap_left", 0)) // config.DOWN_TIME_RATE)
+        overlap_right_ds = int((metadata.get("overlap_right", 0)) // config.DOWN_TIME_RATE)
         
         # Calcular slice_len dinámicamente
         from .preprocessing.slice_len_calculator import update_slice_len_dynamic # Importar la función de actualización de slice_len
@@ -163,7 +171,18 @@ def _process_block(
         logger.info(f"Chunk {chunk_idx:03d}: {metadata['actual_chunk_size']} muestras → {time_slice} slices")
         
         # Generar DM-time cube
-        dm_time = d_dm_time_g(block, height=height, width=width_total) # dedispersion del bloque
+        # Construir cubo DM-time sobre el bloque completo con solapes
+        dm_time_full = d_dm_time_g(block, height=height, width=block.shape[0])
+
+        # Extraer ventana válida (sin bordes inválidos) usando los solapes decimados
+        # La parte válida empieza en overlap_left_ds y termina en block.shape[0] - overlap_right_ds
+        valid_start_ds = max(0, overlap_left_ds)
+        valid_end_ds = block.shape[0] - max(0, overlap_right_ds)
+        if valid_end_ds <= valid_start_ds:
+            valid_start_ds, valid_end_ds = 0, block.shape[0]
+
+        dm_time = dm_time_full[:, :, valid_start_ds:valid_end_ds]
+        block = block[valid_start_ds:valid_end_ds]
         
         # Configurar bandas
         band_configs = get_band_configs() # Configuración de bandas (fullband, lowband, highband)
@@ -333,14 +352,7 @@ def _process_block(
             n_no_bursts += no_bursts
             prob_max = max(prob_max, max_prob)
             
-            # Mensaje de resumen del slice si tiene candidatos
-            if cands > 0:
-                try:
-                    from .logging.logging_config import get_global_logger
-                    global_logger = get_global_logger()
-                    global_logger.slice_completed(j, cands, bursts, no_bursts)
-                except ImportError:
-                    pass
+            # Evitar log duplicado: el resumen de slice se registra dentro de detection_engine.process_slice
 
             # LIMPIEZA DE MEMORIA DESPUÉS DE CADA SLICE
             if j % 10 == 0:  # Cada 10 slices
@@ -452,8 +464,19 @@ def _process_file_chunked(
     actual_chunk_count = 0 # Contador de chunks procesados
     
     try:
-        # Procesar cada bloque (UNA SOLA PASADA)
-        for block, metadata in stream_fil(str(fits_path), chunk_samples): # Procesar cada bloque
+        # Calcular Δt_max para determinar solapamiento en bruto
+        freq_ds = np.mean(
+            config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
+            axis=1,
+        )
+        nu_min = float(freq_ds.min())
+        nu_max = float(freq_ds.max())
+        # Usamos constante para frecuencias en MHz: Δt_sec = 4.1488e3 * DM * (ν_min^-2 − ν_max^-2)
+        dt_max_sec = 4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)
+        overlap_raw = int(np.ceil(dt_max_sec / config.TIME_RESO))
+
+        # Procesar cada bloque con solapamiento
+        for block, metadata in stream_fil(str(fits_path), chunk_samples, overlap_samples=overlap_raw):
             actual_chunk_count += 1 # Incrementar el contador de chunks procesados
             logger.info(f"Procesando chunk {metadata['chunk_idx']:03d} " # Log del chunk actual
                        f"({metadata['start_sample']:,} - {metadata['end_sample']:,})") # Log del rango de muestras del chunk
@@ -624,14 +647,7 @@ def _process_file(
         n_no_bursts += no_bursts
         prob_max = max(prob_max, max_prob)
         
-        # Mensaje de resumen del slice si tiene candidatos
-        if cands > 0:
-            try:
-                from .logging.logging_config import get_global_logger
-                global_logger = get_global_logger()
-                global_logger.slice_completed(j, cands, bursts, no_bursts)
-            except ImportError:
-                pass
+        # Evitar log duplicado: el resumen de slice se registra dentro de detection_engine.process_slice
     runtime = time.time() - t_start
     logger.info(
         "\u25b6 %s: %d candidatos, max prob %.2f, \u23f1 %.1f s",

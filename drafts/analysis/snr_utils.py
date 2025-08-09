@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 from typing import List, Tuple, Optional
 
-from .. import config
+# Nota: este módulo no requiere configuración global del pipeline
 
 
 def compute_snr_profile(
@@ -116,104 +116,7 @@ def find_snr_peak(snr: np.ndarray, time_axis: Optional[np.ndarray] = None) -> Tu
     return peak_snr, peak_time, peak_idx
 
 
-def create_snr_regions_around_peak(
-    peak_idx: int, 
-    profile_length: int, 
-    region_width: int = 50
-) -> List[Tuple[int, int]]:
-    """
-    Create off-pulse regions around a detected peak.
-    
-    Parameters
-    ----------
-    peak_idx : int
-        Index of the detected peak
-    profile_length : int
-        Total length of the profile
-    region_width : int
-        Width of each off-pulse region
-        
-    Returns
-    -------
-    List[Tuple[int, int]]
-        List of (start, end) indices for off-pulse regions
-    """
-    regions = []
-    
-    # Left region
-    left_end = peak_idx - region_width
-    left_start = left_end - region_width
-    if left_start >= 0:
-        regions.append((left_start, left_end))
-    
-    # Right region  
-    right_start = peak_idx + region_width
-    right_end = right_start + region_width
-    if right_end < profile_length:
-        regions.append((right_start, right_end))
-        
-    # Far left region if space allows
-    if left_start >= region_width:
-        far_left_end = left_start - region_width // 2
-        far_left_start = far_left_end - region_width
-        if far_left_start >= 0:
-            regions.append((far_left_start, far_left_end))
-    
-    return regions
-
-
-def create_centered_off_regions(
-    profile_length: int,
-    center_exclusion_width: int = 100,
-    region_width: int = 50
-) -> List[Tuple[int, int]]:
-    """
-    Crea regiones off-pulse optimizadas para pulsos centralizados.
-    
-    Parameters
-    ----------
-    profile_length : int
-        Longitud total del perfil temporal
-    center_exclusion_width : int
-        Ancho de la región central a excluir (donde está el pulso)
-    region_width : int
-        Ancho de cada región off-pulse
-    
-    Returns
-    -------
-    List[Tuple[int, int]]
-        Lista de regiones off-pulse optimizadas
-    """
-    center = profile_length // 2
-    half_exclusion = center_exclusion_width // 2
-    
-    regions = []
-    
-    # Región izquierda cercana
-    left_near_end = center - half_exclusion
-    left_near_start = left_near_end - region_width
-    if left_near_start >= 0:
-        regions.append((left_near_start, left_near_end))
-    
-    # Región derecha cercana
-    right_near_start = center + half_exclusion
-    right_near_end = right_near_start + region_width
-    if right_near_end < profile_length:
-        regions.append((right_near_start, right_near_end))
-    
-    # Región izquierda lejana
-    left_far_end = left_near_start - region_width // 2
-    left_far_start = left_far_end - region_width
-    if left_far_start >= 0:
-        regions.append((left_far_start, left_far_end))
-    
-    # Región derecha lejana
-    right_far_start = right_near_end + region_width // 2
-    right_far_end = right_far_start + region_width
-    if right_far_end < profile_length:
-        regions.append((right_far_start, right_far_end))
-    
-    return regions
+## Nota: se eliminaron utilidades de regiones off-pulse no utilizadas por el pipeline
 
 
 def inject_synthetic_frb(

@@ -13,8 +13,14 @@ logger = logging.getLogger(__name__)
 def _de_disp_gpu(dm_time, data, freq, index, start_offset, mid_channel):
     x, y = cuda.grid(2)
     if x < dm_time.shape[1] and y < dm_time.shape[2]:
-        td_i = 0.0
+        # Suma total y contador de contribuciones válidas (normalización por exposición)
+        total_val = 0.0
+        total_cnt = 0
+
+        # Valor del canal medio (para segundo plano)
+        mid_val = 0.0
         DM = x + start_offset
+
         for idx in index:
             delay = (
                 4.15
@@ -26,30 +32,43 @@ def _de_disp_gpu(dm_time, data, freq, index, start_offset, mid_channel):
             )
             pos = int(delay + y)
             if 0 <= pos < data.shape[0]:
-                td_i += data[pos, idx]
+                total_val += data[pos, idx]
+                total_cnt += 1
                 if idx == mid_channel:
-                    dm_time[1, x, y] = td_i
-        dm_time[2, x, y] = td_i - dm_time[1, x, y]
-        dm_time[0, x, y] = td_i
+                    mid_val = data[pos, idx]
+
+        # Normalizar por #canales que realmente contribuyeron
+        if total_cnt > 0:
+            dm_time[0, x, y] = total_val / total_cnt
+        else:
+            dm_time[0, x, y] = 0.0
+
+        dm_time[1, x, y] = mid_val
+        dm_time[2, x, y] = dm_time[0, x, y] - dm_time[1, x, y]
 
 
-@njit(parallel=True)
+@njit(parallel=False)
 def _d_dm_time_cpu(data, height: int, width: int) -> np.ndarray:
-    """CPU fallback for dedispersion without Numba optimizations."""
+    """CPU fallback para dedispersión con normalización por exposición y bordes.
+
+    Implementa suma con manejo de bordes por canal y normaliza cada
+    punto (DM,t) por el número de canales que aportaron.
+    """
     out = np.zeros((3, height, width), dtype=np.float32)
     nchan_ds = config.FREQ_RESO // config.DOWN_FREQ_RATE
-    freq_index = np.arange(0, nchan_ds)
     mid_channel = nchan_ds // 2
 
-    # Asegurarse de que config.FREQ sea válido
+    # Validación de frecuencias
     if config.FREQ is None or config.FREQ.size == 0:
         logger.error("config.FREQ es inválido en _d_dm_time_cpu")
         return out
-    
-    # Usar frecuencias downsampled consistentemente
-    freq_ds = np.mean(config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE), axis=1)
-    
-    # Sin usar prange para evitar problemas de Numba
+
+    # Frecuencias decimadas
+    freq_ds = np.mean(
+        config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
+        axis=1,
+    )
+
     for DM in range(height):
         delays = (
             4.15
@@ -59,26 +78,58 @@ def _d_dm_time_cpu(data, height: int, width: int) -> np.ndarray:
             / config.TIME_RESO
             / config.DOWN_TIME_RATE
         ).astype(np.int64)
-        
-        time_series = np.zeros(width, dtype=np.float32)
-        
-        for j in freq_index:
-            start_idx = delays[j]
-            end_idx = start_idx + width
-            
-            # Verificaciones simples
-            if start_idx >= 0 and end_idx <= data.shape[0] and j < data.shape[1]:
-                time_series += data[start_idx:end_idx, j]
-                if j == mid_channel:
-                    out[1, DM] = time_series.copy()
-                    
-        out[0, DM] = time_series.copy()
-        out[2, DM] = time_series - out[1, DM]
+
+        total_series = np.zeros(width, dtype=np.float32)
+        count_series = np.zeros(width, dtype=np.int32)
+        mid_series = np.zeros(width, dtype=np.float32)
+        mid_filled = np.zeros(width, dtype=np.bool_)
+
+        for j in range(nchan_ds):
+            d = delays[j]
+            # Rango fuente y destino con manejo de bordes
+            if d >= 0:
+                src_lo = d
+                dst_lo = 0
+            else:
+                src_lo = 0
+                dst_lo = -d
+            src_hi = min(data.shape[0], d + width) if d + width > 0 else 0
+            length = src_hi - src_lo
+            if length <= 0 or j >= data.shape[1]:
+                continue
+            dst_hi = dst_lo + length
+
+            total_series[dst_lo:dst_hi] += data[src_lo:src_hi, j]
+            count_series[dst_lo:dst_hi] += 1
+
+            if j == mid_channel:
+                mid_series[dst_lo:dst_hi] = data[src_lo:src_hi, j]
+                mid_filled[dst_lo:dst_hi] = True
+
+        # Normalización por #canales válidos
+        norm = np.maximum(count_series.astype(np.float32), 1.0)
+        out[0, DM] = total_series / norm
+        # Si mid no estuvo disponible en algún punto, dejar 0 allí
+        out[1, DM] = mid_series
+        out[2, DM] = out[0, DM] - out[1, DM]
+
     return out
 
 
 def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128) -> np.ndarray:
     result = np.zeros((3, height, width), dtype=np.float32)
+    
+    # Pre-whitening por canal opcional para mitigar bandpass/RFI leve
+    try:
+        if getattr(config, 'PREWHITEN_BEFORE_DM', False):
+            # Z-score por canal (eje 0 = tiempo)
+            eps = 1e-6
+            mean_ch = np.mean(data, axis=0)
+            std_ch = np.std(data, axis=0)
+            std_ch = np.where(std_ch < eps, 1.0, std_ch)
+            data = (data - mean_ch) / std_ch
+    except Exception as e:
+        print(f"[WARNING] Error en prewhitening: {e}")
     try:
         print("[INFO] Intentando usar GPU para dedispersión...")
         

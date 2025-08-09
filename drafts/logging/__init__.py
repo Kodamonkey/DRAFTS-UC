@@ -24,6 +24,15 @@ from .gpu_logging import (
     filter_cuda_messages
 )
 
+from .chunking_logging import (
+    display_detailed_chunking_info,
+    log_chunk_processing_start,
+    log_chunk_processing_end,
+    log_file_processing_summary,
+    log_memory_optimization,
+    log_slice_configuration
+)
+
 __all__ = [
     'DRAFTSLogger',
     'DRAFTSFormatter', 
@@ -36,5 +45,11 @@ __all__ = [
     'gpu_context',
     'log_gpu_operation',
     'log_gpu_memory_operation',
-    'filter_cuda_messages'
+    'filter_cuda_messages',
+    'display_detailed_chunking_info',
+    'log_chunk_processing_start',
+    'log_chunk_processing_end',
+    'log_file_processing_summary',
+    'log_memory_optimization',
+    'log_slice_configuration'
 ] 

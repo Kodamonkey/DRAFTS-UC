@@ -241,13 +241,17 @@ def save_detection_plot(
     fits_stem: str,
     slice_len: Optional[int] = None,
     band_idx: int = 0,  # Para calcular el rango de frecuencias de la banda
-    absolute_start_time: Optional[float] = None,  # 🕐 NUEVO PARÁMETRO PARA TIEMPO ABSOLUTO
+    absolute_start_time: Optional[float] = None,  
+    slice_samples: Optional[int] = None,  
 ) -> None:
     """Save detection plot with both detection and classification probabilities."""
 
     # Usar slice_len específico o del config
     if slice_len is None:
         slice_len = config.SLICE_LEN
+    # Determinar muestras reales del slice (último slice puede ser más corto)
+    if slice_samples is None:
+        slice_samples = slice_len
 
     fig, ax = plt.subplots(figsize=(12, 8))
     im = ax.imshow(img_rgb, origin="lower", aspect="auto")
@@ -262,11 +266,11 @@ def save_detection_plot(
     else:
         time_start_slice = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
     
-    time_values = time_start_slice + (
-        time_positions / 512.0
-    ) * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    # Duración real del slice (respetando el último slice truncado)
+    slice_duration_sec = slice_samples * config.TIME_RESO * config.DOWN_TIME_RATE
+    time_values = time_start_slice + (time_positions / 512.0) * slice_duration_sec
     ax.set_xticks(time_positions)
-    ax.set_xticklabels([f"{t:.3f}" for t in time_values])
+    ax.set_xticklabels([f"{t:.6f}" for t in time_values])
     ax.set_xlabel("Time (s)", fontsize=12, fontweight="bold")
 
     # DM axis labels - AQUÍ ESTÁ LA INTEGRACIÓN DEL DM DINÁMICO
@@ -298,10 +302,13 @@ def save_detection_plot(
     else:
         dm_range_info += " (full)"
         
+    # Mostrar duración exacta del slice en el título (ms con alta precisión)
+    exact_slice_ms = slice_duration_sec * 1000.0
     title = (
         f"{fits_stem} - {band_name} ({freq_range})\n"
         f"Slice {slice_idx:03d}/{time_slice} | "
-        f"Time Resolution: {config.TIME_RESO * config.DOWN_TIME_RATE * 1e6:.1f} \u03bcs | "
+        f"Slice duration: {exact_slice_ms:.6f} ms | "
+        f"Time Resolution: {config.TIME_RESO * config.DOWN_TIME_RATE * 1e6:.3f} \u03bcs | "
         f"DM Range: {dm_range_info} pc cm⁻\u00b3"
     )
     ax.set_title(title, fontsize=11, fontweight="bold", pad=20)
@@ -315,6 +322,19 @@ def save_detection_plot(
             detection_info,
             transform=ax.transAxes,
             bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8),
+            fontsize=10,
+            verticalalignment="top",
+            fontweight="bold",
+        )
+    else:
+        # Mostrar información de debug cuando no hay detecciones
+        debug_info = "No detections found (debug mode)"
+        ax.text(
+            0.02,
+            0.98,
+            debug_info,
+            transform=ax.transAxes,
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.8),
             fontsize=10,
             verticalalignment="top",
             fontweight="bold",
@@ -403,7 +423,7 @@ def save_detection_plot(
         img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
         im_cb = ax_cb.imshow(img_gray, origin="lower", aspect="auto", cmap="mako")
         ax_cb.set_xticks(time_positions)
-        ax_cb.set_xticklabels([f"{t:.3f}" for t in time_values])
+        ax_cb.set_xticklabels([f"{t:.6f}" for t in time_values])
         ax_cb.set_xlabel("Time (s)", fontsize=12, fontweight="bold")
         ax_cb.set_yticks(dm_positions)
         ax_cb.set_yticklabels([f"{dm:.0f}" for dm in dm_values])
@@ -451,17 +471,25 @@ def save_all_plots(
     detections_dir,
     out_img_path,
     absolute_start_time=None,
-    chunk_idx=None  # PARÁMETRO PARA CHUNK
+    chunk_idx=None,  # PARÁMETRO PARA CHUNK
+    force_plots: bool = False,
 ):
     """Guarda todos los plots con tiempo absoluto para continuidad temporal.
     
     Args:
         absolute_start_time: Tiempo absoluto de inicio del slice en segundos desde el inicio del archivo
+        force_plots: Si True, genera todos los plots independientemente de si hay candidatos
     """
     # Crear carpetas solo cuando se van a generar plots
     # Composite plot - crear carpeta solo si se va a generar
     if comp_path is not None:
         comp_path.parent.mkdir(parents=True, exist_ok=True)
+        # Calcular muestras reales del slice (por si el último slice está truncado)
+        real_slice_samples = (
+            waterfall_block.shape[0]
+            if waterfall_block is not None and hasattr(waterfall_block, "shape")
+            else slice_len
+        )
         save_slice_summary(
             waterfall_block,
             dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,
@@ -483,39 +511,52 @@ def save_all_plots(
             off_regions=off_regions,
             thresh_snr=thresh_snr,
             band_idx=band_idx,
-            absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
-            chunk_idx=chunk_idx,  # 🆕 PASAR CHUNK_ID
+            absolute_start_time=absolute_start_time,  
+            chunk_idx=chunk_idx,  
+            slice_samples=real_slice_samples,
         )
     
-    # Patch plot - crear carpeta solo si hay patch para guardar
-    if first_patch is not None and patch_path is not None:
+    # Patch plot - crear carpeta solo si hay patch o si se fuerza en modo debug
+    if patch_path is not None and (first_patch is not None or force_plots):
         patch_path.parent.mkdir(parents=True, exist_ok=True)
+        # Si force_plots=True pero no hay patch, crear un patch vacío para debug
+        if first_patch is not None:
+            patch_data = first_patch
+        elif force_plots:
+            # Crear un patch de ejemplo para debug cuando no hay candidatos
+            patch_data = np.zeros((10, 10)) if waterfall_block is None else waterfall_block[:10, :10]
+        else:
+            patch_data = np.zeros((10, 10))
+        
         save_patch_plot(
-            first_patch,
+            patch_data,
             patch_path,
             freq_down,
             time_reso_ds,
-            first_start,
+            first_start if first_start is not None else 0.0,
             off_regions=off_regions,
             thresh_snr=thresh_snr,
             band_idx=band_idx,
             band_name=band_name,
         )
     
-    # Waterfall dedispersed - crear carpeta solo si hay datos dedispersados
-    if dedisp_block is not None and dedisp_block.size > 0:
+    # Waterfall dedispersed - crear carpeta solo si hay datos dedispersados o si se fuerza
+    if (dedisp_block is not None and dedisp_block.size > 0) or force_plots:
         waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
-        plot_waterfall_block(
-            data_block=dedisp_block,
-            freq=freq_down,
-            time_reso=time_reso_ds,
-            block_size=dedisp_block.shape[0],
-            block_idx=j,
-            save_dir=waterfall_dedispersion_dir,
-            filename=f"{fits_stem}_dm{first_dm:.2f}_{band_suffix}",
-            normalize=normalize,
-            absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
-        )
+        # Si force_plots=True pero no hay dedisp_block, usar waterfall_block
+        plot_data = dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block
+        if plot_data is not None and plot_data.size > 0:
+            plot_waterfall_block(
+                data_block=plot_data,
+                freq=freq_down,
+                time_reso=time_reso_ds,
+                block_size=plot_data.shape[0],
+                block_idx=j,
+                save_dir=waterfall_dedispersion_dir,
+                filename=f"{fits_stem}_dm{first_dm:.2f}_{band_suffix}" if first_dm is not None else f"{fits_stem}_dm0.00_{band_suffix}",
+                normalize=normalize,
+                absolute_start_time=absolute_start_time,  
+            )
     
     # Detections plot - crear carpeta solo si se va a generar
     if out_img_path is not None:
@@ -534,6 +575,11 @@ def save_all_plots(
             slice_len,
             band_idx=band_idx,
             absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
+            slice_samples=(
+                waterfall_block.shape[0]
+                if waterfall_block is not None and hasattr(waterfall_block, "shape")
+                else slice_len
+            ),
         )
 
 def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
@@ -600,6 +646,7 @@ def save_plot(
     slice_len: int,
     band_idx: int = 0,  # Para calcular el rango de frecuencias
     absolute_start_time: Optional[float] = None,  # 🕐 NUEVO PARÁMETRO PARA TIEMPO ABSOLUTO
+    slice_samples: Optional[int] = None,  # 🕐 NUEVO: muestras reales en el slice
 ) -> None:
     """Wrapper around :func:`save_detection_plot` with dynamic slice length."""
 
@@ -623,7 +670,8 @@ def save_plot(
         fits_stem,
         slice_len=slice_len,
         band_idx=band_idx,
-        absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
+        absolute_start_time=absolute_start_time, 
+        slice_samples=slice_samples,
     )
     
     config.SLICE_LEN = prev_len
@@ -749,7 +797,10 @@ def save_patch_plot(
     cbar.set_label('Normalized Intensity', fontsize=9, fontweight='bold')
 
     # Add title with band frequency range information
-    plt.suptitle(f"Candidate Patch - {band_name_with_freq}", fontsize=12, fontweight='bold')
+    title = f"Candidate Patch - {band_name_with_freq}"
+    if patch.size == 0 or np.all(patch == 0):
+        title += " (Debug - No Data)"
+    plt.suptitle(title, fontsize=12, fontweight='bold')
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=150, bbox_inches='tight')
@@ -778,8 +829,9 @@ def save_slice_summary(
     off_regions: Optional[List[Tuple[int, int]]] = None,
     thresh_snr: Optional[float] = None,
     band_idx: int = 0,  # Para mostrar el rango de frecuencias
-    absolute_start_time: Optional[float] = None,  # 🕐 NUEVO PARÁMETRO PARA TIEMPO ABSOLUTO
-    chunk_idx: Optional[int] = None,  # 🆕 NUEVO PARÁMETRO PARA CHUNK
+    absolute_start_time: Optional[float] = None, 
+    chunk_idx: Optional[int] = None,  
+    slice_samples: Optional[int] = None,  
 ) -> None:
     """Save a composite figure summarising detections and waterfalls with SNR analysis.
 
@@ -815,17 +867,17 @@ def save_slice_summary(
 
     # DEBUG: Verificar configuración de plots
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"🔍 [DEBUG PLOTS] Composite summary para: {fits_stem}")
-        print(f"🔍 [DEBUG PLOTS] Band: {band_name_with_freq}")
-        print(f"🔍 [DEBUG PLOTS] freq_ds shape: {freq_ds.shape}")
-        print(f"🔍 [DEBUG PLOTS] freq_ds.min(): {freq_ds.min():.2f} MHz")
-        print(f"🔍 [DEBUG PLOTS] freq_ds.max(): {freq_ds.max():.2f} MHz")
-        print(f"🔍 [DEBUG PLOTS] waterfall_block shape: {waterfall_block.shape if waterfall_block is not None else 'None'}")
-        print(f"🔍 [DEBUG PLOTS] dedispersed_block shape: {dedispersed_block.shape if dedispersed_block is not None else 'None'}")
-        print(f"🔍 [DEBUG PLOTS] DM value: {dm_val:.2f} pc cm⁻³")
-        print(f"🔍 [DEBUG PLOTS] imshow origin='lower' significa: freq_ds.min() en parte inferior, freq_ds.max() en parte superior")
-        print(f"🔍 [DEBUG PLOTS] extent será: [tiempo_inicio, tiempo_fin, {freq_ds.min():.1f}, {freq_ds.max():.1f}]")
-        print("🔍 [DEBUG PLOTS] " + "="*60)
+        print(f"[DEBUG PLOTS] Composite summary para: {fits_stem}")
+        print(f"[DEBUG PLOTS] Band: {band_name_with_freq}")
+        print(f"[DEBUG PLOTS] freq_ds shape: {freq_ds.shape}")
+        print(f"[DEBUG PLOTS] freq_ds.min(): {freq_ds.min():.2f} MHz")
+        print(f"[DEBUG PLOTS] freq_ds.max(): {freq_ds.max():.2f} MHz")
+        print(f"[DEBUG PLOTS] waterfall_block shape: {waterfall_block.shape if waterfall_block is not None else 'None'}")
+        print(f"[DEBUG PLOTS] dedispersed_block shape: {dedispersed_block.shape if dedispersed_block is not None else 'None'}")
+        print(f"[DEBUG PLOTS] DM value: {dm_val:.2f} pc cm⁻³")
+        print(f"[DEBUG PLOTS] imshow origin='lower' significa: freq_ds.min() en parte inferior, freq_ds.max() en parte superior")
+        print(f"[DEBUG PLOTS] extent será: [tiempo_inicio, tiempo_fin, {freq_ds.min():.1f}, {freq_ds.max():.1f}]")
+        print("[DEBUG PLOTS] " + "="*60)
 
     # Check if waterfall_block is valid
     if waterfall_block is not None and waterfall_block.size > 0:
@@ -841,13 +893,13 @@ def save_slice_summary(
 
     # DEBUG: Verificar datos de entrada
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"🔍 [DEBUG DATOS] Entrada a save_slice_summary:")
-        print(f"🔍 [DEBUG DATOS] waterfall_block válido: {wf_block is not None}")
-        print(f"🔍 [DEBUG DATOS] dedispersed_block válido: {dw_block is not None}")
+        print(f"[DEBUG DATOS] Entrada a save_slice_summary:")
+        print(f"[DEBUG DATOS] waterfall_block válido: {wf_block is not None}")
+        print(f"[DEBUG DATOS] dedispersed_block válido: {dw_block is not None}")
         if wf_block is not None and dw_block is not None:
-            print(f"🔍 [DEBUG DATOS] ¿Son iguales raw y dedispersed? {np.array_equal(wf_block, dw_block)}")
-            print(f"🔍 [DEBUG DATOS] Diferencia máxima: {np.max(np.abs(wf_block - dw_block)):.6f}")
-        print("🔍 [DEBUG DATOS] " + "="*50)
+            print(f"[DEBUG DATOS] ¿Son iguales raw y dedispersed? {np.array_equal(wf_block, dw_block)}")
+            print(f"[DEBUG DATOS] Diferencia máxima: {np.max(np.abs(wf_block - dw_block)):.6f}")
+        print("[DEBUG DATOS] " + "="*50)
     
     if normalize:
         for block in (wf_block, dw_block):
@@ -861,13 +913,15 @@ def save_slice_summary(
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 🕐 CALCULAR TIEMPOS ABSOLUTOS PARA TODO EL COMPOSITE
+
     if absolute_start_time is not None:
         slice_start_abs = absolute_start_time
     else:
         slice_start_abs = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
     
-    slice_end_abs = slice_start_abs + slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    # Duración real del slice (por si el último slice quedó truncado)
+    real_samples = slice_samples if slice_samples is not None else slice_len
+    slice_end_abs = slice_start_abs + real_samples * config.TIME_RESO * config.DOWN_TIME_RATE
 
     fig = plt.figure(figsize=(14, 12))
 
@@ -885,7 +939,7 @@ def save_slice_summary(
 
     n_time_ticks_det = 8
     time_positions_det = np.linspace(0, img_rgb.shape[1] - 1, n_time_ticks_det)
-    # 🕐 USAR TIEMPO ABSOLUTO EN LUGAR DE TIEMPO RELATIVO
+
     time_values_det = slice_start_abs + (time_positions_det / img_rgb.shape[1]) * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
     ax_det.set_xticks(time_positions_det)
     ax_det.set_xticklabels([f"{t:.3f}" for t in time_values_det])
@@ -972,7 +1026,13 @@ def save_slice_summary(
     else:
         dm_range_info += " (full)"
     
-    title_det = f"Detection Map - {fits_stem} ({band_name_with_freq})\nSlice {slice_idx:03d} of {time_slice} | DM Range: {dm_range_info} pc cm⁻³"
+    # Precisión: mostrar duración exacta del slice considerando los índices reales usados
+    exact_slice_ms_det = (slice_len * (config.TIME_RESO * config.DOWN_TIME_RATE)) * 1000.0
+    title_det = (
+        f"Detection Map - {fits_stem} ({band_name_with_freq})\n"
+        f"Slice {slice_idx:03d} of {time_slice} | Duration: {exact_slice_ms_det:.6f} ms | "
+        f"DM Range: {dm_range_info} pc cm⁻³"
+    )
     ax_det.set_title(title_det, fontsize=11, fontweight="bold")
     config.SLICE_LEN = prev_len_config
 
@@ -1060,12 +1120,12 @@ def save_slice_summary(
         n_freq_ticks = 6
         freq_tick_positions = np.linspace(freq_ds.min(), freq_ds.max(), n_freq_ticks)
         ax_wf.set_yticks(freq_tick_positions)
-        ax_wf.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
 
         n_time_ticks = 5
         time_tick_positions = np.linspace(slice_start_abs, slice_end_abs, n_time_ticks)
         ax_wf.set_xticks(time_tick_positions)
-        ax_wf.set_xticklabels([f"{t:.3f}" for t in time_tick_positions])
+        # Mostrar tiempo con mayor precisión para que el usuario vea el tiempo exacto
+        ax_wf.set_xticklabels([f"{t:.6f}" for t in time_tick_positions])
         ax_wf.set_xlabel("Time (s)", fontsize=9)
         ax_wf.set_ylabel("Frequency (MHz)", fontsize=9)
         
@@ -1115,6 +1175,9 @@ def save_slice_summary(
     else:
         dm_val_consistent = dm_val  # Fallback al valor original
         snr_val_candidate = 0.0
+        # Agregar información de debug cuando no hay candidatos
+        if config.FORCE_PLOTS:
+            logger.debug(f"🔍 [DEBUG] No candidatos detectados en slice {slice_idx}, pero force_plots=True")
     
     # Verificar si hay datos de waterfall dedispersado válidos
     if dw_block is not None and dw_block.size > 0:
@@ -1185,7 +1248,7 @@ def save_slice_summary(
         ax_dw.set_yticks(freq_tick_positions)
         ax_dw.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
         ax_dw.set_xticks(time_tick_positions)
-        ax_dw.set_xticklabels([f"{t:.3f}" for t in time_tick_positions])
+        ax_dw.set_xticklabels([f"{t:.6f}" for t in time_tick_positions])
         ax_dw.set_xlabel("Time (s)", fontsize=9)
         ax_dw.set_ylabel("Frequency (MHz)", fontsize=9)
         
@@ -1282,7 +1345,7 @@ def save_slice_summary(
         n_patch_time_ticks = 5
         patch_tick_positions = np.linspace(patch_time_axis[0], patch_time_axis[-1], n_patch_time_ticks)
         ax_patch.set_xticks(patch_tick_positions)
-        ax_patch.set_xticklabels([f"{t:.3f}" for t in patch_tick_positions])
+        ax_patch.set_xticklabels([f"{t:.6f}" for t in patch_tick_positions])
 
         ax_patch.set_yticks(freq_tick_positions)
         ax_patch.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])

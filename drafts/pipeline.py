@@ -34,6 +34,7 @@ from .output.candidate_manager import ensure_csv_header
 from .preprocessing.dedispersion import d_dm_time_g
 from .config import get_band_configs
 from .detection_engine import get_pipeline_parameters, process_slice
+from .preprocessing.chunk_planner import plan_slices_for_chunk
 from .output.summary_manager import (
     _update_summary_with_file_debug,
     _update_summary_with_results,
@@ -41,7 +42,6 @@ from .output.summary_manager import (
 )
 from .detection.model_interface import detect, classify_patch
 logger = logging.getLogger(__name__)
-
 
 def _optimize_memory(aggressive: bool = False) -> None:
     """Optimiza el uso de memoria del sistema.
@@ -120,8 +120,11 @@ def _process_block(
     
     # CALCULAR TIEMPO ABSOLUTO DESDE INICIO DEL ARCHIVO
     # Tiempo de inicio del chunk en segundos desde el inicio del archivo
-    chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO # Tiempo de inicio del chunk en segundos desde el inicio del archivo
-    chunk_duration_sec = metadata["actual_chunk_size"] * config.TIME_RESO # Duración del chunk en segundos
+    # CORRECCIÓN: Usar tiempo efectivo después del downsampling
+    # Importante: el offset absoluto del chunk se calcula en base al tiempo por muestra original (sin downsampling)
+    # El factor de downsampling temporal sólo aplica a duraciones dentro de datos ya decimados.
+    chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO  # Tiempo absoluto desde inicio del archivo
+    chunk_duration_sec = metadata["actual_chunk_size"] * config.TIME_RESO  # Duración real del chunk
     
     # =============================================================================
     # LOGGING INFORMATIVO DETALLADO DEL CHUNK
@@ -172,7 +175,26 @@ def _process_block(
         prob_max = 0.0 # Probabilidad máxima de detección
         snr_list = [] # Lista de SNRs de los candidatos
         
-        for j in range(time_slice): # Procesar cada slice
+        # Plan de slices por chunk con contigüidad y ajuste divisor
+        if getattr(config, 'USE_PLANNED_CHUNKING', False):
+            time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+            plan = plan_slices_for_chunk(
+                num_samples_decimated=block.shape[0],
+                target_duration_ms=config.SLICE_DURATION_MS,
+                time_reso_decimated_s=time_reso_ds,
+                max_slice_count=getattr(config, 'MAX_SLICE_COUNT', 5000),
+                time_tol_ms=getattr(config, 'TIME_TOL_MS', 0.1),
+            )
+            try:
+                from .logging.chunking_logging import log_slice_plan_summary
+                log_slice_plan_summary(metadata['chunk_idx'], plan)
+            except Exception:
+                pass
+            slices_to_process = [(idx, sl.start_idx, sl.end_idx) for idx, sl in enumerate(plan["slices"])]
+        else:
+            slices_to_process = [(j, j * slice_len, min((j + 1) * slice_len, block.shape[0])) for j in range(time_slice)]
+
+        for j, start_idx, end_idx in slices_to_process: # Procesar cada slice
             # Mensaje de progreso cada 10 slices o en el primer slice
             if j % 10 == 0 or j == 0:
                 try:
@@ -182,9 +204,7 @@ def _process_block(
                 except ImportError:
                     pass
             
-            # Verificar que tenemos suficientes datos para este slice
-            start_idx = slice_len * j # Índice de inicio del slice
-            end_idx = slice_len * (j + 1) # Índice de fin del slice
+            # Verificar que tenemos suficientes datos para este slice (índices ya calculados)
 
             # =============================================================================
             # LOGGING INFORMATIVO DETALLADO PARA AJUSTES Y SALTOS
@@ -276,15 +296,14 @@ def _process_block(
                 continue
 
             # Calcular tiempo absoluto para este slice específico
-            slice_start_time_sec = chunk_start_time_sec + (j * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE)
+            # Tiempo absoluto de inicio del slice = offset chunk (sin downsampling) + offset dentro del chunk (ya decimado)
+            slice_start_time_sec = chunk_start_time_sec + (start_idx * config.TIME_RESO * config.DOWN_TIME_RATE)
 
             # Crear carpeta principal del archivo
             file_folder_name = fits_path.stem
             chunk_folder_name = f"chunk{chunk_idx:03d}"
             
-            # Candidate CSV and waterfall folders (already chunked)
-            # csv_file = save_dir / f"{chunk_folder_name}.candidates.csv" # Moved outside _process_block
-            # ensure_csv_header(csv_file) # Moved outside _process_block
+
             waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / file_folder_name / chunk_folder_name
             waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / file_folder_name / chunk_folder_name
 
@@ -303,7 +322,10 @@ def _process_block(
                 composite_dir=composite_dir,
                 detections_dir=detections_dir,
                 patches_dir=patches_dir,
-                chunk_idx=chunk_idx 
+                chunk_idx=chunk_idx,
+                force_plots=config.FORCE_PLOTS,
+                slice_start_idx=start_idx,
+                slice_end_idx=end_idx,
             )
 
             cand_counter += cands
@@ -594,7 +616,8 @@ def _process_file(
             chunk_idx=0,  # chunk_idx=0 para archivos no chunked
             composite_dir=composite_dir,  # pasar directorio composite
             detections_dir=detections_dir,  # pasar directorio detections
-            patches_dir=patches_dir  # pasar directorio patches
+            patches_dir=patches_dir,  # pasar directorio patches
+            force_plots=config.FORCE_PLOTS,
         )
         cand_counter += cands
         n_bursts += bursts
@@ -683,16 +706,14 @@ def run_pipeline(chunk_samples: int = 0) -> None:
             
             # CALCULAR PARÁMETROS DE PROCESAMIENTO AUTOMÁTICAMENTE
             from .preprocessing.slice_len_calculator import get_processing_parameters, validate_processing_parameters
+            from .logging.chunking_logging import display_detailed_chunking_info
             
             if chunk_samples == 0:  # Modo automático
                 processing_params = get_processing_parameters()
                 if validate_processing_parameters(processing_params):
                     chunk_samples = processing_params['chunk_samples']
-                    logger.logger.info(f"Parámetros calculados automáticamente:")
-                    logger.logger.info(f"   • Slice: {processing_params['slice_len']} muestras ({processing_params['slice_duration_ms']:.1f} ms)")
-                    logger.logger.info(f"   • Chunk: {chunk_samples:,} muestras ({processing_params['chunk_duration_sec']:.1f}s)")
-                    logger.logger.info(f"   • Slices por chunk: {processing_params['slices_per_chunk']}")
-                    logger.logger.info(f"   • Total estimado: {processing_params['total_chunks']} chunks, {processing_params['total_slices']} slices")
+                    # Mostrar información detallada del sistema de chunking
+                    display_detailed_chunking_info(processing_params)
                 else:
                     logger.logger.error("Parámetros calculados inválidos, usando valores por defecto")
                     chunk_samples = 2_097_152  # 2MB por defecto

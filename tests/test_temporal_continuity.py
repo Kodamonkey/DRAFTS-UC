@@ -34,8 +34,9 @@ def test_temporal_continuity(file_path: str, chunk_samples: int = 1_048_576):
             total_samples += metadata["actual_chunk_size"]
             
             # Calcular tiempos absolutos
-            chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO
-            chunk_duration_sec = metadata["actual_chunk_size"] * config.TIME_RESO
+            # CORRECCIÓN: Usar tiempo efectivo después del downsampling
+            chunk_start_time_sec = metadata["start_sample"] * (config.TIME_RESO * config.DOWN_TIME_RATE)
+            chunk_duration_sec = metadata["actual_chunk_size"] * (config.TIME_RESO * config.DOWN_TIME_RATE)
             chunk_end_time_sec = chunk_start_time_sec + chunk_duration_sec
             
             temporal_info.append({
@@ -81,7 +82,7 @@ def test_temporal_continuity(file_path: str, chunk_samples: int = 1_048_576):
         
         # Verificar cobertura total
         total_duration = temporal_info[-1]['end_time_sec'] - temporal_info[0]['start_time_sec']
-        expected_duration = total_samples * config.TIME_RESO
+        expected_duration = total_samples * (config.TIME_RESO * config.DOWN_TIME_RATE)
         
         print(f"\n📊 RESUMEN TEMPORAL:")
         print(f"   🕐 Tiempo total cubierto: {total_duration:.2f}s")

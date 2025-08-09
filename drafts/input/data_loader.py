@@ -303,6 +303,56 @@ BENEFICIOS DE ESTE ENFOQUE:
 """
 
 
+def _auto_config_downsampling() -> None:
+    """Configura DOWN_FREQ_RATE y DOWN_TIME_RATE si no fueron fijados por el usuario."""
+    user_configured_freq = getattr(config, 'DOWN_FREQ_RATE', None)
+    user_configured_time = getattr(config, 'DOWN_TIME_RATE', None)
+
+    if user_configured_freq is None or user_configured_freq == 1:
+        if config.FREQ_RESO >= 512:
+            config.DOWN_FREQ_RATE = max(1, int(round(config.FREQ_RESO / 512)))
+        else:
+            config.DOWN_FREQ_RATE = 1
+
+    if user_configured_time is None:
+        if config.TIME_RESO > 1e-9:
+            config.DOWN_TIME_RATE = max(1, int((49.152 * 16 / 1e6) / config.TIME_RESO))
+        else:
+            config.DOWN_TIME_RATE = 15
+
+
+def _print_debug_frequencies(prefix: str, file_name: str, freq_axis_inverted: bool) -> None:
+    """Imprime bloque estándar de depuración de frecuencias con un prefijo dado."""
+    print(f"{prefix} Archivo: {file_name}")
+    print(f"{prefix} freq_axis_inverted detectado: {freq_axis_inverted}")
+    print(f"{prefix} DATA_NEEDS_REVERSAL configurado: {config.DATA_NEEDS_REVERSAL}")
+    print(f"{prefix} Primeras 5 frecuencias: {config.FREQ[:5]}")
+    print(f"{prefix} Últimas 5 frecuencias: {config.FREQ[-5:]}")
+    print(f"{prefix} Frecuencia mínima: {config.FREQ.min():.2f} MHz")
+    print(f"{prefix} Frecuencia máxima: {config.FREQ.max():.2f} MHz")
+    print(f"{prefix} Orden esperado: frecuencias ASCENDENTES (menor a mayor)")
+    if config.FREQ[0] < config.FREQ[-1]:
+        print(f"{prefix} Orden CORRECTO: {config.FREQ[0]:.2f} < {config.FREQ[-1]:.2f}")
+    else:
+        print(f"{prefix} Orden INCORRECTO: {config.FREQ[0]:.2f} > {config.FREQ[-1]:.2f}")
+    print(f"{prefix} DOWN_FREQ_RATE: {config.DOWN_FREQ_RATE}")
+    print(f"{prefix} DOWN_TIME_RATE: {config.DOWN_TIME_RATE}")
+    print(f"{prefix} " + "="*50)
+
+
+def _save_file_debug_info(file_name: str, debug_info: dict) -> None:
+    """Guarda debug info (FITS o FIL) en summary.json inmediatamente (unificado)."""
+    try:
+        from pathlib import Path
+        results_dir = getattr(config, 'RESULTS_DIR', Path('./Results/ObjectDetection'))
+        model_dir = results_dir / config.MODEL_NAME
+        model_dir.mkdir(parents=True, exist_ok=True)
+        filename = Path(file_name).stem
+        _update_summary_with_file_debug(model_dir, filename, debug_info)
+    except Exception as e:
+        print(f"[WARNING] Error guardando debug info para {file_name}: {e}")
+
+
 def get_obparams(file_name: str) -> None:
     """Extract observation parameters and populate :mod:`config`."""
     
@@ -511,21 +561,7 @@ def get_obparams(file_name: str) -> None:
 
     # DEBUG: Orden de frecuencias
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"[DEBUG FRECUENCIAS] Archivo: {file_name}")
-        print(f"[DEBUG FRECUENCIAS] freq_axis_inverted detectado: {freq_axis_inverted}")
-        print(f"[DEBUG FRECUENCIAS] DATA_NEEDS_REVERSAL configurado: {config.DATA_NEEDS_REVERSAL}")
-        print(f"[DEBUG FRECUENCIAS] Primeras 5 frecuencias: {config.FREQ[:5]}")
-        print(f"[DEBUG FRECUENCIAS] Últimas 5 frecuencias: {config.FREQ[-5:]}")
-        print(f"[DEBUG FRECUENCIAS] Frecuencia mínima: {config.FREQ.min():.2f} MHz")
-        print(f"[DEBUG FRECUENCIAS] Frecuencia máxima: {config.FREQ.max():.2f} MHz")
-        print(f"[DEBUG FRECUENCIAS] Orden esperado: frecuencias ASCENDENTES (menor a mayor)")
-        if config.FREQ[0] < config.FREQ[-1]:
-            print(f"[DEBUG FRECUENCIAS] Orden CORRECTO: {config.FREQ[0]:.2f} < {config.FREQ[-1]:.2f}")
-        else:
-            print(f"[DEBUG FRECUENCIAS] Orden INCORRECTO: {config.FREQ[0]:.2f} > {config.FREQ[-1]:.2f}")
-        print(f"[DEBUG FRECUENCIAS] DOWN_FREQ_RATE: {config.DOWN_FREQ_RATE}")
-        print(f"[DEBUG FRECUENCIAS] DOWN_TIME_RATE: {config.DOWN_TIME_RATE}")
-        print("[DEBUG FRECUENCIAS] " + "="*50)
+        _print_debug_frequencies("[DEBUG FRECUENCIAS]", file_name, freq_axis_inverted)
 
     # DEBUG: Información completa del archivo
     if config.DEBUG_FREQUENCY_ORDER:
@@ -575,25 +611,8 @@ def get_obparams(file_name: str) -> None:
         print(f"[DEBUG ARCHIVO]   - Umbrales: DET_PROB={config.DET_PROB}, CLASS_PROB={config.CLASS_PROB}, SNR_THRESH={config.SNR_THRESH}")
         print(f"[DEBUG ARCHIVO] " + "="*60)
 
-    # RESPETAR CONFIGURACIONES DEL USUARIO - solo calcular automáticamente si no están configuradas
-    # Verificar si los valores fueron configurados por el usuario (no son los valores por defecto del sistema)
-    user_configured_freq = getattr(config, 'DOWN_FREQ_RATE', None)
-    user_configured_time = getattr(config, 'DOWN_TIME_RATE', None)
-    
-    # Solo calcular automáticamente si no están configurados o son valores por defecto del sistema
-    if user_configured_freq is None or user_configured_freq == 1:  # 1 es el valor por defecto del sistema
-        if config.FREQ_RESO >= 512:
-            config.DOWN_FREQ_RATE = max(1, int(round(config.FREQ_RESO / 512)))
-        else:
-            config.DOWN_FREQ_RATE = 1
-    
-    # Verificar si el usuario ha configurado explícitamente DOWN_TIME_RATE
-    # Solo calcular automáticamente si el valor no está configurado o es el valor por defecto del sistema
-    if user_configured_time is None:  # Solo calcular automáticamente si no está configurado
-        if config.TIME_RESO > 1e-9:
-            config.DOWN_TIME_RATE = max(1, int((49.152 * 16 / 1e6) / config.TIME_RESO))
-        else:
-            config.DOWN_TIME_RATE = 15
+    # RESPETAR CONFIGURACIONES DEL USUARIO - calcular automáticamente si corresponde
+    _auto_config_downsampling()
 
     # DEBUG: Configuración final de decimación
     if config.DEBUG_FREQUENCY_ORDER:
@@ -611,7 +630,7 @@ def get_obparams(file_name: str) -> None:
 
     # *** GUARDAR DEBUG INFO EN SUMMARY.JSON INMEDIATAMENTE ***
     if config.DEBUG_FREQUENCY_ORDER:
-        _save_file_debug_info_fits(file_name, {
+        _save_file_debug_info(file_name, {
             "file_type": "fits",
             "file_size_bytes": os.path.getsize(file_name),
             "file_size_gb": os.path.getsize(file_name) / (1024**3),
@@ -662,28 +681,7 @@ def get_obparams(file_name: str) -> None:
             }
         })
 
-
-def _save_file_debug_info_fits(file_name: str, debug_info: dict) -> None:
-    """Save debug information for a FITS file to summary.json immediately."""
-    try:
-        from pathlib import Path
-        import os
-        
-        # Determinar el directorio de guardado
-        results_dir = getattr(config, 'RESULTS_DIR', Path('./Results/ObjectDetection'))
-        model_dir = results_dir / config.MODEL_NAME
-        
-        # Asegurar que el directorio existe
-        model_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Obtener solo el nombre del archivo sin path
-        filename = Path(file_name).stem
-        
-        # Guardar debug info inmediatamente
-        _update_summary_with_file_debug(model_dir, filename, debug_info)
-        
-    except Exception as e:
-        print(f"[WARNING] Error guardando debug info para {file_name}: {e}")
+    # (El guardado de debug ahora se unifica en _save_file_debug_info)
 
 '''
 FILTERBANK IO
@@ -959,46 +957,15 @@ def get_obparams_fil(file_name: str) -> None:
 
     # DEBUG: Orden de frecuencias
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"[DEBUG FRECUENCIAS FIL] Archivo: {file_name}")
-        print(f"[DEBUG FRECUENCIAS FIL] freq_axis_inverted detectado: {freq_axis_inverted}")
-        print(f"[DEBUG FRECUENCIAS FIL] DATA_NEEDS_REVERSAL configurado: {config.DATA_NEEDS_REVERSAL}")
-        print(f"[DEBUG FRECUENCIAS FIL] Primeras 5 frecuencias: {config.FREQ[:5]}")
-        print(f"[DEBUG FRECUENCIAS FIL] Últimas 5 frecuencias: {config.FREQ[-5:]}")
-        print(f"[DEBUG FRECUENCIAS FIL] Frecuencia mínima: {config.FREQ.min():.2f} MHz")
-        print(f"[DEBUG FRECUENCIAS FIL] Frecuencia máxima: {config.FREQ.max():.2f} MHz")
-        print(f"[DEBUG FRECUENCIAS FIL] Orden esperado: frecuencias ASCENDENTES (menor a mayor)")
-        if config.FREQ[0] < config.FREQ[-1]:
-            print(f"[DEBUG FRECUENCIAS FIL] Orden CORRECTO: {config.FREQ[0]:.2f} < {config.FREQ[-1]:.2f}")
-        else:
-            print(f"[DEBUG FRECUENCIAS FIL] Orden INCORRECTO: {config.FREQ[0]:.2f} > {config.FREQ[-1]:.2f}")
-        print(f"[DEBUG FRECUENCIAS FIL] DOWN_FREQ_RATE: {config.DOWN_FREQ_RATE}")
-        print(f"[DEBUG FRECUENCIAS FIL] DOWN_TIME_RATE: {config.DOWN_TIME_RATE}")
-        print("[DEBUG FRECUENCIAS FIL] " + "="*50)
+        _print_debug_frequencies("[DEBUG FRECUENCIAS FIL]", file_name, freq_axis_inverted)
 
     # *** ASIGNAR VARIABLES GLOBALES ANTES DEL DEBUG ***
     config.TIME_RESO = tsamp
     config.FREQ_RESO = nchans
     config.FILE_LENG = nsamples
 
-    # RESPETAR CONFIGURACIONES DEL USUARIO - solo calcular automáticamente si no están configuradas
-    # Verificar si los valores fueron configurados por el usuario (no son los valores por defecto del sistema)
-    user_configured_freq = getattr(config, 'DOWN_FREQ_RATE', None)
-    user_configured_time = getattr(config, 'DOWN_TIME_RATE', None)
-    
-    # Solo calcular automáticamente si no están configurados o son valores por defecto del sistema
-    if user_configured_freq is None or user_configured_freq == 1:  # 1 es el valor por defecto del sistema
-        if config.FREQ_RESO >= 512:
-            config.DOWN_FREQ_RATE = max(1, int(round(config.FREQ_RESO / 512)))
-        else:
-            config.DOWN_FREQ_RATE = 1
-    
-    # Verificar si el usuario ha configurado explícitamente DOWN_TIME_RATE
-    # Solo calcular automáticamente si el valor no está configurado o es el valor por defecto del sistema
-    if user_configured_time is None:  # Solo calcular automáticamente si no está configurado
-        if config.TIME_RESO > 1e-9:
-            config.DOWN_TIME_RATE = max(1, int((49.152 * 16 / 1e6) / config.TIME_RESO))
-        else:
-            config.DOWN_TIME_RATE = 15
+    # RESPETAR CONFIGURACIONES DEL USUARIO - calcular automáticamente si corresponde
+    _auto_config_downsampling()
 
     # DEBUG: Información completa del archivo
     if config.DEBUG_FREQUENCY_ORDER:
@@ -1069,7 +1036,7 @@ def get_obparams_fil(file_name: str) -> None:
 
     # *** GUARDAR DEBUG INFO EN SUMMARY.JSON INMEDIATAMENTE ***
     if config.DEBUG_FREQUENCY_ORDER:
-        _save_file_debug_info_fil(file_name, {
+        _save_file_debug_info(file_name, {
             "file_type": "filterbank",
             "file_size_bytes": os.path.getsize(file_name),
             "file_size_gb": os.path.getsize(file_name) / (1024**3),
@@ -1134,26 +1101,7 @@ def get_obparams_fil(file_name: str) -> None:
         })
 
 
-def _save_file_debug_info_fil(file_name: str, debug_info: dict) -> None:
-    """Save debug information for a filterbank file to summary.json immediately."""
-    try:
-        from pathlib import Path
-
-        # Determinar el directorio de guardado
-        results_dir = getattr(config, 'RESULTS_DIR', Path('./Results/ObjectDetection'))
-        model_dir = results_dir / config.MODEL_NAME
-        
-        # Asegurar que el directorio existe
-        model_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Obtener solo el nombre del archivo sin path
-        filename = Path(file_name).stem
-        
-        # Guardar debug info inmediatamente
-        _update_summary_with_file_debug(model_dir, filename, debug_info)
-        
-    except Exception as e:
-        print(f"[WARNING] Error guardando debug info para {file_name}: {e}")
+    # (El guardado de debug ahora se unifica en _save_file_debug_info)
 
 
 def stream_fil(file_name: str, chunk_samples: int = 2_097_152) -> Generator[Tuple[np.ndarray, Dict], None, None]:

@@ -86,6 +86,22 @@ SLICE_LEN_MIN: int = 32                     # Límite inferior de seguridad para
 SLICE_LEN_MAX: int = 2048                   # Límite superior de seguridad para el cálculo automático de SLICE_LEN
 
 # =============================================================================
+# CONFIGURACIONES AVANZADAS DE CHUNKING Y SLICING (SISTEMA)
+# =============================================================================
+
+# Sistema de chunking contiguo y slicing ajustado a divisores
+USE_PLANNED_CHUNKING: bool = True           # Usar planificador para tamaños de chunk y slices uniformes
+
+# Límites de memoria para chunking
+MAX_CHUNK_BYTES: int | None = None          # Límite duro en bytes para un chunk (recomendado); None para usar fracción de RAM
+MAX_RAM_FRACTION: float = 0.25              # Fracción de RAM disponible a utilizar si MAX_CHUNK_BYTES es None
+OVERHEAD_FACTOR: float = 1.3                # Factor de overhead por copias/buffers temporales
+
+# Tolerancias y límites de slicing
+TIME_TOL_MS: float = 0.1                    # Tolerancia temporal al ajustar la duración objetivo del slice
+MAX_SLICE_COUNT: int = 5000                 # Límite superior de slices por chunk
+
+# =============================================================================
 # CONFIGURACIONES AVANZADAS DE VISUALIZACIÓN (SISTEMA)
 # =============================================================================
 
@@ -96,6 +112,27 @@ DM_RANGE_FACTOR: float = 0.3                # Factor de rango para plots (±30% 
 # Configuraciones de visualización SNR
 SNR_SHOW_PEAK_LINES: bool = False           # True = mostrar líneas rojas del SNR peak en plots
 SNR_COLORMAP = "viridis"                    # Mapa de colores para waterfalls
+
+# =============================================================================
+# CONFIGURACIONES AVANZADAS DE LOGGING Y DEBUG (SISTEMA)
+# =============================================================================
+
+# Configuración de logging del sistema
+LOG_LEVEL: str = "INFO"                     # Nivel de logging: DEBUG, INFO, WARNING, ERROR
+LOG_COLORS: bool = True                     # Usar colores en la consola
+LOG_FILE: bool = False                      # Guardar logs en archivo
+GPU_VERBOSE: bool = False                   # Mostrar mensajes detallados de GPU
+SHOW_PROGRESS: bool = True                  # Mostrar barras de progreso
+
+# =============================================================================
+# FLAGS AVANZADOS PARA MITIGAR ARTEFACTOS Y MEJORAR ESTABILIDAD (SISTEMA)
+# =============================================================================
+
+# Pre-whitening por canal antes de construir el cubo DM–tiempo (z-score por canal)
+PREWHITEN_BEFORE_DM: bool = True
+
+# Sombrear visualmente la cola inválida en los waterfalls cuando no hay solapamiento
+SHADE_INVALID_TAIL: bool = True
 
 # =============================================================================
 # FUNCIONES DE CONFIGURACIÓN DE BANDAS

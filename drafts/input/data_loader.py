@@ -19,7 +19,15 @@ from astropy.io import fits
 from .. import config
 from ..preprocessing.data_downsampler import downsample_data
 from ..output.summary_manager import _update_summary_with_file_debug
-from .. import config
+from ..logging import (
+    log_stream_fil_parameters,
+    log_stream_fil_block_generation,
+    log_stream_fil_summary,
+    log_stream_fits_parameters,
+    log_stream_fits_load_strategy,
+    log_stream_fits_block_generation,
+    log_stream_fits_summary
+)
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -1149,6 +1157,9 @@ def stream_fil(
         print(f"[INFO] Streaming datos: {nsamples} muestras totales, "
               f"{nchans} canales, tipo {dtype}, chunk_size={chunk_samples}, overlap={overlap_samples}")
         
+        # *** DEBUG CRÍTICO: CONFIRMAR PARÁMETROS DE STREAMING FIL ***
+        log_stream_fil_parameters(nsamples, chunk_samples, overlap_samples, nchans, nifs, nbits, str(dtype))
+        
         # Crear memmap para acceso eficiente
         data_mmap = np.memmap(
             file_name,
@@ -1159,7 +1170,9 @@ def stream_fil(
         )
         
         # Procesar en bloques
+        chunk_counter = 0
         for chunk_start in range(0, nsamples, chunk_samples):
+            chunk_counter += 1
             valid_start = chunk_start
             valid_end = min(chunk_start + chunk_samples, nsamples)
             actual_chunk_size = valid_end - valid_start
@@ -1170,6 +1183,9 @@ def stream_fil(
 
             # Leer bloque con solapamiento
             block = data_mmap[start_with_overlap:end_with_overlap].copy()
+            
+            # *** DEBUG CRÍTICO: CONFIRMAR CADA BLOQUE GENERADO ***
+            log_stream_fil_block_generation(chunk_counter, block.shape, str(block.dtype), valid_start, valid_end, start_with_overlap, end_with_overlap, actual_chunk_size)
             
             # Aplicar reversión de frecuencia si es necesario
             if config.DATA_NEEDS_REVERSAL:
@@ -1202,13 +1218,160 @@ def stream_fil(
             del block
             gc.collect()
         
+        # *** DEBUG CRÍTICO: CONFIRMAR RESUMEN DE STREAMING ***
+        log_stream_fil_summary(chunk_counter)
+        
         # Limpiar memmap
         del data_mmap
-        gc.collect()
         
     except Exception as e:
         print(f"[ERROR] Error en stream_fil: {e}")
         raise ValueError(f"No se pudo leer el archivo {file_name}") from e
+
+def stream_fits(
+    file_name: str,
+    chunk_samples: int = 2_097_152,
+    overlap_samples: int = 0,
+) -> Generator[Tuple[np.ndarray, Dict], None, None]:
+    """
+    Generador que lee un archivo FITS en bloques sin cargar todo en RAM.
+    
+    Args:
+        file_name: Ruta al archivo .fits
+        chunk_samples: Número de muestras por bloque (default: 2M)
+        overlap_samples: Número de muestras de solapamiento entre bloques
+    
+    Yields:
+        Tuple[data_block, metadata]: Bloque de datos (time, pol, chan) y metadatos
+    """
+    
+    try:
+        print(f"[INFO] Streaming datos FITS: chunk_size={chunk_samples}, overlap={overlap_samples}")
+        
+        # Para archivos FITS, necesitamos cargar el header primero para obtener dimensiones
+        # Intentar usar memmap si es posible para archivos grandes
+        try:
+            with fits.open(file_name, memmap=True) as hdul:
+                # Obtener dimensiones del header
+                if "SUBINT" in [hdu.name for hdu in hdul] and "DATA" in hdul["SUBINT"].columns.names:
+                    subint = hdul["SUBINT"]
+                    hdr = subint.header
+                    nsubint = _safe_int(hdr.get("NAXIS2", 0))
+                    nchan = _safe_int(hdr.get("NCHAN", 0))
+                    npol = _safe_int(hdr.get("NPOL", 0))
+                    nsblk = _safe_int(hdr.get("NSBLK", 1))
+                    nsamples = nsubint * nsblk
+                    npols = npol
+                    nchans = nchan
+                else:
+                    # Fallback para otros formatos FITS
+                    import fitsio
+                    temp_data, h = fitsio.read(file_name, header=True)
+                    nsamples = _safe_int(h.get("NAXIS2", 1)) * _safe_int(h.get("NSBLK", 1))
+                    npols = _safe_int(h.get("NPOL", 2))
+                    nchans = _safe_int(h.get("NCHAN", 512))
+                
+                print(f"[INFO] Datos FITS detectados: {nsamples} muestras, {npols} pols, {nchans} canales")
+                
+                # *** DEBUG CRÍTICO: CONFIRMAR PARÁMETROS DE STREAMING FITS ***
+                log_stream_fits_parameters(nsamples, chunk_samples, overlap_samples, 
+                                         nsubint if 'nsubint' in locals() else None, 
+                                         nchan if 'nchan' in locals() else None,
+                                         npol if 'npol' in locals() else None, 
+                                         nsblk if 'nsblk' in locals() else None)
+                
+                # Cargar datos completos solo si el archivo no es demasiado grande
+                if nsamples * npols * nchans * 4 < 2 * 1024**3:  # < 2GB
+                    print(f"[INFO] Archivo FITS pequeño, cargando en memoria")
+                    data_array = load_fits_file(file_name)
+                    use_memmap = False
+                else:
+                    print(f"[INFO] Archivo FITS grande, usando memmap para streaming eficiente")
+                    # Para archivos grandes, usar memmap del HDU de datos
+                    data_hdu = None
+                    for hdu in hdul:
+                        if hdu.data is not None and hdu.data.ndim >= 3:
+                            data_hdu = hdu
+                            break
+                    
+                    if data_hdu is None:
+                        raise ValueError("No se encontró HDU con datos válidos")
+                    
+                    # Crear memmap del HDU de datos
+                    data_array = data_hdu.data
+                    use_memmap = True
+        except Exception as e:
+            print(f"[WARN] Fallback a carga completa: {e}")
+            data_array = load_fits_file(file_name)
+            use_memmap = False
+            nsamples, npols, nchans = data_array.shape
+        
+        # *** DEBUG CRÍTICO: CONFIRMAR ESTRATEGIA DE CARGA ***
+        log_stream_fits_load_strategy(use_memmap, data_array.shape, str(data_array.dtype))
+        
+        # Procesar en bloques
+        chunk_counter = 0
+        for chunk_start in range(0, nsamples, chunk_samples):
+            chunk_counter += 1
+            valid_start = chunk_start
+            valid_end = min(chunk_start + chunk_samples, nsamples)
+            actual_chunk_size = valid_end - valid_start
+
+            # Rango con solapamiento aplicado
+            start_with_overlap = max(0, valid_start - overlap_samples)
+            end_with_overlap = min(nsamples, valid_end + overlap_samples)
+
+            # Extraer bloque con solapamiento
+            if use_memmap:
+                # Para memmap, hacer slice directo
+                block = data_array[start_with_overlap:end_with_overlap].copy()
+            else:
+                # Para array en memoria, hacer slice
+                block = data_array[start_with_overlap:end_with_overlap].copy()
+            
+            # *** DEBUG CRÍTICO: CONFIRMAR CADA BLOQUE GENERADO ***
+            log_stream_fits_block_generation(chunk_counter, block.shape, str(block.dtype), valid_start, valid_end, start_with_overlap, end_with_overlap, actual_chunk_size)
+            
+            # Convertir a float32 para consistencia
+            if block.dtype != np.float32:
+                block = block.astype(np.float32)
+            
+            # Metadatos del bloque (consistente con stream_fil)
+            metadata = {
+                "chunk_idx": valid_start // chunk_samples,
+                "start_sample": valid_start,               # inicio válido (sin solape)
+                "end_sample": valid_end,                   # fin válido (sin solape)
+                "actual_chunk_size": actual_chunk_size,    # tamaño válido
+                "block_start_sample": start_with_overlap,  # inicio del bloque con solape
+                "block_end_sample": end_with_overlap,      # fin del bloque con solape
+                "overlap_left": valid_start - start_with_overlap,
+                "overlap_right": end_with_overlap - valid_end,
+                "total_samples": nsamples,
+                "nchans": nchans,
+                "nifs": npols,  # nifs = npols para FITS
+                "dtype": str(block.dtype),
+                "shape": block.shape,
+                "file_type": "fits"
+            }
+            
+            yield block, metadata
+            
+            # Limpiar memoria del bloque
+            del block
+            gc.collect()
+        
+        # *** DEBUG CRÍTICO: CONFIRMAR RESUMEN DE STREAMING ***
+        log_stream_fits_summary(chunk_counter)
+        
+        # Limpiar array principal solo si no es memmap
+        if not use_memmap:
+            del data_array
+            gc.collect()
+        
+    except Exception as e:
+        print(f"[ERROR] Error en stream_fits: {e}")
+        raise ValueError(f"No se pudo leer el archivo FITS {file_name}") from e
+
 
 def load_and_preprocess_data(fits_path):
     """Carga y preprocesa los datos del archivo FITS o FIL."""

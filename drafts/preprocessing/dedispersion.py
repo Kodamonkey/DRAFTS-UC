@@ -10,7 +10,7 @@ from .. import config
 logger = logging.getLogger(__name__)
 
 @cuda.jit
-def _de_disp_gpu(dm_time, data, freq, index, start_offset, mid_channel):
+def _de_disp_gpu(dm_time, data, freq, index, dm_values, mid_channel):
     x, y = cuda.grid(2)
     if x < dm_time.shape[1] and y < dm_time.shape[2]:
         # Suma total y contador de contribuciones válidas (normalización por exposición)
@@ -19,7 +19,7 @@ def _de_disp_gpu(dm_time, data, freq, index, start_offset, mid_channel):
 
         # Valor del canal medio (para segundo plano)
         mid_val = 0.0
-        DM = x + start_offset
+        DM = dm_values[x] 
 
         for idx in index:
             delay = (
@@ -44,11 +44,11 @@ def _de_disp_gpu(dm_time, data, freq, index, start_offset, mid_channel):
             dm_time[0, x, y] = 0.0
 
         dm_time[1, x, y] = mid_val
-        dm_time[2, x, y] = dm_time[0, x, y] - dm_time[1, x, y]
+        dm_time[2, x, y] = dm_time[0, x, y] - mid_val
 
 
 @njit(parallel=False)
-def _d_dm_time_cpu(data, height: int, width: int) -> np.ndarray:
+def _d_dm_time_cpu(data, height: int, width: int, dm_min: float, dm_max: float) -> np.ndarray:
     """CPU fallback para dedispersión con normalización por exposición y bordes.
 
     Implementa suma con manejo de bordes por canal y normaliza cada
@@ -69,7 +69,10 @@ def _d_dm_time_cpu(data, height: int, width: int) -> np.ndarray:
         axis=1,
     )
 
-    for DM in range(height):
+    # Calcular valores exactos de DM para cada píxel
+    dm_values = np.linspace(dm_min, dm_max, height, dtype=np.float32)
+
+    for i, DM in enumerate(dm_values):
         delays = (
             4.15
             * DM
@@ -108,16 +111,22 @@ def _d_dm_time_cpu(data, height: int, width: int) -> np.ndarray:
 
         # Normalización por #canales válidos
         norm = np.maximum(count_series.astype(np.float32), 1.0)
-        out[0, DM] = total_series / norm
+        out[0, i] = total_series / norm
         # Si mid no estuvo disponible en algún punto, dejar 0 allí
-        out[1, DM] = mid_series
-        out[2, DM] = out[0, DM] - out[1, DM]
+        out[1, i] = mid_series
+        out[2, i] = out[0, i] - out[1, i]
 
     return out
 
 
-def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128) -> np.ndarray:
+def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128, dm_min: float = None, dm_max: float = None) -> np.ndarray:
     result = np.zeros((3, height, width), dtype=np.float32)
+    
+    # Si no se proporcionan dm_min y dm_max, usar config
+    if dm_min is None:
+        dm_min = config.DM_min
+    if dm_max is None:
+        dm_max = config.DM_max
     
     # Pre-whitening por canal opcional para mitigar bandpass/RFI leve
     try:
@@ -135,11 +144,11 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
         
         # Verificar que config.FREQ y sus dimensiones sean válidas
         if config.FREQ is None:
-            raise ValueError("config.FREQ is None during dedispersion")
+            raise ValueError("config.FREQ is None during dedispersión")
         if config.FREQ.size == 0:
-            raise ValueError("config.FREQ is empty during dedispersion")
+            raise ValueError("config.FREQ is empty during dedispersión")
         if config.FREQ_RESO == 0 or config.DOWN_FREQ_RATE == 0:
-            raise ValueError(f"Invalid frequency parameters during dedispersion: FREQ_RESO={config.FREQ_RESO}, DOWN_FREQ_RATE={config.DOWN_FREQ_RATE}")
+            raise ValueError(f"Invalid frequency parameters during dedispersión: FREQ_RESO={config.FREQ_RESO}, DOWN_FREQ_RATE={config.DOWN_FREQ_RATE}")
         
         # Verificar que el reshape es válido
         expected_size = config.FREQ_RESO // config.DOWN_FREQ_RATE
@@ -157,21 +166,29 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
         mid_channel = nchan_ds // 2
         index_gpu = cuda.to_device(index_values)
         data_gpu = cuda.to_device(data)
+        
         for start_dm in range(0, height, chunk_size):
             end_dm = min(start_dm + chunk_size, height)
             current_height = end_dm - start_dm
+            
+            # Calcular valores exactos de DM para este chunk
+            chunk_dm_min = dm_min + (start_dm * (dm_max - dm_min) / (height - 1))
+            chunk_dm_max = dm_min + (end_dm * (dm_max - dm_min) / (height - 1))
+            dm_values = np.linspace(chunk_dm_min, chunk_dm_max, current_height, dtype=np.float32)
+            dm_values_gpu = cuda.to_device(dm_values)
+            
             dm_time_gpu = cuda.to_device(np.zeros((3, current_height, width), dtype=np.float32))
             nthreads = (8, 128)
             nblocks = (current_height // nthreads[0] + 1, width // nthreads[1] + 1)
-            _de_disp_gpu[nblocks, nthreads](dm_time_gpu, data_gpu, freq_gpu, index_gpu, start_dm, mid_channel)
+            _de_disp_gpu[nblocks, nthreads](dm_time_gpu, data_gpu, freq_gpu, index_gpu, dm_values_gpu, mid_channel)
             cuda.synchronize()
             result[:, start_dm:end_dm, :] = dm_time_gpu.copy_to_host()
-            del dm_time_gpu
+            del dm_time_gpu, dm_values_gpu
         print("[INFO] Dedispersión GPU completada exitosamente")
         return result
     except (cuda.cudadrv.driver.CudaAPIError, Exception) as e:
         print(f"[WARNING] Error GPU ({e}), cambiando a CPU...")
-        return _d_dm_time_cpu(data, height, width)
+        return _d_dm_time_cpu(data, height, width, dm_min, dm_max)
 
 def dedisperse_patch(
     data: np.ndarray,

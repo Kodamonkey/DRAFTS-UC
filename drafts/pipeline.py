@@ -183,7 +183,7 @@ def _process_block(
         
         # Generar DM-time cube
         # Construir cubo DM-time sobre el bloque completo con solapes
-        dm_time_full = d_dm_time_g(block, height=height, width=block.shape[0])
+        dm_time_full = d_dm_time_g(block, height=height, width=block.shape[0], dm_min=config.DM_min, dm_max=config.DM_max)
 
         # Extraer ventana válida (sin bordes inválidos) usando los solapes decimados
         # La parte válida empieza en overlap_left_ds y termina en block.shape[0] - overlap_right_ds

@@ -26,7 +26,7 @@ SLICE_DURATION_MS: float = 500.0
 
 # Factores de reducción para optimizar el procesamiento
 DOWN_FREQ_RATE: int = 1                      # Factor de reducción en frecuencia (1 = sin reducción)
-DOWN_TIME_RATE: int = 32                    # Factor de reducción en tiempo (1 = sin reducción)
+DOWN_TIME_RATE: int = 32                     # Factor de reducción en tiempo (1 = sin reducción)
 
 
 # =============================================================================
@@ -35,7 +35,7 @@ DOWN_TIME_RATE: int = 32                    # Factor de reducción en tiempo (1 
 
 # Rango de Dispersion Measure para búsqueda
 DM_min: int = 0                             # DM mínimo en pc cm⁻³
-DM_max: int = 1770                          # DM máximo en pc cm⁻³
+DM_max: int = 700                          # DM máximo en pc cm⁻³
 
 # =============================================================================
 # UMBRALES DE DETECCIÓN

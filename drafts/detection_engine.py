@@ -112,6 +112,7 @@ def process_band(
         patch_dir = save_dir / "Patches" / fits_path.stem
         patch_path = patch_dir / f"patch_slice{j}_band{band_img.shape[0] if hasattr(band_img, 'shape') else 0}.png"
     class_probs_list = []
+    candidate_times_abs: list[float] = []
     cand_counter = 0
     n_bursts = 0
     n_no_bursts = 0
@@ -242,6 +243,7 @@ def process_band(
                 absolute_candidate_time += _presto_time_ref_correction(dm_val, freq_ref_used, freq_ref_global)
         except Exception:
             pass
+        candidate_times_abs.append(float(absolute_candidate_time))
         
         # Usar chunk_idx en el candidato
         cand = Candidate(
@@ -312,6 +314,7 @@ def process_band(
         "patch_path": patch_path,
         "best_is_burst": best_is_burst,  # INFORMACIÓN ADICIONAL PARA DEBUG
         "total_candidates": len(all_candidates),  # INFORMACIÓN ADICIONAL PARA DEBUG
+        "candidate_times_abs": candidate_times_abs,
     }
 
 def process_slice(

@@ -171,14 +171,14 @@ def plot_waterfall_block(
     ax_ts = plt.axes((0.15, 0.78, im_width, 0.18), sharex=ax_im) if integrate_ts else None
     ax_spec = plt.axes((0.78, 0.15, 0.17, im_height), sharey=ax_im) if integrate_spec else None
 
-    # Imagen con extent como PRESTO (x=time en s absolutos, y=freq en MHz)
+    # Imagen con extent centrado en muestras: usar centros temporales
     img = ax_im.imshow(
         block.T,
         origin="upper",  # PRESTO usa origin='upper'
         cmap="mako",      # mantener color solicitado
         aspect="auto",
         # DEJAR QUE MATPLOTLIB ESCALA A PARTIR DE LOS VALORES NORMALIZADOS
-        extent=(time_start, time_end, float(freq.min()), float(freq.max())),
+        extent=(time_start + 0.5 * time_reso, time_end - 0.5 * time_reso, float(freq.min()), float(freq.max())),
         interpolation="nearest",
     )
     ax_im.set_xlabel("Time", fontsize=11)
@@ -186,7 +186,7 @@ def plot_waterfall_block(
 
     # Time series integrada (como integrate_ts de PRESTO)
     if integrate_ts and ax_ts is not None:
-        times = np.arange(block_size) * time_reso + time_start
+        times = time_start + (np.arange(block_size) + 0.5) * time_reso
         ax_ts.plot(times, block.sum(axis=1), "k", lw=0.8)
         ax_ts.set_xlim([times.min(), times.max()])
         plt.setp(ax_ts.get_xticklabels(), visible=False)
@@ -259,7 +259,8 @@ def save_detection_plot(
     
     # Duración real del slice (respetando el último slice truncado)
     slice_duration_sec = duration_samples * config.TIME_RESO * config.DOWN_TIME_RATE
-    time_values = time_start_slice + (time_positions / 512.0) * slice_duration_sec
+    # Usar centros de píxel para coherencia con el Composite
+    time_values = time_start_slice + ((time_positions + 0.5) / 512.0) * slice_duration_sec
     ax.set_xticks(time_positions)
     ax.set_xticklabels([f"{t:.6f}" for t in time_values])
     ax.set_xlabel("Time (s)", fontsize=12, fontweight="bold")
@@ -935,10 +936,12 @@ def save_slice_summary(
     n_time_ticks_det = 8
     time_positions_det = np.linspace(0, img_rgb.shape[1] - 1, n_time_ticks_det)
 
-    # Importante: si el slice real está truncado, usar slice_samples para la duración
-    time_values_det = slice_start_abs + (time_positions_det / img_rgb.shape[1]) * (slice_samples * config.TIME_RESO * config.DOWN_TIME_RATE)
+    # Usar centros de píxel para coherencia temporal con el dominio de muestras
+    width_px = float(img_rgb.shape[1])
+    slice_duration_sec = slice_samples * config.TIME_RESO * config.DOWN_TIME_RATE
+    time_values_det = slice_start_abs + ((time_positions_det + 0.5) / width_px) * slice_duration_sec
     ax_det.set_xticks(time_positions_det)
-    ax_det.set_xticklabels([f"{t:.3f}" for t in time_values_det])
+    ax_det.set_xticklabels([f"{t:.6f}" for t in time_values_det])
     ax_det.set_xlabel("Time (s)", fontsize=10, fontweight="bold")
 
     n_dm_ticks = 8
@@ -965,7 +968,7 @@ def save_slice_summary(
             x1, y1, x2, y2 = map(int, box)
             center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
             
-            # ✅ CORRECCIÓN: Usar el DM REAL (mismo cálculo que extract_candidate_dm)
+            #  Usar el DM REAL (mismo cálculo que extract_candidate_dm)
             # Este es el DM que se usa en dedispersion y se guarda en CSV
             from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
             effective_len_det = slice_samples if slice_samples is not None else slice_len
@@ -1052,7 +1055,7 @@ def save_slice_summary(
         snr_wf, sigma_wf = compute_snr_profile(wf_block, off_regions)
         peak_snr_wf, peak_time_wf, peak_idx_wf = find_snr_peak(snr_wf)
         
-        time_axis_wf = np.linspace(slice_start_abs, slice_end_abs, len(snr_wf))
+        time_axis_wf = slice_start_abs + (np.arange(len(snr_wf)) + 0.5) * time_reso_ds
         peak_time_wf_abs = float(time_axis_wf[peak_idx_wf]) if len(snr_wf) > 0 else None
         ax_prof_wf.plot(time_axis_wf, snr_wf, color="royalblue", alpha=0.8, lw=1.5, label='SNR Profile')
         
@@ -1109,9 +1112,9 @@ def save_slice_summary(
             aspect="auto",
             vmin=np.nanpercentile(wf_block, 1),
             vmax=np.nanpercentile(wf_block, 99),
-            extent=[slice_start_abs, slice_end_abs, freq_ds.min(), freq_ds.max()],
+            extent=[time_axis_wf[0], time_axis_wf[-1], freq_ds.min(), freq_ds.max()],
         )
-        ax_wf.set_xlim(slice_start_abs, slice_end_abs)
+        ax_wf.set_xlim(time_axis_wf[0], time_axis_wf[-1])
         ax_wf.set_ylim(freq_ds.min(), freq_ds.max())
 
         n_freq_ticks = 6
@@ -1119,7 +1122,7 @@ def save_slice_summary(
         ax_wf.set_yticks(freq_tick_positions)
 
         n_time_ticks = 5
-        time_tick_positions = np.linspace(slice_start_abs, slice_end_abs, n_time_ticks)
+        time_tick_positions = np.linspace(time_axis_wf[0], time_axis_wf[-1], n_time_ticks)
         ax_wf.set_xticks(time_tick_positions)
         # Mostrar tiempo con mayor precisión para que el usuario vea el tiempo exacto
         ax_wf.set_xticklabels([f"{t:.6f}" for t in time_tick_positions])
@@ -1200,7 +1203,7 @@ def save_slice_summary(
         snr_dw, sigma_dw = compute_snr_profile(dw_block, off_regions)
         peak_snr_dw, peak_time_dw, peak_idx_dw = find_snr_peak(snr_dw)
         
-        time_axis_dw = np.linspace(slice_start_abs, slice_end_abs, len(snr_dw))
+        time_axis_dw = slice_start_abs + (np.arange(len(snr_dw)) + 0.5) * time_reso_ds
         peak_time_dw_abs = float(time_axis_dw[peak_idx_dw]) if len(snr_dw) > 0 else None
         ax_prof_dw.plot(time_axis_dw, snr_dw, color="green", alpha=0.8, lw=1.5, label='Dedispersed SNR')
         
@@ -1271,9 +1274,9 @@ def save_slice_summary(
             aspect="auto",
             vmin=np.nanpercentile(dw_block, 1),
             vmax=np.nanpercentile(dw_block, 99),
-            extent=[slice_start_abs, slice_end_abs, freq_ds.min(), freq_ds.max()],
+            extent=[time_axis_dw[0], time_axis_dw[-1], freq_ds.min(), freq_ds.max()],
         )
-        ax_dw.set_xlim(slice_start_abs, slice_end_abs)
+        ax_dw.set_xlim(time_axis_dw[0], time_axis_dw[-1])
         ax_dw.set_ylim(freq_ds.min(), freq_ds.max())
 
         ax_dw.set_yticks(freq_tick_positions)
@@ -1333,7 +1336,7 @@ def save_slice_summary(
             # Fallback: usar patch_start como está (modo antiguo)
             patch_start_abs = patch_start
         
-        patch_time_axis = patch_start_abs + np.arange(len(snr_patch)) * time_reso_ds
+        patch_time_axis = patch_start_abs + (np.arange(len(snr_patch)) + 0.5) * time_reso_ds
         ax_patch_prof.plot(patch_time_axis, snr_patch, color="orange", alpha=0.8, lw=1.5, label='Candidate SNR')
         
         # Resaltar regiones sobre threshold

@@ -1161,10 +1161,6 @@ def get_obparams_fil(file_name: str) -> None:
             }
         })
 
-
-    # (El guardado de debug ahora se unifica en _save_file_debug_info)
-
-
 def stream_fil(
     file_name: str,
     chunk_samples: int = 2_097_152,
@@ -1424,15 +1420,3 @@ def stream_fits(
     except Exception as e:
         print(f"[ERROR] Error en stream_fits: {e}")
         raise ValueError(f"No se pudo leer el archivo FITS {file_name}") from e
-
-
-def load_and_preprocess_data(fits_path):
-    """Carga y preprocesa los datos del archivo FITS o FIL."""
-    if fits_path.suffix.lower() == ".fits":
-        data = load_fits_file(str(fits_path))
-    else:
-        data = load_fil_file(str(fits_path))
-    # El procesamiento estándar no debe duplicar temporalmente los datos.
-    # Simplemente aplicar el downsampling según configuración.
-    return downsample_data(data)
-

@@ -13,25 +13,29 @@ def calculate_slice_len_from_duration() -> Tuple[int, float]:
     """
     Calcula SLICE_LEN dinámicamente basado en SLICE_DURATION_MS y metadatos del archivo.
     
-    Fórmula inversa: SLICE_LEN = round(SLICE_DURATION_MS / (TIME_RESO × DOWN_TIME_RATE × 1000))
+    Fórmula inversa (dominio decimado):
+        dt_ds = TIME_RESO × DOWN_TIME_RATE
+        SLICE_LEN = floor( (SLICE_DURATION_MS/1000) / dt_ds + 0.5 )  # round half up estable
     
     Returns:
         Tuple[int, float]: (slice_len_calculado, duracion_real_ms)
     """
-    if config.TIME_RESO <= 0:
+    if config.TIME_RESO <= 0 or config.DOWN_TIME_RATE < 1:
         logger.warning("TIME_RESO no está configurado, usando SLICE_LEN_MIN")
         return config.SLICE_LEN_MIN, config.SLICE_DURATION_MS
     
     # SLICE_LEN se calcula para datos YA decimados
     # Por lo tanto, usar TIME_RESO * DOWN_TIME_RATE
     target_duration_s = config.SLICE_DURATION_MS / 1000.0
-    calculated_slice_len = round(target_duration_s / (config.TIME_RESO * config.DOWN_TIME_RATE))
+    dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+    # Evitar banker rounding; seguir el comportamiento de PRESTO (enteros estables)
+    calculated_slice_len = int(math.floor((target_duration_s / dt_ds) + 0.5))
     
     # Aplicar límites mín/máx
     slice_len = max(config.SLICE_LEN_MIN, min(config.SLICE_LEN_MAX, calculated_slice_len))
     
     # Calcular duración real obtenida (para datos decimados)
-    real_duration_s = slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    real_duration_s = slice_len * dt_ds
     real_duration_ms = real_duration_s * 1000.0
     
     # Actualizar config.SLICE_LEN con el valor calculado

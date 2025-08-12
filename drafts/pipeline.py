@@ -51,6 +51,14 @@ from .logging import (
 
 logger = logging.getLogger(__name__)
 
+def _trace_info(message: str, *args) -> None:
+    try:
+        from .logging.logging_config import get_global_logger
+        gl = get_global_logger()
+        gl.logger.info(message % args if args else message)
+    except Exception:
+        logger.info(message, *args)
+
 def _optimize_memory(aggressive: bool = False) -> None:
     """Optimiza el uso de memoria del sistema.
     
@@ -110,6 +118,66 @@ def _load_class_model() -> torch.nn.Module:
     return model
 
 
+# Helpers de orquestación
+
+def _downsample_chunk(block: np.ndarray) -> tuple[np.ndarray, float]:
+    """Aplica downsampling temporal (suma) y frecuencial (promedio) al chunk completo.
+
+    Returns:
+        block_ds: bloque decimado (tiempo, freq)
+        dt_ds: resolución temporal efectiva (s)
+    """
+    from .preprocessing.data_downsampler import downsample_data
+    block_ds = downsample_data(block)
+    dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+    return block_ds, dt_ds
+
+
+def _build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max: float) -> np.ndarray:
+    """Construye el cubo DM–tiempo para el bloque decimado completo."""
+    width = block_ds.shape[0]
+    from .preprocessing.dedispersion import d_dm_time_g
+    return d_dm_time_g(block_ds, height=height, width=width, dm_min=dm_min, dm_max=dm_max)
+
+
+def _trim_valid_window(block_ds: np.ndarray, dm_time_full: np.ndarray, overlap_left_ds: int, overlap_right_ds: int) -> tuple[np.ndarray, np.ndarray, int, int]:
+    """Recorta la ventana válida usando los solapes decimados del chunk."""
+    valid_start_ds = max(0, overlap_left_ds)
+    valid_end_ds = block_ds.shape[0] - max(0, overlap_right_ds)
+    if valid_end_ds <= valid_start_ds:
+        valid_start_ds, valid_end_ds = 0, block_ds.shape[0]
+    dm_time = dm_time_full[:, :, valid_start_ds:valid_end_ds]
+    block_valid = block_ds[valid_start_ds:valid_end_ds]
+    return block_valid, dm_time, valid_start_ds, valid_end_ds
+
+
+def _plan_slices(block_valid: np.ndarray, slice_len: int, chunk_idx: int) -> list[tuple[int, int, int]]:
+    """Genera (j, start_idx, end_idx) por slice para el bloque válido."""
+    if getattr(config, 'USE_PLANNED_CHUNKING', False):
+        time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+        plan = plan_slices_for_chunk(
+            num_samples_decimated=block_valid.shape[0],
+            target_duration_ms=config.SLICE_DURATION_MS,
+            time_reso_decimated_s=time_reso_ds,
+            max_slice_count=getattr(config, 'MAX_SLICE_COUNT', 5000),
+            time_tol_ms=getattr(config, 'TIME_TOL_MS', 0.1),
+        )
+        try:
+            from .logging.chunking_logging import log_slice_plan_summary
+            log_slice_plan_summary(chunk_idx, plan)
+        except Exception:
+            pass
+        return [(idx, sl.start_idx, sl.end_idx) for idx, sl in enumerate(plan["slices"])]
+    else:
+        time_slice = (block_valid.shape[0] + slice_len - 1) // slice_len
+        return [(j, j * slice_len, min((j + 1) * slice_len, block_valid.shape[0])) for j in range(time_slice)]
+
+
+def _absolute_slice_time(chunk_start_time_sec: float, valid_start_ds: int, start_idx: int, dt_ds: float) -> float:
+    """Calcula el inicio absoluto del slice en segundos desde el inicio del archivo."""
+    return chunk_start_time_sec + ((valid_start_ds + start_idx) * dt_ds)
+
+
 def _process_block(
     det_model: torch.nn.Module, # Modelo de detección
     cls_model: torch.nn.Module, # Modelo de clasificación
@@ -146,24 +214,37 @@ def _process_block(
     
     try:
         # Aplicar downsampling al bloque
-        from .preprocessing.data_downsampler import downsample_data # Importar la función de downsampling
-        # Aplica downsampling manteniendo la estructura (incluye solape crudo)
-        block = downsample_data(block)
+        block, dt_ds = _downsample_chunk(block)
+
+        dt_raw = config.TIME_RESO
+        _trace_info(
+            "[TRACE] Chunk %03d: tsamp=%.9fs DOWN_TIME_RATE=%dx Δt=%.9fs start_sample_raw=%d end_sample_raw=%d",
+            chunk_idx, dt_raw, int(config.DOWN_TIME_RATE), dt_ds,
+            metadata.get("start_sample", -1), metadata.get("end_sample", -1)
+        )
         
         # Calcular parámetros para este bloque
         freq_down = np.mean(
             config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
             axis=1,
-        ) # Promedio de frecuencias después del downsampling
+        )
         
         height = config.DM_max - config.DM_min + 1
 
-        # Ancho válido (sin solape) tras decimación
         width_total = config.FILE_LENG // config.DOWN_TIME_RATE
 
         # Calcular solapamiento equivalente en muestras decimadas
-        overlap_left_ds = int((metadata.get("overlap_left", 0)) // config.DOWN_TIME_RATE)
-        overlap_right_ds = int((metadata.get("overlap_right", 0)) // config.DOWN_TIME_RATE)
+        # IMPORTANTE: usar ceil para no incluir bins decimados contaminados por el solape parcial
+        _ol_raw = int(metadata.get("overlap_left", 0))
+        _or_raw = int(metadata.get("overlap_right", 0))
+        R = int(config.DOWN_TIME_RATE)
+        overlap_left_ds = (_ol_raw + R - 1) // R
+        overlap_right_ds = (_or_raw + R - 1) // R
+        # TRACE: mostrar cómo se mapean los solapes
+        logger.info(
+            "[TRACE] Overlap raw→ds: left=%d→%d (R=%d) right=%d→%d",
+            _ol_raw, overlap_left_ds, R, _or_raw, overlap_right_ds
+        )
         
         # Calcular slice_len dinámicamente
         from .preprocessing.slice_len_calculator import update_slice_len_dynamic # Importar la función de actualización de slice_len
@@ -172,19 +253,18 @@ def _process_block(
         
         logger.info(f"Chunk {chunk_idx:03d}: {metadata['actual_chunk_size']} muestras → {time_slice} slices")
         
-        # Generar DM-time cube
-        # Construir cubo DM-time sobre el bloque completo con solapes
-        dm_time_full = d_dm_time_g(block, height=height, width=block.shape[0], dm_min=config.DM_min, dm_max=config.DM_max)
+        # Generar DM-time cube del bloque decimado completo
+        dm_time_full = _build_dm_time_cube(block, height=height, dm_min=config.DM_min, dm_max=config.DM_max)
 
         # Extraer ventana válida (sin bordes inválidos) usando los solapes decimados
-        # La parte válida empieza en overlap_left_ds y termina en block.shape[0] - overlap_right_ds
-        valid_start_ds = max(0, overlap_left_ds)
-        valid_end_ds = block.shape[0] - max(0, overlap_right_ds)
-        if valid_end_ds <= valid_start_ds:
-            valid_start_ds, valid_end_ds = 0, block.shape[0]
+        block, dm_time, valid_start_ds, valid_end_ds = _trim_valid_window(
+            block, dm_time_full, overlap_left_ds, overlap_right_ds
+        )
 
-        dm_time = dm_time_full[:, :, valid_start_ds:valid_end_ds]
-        block = block[valid_start_ds:valid_end_ds]
+        _trace_info(
+            "[TRACE] Chunk %03d: valid_start_ds=%d valid_end_ds=%d (N_valid=%d)",
+            chunk_idx, valid_start_ds, valid_end_ds, (valid_end_ds - valid_start_ds)
+        )
         
         # Configurar bandas
         band_configs = get_band_configs() # Configuración de bandas (fullband, lowband, highband)
@@ -197,23 +277,8 @@ def _process_block(
         snr_list = [] # Lista de SNRs de los candidatos
         
         # Plan de slices por chunk con contigüidad y ajuste divisor
-        if getattr(config, 'USE_PLANNED_CHUNKING', False):
-            time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
-            plan = plan_slices_for_chunk(
-                num_samples_decimated=block.shape[0],
-                target_duration_ms=config.SLICE_DURATION_MS,
-                time_reso_decimated_s=time_reso_ds,
-                max_slice_count=getattr(config, 'MAX_SLICE_COUNT', 5000),
-                time_tol_ms=getattr(config, 'TIME_TOL_MS', 0.1),
-            )
-            try:
-                from .logging.chunking_logging import log_slice_plan_summary
-                log_slice_plan_summary(metadata['chunk_idx'], plan)
-            except Exception:
-                pass
-            slices_to_process = [(idx, sl.start_idx, sl.end_idx) for idx, sl in enumerate(plan["slices"])]
-        else:
-            slices_to_process = [(j, j * slice_len, min((j + 1) * slice_len, block.shape[0])) for j in range(time_slice)]
+        time_slice = (config.FILE_LENG // config.DOWN_TIME_RATE + slice_len - 1) // slice_len
+        slices_to_process = _plan_slices(block, slice_len, chunk_idx)
 
         for j, start_idx, end_idx in slices_to_process: # Procesar cada slice
             # Mensaje de progreso cada 10 slices o en el primer slice
@@ -289,9 +354,7 @@ def _process_block(
                     )
                     continue
 
-            # =============================================================================
-            # PROCESAMIENTO DEL SLICE
-            # =============================================================================
+            # Procesamiento del slice
             
             slice_cube = dm_time[:, :, start_idx : end_idx] # Cubo DM-time para este slice
             waterfall_block = block[start_idx : end_idx] # Bloque de datos para este slice
@@ -321,8 +384,17 @@ def _process_block(
             # Calcular tiempo absoluto para este slice específico
             # Importante: el bloque fue recortado por el solapamiento válido (valid_start_ds)
             # El índice 0 de 'block' corresponde a chunk_start_time_sec + valid_start_ds * dt_ds
-            dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
-            slice_start_time_sec = chunk_start_time_sec + ((valid_start_ds + start_idx) * dt_ds)
+            slice_start_time_sec = _absolute_slice_time(
+                chunk_start_time_sec, valid_start_ds, start_idx, dt_ds
+            )
+
+            _trace_info(
+                "[TRACE] Slice %03d (chunk %03d): start_idx=%d end_idx=%d N=%d | abs_start=%.9fs abs_end=%.9fs Δt=%.9fs",
+                j, chunk_idx, start_idx, end_idx, (end_idx - start_idx),
+                slice_start_time_sec,
+                slice_start_time_sec + (end_idx - start_idx) * dt_ds,
+                dt_ds,
+            )
 
             # Crear carpeta principal del archivo
             file_folder_name = fits_path.stem

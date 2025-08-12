@@ -178,7 +178,7 @@ def plot_waterfall_block(
         cmap="mako",      # mantener color solicitado
         aspect="auto",
         # DEJAR QUE MATPLOTLIB ESCALA A PARTIR DE LOS VALORES NORMALIZADOS
-        extent=(time_start + 0.5 * time_reso, time_end - 0.5 * time_reso, float(freq.min()), float(freq.max())),
+        extent=(time_start, time_end, float(freq.min()), float(freq.max())),
         interpolation="nearest",
     )
     ax_im.set_xlabel("Time", fontsize=11)
@@ -232,7 +232,8 @@ def save_detection_plot(
     slice_len: Optional[int] = None,
     band_idx: int = 0,  # Para calcular el rango de frecuencias de la banda
     absolute_start_time: Optional[float] = None,  
-    slice_samples: Optional[int] = None,  
+    slice_samples: Optional[int] = None,
+    candidate_times_abs: Optional[Iterable[float]] = None,
 ) -> None:
     """Save detection plot with both detection and classification probabilities."""
 
@@ -363,10 +364,14 @@ def save_detection_plot(
             dm_val_real, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, effective_len)
             
             # CALCULAR TIEMPO ABSOLUTO DE LA DETECCIÓN
-            if absolute_start_time is not None:
-                detection_time = absolute_start_time + t_sec_real
+            # Priorizar tiempo absoluto exacto pasado desde el pipeline
+            if candidate_times_abs is not None and idx < len(candidate_times_abs):
+                detection_time = float(candidate_times_abs[idx])
             else:
-                detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
+                if absolute_start_time is not None:
+                    detection_time = absolute_start_time + t_sec_real
+                else:
+                    detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
             
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
@@ -467,6 +472,7 @@ def save_all_plots(
     absolute_start_time=None,
     chunk_idx=None,  # PARÁMETRO PARA CHUNK
     force_plots: bool = False,
+    candidate_times_abs: Optional[Iterable[float]] = None,
 ):
     """Guarda todos los plots con tiempo absoluto para continuidad temporal.
     
@@ -511,6 +517,7 @@ def save_all_plots(
             absolute_start_time=absolute_start_time,  
             chunk_idx=chunk_idx,  
             slice_samples=real_slice_samples,
+            candidate_times_abs=candidate_times_abs,
         )
     
     # Patch plot - crear carpeta solo si hay patch o si se fuerza en modo debug
@@ -580,6 +587,7 @@ def save_all_plots(
                 if waterfall_block is not None and hasattr(waterfall_block, "shape")
                 else slice_len
             ),
+            candidate_times_abs=candidate_times_abs,
         )
 
 def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
@@ -647,6 +655,7 @@ def save_plot(
     band_idx: int = 0,  # Para calcular el rango de frecuencias
     absolute_start_time: Optional[float] = None,  # 🕐 NUEVO PARÁMETRO PARA TIEMPO ABSOLUTO
     slice_samples: Optional[int] = None,  # 🕐 NUEVO: muestras reales en el slice
+    candidate_times_abs: Optional[Iterable[float]] = None,
 ) -> None:
     """Wrapper fino sin mutar estado global; pasa slice_len explícito."""
     
@@ -669,6 +678,7 @@ def save_plot(
         band_idx=band_idx,
         absolute_start_time=absolute_start_time, 
         slice_samples=slice_samples,
+        candidate_times_abs=candidate_times_abs,
     )
     # No modificar config.SLICE_LEN global
 
@@ -828,6 +838,7 @@ def save_slice_summary(
     absolute_start_time: Optional[float] = None, 
     chunk_idx: Optional[int] = None,  
     slice_samples: Optional[int] = None,  
+    candidate_times_abs: Optional[Iterable[float]] = None,
 ) -> None:
     """Save a composite figure summarising detections and waterfalls with SNR analysis.
 
@@ -936,10 +947,11 @@ def save_slice_summary(
     n_time_ticks_det = 8
     time_positions_det = np.linspace(0, img_rgb.shape[1] - 1, n_time_ticks_det)
 
-    # Usar centros de píxel para coherencia temporal con el dominio de muestras
-    width_px = float(img_rgb.shape[1])
-    slice_duration_sec = slice_samples * config.TIME_RESO * config.DOWN_TIME_RATE
-    time_values_det = slice_start_abs + ((time_positions_det + 0.5) / width_px) * slice_duration_sec
+    # Etiquetar por BORDES: queremos [start, end] exactos
+    real_samples = slice_samples if slice_samples is not None else slice_len
+    n_px = img_rgb.shape[1]
+    denom = float(max(n_px - 1, 1))
+    time_values_det = slice_start_abs + (time_positions_det / denom) * (slice_end_abs - slice_start_abs)
     ax_det.set_xticks(time_positions_det)
     ax_det.set_xticklabels([f"{t:.6f}" for t in time_values_det])
     ax_det.set_xlabel("Time (s)", fontsize=10, fontweight="bold")
@@ -975,10 +987,14 @@ def save_slice_summary(
             dm_val_cand, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, effective_len_det)
             
             # CALCULAR TIEMPO ABSOLUTO DE LA DETECCIÓN
-            if absolute_start_time is not None:
-                detection_time = absolute_start_time + t_sec_real
+            # Priorizar tiempo absoluto exacto pasado desde el pipeline
+            if candidate_times_abs is not None and idx < len(candidate_times_abs):
+                detection_time = float(candidate_times_abs[idx])
             else:
-                detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
+                if absolute_start_time is not None:
+                    detection_time = absolute_start_time + t_sec_real
+                else:
+                    detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
             
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
@@ -1055,7 +1071,8 @@ def save_slice_summary(
         snr_wf, sigma_wf = compute_snr_profile(wf_block, off_regions)
         peak_snr_wf, peak_time_wf, peak_idx_wf = find_snr_peak(snr_wf)
         
-        time_axis_wf = slice_start_abs + (np.arange(len(snr_wf)) + 0.5) * time_reso_ds
+        # Bordes uniformes para etiquetas y extent
+        time_axis_wf = np.linspace(slice_start_abs, slice_end_abs, len(snr_wf))
         peak_time_wf_abs = float(time_axis_wf[peak_idx_wf]) if len(snr_wf) > 0 else None
         ax_prof_wf.plot(time_axis_wf, snr_wf, color="royalblue", alpha=0.8, lw=1.5, label='SNR Profile')
         
@@ -1112,9 +1129,9 @@ def save_slice_summary(
             aspect="auto",
             vmin=np.nanpercentile(wf_block, 1),
             vmax=np.nanpercentile(wf_block, 99),
-            extent=[time_axis_wf[0], time_axis_wf[-1], freq_ds.min(), freq_ds.max()],
+            extent=[slice_start_abs, slice_end_abs, freq_ds.min(), freq_ds.max()],
         )
-        ax_wf.set_xlim(time_axis_wf[0], time_axis_wf[-1])
+        ax_wf.set_xlim(slice_start_abs, slice_end_abs)
         ax_wf.set_ylim(freq_ds.min(), freq_ds.max())
 
         n_freq_ticks = 6
@@ -1122,7 +1139,7 @@ def save_slice_summary(
         ax_wf.set_yticks(freq_tick_positions)
 
         n_time_ticks = 5
-        time_tick_positions = np.linspace(time_axis_wf[0], time_axis_wf[-1], n_time_ticks)
+        time_tick_positions = np.linspace(slice_start_abs, slice_end_abs, n_time_ticks)
         ax_wf.set_xticks(time_tick_positions)
         # Mostrar tiempo con mayor precisión para que el usuario vea el tiempo exacto
         ax_wf.set_xticklabels([f"{t:.6f}" for t in time_tick_positions])
@@ -1203,7 +1220,7 @@ def save_slice_summary(
         snr_dw, sigma_dw = compute_snr_profile(dw_block, off_regions)
         peak_snr_dw, peak_time_dw, peak_idx_dw = find_snr_peak(snr_dw)
         
-        time_axis_dw = slice_start_abs + (np.arange(len(snr_dw)) + 0.5) * time_reso_ds
+        time_axis_dw = np.linspace(slice_start_abs, slice_end_abs, len(snr_dw))
         peak_time_dw_abs = float(time_axis_dw[peak_idx_dw]) if len(snr_dw) > 0 else None
         ax_prof_dw.plot(time_axis_dw, snr_dw, color="green", alpha=0.8, lw=1.5, label='Dedispersed SNR')
         
@@ -1274,9 +1291,9 @@ def save_slice_summary(
             aspect="auto",
             vmin=np.nanpercentile(dw_block, 1),
             vmax=np.nanpercentile(dw_block, 99),
-            extent=[time_axis_dw[0], time_axis_dw[-1], freq_ds.min(), freq_ds.max()],
+            extent=[slice_start_abs, slice_end_abs, freq_ds.min(), freq_ds.max()],
         )
-        ax_dw.set_xlim(time_axis_dw[0], time_axis_dw[-1])
+        ax_dw.set_xlim(slice_start_abs, slice_end_abs)
         ax_dw.set_ylim(freq_ds.min(), freq_ds.max())
 
         ax_dw.set_yticks(freq_tick_positions)
@@ -1336,7 +1353,8 @@ def save_slice_summary(
             # Fallback: usar patch_start como está (modo antiguo)
             patch_start_abs = patch_start
         
-        patch_time_axis = patch_start_abs + (np.arange(len(snr_patch)) + 0.5) * time_reso_ds
+        # Para el patch, usar bordes también para coherencia
+        patch_time_axis = np.linspace(patch_start_abs, patch_start_abs + len(snr_patch) * time_reso_ds, len(snr_patch))
         ax_patch_prof.plot(patch_time_axis, snr_patch, color="orange", alpha=0.8, lw=1.5, label='Candidate SNR')
         
         # Resaltar regiones sobre threshold
@@ -1420,16 +1438,19 @@ def save_slice_summary(
     # Usar los tiempos absolutos del slice calculados arriba
     idx_start_ds = int(round(slice_start_abs / (config.TIME_RESO * config.DOWN_TIME_RATE)))
     idx_end_ds = idx_start_ds + real_samples - 1
+    # Usar tiempos de BORDES en el título para coincidir con etiquetas
+    start_center = slice_start_abs
+    end_center = slice_end_abs
     if chunk_idx is not None:
         title = (
             f"Composite: {fits_stem} - {band_name_with_freq} - Chunk {chunk_idx:03d} - Slice {slice_idx:03d} | "
-            f"start={slice_start_abs:.6f}s end={slice_end_abs:.6f}s Δt={(config.TIME_RESO * config.DOWN_TIME_RATE):.9f}s "
+            f"start={start_center:.6f}s end={end_center:.6f}s Δt={(config.TIME_RESO * config.DOWN_TIME_RATE):.9f}s "
             f"| [idx {idx_start_ds}→{idx_end_ds}]"
         )
     else:
         title = (
             f"Composite: {fits_stem} - {band_name_with_freq} - Slice {slice_idx:03d} | "
-            f"start={slice_start_abs:.6f}s end={slice_end_abs:.6f}s Δt={(config.TIME_RESO * config.DOWN_TIME_RATE):.9f}s "
+            f"start={start_center:.6f}s end={end_center:.6f}s Δt={(config.TIME_RESO * config.DOWN_TIME_RATE):.9f}s "
             f"| [idx {idx_start_ds}→{idx_end_ds}]"
         )
 
@@ -1450,7 +1471,7 @@ def save_slice_summary(
         info_lines = [
             f"Samples (decimated): {global_start_sample} → {global_end_sample} (N={real_samples})",
             f"Δt (effective): {dt_ds:.9f} s",
-            f"Time span: {slice_start_abs:.6f}s → {slice_end_abs:.6f}s (Δ={time_range_sec:.6f}s)",
+            f"Time span (centers): {start_center:.6f}s → {end_center:.6f}s (Δ={(real_samples - 1) * dt_ds:.6f}s)",
         ]
         fig.text(
             0.01,

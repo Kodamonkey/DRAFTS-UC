@@ -9,6 +9,12 @@ from .. import config
 
 logger = logging.getLogger(__name__)
 
+# Intentar usar PyTorch para GPU si está disponible (más estable que Numba en Windows)
+try:
+    import torch
+except Exception:
+    torch = None
+
 @cuda.jit
 def _de_disp_gpu(dm_time, data, freq, index, dm_values, mid_channel):
     x, y = cuda.grid(2)
@@ -48,31 +54,28 @@ def _de_disp_gpu(dm_time, data, freq, index, dm_values, mid_channel):
 
 
 @njit(parallel=False)
-def _d_dm_time_cpu(data, height: int, width: int, dm_min: float, dm_max: float) -> np.ndarray:
+def _d_dm_time_cpu(
+    data: np.ndarray,
+    height: int,
+    width: int,
+    dm_min: float,
+    dm_max: float,
+    freq_ds: np.ndarray,
+) -> np.ndarray:
     """CPU fallback para dedispersión con normalización por exposición y bordes.
 
     Implementa suma con manejo de bordes por canal y normaliza cada
     punto (DM,t) por el número de canales que aportaron.
     """
     out = np.zeros((3, height, width), dtype=np.float32)
-    nchan_ds = config.FREQ_RESO // config.DOWN_FREQ_RATE
+    nchan_ds = freq_ds.shape[0]
     mid_channel = nchan_ds // 2
-
-    # Validación de frecuencias
-    if config.FREQ is None or config.FREQ.size == 0:
-        logger.error("config.FREQ es inválido en _d_dm_time_cpu")
-        return out
-
-    # Frecuencias decimadas
-    freq_ds = np.mean(
-        config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
-        axis=1,
-    )
 
     # Calcular valores exactos de DM para cada píxel
     dm_values = np.linspace(dm_min, dm_max, height, dtype=np.float32)
 
-    for i, DM in enumerate(dm_values):
+    for i in range(height):
+        DM = dm_values[i]
         delays = (
             4.15
             * DM
@@ -85,7 +88,6 @@ def _d_dm_time_cpu(data, height: int, width: int, dm_min: float, dm_max: float) 
         total_series = np.zeros(width, dtype=np.float32)
         count_series = np.zeros(width, dtype=np.int32)
         mid_series = np.zeros(width, dtype=np.float32)
-        mid_filled = np.zeros(width, dtype=np.bool_)
 
         for j in range(nchan_ds):
             d = delays[j]
@@ -96,10 +98,12 @@ def _d_dm_time_cpu(data, height: int, width: int, dm_min: float, dm_max: float) 
             else:
                 src_lo = 0
                 dst_lo = -d
-            src_hi = min(data.shape[0], d + width) if d + width > 0 else 0
-            length = src_hi - src_lo
-            if length <= 0 or j >= data.shape[1]:
+            src_hi = d + width
+            if src_hi > data.shape[0]:
+                src_hi = data.shape[0]
+            if src_hi <= src_lo or j >= data.shape[1]:
                 continue
+            length = src_hi - src_lo
             dst_hi = dst_lo + length
 
             total_series[dst_lo:dst_hi] += data[src_lo:src_hi, j]
@@ -107,12 +111,13 @@ def _d_dm_time_cpu(data, height: int, width: int, dm_min: float, dm_max: float) 
 
             if j == mid_channel:
                 mid_series[dst_lo:dst_hi] = data[src_lo:src_hi, j]
-                mid_filled[dst_lo:dst_hi] = True
 
         # Normalización por #canales válidos
-        norm = np.maximum(count_series.astype(np.float32), 1.0)
+        norm = count_series.astype(np.float32)
+        for k in range(width):
+            if norm[k] <= 0.0:
+                norm[k] = 1.0
         out[0, i] = total_series / norm
-        # Si mid no estuvo disponible en algún punto, dejar 0 allí
         out[1, i] = mid_series
         out[2, i] = out[0, i] - out[1, i]
 
@@ -139,27 +144,29 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
             data = (data - mean_ch) / std_ch
     except Exception as e:
         print(f"[WARNING] Error en prewhitening: {e}")
+    
+    # Preparar frecuencias decimadas una sola vez
+    if config.FREQ is None or config.FREQ.size == 0:
+        raise ValueError("config.FREQ inválido durante dedispersión (vacío)")
+    if config.FREQ_RESO == 0 or config.DOWN_FREQ_RATE == 0:
+        raise ValueError(f"Parámetros de frecuencia inválidos: FREQ_RESO={config.FREQ_RESO}, DOWN_FREQ_RATE={config.DOWN_FREQ_RATE}")
+    if (config.FREQ_RESO // config.DOWN_FREQ_RATE) * config.DOWN_FREQ_RATE != config.FREQ_RESO:
+        # Ajustar FREQ_RESO/FREQ para que sea divisible
+        n_groups = config.FREQ_RESO // config.DOWN_FREQ_RATE
+        config.FREQ_RESO = n_groups * config.DOWN_FREQ_RATE
+        config.FREQ = config.FREQ[:config.FREQ_RESO]
+    freq_values = np.mean(config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE), axis=1)
+
+    # Si hay PyTorch con CUDA, usar implementación GPU con torch
+    if torch is not None and torch.cuda.is_available() and str(getattr(config, 'DEVICE', 'cpu')).startswith('cuda'):
+        try:
+            return _d_dm_time_torch_gpu(data, height, width, dm_min, dm_max, freq_values)
+        except Exception as e:
+            print(f"[WARNING] Error en torch GPU ({e}), intentando Numba GPU...")
+
     try:
         print("[INFO] Intentando usar GPU para dedispersión...")
         
-        # Verificar que config.FREQ y sus dimensiones sean válidas
-        if config.FREQ is None:
-            raise ValueError("config.FREQ is None during dedispersión")
-        if config.FREQ.size == 0:
-            raise ValueError("config.FREQ is empty during dedispersión")
-        if config.FREQ_RESO == 0 or config.DOWN_FREQ_RATE == 0:
-            raise ValueError(f"Invalid frequency parameters during dedispersión: FREQ_RESO={config.FREQ_RESO}, DOWN_FREQ_RATE={config.DOWN_FREQ_RATE}")
-        
-        # Verificar que el reshape es válido
-        expected_size = config.FREQ_RESO // config.DOWN_FREQ_RATE
-        if expected_size * config.DOWN_FREQ_RATE != config.FREQ_RESO:
-            logger.warning("FREQ_RESO (%d) no es divisible por DOWN_FREQ_RATE (%d) en dedispersión", 
-                          config.FREQ_RESO, config.DOWN_FREQ_RATE)
-            # Ajustar para que sea divisible
-            config.FREQ_RESO = expected_size * config.DOWN_FREQ_RATE
-            config.FREQ = config.FREQ[:config.FREQ_RESO]
-        
-        freq_values = np.mean(config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE), axis=1)
         freq_gpu = cuda.to_device(freq_values)
         nchan_ds = config.FREQ_RESO // config.DOWN_FREQ_RATE
         index_values = np.arange(0, nchan_ds)
@@ -188,7 +195,79 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
         return result
     except (cuda.cudadrv.driver.CudaAPIError, Exception) as e:
         print(f"[WARNING] Error GPU ({e}), cambiando a CPU...")
-        return _d_dm_time_cpu(data, height, width, dm_min, dm_max)
+        return _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values)
+
+
+def _d_dm_time_torch_gpu(
+    data_np: np.ndarray,
+    height: int,
+    width: int,
+    dm_min: float,
+    dm_max: float,
+    freq_ds_np: np.ndarray,
+) -> np.ndarray:
+    """Dedispersión en GPU usando PyTorch (más compatible en Windows que Numba)."""
+    device = torch.device('cuda')
+    # Tensores base
+    data_t = torch.from_numpy(data_np).to(device=device, dtype=torch.float32)  # [T, C]
+    T, C = data_t.shape
+    freq_ds = torch.from_numpy(freq_ds_np.astype(np.float32)).to(device)
+    dm_values = torch.linspace(float(dm_min), float(dm_max), steps=height, device=device, dtype=torch.float32)
+    time_reso = float(config.TIME_RESO * config.DOWN_TIME_RATE)
+
+    # Preasignar salida
+    out0 = torch.zeros((height, width), device=device, dtype=torch.float32)
+    out1 = torch.zeros((height, width), device=device, dtype=torch.float32)
+    out2 = torch.zeros((height, width), device=device, dtype=torch.float32)
+
+    mid_channel = C // 2
+    base = torch.arange(width, device=device, dtype=torch.int64)  # [W]
+
+    # Procesar en bloques de DM para limitar memoria
+    dm_chunk = 64
+    for start in range(0, height, dm_chunk):
+        end = min(start + dm_chunk, height)
+        dms = dm_values[start:end]  # [D]
+        # Calcular delays por canal para cada DM: [D, C]
+        delays = (4.15 * dms[:, None] * (freq_ds[None, :] ** -2 - freq_ds.max() ** -2) * 1e3 / time_reso)
+        delays = delays.to(dtype=torch.int64)
+
+        # Inicializar acumuladores del bloque
+        acc = torch.zeros((end - start, width), device=device, dtype=torch.float32)
+        cnt = torch.zeros((end - start, width), device=device, dtype=torch.int32)
+        mid_vals = torch.zeros((end - start, width), device=device, dtype=torch.float32)
+
+        # Iterar por canal (C pequeño) y vectorizar en tiempo y DM
+        for j in range(C):
+            idx = delays[:, j][:, None] + base[None, :]  # [D, W]
+            valid = (idx >= 0) & (idx < T)
+            safe_idx = idx.clamp(0, max(T - 1, 0))
+            # Serie temporal de un canal: [T]
+            ch_ts = data_t[:, j]
+            # Extraer valores planos y re-formar a [D, W]
+            vals_flat = ch_ts.index_select(0, safe_idx.reshape(-1))  # [D*W]
+            vals = vals_flat.reshape(end - start, width)
+            # Anular los inválidos
+            vals = torch.where(valid, vals, torch.zeros_like(vals))
+            acc += vals
+            cnt += valid.to(torch.int32)
+            if j == mid_channel:
+                mid_vals = vals
+
+        # Normalizar
+        cnt_f = cnt.to(torch.float32)
+        cnt_f = torch.where(cnt_f <= 0, torch.ones_like(cnt_f), cnt_f)
+        block0 = acc / cnt_f
+        block1 = mid_vals
+        block2 = block0 - block1
+
+        out0[start:end] = block0
+        out1[start:end] = block1
+        out2[start:end] = block2
+
+    # Volcar a CPU y a formato esperado [3, H, W]
+    result = torch.stack([out0, out1, out2], dim=0).detach().cpu().numpy().astype(np.float32)
+    return result
 
 def dedisperse_patch(
     data: np.ndarray,

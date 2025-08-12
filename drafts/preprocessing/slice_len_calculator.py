@@ -69,10 +69,10 @@ def calculate_optimal_chunk_size(slice_len: Optional[int] = None) -> int:
         logger.warning("Metadatos del archivo no disponibles, usando chunk por defecto")
         return slice_len * 200
 
-    total_samples = config.FILE_LENG // max(1, config.DOWN_TIME_RATE)
-    n_channels = max(1, config.FREQ_RESO // max(1, config.DOWN_FREQ_RATE))
-    bytes_per_sample = 4 * n_channels
-    available_bytes = psutil.virtual_memory().available
+    total_samples = config.FILE_LENG // max(1, config.DOWN_TIME_RATE) # Tamaño total del archivo
+    n_channels = max(1, config.FREQ_RESO // max(1, config.DOWN_FREQ_RATE)) # Número de canales
+    bytes_per_sample = 4 * n_channels # Bytes por muestra
+    available_bytes = psutil.virtual_memory().available # Bytes disponibles
     file_bytes = total_samples * bytes_per_sample
 
     if file_bytes <= available_bytes * 0.8:
@@ -106,7 +106,7 @@ def get_processing_parameters() -> dict:
     Returns:
         dict: Parámetros de procesamiento calculados.
     """
-    slice_len, real_duration_ms = calculate_slice_len_from_duration()
+    slice_len, real_duration_ms = calculate_slice_len_from_duration() # Calcular slice_len y real_duration_ms
     # Calcular chunk_samples usando planificador si está habilitado
     if getattr(config, 'USE_PLANNED_CHUNKING', False):
         # Estimar bytes por muestra después de downsampling en frecuencia

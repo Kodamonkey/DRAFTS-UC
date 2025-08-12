@@ -7,7 +7,12 @@ from .. import config
 
 
 def downsample_data(data: np.ndarray) -> np.ndarray:
-    """Down-sample time-frequency data using :mod:`config` rates."""
+    """Down-sample time-frequency data usando las tasas de :mod:`config`.
+
+    - Temporal: suma sobre ventanas de tamaño ``DOWN_TIME_RATE`` (estilo PRESTO).
+    - Frecuencia: promedio sobre grupos de ``DOWN_FREQ_RATE`` canales.
+    - Polarización: promedio (Stokes I ya seleccionado en carga si existe).
+    """
     n_time = (data.shape[0] // config.DOWN_TIME_RATE) * config.DOWN_TIME_RATE
     n_freq = (data.shape[2] // config.DOWN_FREQ_RATE) * config.DOWN_FREQ_RATE
     n_pol = data.shape[1]
@@ -19,5 +24,10 @@ def downsample_data(data: np.ndarray) -> np.ndarray:
         n_freq // config.DOWN_FREQ_RATE,
         config.DOWN_FREQ_RATE,
     )
-    data = data.mean(axis=(1, 4, 2)).astype(np.float32)
+    # Sumar en tiempo (como Spectra.downsample de PRESTO), luego promediar pol y grupo de freq
+    # Shape tras reshape: (T_ds, Tgrp, P, F_ds, Fgrp)
+    data = data.sum(axis=1)          # (T_ds, P, F_ds, Fgrp)
+    data = data.mean(axis=1)         # (T_ds, F_ds, Fgrp)
+    data = data.mean(axis=2)         # (T_ds, F_ds)
+    data = data.astype(np.float32)
     return data

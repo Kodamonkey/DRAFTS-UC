@@ -14,6 +14,30 @@ import numpy as np
 import logging
 logger = logging.getLogger(__name__)
 
+def _presto_time_ref_correction(dm_val: float, freq_ref_used_mhz: float, freq_ref_global_mhz: float) -> float:
+    """Corrección de referencia temporal al estilo PRESTO (segundos).
+
+    PRESTO ajusta el inicio del eje temporal cuando se cambia la frecuencia de
+    referencia (por ejemplo, tras subbandeo). La corrección es:
+        Δt = 4.1488e3 * DM * (|1/ref_global^2 - 1/ref_used^2|)
+    con frecuencias en MHz y Δt en segundos.
+
+    Args:
+        dm_val: DM del candidato
+        freq_ref_used_mhz: frecuencia de referencia efectiva usada para dedispersión/plot
+        freq_ref_global_mhz: frecuencia de referencia global (tope de banda original)
+    Returns:
+        float: corrección en segundos (sumar al tiempo reportado)
+    """
+    try:
+        f1 = float(freq_ref_global_mhz)
+        f2 = float(freq_ref_used_mhz)
+        if f1 <= 0 or f2 <= 0 or dm_val is None:
+            return 0.0
+        return 4.1488e3 * float(dm_val) * abs(1.0 / (f1 * f1) - 1.0 / (f2 * f2))
+    except Exception:
+        return 0.0
+
 def get_pipeline_parameters(config):
     if config.FREQ_RESO == 0 or config.DOWN_FREQ_RATE == 0:
         raise ValueError(f"Parámetros de frecuencia inválidos: FREQ_RESO={config.FREQ_RESO}, DOWN_FREQ_RATE={config.DOWN_FREQ_RATE}")
@@ -46,6 +70,7 @@ def process_band(
     patches_dir=None,
     chunk_idx=None,  # ID del chunk
     band_idx=None,  # ID de la banda
+    slice_start_idx: int | None = None,  # NUEVO: inicio del slice (decimado) para índice global
 ):
     """Procesa una banda con tiempo absoluto para continuidad temporal.
     
@@ -123,18 +148,27 @@ def process_band(
             snr_val_raw = 0.0
         
         snr_list.append(snr_val_raw)  # Guardar SNR raw para estadísticas
-        global_sample = j * slice_len + int(t_sample)
+        # Índice global correcto dentro del bloque decimado: inicio real del slice + offset detectado
+        if slice_start_idx is not None:
+            global_sample = int(slice_start_idx) + int(t_sample)
+        else:
+            # Fallback: modo antiguo (puede ser inexacto si los slices no son uniformes)
+            global_sample = j * slice_len + int(t_sample)
         patch, start_sample = dedisperse_patch(
             data, freq_down, dm_val, global_sample
         )
         
-        # Calcular SNR del patch dedispersado (SNR final para CSV)
+        # Calcular SNR del patch dedispersado al estilo PRESTO (matched filter)
         snr_val = 0.0  # Valor por defecto
+        peak_idx_patch = None
         if patch is not None and patch.size > 0:
-            from .analysis.snr_utils import find_snr_peak
-            snr_patch_profile, _ = compute_snr_profile(patch)
-            snr_val, _, _ = find_snr_peak(snr_patch_profile)
-            # IMPORTANTE: Este es el SNR que se guarda en CSV (patch dedispersado)
+            from .analysis.snr_utils import compute_presto_matched_snr
+            # patch: (time, freq)
+            dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+            snr_profile_pre, best_w = compute_presto_matched_snr(patch, dt_seconds=dt_ds)
+            # pico y su índice
+            peak_idx_patch = int(np.argmax(snr_profile_pre)) if snr_profile_pre.size > 0 else None
+            snr_val = float(np.max(snr_profile_pre)) if snr_profile_pre.size > 0 else 0.0
         else:
             # Si no hay patch, usar el SNR raw como fallback
             snr_val = snr_val_raw
@@ -146,13 +180,24 @@ def process_band(
         # Guardar el primer candidato para compatibilidad
         if first_patch is None:
             first_patch = proc_patch
-            first_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+            # Convertir a tiempo ABSOLUTO del archivo: inicio del slice + offset dentro del slice
+            offset_within_slice = (start_sample - (slice_start_idx if slice_start_idx is not None else 0))
+            first_start = (absolute_start_time if absolute_start_time is not None else 0.0) 
+            first_start += offset_within_slice * config.TIME_RESO * config.DOWN_TIME_RATE
+            # Ajuste opcional PRESTO: si la frecuencia de referencia efectiva difiere de la global
+            try:
+                freq_ref_used = float(freq_down.max()) if hasattr(freq_down, 'max') else None
+                freq_ref_global = float(np.max(config.FREQ)) if getattr(config, 'FREQ', None) is not None else None
+                if freq_ref_used and freq_ref_global:
+                    first_start += _presto_time_ref_correction(dm_val, freq_ref_used, freq_ref_global)
+            except Exception:
+                pass
             first_dm = dm_val
         
         # Almacenar información del candidato para análisis posterior
         candidate_info = {
             'patch': proc_patch,
-            'start': start_sample * config.TIME_RESO * config.DOWN_TIME_RATE,
+            'start': first_start,  # tiempo ABSOLUTO del patch
             'dm': dm_val,
             'is_burst': is_burst,
             'confidence': conf,
@@ -164,22 +209,39 @@ def process_band(
         if best_patch is None:
             # Primer candidato siempre se guarda como fallback
             best_patch = proc_patch
-            best_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+            best_start = first_start
             best_dm = dm_val
             best_is_burst = is_burst
         elif is_burst and not best_is_burst:
             # Si encontramos un BURST y el mejor actual es NO BURST, actualizar
             best_patch = proc_patch
-            best_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+            best_start = first_start
             best_dm = dm_val
             best_is_burst = is_burst
         # Si ambos son BURST o ambos son NO BURST, mantener el primero (orden de detección)
         
-        # CALCULAR TIEMPO ABSOLUTO DEL CANDIDATO
-        if absolute_start_time is not None:
-            absolute_candidate_time = absolute_start_time + t_sec
+        # CALCULAR TIEMPO ABSOLUTO DEL CANDIDATO PRIORIZANDO PROCESAMIENTO (pico SNR del patch)
+        dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+        if peak_idx_patch is not None:
+            # Tiempo absoluto de inicio del patch dentro del archivo
+            slice_offset_samples = (start_sample - (slice_start_idx if slice_start_idx is not None else 0))
+            patch_start_abs = (absolute_start_time if absolute_start_time is not None else 0.0) + slice_offset_samples * dt_ds
+            absolute_candidate_time = patch_start_abs + peak_idx_patch * dt_ds
         else:
-            absolute_candidate_time = t_sec  # Tiempo relativo al slice
+            # Fallback: usar tiempo basado en centro del bbox
+            if absolute_start_time is not None:
+                absolute_candidate_time = absolute_start_time + t_sec
+            else:
+                absolute_candidate_time = t_sec
+
+        # Ajuste opcional PRESTO: corregir por frecuencia de referencia si aplica
+        try:
+            freq_ref_used = float(freq_down.max()) if hasattr(freq_down, 'max') else None
+            freq_ref_global = float(np.max(config.FREQ)) if getattr(config, 'FREQ', None) is not None else None
+            if freq_ref_used and freq_ref_global:
+                absolute_candidate_time += _presto_time_ref_correction(dm_val, freq_ref_used, freq_ref_global)
+        except Exception:
+            pass
         
         # Usar chunk_idx en el candidato
         cand = Candidate(
@@ -389,7 +451,7 @@ def process_slice(
             det_model,
             cls_model,
             band_img,
-            slice_len,
+            end_idx - start_idx,  # usar muestras REALES del slice
             j,
             fits_path,
             save_dir,
@@ -403,6 +465,7 @@ def process_slice(
             patches_dir=patches_dir,  # PASAR CARPETA DE PATCHES POR CHUNK
             chunk_idx=chunk_idx,  # PASAR CHUNK_ID
             band_idx=band_idx,  # PASAR BAND_ID CORRECTO
+            slice_start_idx=start_idx,  # PASAR INICIO REAL DEL SLICE
         )
         cand_counter += band_result["cand_counter"]
         n_bursts += band_result["n_bursts"]

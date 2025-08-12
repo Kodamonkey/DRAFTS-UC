@@ -141,9 +141,10 @@ def _build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max
 
 
 def _trim_valid_window(block_ds: np.ndarray, dm_time_full: np.ndarray, overlap_left_ds: int, overlap_right_ds: int) -> tuple[np.ndarray, np.ndarray, int, int]:
-    """Recorta la ventana válida usando los solapes decimados del chunk."""
+
     valid_start_ds = max(0, overlap_left_ds)
-    valid_end_ds = block_ds.shape[0] - max(0, overlap_right_ds)
+    # Conservar el lado derecho completo para continuidad
+    valid_end_ds = block_ds.shape[0]
     if valid_end_ds <= valid_start_ds:
         valid_start_ds, valid_end_ds = 0, block_ds.shape[0]
     dm_time = dm_time_full[:, :, valid_start_ds:valid_end_ds]
@@ -173,9 +174,13 @@ def _plan_slices(block_valid: np.ndarray, slice_len: int, chunk_idx: int) -> lis
         return [(j, j * slice_len, min((j + 1) * slice_len, block_valid.shape[0])) for j in range(time_slice)]
 
 
-def _absolute_slice_time(chunk_start_time_sec: float, valid_start_ds: int, start_idx: int, dt_ds: float) -> float:
-    """Calcula el inicio absoluto del slice en segundos desde el inicio del archivo."""
-    return chunk_start_time_sec + ((valid_start_ds + start_idx) * dt_ds)
+def _absolute_slice_time(chunk_start_time_sec: float, start_idx: int, dt_ds: float) -> float:
+    """Calcula el inicio absoluto del slice en segundos desde el inicio del archivo.
+
+    Nota: chunk_start_time_sec ya corresponde al inicio válido del chunk
+    (sin solape izquierdo), por lo que NO se suma ningún desplazamiento adicional.
+    """
+    return chunk_start_time_sec + (start_idx * dt_ds)
 
 
 def _process_block(
@@ -298,7 +303,8 @@ def _process_block(
             
             # Información base del slice (tiempo absoluto calculado con recorte válido)
             dt_ds_local = config.TIME_RESO * config.DOWN_TIME_RATE
-            slice_abs_start_preview = chunk_start_time_sec + ((valid_start_ds + start_idx) * dt_ds_local)
+            # El índice 0 de 'block' (tras recorte izquierdo) corresponde exactamente a chunk_start_time_sec
+            slice_abs_start_preview = chunk_start_time_sec + (start_idx * dt_ds_local)
             slice_info = {
                 'slice_idx': j,
                 'slice_len': slice_len,
@@ -382,10 +388,9 @@ def _process_block(
                 continue
 
             # Calcular tiempo absoluto para este slice específico
-            # Importante: el bloque fue recortado por el solapamiento válido (valid_start_ds)
-            # El índice 0 de 'block' corresponde a chunk_start_time_sec + valid_start_ds * dt_ds
+            # Importante: tras recorte izquierdo, el índice 0 de 'block' corresponde a chunk_start_time_sec
             slice_start_time_sec = _absolute_slice_time(
-                chunk_start_time_sec, valid_start_ds, start_idx, dt_ds
+                chunk_start_time_sec, start_idx, dt_ds
             )
 
             _trace_info(

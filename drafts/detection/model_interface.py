@@ -22,8 +22,17 @@ def detect(model, img_tensor: np.ndarray):
                 .unsqueeze(0)
             )
         top_conf, top_boxes = get_res(hm, wh, offset, confidence=config.DET_PROB)
+        # Normalizar salidas a listas Python siempre
         if top_boxes is None:
-            return [], None
+            return [], []
+        try:
+            import torch as _torch
+            if _torch.is_tensor(top_conf):
+                top_conf = top_conf.detach().cpu().numpy()
+            if _torch.is_tensor(top_boxes):
+                top_boxes = top_boxes.detach().cpu().numpy()
+        except Exception:
+            pass
         if isinstance(top_conf, np.ndarray):
             top_conf = top_conf.tolist()
         if isinstance(top_boxes, np.ndarray):
@@ -31,7 +40,7 @@ def detect(model, img_tensor: np.ndarray):
         return top_conf, top_boxes
     except Exception as e:
         logger.error(f"Error en detect: {e}")
-        return [], None
+        return [], []
 
 def prep_patch(patch: np.ndarray) -> np.ndarray:
     """Normalize patch for classification."""

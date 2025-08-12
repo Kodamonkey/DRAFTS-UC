@@ -11,9 +11,6 @@ import time
 import gc
 from pathlib import Path
 from typing import List
-import os
-import sys
-import json
 import shutil
 
 try:
@@ -125,18 +122,12 @@ def _process_block(
 ) -> dict: 
     """Procesa un bloque de datos y retorna estadísticas del bloque."""
     
-    # Configurar parámetros temporales para este bloque
-    original_file_leng = config.FILE_LENG
-    # Tamaño válido (sin solape) después del downsampling
-    config.FILE_LENG = metadata["actual_chunk_size"]
+    original_file_leng = config.FILE_LENG # Tamaño original del archivo
     
-    # CALCULAR TIEMPO ABSOLUTO DESDE INICIO DEL ARCHIVO
-    # Tiempo de inicio del chunk en segundos desde el inicio del archivo
-    # CORRECCIÓN: Usar tiempo efectivo después del downsampling
-    # Importante: el offset absoluto del chunk se calcula en base al tiempo por muestra original (sin downsampling)
-    # El factor de downsampling temporal sólo aplica a duraciones dentro de datos ya decimados.
-    chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO
-    chunk_duration_sec = metadata["actual_chunk_size"] * config.TIME_RESO
+    config.FILE_LENG = metadata["actual_chunk_size"] # Tamaño del chunk
+    
+    chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO # Tiempo de inicio del chunk
+    chunk_duration_sec = metadata["actual_chunk_size"] * config.TIME_RESO # Duración del chunk
     
     # =============================================================================
     # LOGGING INFORMATIVO DETALLADO DEL CHUNK
@@ -240,7 +231,9 @@ def _process_block(
             # LOGGING INFORMATIVO DETALLADO PARA AJUSTES Y SALTOS
             # =============================================================================
             
-            # Información base del slice
+            # Información base del slice (tiempo absoluto calculado con recorte válido)
+            dt_ds_local = config.TIME_RESO * config.DOWN_TIME_RATE
+            slice_abs_start_preview = chunk_start_time_sec + ((valid_start_ds + start_idx) * dt_ds_local)
             slice_info = {
                 'slice_idx': j,
                 'slice_len': slice_len,
@@ -248,7 +241,7 @@ def _process_block(
                 'end_idx_calculado': end_idx,
                 'block_shape': block.shape[0],
                 'chunk_idx': chunk_idx,
-                'tiempo_absoluto_inicio': chunk_start_time_sec + (j * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE),
+                'tiempo_absoluto_inicio': slice_abs_start_preview,
                 'duracion_slice_esperada_ms': slice_len * config.TIME_RESO * config.DOWN_TIME_RATE * 1000
             }
 
@@ -326,8 +319,10 @@ def _process_block(
                 continue
 
             # Calcular tiempo absoluto para este slice específico
-            # Tiempo absoluto de inicio del slice = offset chunk (sin downsampling) + offset dentro del chunk (ya decimado)
-            slice_start_time_sec = chunk_start_time_sec + (start_idx * config.TIME_RESO * config.DOWN_TIME_RATE)
+            # Importante: el bloque fue recortado por el solapamiento válido (valid_start_ds)
+            # El índice 0 de 'block' corresponde a chunk_start_time_sec + valid_start_ds * dt_ds
+            dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+            slice_start_time_sec = chunk_start_time_sec + ((valid_start_ds + start_idx) * dt_ds)
 
             # Crear carpeta principal del archivo
             file_folder_name = fits_path.stem
@@ -442,13 +437,13 @@ def _process_file_chunked(
     save_dir: Path,
     chunk_samples: int,
 ) -> dict:
-    """Procesa un archivo .fil en bloques usando stream_fil."""
+    """Procesa un archivo en bloques usando stream_fil o stream_fits."""
     
     # CALCULAR INFORMACIÓN DEL ARCHIVO DE MANERA EFICIENTE
     logger.info(f"Analizando estructura del archivo: {fits_path.name}")
     
     # Calcular información basada en config.FILE_LENG (ya cargado por get_obparams_fil)
-    total_samples = config.FILE_LENG # Longitud total del archivo
+    total_samples = config.FILE_LENG # Longitud total del archivo 
     
     # DETECTAR ARCHIVOS PEQUEÑOS Y AJUSTAR CHUNKING
     if total_samples <= chunk_samples:
@@ -463,26 +458,24 @@ def _process_file_chunked(
         chunk_count = (total_samples + chunk_samples - 1) // chunk_samples  # Redondear hacia arriba
         logger.info(f"   • Usando chunking estándar: {chunk_count} chunks")
     
-    total_duration_sec = total_samples * config.TIME_RESO # Duración total del archivo
-    chunk_duration_sec = effective_chunk_samples * config.TIME_RESO # Duración de cada chunk
+    total_duration_sec = total_samples * config.TIME_RESO # Duración total del archivo (en segundos)
+    chunk_duration_sec = effective_chunk_samples * config.TIME_RESO # Duración de cada chunk (en segundos)
     
     logger.info(f"RESUMEN DEL ARCHIVO:")
     logger.info(f"   Total de chunks estimado: {chunk_count}")
     logger.info(f"   Muestras totales: {total_samples:,}")
     logger.info(f"   Duración total: {total_duration_sec:.2f} segundos ({total_duration_sec/60:.1f} minutos)")
     logger.info(f"   Tamaño de chunk efectivo: {effective_chunk_samples:,} muestras ({chunk_duration_sec:.2f}s)")
-    if total_samples <= chunk_samples:
+    if total_samples <= chunk_samples: 
         logger.info(f"   Modo optimizado: archivo pequeño procesado en un solo chunk")
     else:
         logger.info(f"   Modo chunking estándar: múltiples chunks")
     logger.info(f"   Iniciando procesamiento...")
     
-    # Crear un CSV por archivo en lugar de por chunk
     csv_file = save_dir / f"{fits_path.stem}.candidates.csv" # CSV file por archivo
     ensure_csv_header(csv_file) # Asegurar que el header del CSV esté presente
     
-    
-    t_start = time.time() # Tiempo de inicio del procesamiento
+    t_start = time.time() # Tiempo de inicio del procesamiento 
     cand_counter_total = 0 # Contador de candidatos totales
     n_bursts_total = 0 # Contador de candidatos de tipo burst
     n_no_bursts_total = 0 # Contador de candidatos de tipo no burst
@@ -491,7 +484,6 @@ def _process_file_chunked(
     actual_chunk_count = 0 # Contador de chunks procesados
     
     try:
-        # VALIDACIÓN PREVIA DEL ARCHIVO
         if total_samples <= 0:
             raise ValueError(f"Archivo inválido: {total_samples} muestras")
         if total_samples > 1_000_000_000:  # 1B muestras = ~1TB
@@ -503,25 +495,23 @@ def _process_file_chunked(
             config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
             axis=1,
         )
-        nu_min = float(freq_ds.min())
-        nu_max = float(freq_ds.max())
+        nu_min = float(freq_ds.min()) # Frecuencia mínima
+        nu_max = float(freq_ds.max()) # Frecuencia máxima
         # Usamos constante para frecuencias en MHz: Δt_sec = 4.1488e3 * DM * (ν_min^-2 − ν_max^-2)
-        dt_max_sec = 4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)
-        overlap_raw = int(np.ceil(dt_max_sec / config.TIME_RESO))
+        dt_max_sec = 4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2) # Tiempo máximo de solapamiento (en segundos)
+        overlap_raw = int(np.ceil(dt_max_sec / config.TIME_RESO)) # Tiempo de solapamiento (en muestras)
 
         # Obtener función de streaming apropiada para el tipo de archivo
-        streaming_func, file_type = _get_streaming_function(fits_path)
+        streaming_func, file_type = _get_streaming_function(fits_path) 
         logger.info(f"DETECTADO: Archivo {file_type.upper()} - {fits_path.name}")
         logger.info(f"Usando streaming {file_type.upper()}: {streaming_func.__name__}")
         
-        # *** DEBUG CRÍTICO: CONFIRMAR PARÁMETROS DE STREAMING ***
         log_streaming_parameters(effective_chunk_samples, overlap_raw, total_samples, chunk_samples, streaming_func, file_type)
         
         # Procesar cada bloque con solapamiento
         for block, metadata in streaming_func(str(fits_path), effective_chunk_samples, overlap_samples=overlap_raw):
             actual_chunk_count += 1 # Incrementar el contador de chunks procesados
             
-            # *** DEBUG CRÍTICO: CONFIRMAR QUE CADA BLOQUE VIENE DEL STREAMING ***
             log_block_processing(actual_chunk_count, block.shape, str(block.dtype), metadata)
             
             logger.info(f"Procesando chunk {metadata['chunk_idx']:03d} " # Log del chunk actual
@@ -529,9 +519,9 @@ def _process_file_chunked(
             
             # Procesar bloque con manejo de errores robusto
             try:
-                block_results = _process_block( 
+                block_results = _process_block(  
                     det_model, cls_model, block, metadata, # Modelos de detección y clasificación
-                    fits_path, save_dir, metadata['chunk_idx'], csv_file  # PASAR CSV_FILE
+                    fits_path, save_dir, metadata['chunk_idx'], csv_file 
                 ) 
                 
                 # Acumular resultados
@@ -545,7 +535,8 @@ def _process_file_chunked(
                     snr_list_total.append(block_results["mean_snr"])
                 
             except Exception as chunk_error:
-                logger.error(f"Error procesando chunk {metadata['chunk_idx']:03d}: {chunk_error}")
+                # Log con traceback completo para ubicar la línea exacta del fallo
+                logger.exception(f"Error procesando chunk {metadata['chunk_idx']:03d}: {chunk_error}")
                 # Continuar con el siguiente chunk en lugar de fallar completamente
                 block_results = {
                     "n_candidates": 0,
@@ -661,52 +652,46 @@ def _find_data_files(frb: str) -> List[Path]:
 # Controla el flujo principal: carga modelos, busca archivos, procesa cada archivo y guarda el resumen global.
 # =============================================================================
 def run_pipeline(chunk_samples: int = 0) -> None:
-    """Run the full FRB detection pipeline.
+    from .logging.logging_config import setup_logging, set_global_logger
     
-    Args:
-        chunk_samples: Número de muestras por bloque para archivos .fil 
-                      (0 = cálculo automático basado en SLICE_DURATION_MS)
-    """
-    from .logging.logging_config import setup_logging, get_global_logger, set_global_logger
-    
-    # Configurar logging
-    logger = setup_logging(level="INFO", use_colors=True)
-    set_global_logger(logger)
+    logger = setup_logging(level="INFO", use_colors=True) # Configurar logging
+    set_global_logger(logger) # Establecer el logger global
     
     # Configuración del pipeline
     pipeline_config = {
-        'data_dir': str(config.DATA_DIR),
-        'results_dir': str(config.RESULTS_DIR),
-        'targets': config.FRB_TARGETS,
-        'chunk_samples': chunk_samples
+        'data_dir': str(config.DATA_DIR), # Directorio de datos
+        'results_dir': str(config.RESULTS_DIR), # Directorio de resultados
+        'targets': config.FRB_TARGETS, # Targets a procesar
+        'chunk_samples': chunk_samples # Número de muestras por bloque para archivos .fil
     }
     
-    logger.pipeline_start(pipeline_config)
+    logger.pipeline_start(pipeline_config) 
 
-    save_dir = config.RESULTS_DIR / config.MODEL_NAME
-    save_dir.mkdir(parents=True, exist_ok=True)
+    save_dir = config.RESULTS_DIR / config.MODEL_NAME # Directorio de resultados
+    save_dir.mkdir(parents=True, exist_ok=True) # Crear el directorio de resultados
     
     logger.logger.info("Cargando modelos...")
-    det_model = _load_detection_model()
-    cls_model = _load_class_model()
-    logger.logger.info("Modelos cargados exitosamente")
+    det_model = _load_detection_model() # Cargar el modelo de detección
+    cls_model = _load_class_model() # Cargar el modelo de clasificación
+    logger.logger.info("Modelos cargados exitosamente") # Log de carga de modelos
 
     summary: dict[str, dict] = {}
-    for frb in config.FRB_TARGETS:
-        logger.logger.info(f"Buscando archivos para target: {frb}")
-        file_list = _find_data_files(frb)
-        logger.logger.info(f"Archivos encontrados: {[f.name for f in file_list]}")
+    for frb in config.FRB_TARGETS: # Procesar cada archivo de datos
+        logger.logger.info(f"Buscando archivos para target: {frb}") # Log de búsqueda de archivos
+        file_list = _find_data_files(frb) # Buscar archivos de datos
+        logger.logger.info(f"Archivos encontrados: {[f.name for f in file_list]}") # Log de archivos encontrados
         if not file_list:
             logger.logger.warning(f"No se encontraron archivos para {frb}")
             continue
 
         try:
-            first_file = file_list[0]
-            logger.logger.info(f"Leyendo parámetros desde: {first_file.name}")
+            # Obtener los parámetros del archivo
+            first_file = file_list[0] # Obtener el primer archivo de la lista
+            logger.logger.info(f"Leyendo parámetros desde: {first_file.name}") # Log de lectura de parámetros
             if first_file.suffix.lower() == ".fits":
-                get_obparams(str(first_file))
+                get_obparams(str(first_file)) # Obtener los parámetros del archivo
             else:
-                get_obparams_fil(str(first_file))
+                get_obparams_fil(str(first_file)) # Obtener los parámetros del archivo
             logger.logger.info("Parámetros de observación cargados")
             
             # CALCULAR PARÁMETROS DE PROCESAMIENTO AUTOMÁTICAMENTE
@@ -714,11 +699,11 @@ def run_pipeline(chunk_samples: int = 0) -> None:
             from .logging.chunking_logging import display_detailed_chunking_info
             
             if chunk_samples == 0:  # Modo automático
-                processing_params = get_processing_parameters()
-                if validate_processing_parameters(processing_params):
-                    chunk_samples = processing_params['chunk_samples']
+                processing_params = get_processing_parameters() # Obtener los parámetros de procesamiento
+                if validate_processing_parameters(processing_params): # Validar los parámetros de procesamiento
+                    chunk_samples = processing_params['chunk_samples'] # Obtener el número de muestras por bloque
                     # Mostrar información detallada del sistema de chunking
-                    display_detailed_chunking_info(processing_params)
+                    display_detailed_chunking_info(processing_params) # Mostrar información detallada del sistema de chunking
                 else:
                     logger.logger.error("Parámetros calculados inválidos, usando valores por defecto")
                     chunk_samples = 2_097_152  # 2MB por defecto
@@ -729,7 +714,7 @@ def run_pipeline(chunk_samples: int = 0) -> None:
             logger.logger.error(f"Error obteniendo parámetros: {e}")
             continue
             
-        for fits_path in file_list:
+        for fits_path in file_list: # Procesar cada archivo de datos
             try:
                 # Información del archivo para logging
                 file_info = {
@@ -737,15 +722,13 @@ def run_pipeline(chunk_samples: int = 0) -> None:
                     'duration_min': (config.FILE_LENG * config.TIME_RESO) / 60,
                     'channels': config.FREQ_RESO
                 }
-                logger.file_processing_start(fits_path.name, file_info)
+                logger.file_processing_start(fits_path.name, file_info) 
                 
-                # *** DEBUG CRÍTICO: CONFIRMAR QUE SIEMPRE SE USA CHUNKING ***
-                log_pipeline_file_processing(fits_path.name, fits_path.suffix.lower(), config.FILE_LENG, chunk_samples)
+                log_pipeline_file_processing(fits_path.name, fits_path.suffix.lower(), config.FILE_LENG, chunk_samples) 
                 
-                results = _process_file_chunked(det_model, cls_model, fits_path, save_dir, chunk_samples)
-                summary[fits_path.name] = results
+                results = _process_file_chunked(det_model, cls_model, fits_path, save_dir, chunk_samples) # Procesar el archivo de datos
+                summary[fits_path.name] = results # Guardar los resultados en el resumen
                 
-                # *** DEBUG CRÍTICO: CONFIRMAR RESULTADOS DEL CHUNKING ***
                 log_pipeline_file_completion(fits_path.name, results)
                 
                 # *** GUARDAR RESULTADOS INMEDIATAMENTE EN SUMMARY.JSON ***

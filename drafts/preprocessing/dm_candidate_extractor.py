@@ -11,6 +11,8 @@ def extract_candidate_dm(px: float, py: float, slice_len: int) -> tuple[float, f
     dm_val = config.DM_min + py * scale_dm
     
     sample_off = px * scale_time
+    # Índice de muestra entero más cercano para operaciones de extracción
     t_sample = int(sample_off)
-    t_seconds = t_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+    # Tiempo en segundos con precisión sub-muestra (sin truncar)
+    t_seconds = float(sample_off) * config.TIME_RESO * config.DOWN_TIME_RATE
     return dm_val, t_seconds, t_sample 

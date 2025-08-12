@@ -116,6 +116,84 @@ def find_snr_peak(snr: np.ndarray, time_axis: Optional[np.ndarray] = None) -> Tu
     return peak_snr, peak_time, peak_idx
 
 
+def _detrend_normalize_timeseries(timeseries: np.ndarray) -> np.ndarray:
+    """Approximate PRESTO-style detrend and normalize to RMS≈1.
+
+    - Remove median (fast mode equivalent)
+    - Estimate std using central 95% and apply 1.148 correction
+    """
+    ts = timeseries.astype(np.float32)
+    ts = ts - float(np.median(ts))
+    sorted_ts = np.sort(ts.copy())
+    n = len(sorted_ts)
+    if n >= 20:
+        lo = n // 40
+        hi = n - lo
+    else:
+        lo = 0
+        hi = n
+    central = sorted_ts[lo:hi]
+    if central.size == 0:
+        sigma = float(np.std(ts))
+    else:
+        sigma = float(np.sqrt((central.astype(np.float64) ** 2.0).sum() / (0.95 * n)))
+        sigma *= 1.148  # corrección por recorte 5%
+    if sigma <= 0:
+        sigma = 1.0
+    return ts / sigma
+
+
+def compute_presto_matched_snr(
+    waterfall: np.ndarray,
+    dt_seconds: float,
+    max_downfact: int = 30,
+    widths: Optional[List[int]] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Compute SNR profile emulando PRESTO (matched filtering con boxcars).
+
+    Args:
+        waterfall: matriz 2D (n_time, n_freq)
+        dt_seconds: resolución temporal (s) por muestra
+        max_downfact: downfact máximo (bins) a usar
+        widths: lista de anchos de boxcar; si None, usa set por defecto PRESTO
+
+    Returns:
+        snr_max: perfil SNR máximo por muestra
+        best_width: ancho de boxcar que maximiza SNR en cada muestra
+    """
+    if waterfall is None or waterfall.size == 0:
+        raise ValueError("waterfall vacío en compute_presto_matched_snr")
+
+    # Integrar en frecuencia → serie temporal
+    if waterfall.ndim != 2:
+        raise ValueError("waterfall debe ser 2D (tiempo, freq)")
+    timeseries = np.mean(waterfall, axis=1).astype(np.float32)
+
+    # Detrend + normalización aproximando PRESTO
+    ts = _detrend_normalize_timeseries(timeseries)
+
+    # Conjunto de anchos por defecto (subset de PRESTO)
+    if widths is None:
+        widths = [1, 2, 3, 4, 6, 9, 14, 20, 30]
+    widths = [w for w in widths if w <= max_downfact and w >= 1]
+    n = ts.shape[0]
+    snr_max = np.full(n, -np.inf, dtype=np.float32)
+    best_width = np.zeros(n, dtype=np.int32)
+
+    # Convolución con kernel normalizado por sqrt(width)
+    for w in widths:
+        kernel = np.ones(w, dtype=np.float32) / np.sqrt(float(w))
+        conv = np.convolve(ts, kernel, mode="same").astype(np.float32)
+        # actualizar máximo y ancho
+        mask = conv > snr_max
+        snr_max[mask] = conv[mask]
+        best_width[mask] = w
+
+    # Asegurar finitos
+    snr_max = np.nan_to_num(snr_max, nan=-np.inf, posinf=np.max(snr_max[np.isfinite(snr_max)]) if np.isfinite(snr_max).any() else 0.0)
+    return snr_max, best_width
+
+
 ## Nota: se eliminaron utilidades de regiones off-pulse no utilizadas por el pipeline
 
 

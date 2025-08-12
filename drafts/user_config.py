@@ -10,7 +10,7 @@ RESULTS_DIR = Path("./Results/ObjectDetection")      # Directorio para guardar r
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-   "FRB20201124_0009"
+   "2017-04-03-08-16-13_142_0003_t39.977"
 ]
 
 # =============================================================================
@@ -18,7 +18,7 @@ FRB_TARGETS = [
 # =============================================================================
 
 # Duración de cada slice temporal (milisegundos)
-SLICE_DURATION_MS: float = 1000.0 # Testear con 1034
+SLICE_DURATION_MS: float = 500.0
 
 # =============================================================================
 # CONFIGURACIÓN DE DOWNSAMPLING
@@ -26,7 +26,7 @@ SLICE_DURATION_MS: float = 1000.0 # Testear con 1034
 
 # Factores de reducción para optimizar el procesamiento
 DOWN_FREQ_RATE: int = 1                      # Factor de reducción en frecuencia (1 = sin reducción)
-DOWN_TIME_RATE: int = 14                     # Factor de reducción en tiempo (1 = sin reducción)
+DOWN_TIME_RATE: int = 32                    # Factor de reducción en tiempo (1 = sin reducción)
 
 
 # =============================================================================
@@ -34,16 +34,16 @@ DOWN_TIME_RATE: int = 14                     # Factor de reducción en tiempo (1
 # =============================================================================
 
 # Rango de Dispersion Measure para búsqueda
-DM_min: int = 200                             # DM mínimo en pc cm⁻³
-DM_max: int = 700                          # DM máximo en pc cm⁻³
+DM_min: int = 0                             # DM mínimo en pc cm⁻³
+DM_max: int = 1770                          # DM máximo en pc cm⁻³
 
 # =============================================================================
 # UMBRALES DE DETECCIÓN
 # =============================================================================
 
 # Probabilidades mínimas para detección y clasificación
-DET_PROB: float = 0.3                       # Probabilidad mínima para considerar una detección válida
-CLASS_PROB: float = 0.5                     # Probabilidad mínima para clasificar como burst
+DET_PROB: float = 0.1                       # Probabilidad mínima para considerar una detección válida
+CLASS_PROB: float = 0.2                     # Probabilidad mínima para clasificar como burst
 
 # Umbral de SNR para resaltar en visualizaciones
 SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en visualizaciones
@@ -64,4 +64,4 @@ DEBUG_FREQUENCY_ORDER: bool = False        # True = mostrar información detalla
                                            # False = modo silencioso (recomendado para procesamiento en lote)
 
 # Forzar generación de plots incluso sin candidatos (modo debug)
-FORCE_PLOTS: bool = False                  # True = siempre generar plots para inspección
+FORCE_PLOTS: bool = True                  # True = siempre generar plots para inspección

@@ -12,7 +12,33 @@ from .output.candidate_manager import append_candidate, Candidate
 from .preprocessing.slice_len_calculator import update_slice_len_dynamic
 import numpy as np
 import logging
+import os
+from pathlib import Path
 logger = logging.getLogger(__name__)
+
+def _presto_time_ref_correction(dm_val: float, freq_ref_used_mhz: float, freq_ref_global_mhz: float) -> float:
+    """Corrección de referencia temporal al estilo PRESTO (segundos).
+
+    PRESTO ajusta el inicio del eje temporal cuando se cambia la frecuencia de
+    referencia (por ejemplo, tras subbandeo). La corrección es:
+        Δt = 4.1488e3 * DM * (|1/ref_global^2 - 1/ref_used^2|)
+    con frecuencias en MHz y Δt en segundos.
+
+    Args:
+        dm_val: DM del candidato
+        freq_ref_used_mhz: frecuencia de referencia efectiva usada para dedispersión/plot
+        freq_ref_global_mhz: frecuencia de referencia global (tope de banda original)
+    Returns:
+        float: corrección en segundos (sumar al tiempo reportado)
+    """
+    try:
+        f1 = float(freq_ref_global_mhz)
+        f2 = float(freq_ref_used_mhz)
+        if f1 <= 0 or f2 <= 0 or dm_val is None:
+            return 0.0
+        return 4.1488e3 * float(dm_val) * abs(1.0 / (f1 * f1) - 1.0 / (f2 * f2))
+    except Exception:
+        return 0.0
 
 def get_pipeline_parameters(config):
     if config.FREQ_RESO == 0 or config.DOWN_FREQ_RATE == 0:
@@ -46,6 +72,7 @@ def process_band(
     patches_dir=None,
     chunk_idx=None,  # ID del chunk
     band_idx=None,  # ID de la banda
+    slice_start_idx: int | None = None,  # NUEVO: inicio del slice (decimado) para índice global
 ):
     """Procesa una banda con tiempo absoluto para continuidad temporal.
     
@@ -87,6 +114,9 @@ def process_band(
         patch_dir = save_dir / "Patches" / fits_path.stem
         patch_path = patch_dir / f"patch_slice{j}_band{band_img.shape[0] if hasattr(band_img, 'shape') else 0}.png"
     class_probs_list = []
+    candidate_times_abs: list[float] = []
+    # Trabajos PRESTO: lista de tuplas (t_abs, dm)
+    burst_jobs: list[tuple[float, float]] = []
     cand_counter = 0
     n_bursts = 0
     n_no_bursts = 0
@@ -123,18 +153,27 @@ def process_band(
             snr_val_raw = 0.0
         
         snr_list.append(snr_val_raw)  # Guardar SNR raw para estadísticas
-        global_sample = j * slice_len + int(t_sample)
+        # Índice global correcto dentro del bloque decimado: inicio real del slice + offset detectado
+        if slice_start_idx is not None:
+            global_sample = int(slice_start_idx) + int(t_sample)
+        else:
+            # Fallback: modo antiguo (puede ser inexacto si los slices no son uniformes)
+            global_sample = j * slice_len + int(t_sample)
         patch, start_sample = dedisperse_patch(
             data, freq_down, dm_val, global_sample
         )
         
-        # Calcular SNR del patch dedispersado (SNR final para CSV)
+        # Calcular SNR del patch dedispersado al estilo PRESTO (matched filter)
         snr_val = 0.0  # Valor por defecto
+        peak_idx_patch = None
         if patch is not None and patch.size > 0:
-            from .analysis.snr_utils import find_snr_peak
-            snr_patch_profile, _ = compute_snr_profile(patch)
-            snr_val, _, _ = find_snr_peak(snr_patch_profile)
-            # IMPORTANTE: Este es el SNR que se guarda en CSV (patch dedispersado)
+            from .analysis.snr_utils import compute_presto_matched_snr
+            # patch: (time, freq)
+            dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+            snr_profile_pre, best_w = compute_presto_matched_snr(patch, dt_seconds=dt_ds)
+            # pico y su índice
+            peak_idx_patch = int(np.argmax(snr_profile_pre)) if snr_profile_pre.size > 0 else None
+            snr_val = float(np.max(snr_profile_pre)) if snr_profile_pre.size > 0 else 0.0
         else:
             # Si no hay patch, usar el SNR raw como fallback
             snr_val = snr_val_raw
@@ -146,13 +185,25 @@ def process_band(
         # Guardar el primer candidato para compatibilidad
         if first_patch is None:
             first_patch = proc_patch
-            first_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+            # Convertir a tiempo ABSOLUTO del archivo: inicio del slice + offset dentro del slice
+            offset_within_slice = (start_sample - (slice_start_idx if slice_start_idx is not None else 0))
+            first_start = (absolute_start_time if absolute_start_time is not None else 0.0) 
+            first_start += offset_within_slice * config.TIME_RESO * config.DOWN_TIME_RATE
+            # Ajuste opcional PRESTO: si la frecuencia de referencia efectiva difiere de la global
+            try:
+                # Alinear referencia con PRESTO: usar la misma frecuencia tope global
+                freq_ref_used = float(np.max(config.FREQ)) if getattr(config, 'FREQ', None) is not None else None
+                freq_ref_global = float(np.max(config.FREQ)) if getattr(config, 'FREQ', None) is not None else None
+                if freq_ref_used and freq_ref_global:
+                    first_start += _presto_time_ref_correction(dm_val, freq_ref_used, freq_ref_global)
+            except Exception:
+                pass
             first_dm = dm_val
         
         # Almacenar información del candidato para análisis posterior
         candidate_info = {
             'patch': proc_patch,
-            'start': start_sample * config.TIME_RESO * config.DOWN_TIME_RATE,
+            'start': first_start,  # tiempo ABSOLUTO del patch
             'dm': dm_val,
             'is_burst': is_burst,
             'confidence': conf,
@@ -164,22 +215,47 @@ def process_band(
         if best_patch is None:
             # Primer candidato siempre se guarda como fallback
             best_patch = proc_patch
-            best_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+            best_start = first_start
             best_dm = dm_val
             best_is_burst = is_burst
         elif is_burst and not best_is_burst:
             # Si encontramos un BURST y el mejor actual es NO BURST, actualizar
             best_patch = proc_patch
-            best_start = start_sample * config.TIME_RESO * config.DOWN_TIME_RATE
+            best_start = first_start
             best_dm = dm_val
             best_is_burst = is_burst
         # Si ambos son BURST o ambos son NO BURST, mantener el primero (orden de detección)
         
-        # CALCULAR TIEMPO ABSOLUTO DEL CANDIDATO
-        if absolute_start_time is not None:
-            absolute_candidate_time = absolute_start_time + t_sec
+        # CALCULAR TIEMPO ABSOLUTO DEL CANDIDATO PRIORIZANDO PROCESAMIENTO (pico SNR del patch)
+        dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+        if peak_idx_patch is not None:
+            # Tiempo absoluto de inicio del patch dentro del archivo
+            slice_offset_samples = (start_sample - (slice_start_idx if slice_start_idx is not None else 0))
+            patch_start_abs = (absolute_start_time if absolute_start_time is not None else 0.0) + slice_offset_samples * dt_ds
+            absolute_candidate_time = patch_start_abs + peak_idx_patch * dt_ds
         else:
-            absolute_candidate_time = t_sec  # Tiempo relativo al slice
+            # Fallback: usar tiempo basado en centro del bbox
+            if absolute_start_time is not None:
+                absolute_candidate_time = absolute_start_time + t_sec
+            else:
+                absolute_candidate_time = t_sec
+
+        # Ajuste opcional PRESTO: corregir por frecuencia de referencia si aplica
+        try:
+            # Alinear referencia con PRESTO: usar la misma frecuencia tope global
+            freq_ref_used = float(np.max(config.FREQ)) if getattr(config, 'FREQ', None) is not None else None
+            freq_ref_global = float(np.max(config.FREQ)) if getattr(config, 'FREQ', None) is not None else None
+            if freq_ref_used and freq_ref_global:
+                absolute_candidate_time += _presto_time_ref_correction(dm_val, freq_ref_used, freq_ref_global)
+        except Exception:
+            pass
+        candidate_times_abs.append(float(absolute_candidate_time))
+        # Si es BURST, agendar ejecución de PRESTO para esta detección
+        if is_burst:
+            try:
+                burst_jobs.append((float(absolute_candidate_time), float(dm_val)))
+            except Exception:
+                pass
         
         # Usar chunk_idx en el candidato
         cand = Candidate(
@@ -250,6 +326,8 @@ def process_band(
         "patch_path": patch_path,
         "best_is_burst": best_is_burst,  # INFORMACIÓN ADICIONAL PARA DEBUG
         "total_candidates": len(all_candidates),  # INFORMACIÓN ADICIONAL PARA DEBUG
+        "candidate_times_abs": candidate_times_abs,
+        "burst_jobs": burst_jobs,
     }
 
 def process_slice(
@@ -343,7 +421,7 @@ def process_slice(
     # Crear carpeta de waterfall dispersado solo si hay datos para procesar
     if waterfall_block.size > 0:
         waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
-        plot_waterfall_block(
+        wf_disp_path = plot_waterfall_block(
             data_block=waterfall_block, # Bloque de datos
             freq=freq_down, # Frecuencia
             time_reso=time_reso_ds, # Resolución temporal
@@ -353,7 +431,7 @@ def process_slice(
             filename=fits_path.stem, # Nombre del archivo
             normalize=True, # Normalizar
             absolute_start_time=absolute_start_time, # Tiempo absoluto
-        ) # Guardar el plot
+        ) # Guardar el plot y obtener ruta
     
     slice_has_candidates = False # Indica si el slice tiene candidatos
     cand_counter = 0 # Contador de candidatos
@@ -383,13 +461,16 @@ def process_slice(
     if block.shape[0] % slice_len != 0:
         time_slice += 1
 
+    # Recolector de trabajos PRESTO a nivel de slice
+    presto_burst_jobs: list[tuple[float, float]] = []
+
     for band_idx, band_suffix, band_name in band_configs:
         band_img = slice_cube[band_idx]
         band_result = process_band(
             det_model,
             cls_model,
             band_img,
-            slice_len,
+            end_idx - start_idx,  # usar muestras REALES del slice
             j,
             fits_path,
             save_dir,
@@ -403,6 +484,7 @@ def process_slice(
             patches_dir=patches_dir,  # PASAR CARPETA DE PATCHES POR CHUNK
             chunk_idx=chunk_idx,  # PASAR CHUNK_ID
             band_idx=band_idx,  # PASAR BAND_ID CORRECTO
+            slice_start_idx=start_idx,  # PASAR INICIO REAL DEL SLICE
         )
         cand_counter += band_result["cand_counter"]
         n_bursts += band_result["n_bursts"]
@@ -426,6 +508,9 @@ def process_slice(
                 global_logger.creating_waterfall("dedispersado", j, dm_to_use)
                 global_logger.generating_plots()
 
+            comp_ctx = {
+                'waterfall_dispersion_path': str(wf_disp_path) if 'wf_disp_path' in locals() else None,
+            }
             save_all_plots(
                 waterfall_block,
                 dedisp_block,
@@ -456,9 +541,22 @@ def process_slice(
                 absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
                 chunk_idx=chunk_idx,  # PASAR CHUNK_ID
                 force_plots=force_plots,
+                plot_context=comp_ctx,
             )
         else:
             if global_logger:
                 global_logger.logger.debug(f"{Colors.OKCYAN} Slice {j}: Sin candidatos detectados{Colors.ENDC}")
+
+        # Acumular trabajos PRESTO (tiempos absolutos, DM) para candidatos BURST de esta banda
+        try:
+            presto_burst_jobs.extend(band_result.get("burst_jobs", []))
+        except Exception:
+            pass
     
+    # PRESTO deshabilitado por solicitud del usuario
+
     return cand_counter, n_bursts, n_no_bursts, prob_max 
+
+
+def _run_presto_for_burst_jobs(*args, **kwargs):
+    return None

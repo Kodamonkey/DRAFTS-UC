@@ -112,7 +112,9 @@ def plot_waterfall_block(
     filename: str,
     normalize: bool = False,
     absolute_start_time: float = None,  # Tiempo absoluto de inicio del bloque
-) -> None:
+    integrate_ts: bool = True,
+    integrate_spec: bool = True,
+) -> Path:
     """Plot a single waterfall block.
 
     Parameters
@@ -142,53 +144,80 @@ def plot_waterfall_block(
 
     block = data_block.copy() if normalize else data_block
     if normalize:
-        block += 1
-        block /= np.mean(block, axis=0)
-        vmin, vmax = np.nanpercentile(block, [5, 95])
-        block = np.clip(block, vmin, vmax)
-        block = (block - block.min()) / (block.max() - block.min())
+        # Normalización estilo PRESTO: restar mediana por canal y dividir por std global
+        medians = np.median(block, axis=0, keepdims=True)
+        block = block - medians
+        std_global = float(np.std(block))
+        if std_global > 0:
+            block = block / std_global
 
+    # Perfil temporal (integrado en frecuencia)
     profile = block.mean(axis=1)
-    
-    # 🕐 CORRECCIÓN: Usar tiempo absoluto si se proporciona, sino usar cálculo relativo
+
+    # Tiempo absoluto de inicio como en PRESTO (start)
     if absolute_start_time is not None:
-        # absolute_start_time ya es el tiempo de inicio del slice específico
-        # No necesitamos sumar block_idx * block_size * time_reso porque ya está incluido
         time_start = absolute_start_time
     else:
         time_start = block_idx * block_size * time_reso
-        
-    peak_time = time_start + np.argmax(profile) * time_reso
 
-    fig = plt.figure(figsize=(5, 5))
-    gs = gridspec.GridSpec(2, 1, height_ratios=[1, 4], hspace=0.05)
+    # Tiempo final del bloque
+    time_end = time_start + block_size * time_reso
 
-    ax0 = fig.add_subplot(gs[0, 0])
-    ax0.plot(profile, color="royalblue", alpha=0.8, lw=1)
-    ax0.set_xlim(0, block_size)
-    ax0.set_xticks([])
-    ax0.set_yticks([])
+    # Figura al estilo PRESTO: imagen principal + time series arriba, spec a la derecha
+    im_width = 0.6 if integrate_spec else 0.8
+    im_height = 0.6 if integrate_ts else 0.8
+    fig = plt.figure(figsize=(6, 5))
+    ax_im = plt.axes((0.15, 0.15, im_width, im_height))
+    ax_ts = plt.axes((0.15, 0.78, im_width, 0.18), sharex=ax_im) if integrate_ts else None
+    ax_spec = plt.axes((0.78, 0.15, 0.17, im_height), sharey=ax_im) if integrate_spec else None
 
-    ax1 = fig.add_subplot(gs[1:, 0])
-    ax1.imshow(
+    # Imagen con extent centrado en muestras: usar centros temporales
+    cmap_name = getattr(config, 'WATERFALL_CMAP', 'mako')
+    origin_mode = getattr(config, 'WATERFALL_ORIGIN', 'lower')
+    img = ax_im.imshow(
         block.T,
-        origin="lower",
-        cmap="mako",
+        origin=origin_mode,
+        cmap=cmap_name,
         aspect="auto",
-        vmin=np.nanpercentile(block, 1),
-        vmax=np.nanpercentile(block, 99),
+        # DEJAR QUE MATPLOTLIB ESCALA A PARTIR DE LOS VALORES NORMALIZADOS
+        extent=(time_start, time_end, float(freq.min()), float(freq.max())),
+        interpolation="nearest",
     )
-    nchan = block.shape[1]
-    ax1.set_yticks(np.linspace(0, nchan, 6))
-    ax1.set_yticklabels(np.round(np.linspace(freq.min(), freq.max(), 6)).astype(int))
-    ax1.set_xticks(np.linspace(0, block_size, 6))
-    ax1.set_xticklabels(np.round(time_start + np.linspace(0, block_size, 6) * time_reso, 2))
-    ax1.set_xlabel("Time (s)", fontsize=12, fontweight="bold")
-    ax1.set_ylabel("Frequency (MHz)", fontsize=12, fontweight="bold")
+    ax_im.set_xlabel("Time", fontsize=11)
+    ax_im.set_ylabel("Observing frequency (MHz)", fontsize=11)
 
+    # Time series integrada (como integrate_ts de PRESTO)
+    if integrate_ts and ax_ts is not None:
+        times = time_start + (np.arange(block_size) + 0.5) * time_reso
+        ax_ts.plot(times, block.sum(axis=1), "k", lw=0.8)
+        ax_ts.set_xlim([times.min(), times.max()])
+        plt.setp(ax_ts.get_xticklabels(), visible=False)
+        plt.setp(ax_ts.get_yticklabels(), visible=False)
+
+    # Espectro integrado alrededor del centro (ventana 10% de la duración)
+    if integrate_spec and ax_spec is not None:
+        nbinlim = block_size
+        window_width = max(1, int(0.05 * nbinlim))
+        burst_bin = nbinlim // 2
+        on_spec = block[burst_bin - window_width: burst_bin + window_width, :]
+        Dedisp_spec = on_spec.sum(axis=0)
+        ax_spec.plot(Dedisp_spec[::-1], np.linspace(freq.min(), freq.max(), len(Dedisp_spec)), "k", lw=0.8)
+        plt.setp(ax_spec.get_xticklabels(), visible=False)
+        plt.setp(ax_spec.get_yticklabels(), visible=False)
+        ax_spec.set_ylim([float(freq.min()), float(freq.max())])
+
+    peak_time = time_start + np.argmax(profile) * time_reso
+    # Añadir anotación de auditoría en el título
+    idx_start_ds = int(round((time_start) / time_reso))
+    idx_end_ds = idx_start_ds + block_size - 1
+    plt.suptitle(
+        f"{filename} | start={time_start:.6f}s end={time_end:.6f}s Δt={time_reso:.9f}s | [idx {idx_start_ds}→{idx_end_ds}]",
+        fontsize=10
+    )
     out_path = save_dir / f"{filename}-block{block_idx:03d}-peak{peak_time:.2f}.png"
     plt.savefig(out_path, dpi=200, bbox_inches='tight')
     plt.close()
+    return out_path
 
 
 def save_detection_plot(
@@ -206,7 +235,8 @@ def save_detection_plot(
     slice_len: Optional[int] = None,
     band_idx: int = 0,  # Para calcular el rango de frecuencias de la banda
     absolute_start_time: Optional[float] = None,  
-    slice_samples: Optional[int] = None,  
+    slice_samples: Optional[int] = None,
+    candidate_times_abs: Optional[Iterable[float]] = None,
 ) -> None:
     """Save detection plot with both detection and classification probabilities."""
 
@@ -226,12 +256,15 @@ def save_detection_plot(
 
     if absolute_start_time is not None:
         time_start_slice = absolute_start_time
+        duration_samples = slice_samples if slice_samples is not None else slice_len
     else:
         time_start_slice = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+        duration_samples = slice_len
     
     # Duración real del slice (respetando el último slice truncado)
-    slice_duration_sec = slice_samples * config.TIME_RESO * config.DOWN_TIME_RATE
-    time_values = time_start_slice + (time_positions / 512.0) * slice_duration_sec
+    slice_duration_sec = duration_samples * config.TIME_RESO * config.DOWN_TIME_RATE
+    # Usar centros de píxel para coherencia con el Composite
+    time_values = time_start_slice + ((time_positions + 0.5) / 512.0) * slice_duration_sec
     ax.set_xticks(time_positions)
     ax.set_xticklabels([f"{t:.6f}" for t in time_values])
     ax.set_xlabel("Time (s)", fontsize=12, fontweight="bold")
@@ -329,13 +362,19 @@ def save_detection_plot(
             # Usar el DM REAL (mismo cálculo que extract_candidate_dm)
             # Este es el DM que se usa en dedispersion y se guarda en CSV
             from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
-            dm_val_real, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, slice_len)
+            # Usar el número REAL de muestras del slice para mapear posición X a tiempo
+            effective_len = slice_samples if slice_samples is not None else slice_len
+            dm_val_real, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, effective_len)
             
             # CALCULAR TIEMPO ABSOLUTO DE LA DETECCIÓN
-            if absolute_start_time is not None:
-                detection_time = absolute_start_time + t_sec_real
+            # Priorizar tiempo absoluto exacto pasado desde el pipeline
+            if candidate_times_abs is not None and idx < len(candidate_times_abs):
+                detection_time = float(candidate_times_abs[idx])
             else:
-                detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
+                if absolute_start_time is not None:
+                    detection_time = absolute_start_time + t_sec_real
+                else:
+                    detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
             
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
@@ -436,6 +475,8 @@ def save_all_plots(
     absolute_start_time=None,
     chunk_idx=None,  # PARÁMETRO PARA CHUNK
     force_plots: bool = False,
+    candidate_times_abs: Optional[Iterable[float]] = None,
+    plot_context: Optional[dict] = None,
 ):
     """Guarda todos los plots con tiempo absoluto para continuidad temporal.
     
@@ -453,6 +494,9 @@ def save_all_plots(
             if waterfall_block is not None and hasattr(waterfall_block, "shape")
             else slice_len
         )
+        # (Quitado ajuste extra PRESTO en visual: ya se calcula en detección si aplica)
+        presto_dt = 0.0
+
         save_slice_summary(
             waterfall_block,
             dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,
@@ -477,6 +521,8 @@ def save_all_plots(
             absolute_start_time=absolute_start_time,  
             chunk_idx=chunk_idx,  
             slice_samples=real_slice_samples,
+            candidate_times_abs=candidate_times_abs,
+            plot_context=plot_context,
         )
     
     # Patch plot - crear carpeta solo si hay patch o si se fuerza en modo debug
@@ -509,7 +555,7 @@ def save_all_plots(
         # Si force_plots=True pero no hay dedisp_block, usar waterfall_block
         plot_data = dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block
         if plot_data is not None and plot_data.size > 0:
-            plot_waterfall_block(
+            wf_dedisp_path = plot_waterfall_block(
                 data_block=plot_data,
                 freq=freq_down,
                 time_reso=time_reso_ds,
@@ -519,11 +565,17 @@ def save_all_plots(
                 filename=f"{fits_stem}_dm{first_dm:.2f}_{band_suffix}" if first_dm is not None else f"{fits_stem}_dm0.00_{band_suffix}",
                 normalize=normalize,
                 absolute_start_time=absolute_start_time,  
+                integrate_ts=True,
+                integrate_spec=True,
             )
+            # Adjuntar ruta al contexto para auditoría
+            if plot_context is not None:
+                plot_context['waterfall_dedispersion_path'] = str(wf_dedisp_path)
     
     # Detections plot - crear carpeta solo si se va a generar
     if out_img_path is not None:
         out_img_path.parent.mkdir(parents=True, exist_ok=True)
+        # Aplicar el mismo ajuste PRESTO en detections plot
         save_plot(
             img_rgb,
             top_conf if len(top_conf) > 0 else [],
@@ -537,12 +589,13 @@ def save_all_plots(
             fits_stem,
             slice_len,
             band_idx=band_idx,
-            absolute_start_time=absolute_start_time,  # 🕐 PASAR TIEMPO ABSOLUTO
+            absolute_start_time=absolute_start_time,
             slice_samples=(
                 waterfall_block.shape[0]
                 if waterfall_block is not None and hasattr(waterfall_block, "shape")
                 else slice_len
             ),
+            candidate_times_abs=candidate_times_abs,
         )
 
 def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
@@ -610,6 +663,7 @@ def save_plot(
     band_idx: int = 0,  # Para calcular el rango de frecuencias
     absolute_start_time: Optional[float] = None,  # 🕐 NUEVO PARÁMETRO PARA TIEMPO ABSOLUTO
     slice_samples: Optional[int] = None,  # 🕐 NUEVO: muestras reales en el slice
+    candidate_times_abs: Optional[Iterable[float]] = None,
 ) -> None:
     """Wrapper fino sin mutar estado global; pasa slice_len explícito."""
     
@@ -632,6 +686,7 @@ def save_plot(
         band_idx=band_idx,
         absolute_start_time=absolute_start_time, 
         slice_samples=slice_samples,
+        candidate_times_abs=candidate_times_abs,
     )
     # No modificar config.SLICE_LEN global
 
@@ -791,6 +846,8 @@ def save_slice_summary(
     absolute_start_time: Optional[float] = None, 
     chunk_idx: Optional[int] = None,  
     slice_samples: Optional[int] = None,  
+    candidate_times_abs: Optional[Iterable[float]] = None,
+    plot_context: Optional[dict] = None,
 ) -> None:
     """Save a composite figure summarising detections and waterfalls with SNR analysis.
 
@@ -899,9 +956,13 @@ def save_slice_summary(
     n_time_ticks_det = 8
     time_positions_det = np.linspace(0, img_rgb.shape[1] - 1, n_time_ticks_det)
 
-    time_values_det = slice_start_abs + (time_positions_det / img_rgb.shape[1]) * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    # Etiquetar por BORDES: queremos [start, end] exactos
+    real_samples = slice_samples if slice_samples is not None else slice_len
+    n_px = img_rgb.shape[1]
+    denom = float(max(n_px - 1, 1))
+    time_values_det = slice_start_abs + (time_positions_det / denom) * (slice_end_abs - slice_start_abs)
     ax_det.set_xticks(time_positions_det)
-    ax_det.set_xticklabels([f"{t:.3f}" for t in time_values_det])
+    ax_det.set_xticklabels([f"{t:.6f}" for t in time_values_det])
     ax_det.set_xlabel("Time (s)", fontsize=10, fontweight="bold")
 
     n_dm_ticks = 8
@@ -928,16 +989,21 @@ def save_slice_summary(
             x1, y1, x2, y2 = map(int, box)
             center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
             
-            # ✅ CORRECCIÓN: Usar el DM REAL (mismo cálculo que extract_candidate_dm)
+            #  Usar el DM REAL (mismo cálculo que extract_candidate_dm)
             # Este es el DM que se usa en dedispersion y se guarda en CSV
             from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
-            dm_val_cand, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, slice_len)
+            effective_len_det = slice_samples if slice_samples is not None else slice_len
+            dm_val_cand, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, effective_len_det)
             
             # CALCULAR TIEMPO ABSOLUTO DE LA DETECCIÓN
-            if absolute_start_time is not None:
-                detection_time = absolute_start_time + t_sec_real
+            # Priorizar tiempo absoluto exacto pasado desde el pipeline
+            if candidate_times_abs is not None and idx < len(candidate_times_abs):
+                detection_time = float(candidate_times_abs[idx])
             else:
-                detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
+                if absolute_start_time is not None:
+                    detection_time = absolute_start_time + t_sec_real
+                else:
+                    detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
             
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
@@ -986,7 +1052,7 @@ def save_slice_summary(
         dm_range_info += " (full)"
     
     # Precisión: mostrar duración exacta del slice considerando los índices reales usados
-    exact_slice_ms_det = (slice_len * (config.TIME_RESO * config.DOWN_TIME_RATE)) * 1000.0
+    exact_slice_ms_det = (slice_samples * (config.TIME_RESO * config.DOWN_TIME_RATE)) * 1000.0
     title_det = (
         f"Detection Map - {fits_stem} ({band_name_with_freq})\n"
         f"Slice {slice_idx:03d} of {time_slice} | Duration: {exact_slice_ms_det:.6f} ms | "
@@ -999,16 +1065,28 @@ def save_slice_summary(
         1, 3, subplot_spec=gs_main[1, 0], width_ratios=[1, 1, 1], wspace=0.3
     )
 
-    # CORRECCIÓN: Usar tiempo absoluto del archivo para todos los paneles de waterfalls
-    # En lugar de calcular tiempo relativo al chunk
-    if absolute_start_time is not None:
-        # absolute_start_time ya es el tiempo absoluto de inicio del slice específico
-        slice_start_abs = absolute_start_time
-    else:
-        # Fallback: calcular tiempo relativo al chunk (modo antiguo)
-        slice_start_abs = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
-    
-    slice_end_abs = slice_start_abs + slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    # Auditoría opcional: persistir contexto de rutas usadas para este composite
+    try:
+        if getattr(config, 'SAVE_PLOT_CONTEXT', False) and plot_context is not None:
+            import json
+            base_out = out_path.with_suffix("")
+            ctx_dir = Path(getattr(config, 'PLOT_CONTEXT_DIR', '') or base_out.parent)
+            ctx_dir.mkdir(parents=True, exist_ok=True)
+            ctx_file = ctx_dir / (base_out.name + ".ctx.json")
+            payload = {
+                'slice_start_abs': slice_start_abs,
+                'slice_end_abs': slice_end_abs,
+                'slice_samples': real_samples,
+                'waterfall_dispersion_path': plot_context.get('waterfall_dispersion_path'),
+                'waterfall_dedispersion_path': plot_context.get('waterfall_dedispersion_path'),
+            }
+            with open(ctx_file, 'w') as f:
+                json.dump(payload, f, indent=2)
+    except Exception:
+        pass
+
+    # Usar los mismos slice_start_abs y slice_end_abs ya calculados arriba con real_samples
+    # para evitar inconsistencias entre paneles
 
     # === Panel 1: Raw Waterfall con SNR ===
     gs_waterfall_nested = gridspec.GridSpecFromSubplotSpec(
@@ -1022,7 +1100,9 @@ def save_slice_summary(
         snr_wf, sigma_wf = compute_snr_profile(wf_block, off_regions)
         peak_snr_wf, peak_time_wf, peak_idx_wf = find_snr_peak(snr_wf)
         
+        # Bordes uniformes para etiquetas y extent
         time_axis_wf = np.linspace(slice_start_abs, slice_end_abs, len(snr_wf))
+        peak_time_wf_abs = float(time_axis_wf[peak_idx_wf]) if len(snr_wf) > 0 else None
         ax_prof_wf.plot(time_axis_wf, snr_wf, color="royalblue", alpha=0.8, lw=1.5, label='SNR Profile')
         
         # Resaltar regiones sobre threshold
@@ -1043,7 +1123,14 @@ def save_slice_summary(
         ax_prof_wf.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
         ax_prof_wf.grid(True, alpha=0.3)
         ax_prof_wf.set_xticks([])
-        ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ", fontsize=9, fontweight="bold")
+        if peak_time_wf_abs is not None:
+            ax_prof_wf.set_title(
+                f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ -> {peak_time_wf_abs:.6f}s",
+                fontsize=9,
+                fontweight="bold",
+            )
+        else:
+            ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ", fontsize=9, fontweight="bold")
     else:
         ax_prof_wf.text(0.5, 0.5, 'No waterfall data\navailable', 
                        transform=ax_prof_wf.transAxes, 
@@ -1064,10 +1151,12 @@ def save_slice_summary(
             print(f"🔍 [DEBUG RAW WF] .T[0, :] (primera freq) primeras 5 muestras: {wf_block.T[0, :5]}")
             print(f"🔍 [DEBUG RAW WF] .T[-1, :] (última freq) primeras 5 muestras: {wf_block.T[-1, :5]}")
         
+        cmap_name = getattr(config, 'WATERFALL_CMAP', 'mako')
+        origin_mode = getattr(config, 'WATERFALL_ORIGIN', 'lower')
         im_wf = ax_wf.imshow(
             wf_block.T,
-            origin="lower",
-            cmap="mako",
+            origin=origin_mode,
+            cmap=cmap_name,
             aspect="auto",
             vmin=np.nanpercentile(wf_block, 1),
             vmax=np.nanpercentile(wf_block, 99),
@@ -1163,6 +1252,7 @@ def save_slice_summary(
         peak_snr_dw, peak_time_dw, peak_idx_dw = find_snr_peak(snr_dw)
         
         time_axis_dw = np.linspace(slice_start_abs, slice_end_abs, len(snr_dw))
+        peak_time_dw_abs = float(time_axis_dw[peak_idx_dw]) if len(snr_dw) > 0 else None
         ax_prof_dw.plot(time_axis_dw, snr_dw, color="green", alpha=0.8, lw=1.5, label='Dedispersed SNR')
         
         # Resaltar regiones sobre threshold
@@ -1185,9 +1275,24 @@ def save_slice_summary(
         ax_prof_dw.set_xticks([])
         # Usar DM consistente en el título y mostrar ambos SNRs
         if snr_val_candidate > 0:
-            title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ (block) / {snr_val_candidate:.1f}σ (candidate)"
+            if peak_time_dw_abs is not None:
+                title_text = (
+                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                    f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s (block) / {snr_val_candidate:.1f}σ (candidate)"
+                )
+            else:
+                title_text = (
+                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                    f"Peak={peak_snr_dw:.1f}σ (block) / {snr_val_candidate:.1f}σ (candidate)"
+                )
         else:
-            title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ"
+            if peak_time_dw_abs is not None:
+                title_text = (
+                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                    f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s"
+                )
+            else:
+                title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ"
         ax_prof_dw.set_title(title_text, fontsize=9, fontweight="bold")
     else:
         ax_prof_dw.text(0.5, 0.5, 'No dedispersed\ndata available', 
@@ -1210,10 +1315,12 @@ def save_slice_summary(
             print(f"🔍 [DEBUG DED WF] .T[-1, :] (última freq) primeras 5 muestras: {dw_block.T[-1, :5]}")
             print(f"🔍 [DEBUG DED WF] ¿Es diferente al raw? Diff promedio: {np.mean(np.abs(dw_block - wf_block)) if wf_block is not None else 'N/A'}")
         
+        cmap_name = getattr(config, 'WATERFALL_CMAP', 'mako')
+        origin_mode = getattr(config, 'WATERFALL_ORIGIN', 'lower')
         im_dw = ax_dw.imshow(
             dw_block.T,
-            origin="lower",
-            cmap="mako",
+            origin=origin_mode,
+            cmap=cmap_name,
             aspect="auto",
             vmin=np.nanpercentile(dw_block, 1),
             vmax=np.nanpercentile(dw_block, 99),
@@ -1279,7 +1386,8 @@ def save_slice_summary(
             # Fallback: usar patch_start como está (modo antiguo)
             patch_start_abs = patch_start
         
-        patch_time_axis = patch_start_abs + np.arange(len(snr_patch)) * time_reso_ds
+        # Para el patch, usar bordes también para coherencia
+        patch_time_axis = np.linspace(patch_start_abs, patch_start_abs + len(snr_patch) * time_reso_ds, len(snr_patch))
         ax_patch_prof.plot(patch_time_axis, snr_patch, color="orange", alpha=0.8, lw=1.5, label='Candidate SNR')
         
         # Resaltar regiones sobre threshold
@@ -1322,11 +1430,13 @@ def save_slice_summary(
             print(f"🔍 [DEBUG PATCH] .T[0, :] (primera freq) primeras 5 muestras: {patch_img.T[0, :5]}")
             print(f"🔍 [DEBUG PATCH] .T[-1, :] (última freq) primeras 5 muestras: {patch_img.T[-1, :5]}")
         
+        cmap_name = getattr(config, 'WATERFALL_CMAP', 'mako')
+        origin_mode = getattr(config, 'WATERFALL_ORIGIN', 'lower')
         ax_patch.imshow(
             patch_img.T,
-            origin="lower",
+            origin=origin_mode,
             aspect="auto",
-            cmap="mako",
+            cmap=cmap_name,
             vmin=np.nanpercentile(patch_img, 1),
             vmax=np.nanpercentile(patch_img, 99),
             extent=[patch_time_axis[0], patch_time_axis[-1], freq_ds.min(), freq_ds.max()],
@@ -1359,18 +1469,57 @@ def save_slice_summary(
         ax_patch.set_xlabel("Time (s)", fontsize=9)
         ax_patch.set_ylabel("Frequency (MHz)", fontsize=9)
 
-    # Crear título con información de chunk si está disponible
+    # Crear título con información de auditoría temporal
+    # Usar los tiempos absolutos del slice calculados arriba
+    idx_start_ds = int(round(slice_start_abs / (config.TIME_RESO * config.DOWN_TIME_RATE)))
+    idx_end_ds = idx_start_ds + real_samples - 1
+    # Usar tiempos de BORDES en el título para coincidir con etiquetas
+    start_center = slice_start_abs
+    end_center = slice_end_abs
     if chunk_idx is not None:
-        title = f"Composite Summary: {fits_stem} - {band_name_with_freq} - Chunk {chunk_idx:03d} - Slice {slice_idx:03d}"
+        title = (
+            f"Composite: {fits_stem} - {band_name_with_freq} - Chunk {chunk_idx:03d} - Slice {slice_idx:03d} | "
+            f"start={start_center:.6f}s end={end_center:.6f}s Δt={(config.TIME_RESO * config.DOWN_TIME_RATE):.9f}s "
+            f"| [idx {idx_start_ds}→{idx_end_ds}]"
+        )
     else:
-        title = f"Composite Summary: {fits_stem} - {band_name_with_freq} - Slice {slice_idx:03d}"
-    
+        title = (
+            f"Composite: {fits_stem} - {band_name_with_freq} - Slice {slice_idx:03d} | "
+            f"start={start_center:.6f}s end={end_center:.6f}s Δt={(config.TIME_RESO * config.DOWN_TIME_RATE):.9f}s "
+            f"| [idx {idx_start_ds}→{idx_end_ds}]"
+        )
+
     fig.suptitle(
         title,
         fontsize=14,
         fontweight="bold",
         y=0.97,
     )
+    # === Información temporal exacta del slice (decimado) ===
+    try:
+        dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+        # Índice global de la primera muestra del slice en dominio decimado
+        global_start_sample = int(round(slice_start_abs / dt_ds))
+        global_end_sample = global_start_sample + real_samples - 1
+        time_range_sec = real_samples * dt_ds
+
+        info_lines = [
+            f"Samples (decimated): {global_start_sample} → {global_end_sample} (N={real_samples})",
+            f"Δt (effective): {dt_ds:.9f} s",
+            f"Time span (centers): {start_center:.6f}s → {end_center:.6f}s (Δ={(real_samples - 1) * dt_ds:.6f}s)",
+        ]
+        fig.text(
+            0.01,
+            0.01,
+            "\n".join(info_lines),
+            ha="left",
+            va="bottom",
+            fontsize=9,
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8),
+        )
+    except Exception:
+        pass
+
     plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close()
 

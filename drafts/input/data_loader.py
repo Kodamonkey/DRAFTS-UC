@@ -78,7 +78,18 @@ def load_fits_file(file_name: str) -> np.ndarray:
                 try:
                     data_array = data_array.reshape(nsubint, nchan, npol, nsblk).swapaxes(1, 2)
                     data_array = data_array.reshape(nsubint * nsblk, npol, nchan)
-                    data_array = data_array[:, :2, :]
+                    # Selección de polarización al estilo PRESTO: usar Stokes I si está disponible
+                    pol_type = str(hdr.get("POL_TYPE", "")).upper() if hdr.get("POL_TYPE") is not None else ""
+                    if npol >= 1:
+                        if "IQUV" in pol_type:
+                            # Orden estándar PSRFITS: I,Q,U,V → índice 0 es Stokes I
+                            data_array = data_array[:, 0:1, :]
+                        else:
+                            # Si no hay POL_TYPE o no es IQUV, usar la primera polarización/IF
+                            data_array = data_array[:, 0:1, :]
+                    else:
+                        # Seguridad: forzar dimensión de pol=1 si npol inválido
+                        data_array = data_array.reshape(data_array.shape[0], 1, data_array.shape[-1])
                 except Exception as e:
                     raise ValueError(f"Error al hacer reshape de los datos: {e}")
             else:
@@ -109,7 +120,16 @@ def load_fits_file(file_name: str) -> np.ndarray:
                         
                         raise ValueError(error_msg)
                     try:
-                        data_array = temp_data["DATA"].reshape(total_samples, num_pols, num_chans)[:, :2, :]
+                        data_array = temp_data["DATA"].reshape(total_samples, num_pols, num_chans)
+                        # Selección de polarización al estilo PRESTO
+                        pol_type = str(h.get("POL_TYPE", "")).upper() if h.get("POL_TYPE") is not None else ""
+                        if num_pols >= 1:
+                            if "IQUV" in pol_type:
+                                data_array = data_array[:, 0:1, :]
+                            else:
+                                data_array = data_array[:, 0:1, :]
+                        else:
+                            data_array = data_array.reshape(data_array.shape[0], 1, data_array.shape[-1])
                     except Exception as e:
                         raise ValueError(f"Error al hacer reshape de los datos (fitsio): {e}\n  → Los datos no pueden reorganizarse en el formato esperado (tiempo={total_samples}, pol={num_pols}, canal={num_chans})")
                 else:
@@ -137,7 +157,9 @@ def load_fits_file(file_name: str) -> np.ndarray:
                         
                         raise ValueError(error_msg)
                     try:
-                        data_array = temp_data.reshape(total_samples, num_pols, num_chans)[:, :2, :]
+                        data_array = temp_data.reshape(total_samples, num_pols, num_chans)
+                        # Selección de polarización al estilo PRESTO (sin POL_TYPE disponible aquí)
+                        data_array = data_array[:, 0:1, :]
                     except Exception as e:
                         raise ValueError(f"Error al hacer reshape de los datos (fitsio): {e}\n  → Los datos no pueden reorganizarse en el formato esperado (tiempo={total_samples}, pol={num_pols}, canal={num_chans})")
     except (ValueError, fits.verify.VerifyError) as e:
@@ -195,7 +217,15 @@ def load_fits_file(file_name: str) -> np.ndarray:
                             
                             raise ValueError(error_msg)
                         try:
-                            data_array = raw_data.reshape(total_samples, num_pols, num_chans)[:, :2, :]
+                            data_array = raw_data.reshape(total_samples, num_pols, num_chans)
+                            pol_type = str(h.get("POL_TYPE", "")).upper() if h.get("POL_TYPE") is not None else ""
+                            if num_pols >= 1:
+                                if "IQUV" in pol_type:
+                                    data_array = data_array[:, 0:1, :]
+                                else:
+                                    data_array = data_array[:, 0:1, :]
+                            else:
+                                data_array = data_array.reshape(data_array.shape[0], 1, data_array.shape[-1])
                         except Exception as e:
                             raise ValueError(f"Error al hacer reshape de los datos (fallback): {e}\n  → Los datos no pueden reorganizarse en el formato esperado (tiempo={total_samples}, pol={num_pols}, canal={num_chans})\n  → El archivo puede estar corrupto o tener un formato no compatible")
                     else:
@@ -394,6 +424,7 @@ def get_obparams(file_name: str) -> None:
                 print(f"[DEBUG HEADER] Formato detectado: PSRFITS (SUBINT)")
             
             hdr = f["SUBINT"].header
+            primary = f["PRIMARY"].header if "PRIMARY" in [h.name for h in f] else {}
             sub_data = f["SUBINT"].data
             # Convertir a tipos numéricos explícitamente por si vengan como strings
             config.TIME_RESO = _safe_float(hdr.get("TBIN"))
@@ -401,6 +432,33 @@ def get_obparams(file_name: str) -> None:
             config.FILE_LENG = (
                 _safe_int(hdr.get("NSBLK")) * _safe_int(hdr.get("NAXIS2"))
             )
+            # Guardar parámetros PSRFITS relevantes al estilo PRESTO
+            try:
+                config.NBITS = _safe_int(hdr.get("NBITS", 8))
+            except Exception:
+                config.NBITS = 8
+            try:
+                config.NPOL = _safe_int(hdr.get("NPOL", 1))
+            except Exception:
+                config.NPOL = 1
+            try:
+                config.POL_TYPE = str(hdr.get("POL_TYPE", "")).upper()
+            except Exception:
+                config.POL_TYPE = ""
+            try:
+                # Tiempo absoluto de inicio (MJD) como PRESTO
+                imjd = _safe_int(primary.get("STT_IMJD", 0))
+                smjd = _safe_float(primary.get("STT_SMJD", 0.0))
+                offs = _safe_float(primary.get("STT_OFFS", 0.0))
+                config.TSTART_MJD = float(imjd) + (float(smjd) + float(offs)) / 86400.0
+            except Exception:
+                # No disponible → mantener ausente
+                pass
+            # Desplazamiento de subintegraciones iniciales
+            try:
+                config.NSUBOFFS = _safe_int(hdr.get("NSUBOFFS", 0))
+            except Exception:
+                config.NSUBOFFS = 0
 
             try:
                 freq_temp = sub_data["DAT_FREQ"][0].astype(np.float64)
@@ -427,25 +485,13 @@ def get_obparams(file_name: str) -> None:
                 if 'SRC_NAME' in hdr:
                     print(f"[DEBUG HEADER]   Fuente: {hdr['SRC_NAME']}")
             
-            if "CHAN_BW" in hdr:
-                bw = hdr["CHAN_BW"]
-                if isinstance(bw, (list, np.ndarray)):
-                    bw = bw[0]
-                # Asegurar que sea float por si proviene como string
-                try:
-                    bw = float(bw)
-                except (TypeError, ValueError):
-                    bw = 0.0
-                if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"[DEBUG HEADER]   CHAN_BW detectado: {bw} MHz")
-                if bw < 0:
+            # Decidir orientación como PRESTO: usar el signo de df=DAT_FREQ[1]-DAT_FREQ[0]
+            if len(freq_temp) > 1:
+                df = float(freq_temp[1] - freq_temp[0])
+                if df < 0:
                     freq_axis_inverted = True
                     if config.DEBUG_FREQUENCY_ORDER:
-                        print(f"[DEBUG HEADER]   ⚠️ CHAN_BW negativo - frecuencias invertidas!")
-            elif len(freq_temp) > 1 and freq_temp[0] > freq_temp[-1]:
-                freq_axis_inverted = True
-                if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"[DEBUG HEADER]   ⚠️ Frecuencias detectadas en orden descendente!")
+                        print(f"[DEBUG HEADER] DAT_FREQ descendente → invertir banda (estilo PRESTO)")
         else:
             # DEBUG: Procesando formato FITS estándar
             if config.DEBUG_FREQUENCY_ORDER:
@@ -561,11 +607,20 @@ def get_obparams(file_name: str) -> None:
                 config.FILE_LENG = 100000
                 freq_temp = np.linspace(1000, 1500, config.FREQ_RESO)
         if freq_axis_inverted:
+            # PRESTO marcaría need_flipband, aquí invertimos para mantener orden ascendente interno
             config.FREQ = freq_temp[::-1]
             config.DATA_NEEDS_REVERSAL = True
+            try:
+                config.NEED_FLIPBAND = True
+            except Exception:
+                pass
         else:
             config.FREQ = freq_temp
             config.DATA_NEEDS_REVERSAL = False
+            try:
+                config.NEED_FLIPBAND = False
+            except Exception:
+                pass
 
     # DEBUG: Orden de frecuencias
     if config.DEBUG_FREQUENCY_ORDER:
@@ -688,8 +743,6 @@ def get_obparams(file_name: str) -> None:
                 "effective_sample_rate_after_decimation_hz": 1.0 / (config.TIME_RESO * config.DOWN_TIME_RATE)
             }
         })
-
-    # (El guardado de debug ahora se unifica en _save_file_debug_info)
 
 '''
 FILTERBANK IO
@@ -1108,10 +1161,6 @@ def get_obparams_fil(file_name: str) -> None:
             }
         })
 
-
-    # (El guardado de debug ahora se unifica en _save_file_debug_info)
-
-
 def stream_fil(
     file_name: str,
     chunk_samples: int = 2_097_152,
@@ -1371,15 +1420,3 @@ def stream_fits(
     except Exception as e:
         print(f"[ERROR] Error en stream_fits: {e}")
         raise ValueError(f"No se pudo leer el archivo FITS {file_name}") from e
-
-
-def load_and_preprocess_data(fits_path):
-    """Carga y preprocesa los datos del archivo FITS o FIL."""
-    if fits_path.suffix.lower() == ".fits":
-        data = load_fits_file(str(fits_path))
-    else:
-        data = load_fil_file(str(fits_path))
-    # El procesamiento estándar no debe duplicar temporalmente los datos.
-    # Simplemente aplicar el downsampling según configuración.
-    return downsample_data(data)
-

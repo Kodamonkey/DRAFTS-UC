@@ -10,7 +10,13 @@ RESULTS_DIR = Path("./Results/ObjectDetection")      # Directorio para guardar r
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-   "FRB20201124_0009"
+   "3096_0001_00_8bit",
+   "3097_0001_00_8bit",
+   "3098_0001_00_8bit",
+   "3099_0001_00_8bit",
+   "3100_0001_00_8bit",
+   "3101_0001_00_8bit",
+   "3102_0001_00_8bit",
 ]
 
 # =============================================================================
@@ -18,7 +24,7 @@ FRB_TARGETS = [
 # =============================================================================
 
 # Duración de cada slice temporal (milisegundos)
-SLICE_DURATION_MS: float = 1000.0 # Testear con 1034
+SLICE_DURATION_MS: float = 500.0
 
 # =============================================================================
 # CONFIGURACIÓN DE DOWNSAMPLING
@@ -26,7 +32,7 @@ SLICE_DURATION_MS: float = 1000.0 # Testear con 1034
 
 # Factores de reducción para optimizar el procesamiento
 DOWN_FREQ_RATE: int = 1                      # Factor de reducción en frecuencia (1 = sin reducción)
-DOWN_TIME_RATE: int = 14                     # Factor de reducción en tiempo (1 = sin reducción)
+DOWN_TIME_RATE: int = 8                     # Factor de reducción en tiempo (1 = sin reducción)
 
 
 # =============================================================================
@@ -34,8 +40,8 @@ DOWN_TIME_RATE: int = 14                     # Factor de reducción en tiempo (1
 # =============================================================================
 
 # Rango de Dispersion Measure para búsqueda
-DM_min: int = 200                             # DM mínimo en pc cm⁻³
-DM_max: int = 700                          # DM máximo en pc cm⁻³
+DM_min: int = 0                             # DM mínimo en pc cm⁻³
+DM_max: int = 1024                          # DM máximo en pc cm⁻³
 
 # =============================================================================
 # UMBRALES DE DETECCIÓN
@@ -65,3 +71,7 @@ DEBUG_FREQUENCY_ORDER: bool = False        # True = mostrar información detalla
 
 # Forzar generación de plots incluso sin candidatos (modo debug)
 FORCE_PLOTS: bool = False                  # True = siempre generar plots para inspección
+
+## (PRESTO eliminado por solicitud del usuario)
+
+## Opciones avanzadas de visualización se movieron a drafts/config.py

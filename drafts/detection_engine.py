@@ -12,6 +12,8 @@ from .output.candidate_manager import append_candidate, Candidate
 from .preprocessing.slice_len_calculator import update_slice_len_dynamic
 import numpy as np
 import logging
+import os
+from pathlib import Path
 logger = logging.getLogger(__name__)
 
 def _presto_time_ref_correction(dm_val: float, freq_ref_used_mhz: float, freq_ref_global_mhz: float) -> float:
@@ -113,6 +115,8 @@ def process_band(
         patch_path = patch_dir / f"patch_slice{j}_band{band_img.shape[0] if hasattr(band_img, 'shape') else 0}.png"
     class_probs_list = []
     candidate_times_abs: list[float] = []
+    # Trabajos PRESTO: lista de tuplas (t_abs, dm)
+    burst_jobs: list[tuple[float, float]] = []
     cand_counter = 0
     n_bursts = 0
     n_no_bursts = 0
@@ -187,7 +191,8 @@ def process_band(
             first_start += offset_within_slice * config.TIME_RESO * config.DOWN_TIME_RATE
             # Ajuste opcional PRESTO: si la frecuencia de referencia efectiva difiere de la global
             try:
-                freq_ref_used = float(freq_down.max()) if hasattr(freq_down, 'max') else None
+                # Alinear referencia con PRESTO: usar la misma frecuencia tope global
+                freq_ref_used = float(np.max(config.FREQ)) if getattr(config, 'FREQ', None) is not None else None
                 freq_ref_global = float(np.max(config.FREQ)) if getattr(config, 'FREQ', None) is not None else None
                 if freq_ref_used and freq_ref_global:
                     first_start += _presto_time_ref_correction(dm_val, freq_ref_used, freq_ref_global)
@@ -237,13 +242,20 @@ def process_band(
 
         # Ajuste opcional PRESTO: corregir por frecuencia de referencia si aplica
         try:
-            freq_ref_used = float(freq_down.max()) if hasattr(freq_down, 'max') else None
+            # Alinear referencia con PRESTO: usar la misma frecuencia tope global
+            freq_ref_used = float(np.max(config.FREQ)) if getattr(config, 'FREQ', None) is not None else None
             freq_ref_global = float(np.max(config.FREQ)) if getattr(config, 'FREQ', None) is not None else None
             if freq_ref_used and freq_ref_global:
                 absolute_candidate_time += _presto_time_ref_correction(dm_val, freq_ref_used, freq_ref_global)
         except Exception:
             pass
         candidate_times_abs.append(float(absolute_candidate_time))
+        # Si es BURST, agendar ejecución de PRESTO para esta detección
+        if is_burst:
+            try:
+                burst_jobs.append((float(absolute_candidate_time), float(dm_val)))
+            except Exception:
+                pass
         
         # Usar chunk_idx en el candidato
         cand = Candidate(
@@ -315,6 +327,7 @@ def process_band(
         "best_is_burst": best_is_burst,  # INFORMACIÓN ADICIONAL PARA DEBUG
         "total_candidates": len(all_candidates),  # INFORMACIÓN ADICIONAL PARA DEBUG
         "candidate_times_abs": candidate_times_abs,
+        "burst_jobs": burst_jobs,
     }
 
 def process_slice(
@@ -408,7 +421,7 @@ def process_slice(
     # Crear carpeta de waterfall dispersado solo si hay datos para procesar
     if waterfall_block.size > 0:
         waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
-        plot_waterfall_block(
+        wf_disp_path = plot_waterfall_block(
             data_block=waterfall_block, # Bloque de datos
             freq=freq_down, # Frecuencia
             time_reso=time_reso_ds, # Resolución temporal
@@ -418,7 +431,7 @@ def process_slice(
             filename=fits_path.stem, # Nombre del archivo
             normalize=True, # Normalizar
             absolute_start_time=absolute_start_time, # Tiempo absoluto
-        ) # Guardar el plot
+        ) # Guardar el plot y obtener ruta
     
     slice_has_candidates = False # Indica si el slice tiene candidatos
     cand_counter = 0 # Contador de candidatos
@@ -447,6 +460,9 @@ def process_slice(
     time_slice = block.shape[0] // slice_len
     if block.shape[0] % slice_len != 0:
         time_slice += 1
+
+    # Recolector de trabajos PRESTO a nivel de slice
+    presto_burst_jobs: list[tuple[float, float]] = []
 
     for band_idx, band_suffix, band_name in band_configs:
         band_img = slice_cube[band_idx]
@@ -492,6 +508,9 @@ def process_slice(
                 global_logger.creating_waterfall("dedispersado", j, dm_to_use)
                 global_logger.generating_plots()
 
+            comp_ctx = {
+                'waterfall_dispersion_path': str(wf_disp_path) if 'wf_disp_path' in locals() else None,
+            }
             save_all_plots(
                 waterfall_block,
                 dedisp_block,
@@ -522,9 +541,22 @@ def process_slice(
                 absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
                 chunk_idx=chunk_idx,  # PASAR CHUNK_ID
                 force_plots=force_plots,
+                plot_context=comp_ctx,
             )
         else:
             if global_logger:
                 global_logger.logger.debug(f"{Colors.OKCYAN} Slice {j}: Sin candidatos detectados{Colors.ENDC}")
+
+        # Acumular trabajos PRESTO (tiempos absolutos, DM) para candidatos BURST de esta banda
+        try:
+            presto_burst_jobs.extend(band_result.get("burst_jobs", []))
+        except Exception:
+            pass
     
+    # PRESTO deshabilitado por solicitud del usuario
+
     return cand_counter, n_bursts, n_no_bursts, prob_max 
+
+
+def _run_presto_for_burst_jobs(*args, **kwargs):
+    return None

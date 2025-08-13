@@ -114,7 +114,7 @@ def plot_waterfall_block(
     absolute_start_time: float = None,  # Tiempo absoluto de inicio del bloque
     integrate_ts: bool = True,
     integrate_spec: bool = True,
-) -> None:
+) -> Path:
     """Plot a single waterfall block.
 
     Parameters
@@ -172,10 +172,12 @@ def plot_waterfall_block(
     ax_spec = plt.axes((0.78, 0.15, 0.17, im_height), sharey=ax_im) if integrate_spec else None
 
     # Imagen con extent centrado en muestras: usar centros temporales
+    cmap_name = getattr(config, 'WATERFALL_CMAP', 'mako')
+    origin_mode = getattr(config, 'WATERFALL_ORIGIN', 'lower')
     img = ax_im.imshow(
         block.T,
-        origin="upper",  # PRESTO usa origin='upper'
-        cmap="mako",      # mantener color solicitado
+        origin=origin_mode,
+        cmap=cmap_name,
         aspect="auto",
         # DEJAR QUE MATPLOTLIB ESCALA A PARTIR DE LOS VALORES NORMALIZADOS
         extent=(time_start, time_end, float(freq.min()), float(freq.max())),
@@ -215,6 +217,7 @@ def plot_waterfall_block(
     out_path = save_dir / f"{filename}-block{block_idx:03d}-peak{peak_time:.2f}.png"
     plt.savefig(out_path, dpi=200, bbox_inches='tight')
     plt.close()
+    return out_path
 
 
 def save_detection_plot(
@@ -473,6 +476,7 @@ def save_all_plots(
     chunk_idx=None,  # PARÁMETRO PARA CHUNK
     force_plots: bool = False,
     candidate_times_abs: Optional[Iterable[float]] = None,
+    plot_context: Optional[dict] = None,
 ):
     """Guarda todos los plots con tiempo absoluto para continuidad temporal.
     
@@ -518,6 +522,7 @@ def save_all_plots(
             chunk_idx=chunk_idx,  
             slice_samples=real_slice_samples,
             candidate_times_abs=candidate_times_abs,
+            plot_context=plot_context,
         )
     
     # Patch plot - crear carpeta solo si hay patch o si se fuerza en modo debug
@@ -550,7 +555,7 @@ def save_all_plots(
         # Si force_plots=True pero no hay dedisp_block, usar waterfall_block
         plot_data = dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block
         if plot_data is not None and plot_data.size > 0:
-            plot_waterfall_block(
+            wf_dedisp_path = plot_waterfall_block(
                 data_block=plot_data,
                 freq=freq_down,
                 time_reso=time_reso_ds,
@@ -563,6 +568,9 @@ def save_all_plots(
                 integrate_ts=True,
                 integrate_spec=True,
             )
+            # Adjuntar ruta al contexto para auditoría
+            if plot_context is not None:
+                plot_context['waterfall_dedispersion_path'] = str(wf_dedisp_path)
     
     # Detections plot - crear carpeta solo si se va a generar
     if out_img_path is not None:
@@ -839,6 +847,7 @@ def save_slice_summary(
     chunk_idx: Optional[int] = None,  
     slice_samples: Optional[int] = None,  
     candidate_times_abs: Optional[Iterable[float]] = None,
+    plot_context: Optional[dict] = None,
 ) -> None:
     """Save a composite figure summarising detections and waterfalls with SNR analysis.
 
@@ -1056,6 +1065,26 @@ def save_slice_summary(
         1, 3, subplot_spec=gs_main[1, 0], width_ratios=[1, 1, 1], wspace=0.3
     )
 
+    # Auditoría opcional: persistir contexto de rutas usadas para este composite
+    try:
+        if getattr(config, 'SAVE_PLOT_CONTEXT', False) and plot_context is not None:
+            import json
+            base_out = out_path.with_suffix("")
+            ctx_dir = Path(getattr(config, 'PLOT_CONTEXT_DIR', '') or base_out.parent)
+            ctx_dir.mkdir(parents=True, exist_ok=True)
+            ctx_file = ctx_dir / (base_out.name + ".ctx.json")
+            payload = {
+                'slice_start_abs': slice_start_abs,
+                'slice_end_abs': slice_end_abs,
+                'slice_samples': real_samples,
+                'waterfall_dispersion_path': plot_context.get('waterfall_dispersion_path'),
+                'waterfall_dedispersion_path': plot_context.get('waterfall_dedispersion_path'),
+            }
+            with open(ctx_file, 'w') as f:
+                json.dump(payload, f, indent=2)
+    except Exception:
+        pass
+
     # Usar los mismos slice_start_abs y slice_end_abs ya calculados arriba con real_samples
     # para evitar inconsistencias entre paneles
 
@@ -1122,10 +1151,12 @@ def save_slice_summary(
             print(f"🔍 [DEBUG RAW WF] .T[0, :] (primera freq) primeras 5 muestras: {wf_block.T[0, :5]}")
             print(f"🔍 [DEBUG RAW WF] .T[-1, :] (última freq) primeras 5 muestras: {wf_block.T[-1, :5]}")
         
+        cmap_name = getattr(config, 'WATERFALL_CMAP', 'mako')
+        origin_mode = getattr(config, 'WATERFALL_ORIGIN', 'lower')
         im_wf = ax_wf.imshow(
             wf_block.T,
-            origin="lower",
-            cmap="mako",
+            origin=origin_mode,
+            cmap=cmap_name,
             aspect="auto",
             vmin=np.nanpercentile(wf_block, 1),
             vmax=np.nanpercentile(wf_block, 99),
@@ -1284,10 +1315,12 @@ def save_slice_summary(
             print(f"🔍 [DEBUG DED WF] .T[-1, :] (última freq) primeras 5 muestras: {dw_block.T[-1, :5]}")
             print(f"🔍 [DEBUG DED WF] ¿Es diferente al raw? Diff promedio: {np.mean(np.abs(dw_block - wf_block)) if wf_block is not None else 'N/A'}")
         
+        cmap_name = getattr(config, 'WATERFALL_CMAP', 'mako')
+        origin_mode = getattr(config, 'WATERFALL_ORIGIN', 'lower')
         im_dw = ax_dw.imshow(
             dw_block.T,
-            origin="lower",
-            cmap="mako",
+            origin=origin_mode,
+            cmap=cmap_name,
             aspect="auto",
             vmin=np.nanpercentile(dw_block, 1),
             vmax=np.nanpercentile(dw_block, 99),
@@ -1397,11 +1430,13 @@ def save_slice_summary(
             print(f"🔍 [DEBUG PATCH] .T[0, :] (primera freq) primeras 5 muestras: {patch_img.T[0, :5]}")
             print(f"🔍 [DEBUG PATCH] .T[-1, :] (última freq) primeras 5 muestras: {patch_img.T[-1, :5]}")
         
+        cmap_name = getattr(config, 'WATERFALL_CMAP', 'mako')
+        origin_mode = getattr(config, 'WATERFALL_ORIGIN', 'lower')
         ax_patch.imshow(
             patch_img.T,
-            origin="lower",
+            origin=origin_mode,
             aspect="auto",
-            cmap="mako",
+            cmap=cmap_name,
             vmin=np.nanpercentile(patch_img, 1),
             vmax=np.nanpercentile(patch_img, 99),
             extent=[patch_time_axis[0], patch_time_axis[-1], freq_ds.min(), freq_ds.max()],

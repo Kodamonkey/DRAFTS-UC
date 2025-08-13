@@ -113,6 +113,14 @@ DM_RANGE_FACTOR: float = 0.3                # Factor de rango para plots (±30% 
 SNR_SHOW_PEAK_LINES: bool = False           # True = mostrar líneas rojas del SNR peak en plots
 SNR_COLORMAP = "viridis"                    # Mapa de colores para waterfalls
 
+# Coherencia visual y contexto de plots (avanzado)
+# Nota: estas opciones se mueven aquí para simplificar la configuración del usuario
+SAVE_PLOT_CONTEXT: bool = False             # Guardar JSON de contexto por composite
+PLOT_CONTEXT_DIR = None                     # Carpeta central para contextos (None = junto al composite)
+COMPOSITE_EMBED_SAVED_PLOTS: bool = True    # Insertar imágenes ya renderizadas en el Composite
+WATERFALL_CMAP: str = "mako"                # Colormap unificado para waterfalls
+WATERFALL_ORIGIN: str = "lower"             # 'lower' o 'upper'
+
 # =============================================================================
 # CONFIGURACIONES AVANZADAS DE LOGGING Y DEBUG (SISTEMA)
 # =============================================================================

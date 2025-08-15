@@ -1121,7 +1121,7 @@ def save_slice_summary(
     fig = plt.figure(figsize=(14, 12))
 
 
-    gs_main = gridspec.GridSpec(2, 1, height_ratios=[1.5, 1], hspace=0.4, figure=fig)
+    gs_main = gridspec.GridSpec(2, 1, height_ratios=[1.5, 1], hspace=0.6, figure=fig)  # Aumentar hspace para separar títulos
     # Subplot para detecciones (parte superior izquierda)
     ax_det = fig.add_subplot(gs_main[0, 0])
     ax_det.imshow(img_rgb, origin="lower", aspect="auto")
@@ -1253,7 +1253,7 @@ def save_slice_summary(
         f"Slice {slice_idx:03d} of {time_slice} | Duration: {exact_slice_ms_det:.{config.PLOT_TIME_PRECISION}f} ms | "
         f"DM Range: {dm_range_info} pc cm⁻³"
     )
-    ax_det.set_title(title_det, fontsize=11, fontweight="bold")
+    ax_det.set_title(title_det, fontsize=11, fontweight="bold", pad=20)  # Aumentar pad para evitar superposición
     config.SLICE_LEN = prev_len_config
 
     gs_bottom_row = gridspec.GridSpecFromSubplotSpec(
@@ -1857,7 +1857,7 @@ def save_slice_summary(
         title,
         fontsize=14,
         fontweight="bold",
-        y=0.97,
+        y=0.95,  
     )
     # === Información temporal exacta del slice (decimado) ===
     try:
@@ -1884,8 +1884,12 @@ def save_slice_summary(
     except Exception:
         pass
 
-    # Aplicar tight_layout para optimizar automáticamente el espaciado
-    plt.tight_layout(rect=[0, 0.02, 1, 0.95])  # Ajustar para el título principal
+    # Aplicar tight_layout con parámetros específicos para evitar superposición
+    # rect=[left, bottom, right, top] - reservar más espacio superior para títulos
+    plt.tight_layout(rect=[0, 0.02, 1, 0.94])  # Ajustar a 0.94 para balancear espacio
+    
+    # Ajuste adicional del espaciado vertical para evitar superposición de títulos
+    plt.subplots_adjust(top=0.88, hspace=0.65)  # Ajustar espacio superior y entre subplots
 
     plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close()

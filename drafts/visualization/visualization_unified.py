@@ -16,7 +16,7 @@ from matplotlib.colors import ListedColormap
 
 # Local imports
 from .. import config
-from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
+from ..analysis.snr_utils import compute_snr_profile, find_snr_peak, compute_snr_profile_corrected
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
 from ..preprocessing.dedispersion import dedisperse_block
 from .visualization_ranges import get_dynamic_dm_range_for_candidate
@@ -186,13 +186,54 @@ def plot_waterfall_block(
     ax_im.set_xlabel("Time", fontsize=11)
     ax_im.set_ylabel("Observing frequency (MHz)", fontsize=11)
 
-    # Time series integrada (como integrate_ts de PRESTO)
+    # Time series integrada con SNR mejorado
     if integrate_ts and ax_ts is not None:
         times = time_start + (np.arange(block_size) + 0.5) * time_reso
-        ax_ts.plot(times, block.sum(axis=1), "k", lw=0.8)
+        
+        # Calcular time series integrada en frecuencia
+        time_series = block.sum(axis=1)
+        
+        # Calcular SNR usando método corregido
+        try:
+            from ..analysis.snr_utils import compute_snr_profile_corrected
+            # Usar configuración del usuario para habilitar/deshabilitar mejoras
+            use_enhanced = getattr(config, 'ENHANCED_SNR_CALCULATION', True)
+            if use_enhanced:
+                snr_profile, sigma = compute_snr_profile_corrected(block, time_reso)
+            else:
+                # Fallback al método original si las mejoras están deshabilitadas
+                from ..analysis.snr_utils import compute_snr_profile
+                snr_profile, sigma = compute_snr_profile(block)
+            
+            # Plot time series original
+            ax_ts.plot(times, time_series, "k", lw=0.8, alpha=0.7, label="Time Series")
+            
+            # Plot SNR profile
+            ax_snr = ax_ts.twinx()
+            ax_snr.plot(times, snr_profile, "r", lw=1.0, alpha=0.8, label="SNR")
+            
+            # Encontrar y marcar pico SNR
+            peak_idx = np.argmax(snr_profile)
+            peak_time = times[peak_idx]
+            peak_snr = snr_profile[peak_idx]
+            
+            if peak_snr > 3.0:  # Solo marcar picos significativos
+                ax_snr.axvline(peak_time, color='red', linestyle='--', alpha=0.8, lw=1)
+                ax_snr.text(peak_time, peak_snr, f'{peak_snr:.1f}σ', 
+                           ha='center', va='bottom', color='red', fontsize=8)
+            
+            # Configurar eje SNR
+            ax_snr.set_ylabel("SNR", color='red', fontsize=9)
+            ax_snr.tick_params(axis='y', labelcolor='red')
+            
+        except ImportError:
+            # Fallback si no se puede importar las funciones mejoradas
+            ax_ts.plot(times, time_series, "k", lw=0.8, label="Time Series")
+        
         ax_ts.set_xlim([times.min(), times.max()])
+        ax_ts.set_ylabel("Intensity", fontsize=9)
         plt.setp(ax_ts.get_xticklabels(), visible=False)
-        plt.setp(ax_ts.get_yticklabels(), visible=False)
+        ax_ts.legend(loc='upper right', fontsize=8)
 
     # Espectro integrado alrededor del centro (ventana 10% de la duración)
     if integrate_spec and ax_spec is not None:
@@ -789,9 +830,15 @@ def save_patch_plot(
         logger.warning(f"Cannot create patch plot: patch is None or empty. Skipping {out_path}")
         return
 
-    # Calculate SNR profile
-    snr_profile, sigma = compute_snr_profile(patch, off_regions)
-    peak_snr, peak_time_rel, peak_idx = find_snr_peak(snr_profile)
+        # Calculate corrected SNR profile
+    try:
+        from ..analysis.snr_utils import compute_snr_profile_corrected
+        snr_profile, sigma = compute_snr_profile_corrected(patch, time_reso, off_regions)
+        peak_snr, peak_time_rel, peak_idx = find_snr_peak(snr_profile)
+    except ImportError:
+        # Fallback to original method
+        snr_profile, sigma = compute_snr_profile(patch, off_regions)
+        peak_snr, peak_time_rel, peak_idx = find_snr_peak(snr_profile)
     
     # Centrar el patch en el tiempo de detección del candidato
     if detection_time is not None:
@@ -864,7 +911,7 @@ def save_patch_plot(
     else:
         # Fallback: usar linspace normal
         time_axis = np.linspace(patch_start_time, patch_end_time, patch.shape[0])
-        peak_time_abs = start_time + peak_idx * time_reso
+    peak_time_abs = start_time + peak_idx * time_reso
 
     # Get band frequency range for title
     band_name_with_freq = get_band_name_with_freq_range(band_idx, band_name)
@@ -926,7 +973,7 @@ def save_patch_plot(
     # Marcar la posición del pico SNR en el waterfall
     if config.SNR_SHOW_PEAK_LINES:
         ax1.axvline(x=peak_time_abs, color=config.SNR_HIGHLIGHT_COLOR, 
-                    linestyle='-', alpha=0.8, linewidth=2)
+                   linestyle='-', alpha=0.8, linewidth=2)
 
     ax1.set_xlabel("Time (s)", fontsize=10)
     ax1.set_ylabel("Frequency (MHz)", fontsize=10)
@@ -1074,7 +1121,7 @@ def save_slice_summary(
     fig = plt.figure(figsize=(14, 12))
 
 
-    gs_main = gridspec.GridSpec(2, 1, height_ratios=[1.5, 1], hspace=0.3, figure=fig)
+    gs_main = gridspec.GridSpec(2, 1, height_ratios=[1.5, 1], hspace=0.4, figure=fig)
     # Subplot para detecciones (parte superior izquierda)
     ax_det = fig.add_subplot(gs_main[0, 0])
     ax_det.imshow(img_rgb, origin="lower", aspect="auto")
@@ -1147,7 +1194,7 @@ def save_slice_summary(
                 color = "lime" if is_burst else "orange"
                 burst_status = "BURST" if is_burst else "NO BURST"
                 
-                # Etiqueta completa con tiempo absoluto - USANDO DM REAL
+                                # Etiqueta completa con tiempo absoluto - USANDO DM REAL
                 if detection_time is not None:
                     label = (
                         f"#{idx+1}\n"
@@ -1237,20 +1284,35 @@ def save_slice_summary(
     # para evitar inconsistencias entre paneles
 
     # === Panel 1: Raw Waterfall con SNR ===
+    # NOTA: Los valores de pico SNR pueden diferir entre paneles debido a:
+    # - Raw: Datos dispersados (SNR más bajo, señal distribuida)
+    # - Dedispersed: Datos corregidos (SNR más alto, señal concentrada)
+    # - Patch: Región específica (SNR intermedio, ventana temporal)
     gs_waterfall_nested = gridspec.GridSpecFromSubplotSpec(
-        2, 1, subplot_spec=gs_bottom_row[0, 0], height_ratios=[1, 4], hspace=0.05
+        2, 1, subplot_spec=gs_bottom_row[0, 0], height_ratios=[1, 4], hspace=0.15
     )
     ax_prof_wf = fig.add_subplot(gs_waterfall_nested[0, 0])
     
     # Verificar si hay datos de waterfall válidos
     if wf_block is not None and wf_block.size > 0:
-        # Calcular perfil SNR para raw waterfall
-        snr_wf, sigma_wf = compute_snr_profile(wf_block, off_regions)
-        peak_snr_wf, peak_time_wf, peak_idx_wf = find_snr_peak(snr_wf)
+                # Calcular perfil SNR usando método corregido
+        try:
+            from ..analysis.snr_utils import compute_snr_profile_corrected
+            snr_wf, sigma_wf = compute_snr_profile_corrected(wf_block, time_reso_ds, off_regions)
+            peak_snr_wf, peak_time_wf, peak_idx_wf = find_snr_peak(snr_wf)
+        except ImportError:
+            # Fallback a método original
+            snr_wf, sigma_wf = compute_snr_profile(wf_block, off_regions)
+            peak_snr_wf, peak_time_wf, peak_idx_wf = find_snr_peak(snr_wf)
         
         # Bordes uniformes para etiquetas y extent
         time_axis_wf = np.linspace(slice_start_abs, slice_end_abs, len(snr_wf))
-        peak_time_wf_abs = float(time_axis_wf[peak_idx_wf]) if len(snr_wf) > 0 else None
+        # CORREGIR: peak_time_wf es el índice, no el tiempo absoluto
+        # Calcular tiempo absoluto del pico usando el índice
+        if peak_time_wf is not None and peak_idx_wf is not None:
+            peak_time_wf_abs = time_axis_wf[peak_idx_wf]
+        else:
+            peak_time_wf_abs = None
         ax_prof_wf.plot(time_axis_wf, snr_wf, color="royalblue", alpha=0.8, lw=1.5, label='SNR Profile')
         
         # Resaltar regiones sobre threshold
@@ -1273,12 +1335,13 @@ def save_slice_summary(
         ax_prof_wf.set_xticks([])
         if peak_time_wf_abs is not None:
             ax_prof_wf.set_title(
-                f"Raw Waterfall SNR\nPeak={peak_snr_wf:.{config.PLOT_SNR_PRECISION}f}σ -> {peak_time_wf_abs:.{config.PLOT_TIME_PRECISION}f}s",
-                fontsize=9,
+                f"Raw Waterfall SNR (Dispersed)\nPeak={peak_snr_wf:.{config.PLOT_SNR_PRECISION}f}σ → {peak_time_wf_abs:.{config.PLOT_TIME_PRECISION}f}s",
+                fontsize=8,
                 fontweight="bold",
+                pad=15
             )
         else:
-            ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.{config.PLOT_SNR_PRECISION}f}σ", fontsize=9, fontweight="bold")
+            ax_prof_wf.set_title(f"Raw Waterfall SNR (Dispersed)\nPeak={peak_snr_wf:.{config.PLOT_SNR_PRECISION}f}σ", fontsize=8, fontweight="bold", pad=15)
     else:
         ax_prof_wf.text(0.5, 0.5, 'No waterfall data\navailable', 
                        transform=ax_prof_wf.transAxes, 
@@ -1360,7 +1423,7 @@ def save_slice_summary(
 
     # === Panel 2: Dedispersed Waterfall con SNR ===
     gs_dedisp_nested = gridspec.GridSpecFromSubplotSpec(
-        2, 1, subplot_spec=gs_bottom_row[0, 1], height_ratios=[1, 4], hspace=0.05
+        2, 1, subplot_spec=gs_bottom_row[0, 1], height_ratios=[1, 4], hspace=0.15
     )
     ax_prof_dw = fig.add_subplot(gs_dedisp_nested[0, 0])
     
@@ -1383,7 +1446,11 @@ def save_slice_summary(
         # Usar waterfall_block en lugar de band_img para consistencia
         candidate_region = waterfall_block[:, y1:y2] if waterfall_block is not None else None
         if candidate_region is not None and candidate_region.size > 0:
-            snr_profile_candidate, _ = compute_snr_profile(candidate_region)
+            try:
+                from ..analysis.snr_utils import compute_snr_profile_corrected
+                snr_profile_candidate, _ = compute_snr_profile_corrected(candidate_region, time_reso_ds)
+            except ImportError:
+                snr_profile_candidate, _ = compute_snr_profile(candidate_region)
             snr_val_candidate = np.max(snr_profile_candidate)  # Tomar el pico del SNR
         else:
             snr_val_candidate = 0.0
@@ -1396,12 +1463,23 @@ def save_slice_summary(
     
     # Verificar si hay datos de waterfall dedispersado válidos
     if dw_block is not None and dw_block.size > 0:
-        # Calcular perfil SNR para dedispersed waterfall
-        snr_dw, sigma_dw = compute_snr_profile(dw_block, off_regions)
-        peak_snr_dw, peak_time_dw, peak_idx_dw = find_snr_peak(snr_dw)
+        # Calcular perfil SNR usando método corregido
+        try:
+            from ..analysis.snr_utils import compute_snr_profile_corrected
+            snr_dw, sigma_dw = compute_snr_profile_corrected(dw_block, time_reso_ds, off_regions)
+            peak_snr_dw, peak_time_dw, peak_idx_dw = find_snr_peak(snr_dw)
+        except ImportError:
+            # Fallback a método original
+            snr_dw, sigma_dw = compute_snr_profile(dw_block, off_regions)
+            peak_snr_dw, peak_time_dw, peak_idx_dw = find_snr_peak(snr_dw)
         
         time_axis_dw = np.linspace(slice_start_abs, slice_end_abs, len(snr_dw))
-        peak_time_dw_abs = float(time_axis_dw[peak_idx_dw]) if len(snr_dw) > 0 else None
+        # CORREGIR: peak_time_dw es el índice, no el tiempo absoluto
+        # Calcular tiempo absoluto del pico usando el índice
+        if peak_time_dw is not None and peak_idx_dw is not None:
+            peak_time_dw_abs = time_axis_dw[peak_idx_dw]
+        else:
+            peak_time_dw_abs = None
         ax_prof_dw.plot(time_axis_dw, snr_dw, color="green", alpha=0.8, lw=1.5, label='Dedispersed SNR')
         
         # Resaltar regiones sobre threshold
@@ -1422,27 +1500,15 @@ def save_slice_summary(
         ax_prof_dw.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
         ax_prof_dw.grid(True, alpha=0.3)
         ax_prof_dw.set_xticks([])
-        # Usar DM consistente en el título y mostrar ambos SNRs
-        if snr_val_candidate > 0:
-            if peak_time_dw_abs is not None:
-                title_text = (
-                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                    f"Peak={peak_snr_dw:.{config.PLOT_SNR_PRECISION}f}σ -> {peak_time_dw_abs:.{config.PLOT_TIME_PRECISION}f}s (block) / {snr_val_candidate:.{config.PLOT_SNR_PRECISION}f}σ (candidate)"
-                )
-            else:
-                title_text = (
-                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                    f"Peak={peak_snr_dw:.{config.PLOT_SNR_PRECISION}f}σ (block) / {snr_val_candidate:.{config.PLOT_SNR_PRECISION}f}σ (candidate)"
-                )
+        # Usar DM consistente en el título - SOLO información relevante
+        if peak_time_dw_abs is not None:
+            title_text = (
+                f"Dedispersed SNR DM={dm_val_consistent:.{config.PLOT_DM_PRECISION}f} pc cm⁻³\n"
+                f"Peak={peak_snr_dw:.{config.PLOT_SNR_PRECISION}f}σ → {peak_time_dw_abs:.{config.PLOT_TIME_PRECISION}f}s"
+            )
         else:
-            if peak_time_dw_abs is not None:
-                title_text = (
-                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                    f"Peak={peak_snr_dw:.{config.PLOT_SNR_PRECISION}f}σ -> {peak_time_dw_abs:.{config.PLOT_TIME_PRECISION}f}s"
-                )
-            else:
-                title_text = f"Dedispersed SNR DM={dm_val_consistent:.{config.PLOT_DM_PRECISION}f} pc cm⁻³\nPeak={peak_snr_dw:.{config.PLOT_SNR_PRECISION}f}σ"
-        ax_prof_dw.set_title(title_text, fontsize=9, fontweight="bold")
+            title_text = f"Dedispersed SNR DM={dm_val_consistent:.{config.PLOT_DM_PRECISION}f} pc cm⁻³\nPeak={peak_snr_dw:.{config.PLOT_SNR_PRECISION}f}σ"
+        ax_prof_dw.set_title(title_text, fontsize=8, fontweight="bold", pad=15)
     else:
         ax_prof_dw.text(0.5, 0.5, 'No dedispersed\ndata available', 
                        transform=ax_prof_dw.transAxes, 
@@ -1516,15 +1582,21 @@ def save_slice_summary(
 
     # === Panel 3: Candidate Patch con SNR ===
     gs_patch_nested = gridspec.GridSpecFromSubplotSpec(
-        2, 1, subplot_spec=gs_bottom_row[0, 2], height_ratios=[1, 4], hspace=0.05
+        2, 1, subplot_spec=gs_bottom_row[0, 2], height_ratios=[1, 4], hspace=0.15
     )
     ax_patch_prof = fig.add_subplot(gs_patch_nested[0, 0])
     
     # Verificar si hay un patch válido
     if patch_img is not None and patch_img.size > 0:
-        # Calcular perfil SNR para el patch del candidato
-        snr_patch, sigma_patch = compute_snr_profile(patch_img, off_regions)
-        peak_snr_patch, peak_time_patch, peak_idx_patch = find_snr_peak(snr_patch)
+                # Calcular perfil SNR usando método corregido
+        try:
+            from ..analysis.snr_utils import compute_snr_profile_corrected
+            snr_patch, sigma_patch = compute_snr_profile_corrected(patch_img, time_reso_ds, off_regions)
+            peak_snr_patch, peak_time_patch, peak_idx_patch = find_snr_peak(snr_patch)
+        except ImportError:
+            # Fallback a método original
+            snr_patch, sigma_patch = compute_snr_profile(patch_img, off_regions)
+            peak_snr_patch, peak_time_patch, peak_idx_patch = find_snr_peak(snr_patch)
         
         # Centrar el patch en el tiempo de detección del candidato
         # UNIFICACIÓN: Usar SOLO candidate_times_abs para consistencia
@@ -1673,9 +1745,9 @@ def save_slice_summary(
         
         # Título con información del centrado temporal
         if detection_time_patch is not None:
-            ax_patch_prof.set_title(f"Candidate Patch SNR\nCentered at {detection_time_patch:.{config.PLOT_TIME_PRECISION}f}s | Peak={peak_snr_patch:.{config.PLOT_SNR_PRECISION}f}σ", fontsize=9, fontweight="bold")
+            ax_patch_prof.set_title(f"Candidate Patch SNR (Zoomed)\nCentered at {detection_time_patch:.{config.PLOT_TIME_PRECISION}f}s | Peak={peak_snr_patch:.{config.PLOT_SNR_PRECISION}f}σ", fontsize=8, fontweight="bold", pad=15)
         else:
-            ax_patch_prof.set_title(f"Candidate Patch SNR\nPeak={peak_snr_patch:.{config.PLOT_SNR_PRECISION}f}σ", fontsize=9, fontweight="bold")
+            ax_patch_prof.set_title(f"Candidate Patch SNR (Zoomed)\nPeak={peak_snr_patch:.{config.PLOT_SNR_PRECISION}f}σ", fontsize=8, fontweight="bold", pad=15)
     else:
         # Sin patch válido, mostrar mensaje
         ax_patch_prof.text(0.5, 0.5, 'No candidate patch\navailable', 
@@ -1811,6 +1883,9 @@ def save_slice_summary(
         )
     except Exception:
         pass
+
+    # Aplicar tight_layout para optimizar automáticamente el espaciado
+    plt.tight_layout(rect=[0, 0.02, 1, 0.95])  # Ajustar para el título principal
 
     plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close()

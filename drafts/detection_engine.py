@@ -141,13 +141,18 @@ def process_band(
             slice_len,
         )
         
-        # Usar compute_snr_profile para SNR consistente con composite
+        # Usar compute_snr_profile corregido para SNR consistente con composite
         # Extraer región del candidato para cálculo de SNR
         x1, y1, x2, y2 = map(int, box)
         candidate_region = band_img[y1:y2, x1:x2]
         if candidate_region.size > 0:
-            # Usar compute_snr_profile para consistencia con composite
-            snr_profile, _ = compute_snr_profile(candidate_region)
+            try:
+                from .analysis.snr_utils import compute_snr_profile_corrected
+                # Usar método corregido para consistencia con composite
+                snr_profile, _ = compute_snr_profile_corrected(candidate_region, config.TIME_RESO * config.DOWN_TIME_RATE)
+            except ImportError:
+                # Fallback al método original
+                snr_profile, _ = compute_snr_profile(candidate_region)
             snr_val_raw = np.max(snr_profile)  # Tomar el pico del SNR
         else:
             snr_val_raw = 0.0

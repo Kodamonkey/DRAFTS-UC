@@ -10,7 +10,7 @@ RESULTS_DIR = Path("./Results/ObjectDetection")      # Directorio para guardar r
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-   "FRB20201124_0009"
+   "3096_0001_00_8bit"
 ]
 
 # =============================================================================
@@ -26,7 +26,7 @@ SLICE_DURATION_MS: float = 500.0
 
 # Factores de reducción para optimizar el procesamiento
 DOWN_FREQ_RATE: int = 1                      # Factor de reducción en frecuencia (1 = sin reducción)
-DOWN_TIME_RATE: int = 14                      # Factor de reducción en tiempo (1 = sin reducción)
+DOWN_TIME_RATE: int = 8                      # Factor de reducción en tiempo (1 = sin reducción)
 
 # =============================================================================
 # CONFIGURACIÓN DE DISPERSIÓN (DM)

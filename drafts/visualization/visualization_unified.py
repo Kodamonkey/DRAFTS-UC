@@ -366,15 +366,18 @@ def save_detection_plot(
             effective_len = slice_samples if slice_samples is not None else slice_len
             dm_val_real, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, effective_len)
             
-            # CALCULAR TIEMPO ABSOLUTO DE LA DETECCIÓN
-            # Priorizar tiempo absoluto exacto pasado desde el pipeline
+            # UNIFICACIÓN: Usar SOLO candidate_times_abs para consistencia
             if candidate_times_abs is not None and idx < len(candidate_times_abs):
                 detection_time = float(candidate_times_abs[idx])
             else:
-                if absolute_start_time is not None:
-                    detection_time = absolute_start_time + t_sec_real
+                # UNIFICACIÓN: NO usar fallbacks inconsistentes
+                if candidate_times_abs is None:
+                    logger.warning(f"[DETECTION] candidate_times_abs es None para candidato {idx}")
+                elif idx >= len(candidate_times_abs):
+                    logger.warning(f"[DETECTION] Índice {idx} fuera de rango para candidate_times_abs (len={len(candidate_times_abs)})")
                 else:
-                    detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
+                    logger.warning(f"[DETECTION] candidate_times_abs[{idx}] no es válido")
+                detection_time = None
             
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
@@ -384,18 +387,31 @@ def save_detection_plot(
                 burst_status = "BURST" if is_burst else "NO BURST"
                 
                 # Etiqueta completa con tiempo absoluto - USANDO DM REAL
-                label = (
-                    f"#{idx+1}\n"
-                    f"DM: {dm_val_real:.{config.PLOT_DM_PRECISION}f}\n"
-                    f"Time: {detection_time:.{config.PLOT_TIME_PRECISION}f}s\n"
-                    f"Det: {conf:.2f}\n"
-                    f"Cls: {class_prob:.2f}\n"
-                    f"{burst_status}"
-                )
+                if detection_time is not None:
+                    label = (
+                        f"#{idx+1}\n"
+                        f"DM: {dm_val_real:.{config.PLOT_DM_PRECISION}f}\n"
+                        f"Time: {detection_time:.{config.PLOT_TIME_PRECISION}f}s\n"
+                        f"Det: {conf:.2f}\n"
+                        f"Cls: {class_prob:.2f}\n"
+                        f"{burst_status}"
+                    )
+                else:
+                    label = (
+                        f"#{idx+1}\n"
+                        f"DM: {dm_val_real:.{config.PLOT_DM_PRECISION}f}\n"
+                        f"Time: N/A\n"
+                        f"Det: {conf:.2f}\n"
+                        f"Cls: {class_prob:.2f}\n"
+                        f"{burst_status}"
+                    )
             else:
                 # Fallback si no hay probabilidades de clasificación
                 color = "lime"
-                label = f"#{idx+1}\nDM: {dm_val_real:.{config.PLOT_DM_PRECISION}f}\nTime: {detection_time:.{config.PLOT_TIME_PRECISION}f}s\nDet: {conf:.2f}"
+                if detection_time is not None:
+                    label = f"#{idx+1}\nDM: {dm_val_real:.{config.PLOT_DM_PRECISION}f}\nTime: {detection_time:.{config.PLOT_TIME_PRECISION}f}s\nDet: {conf:.2f}"
+                else:
+                    label = f"#{idx+1}\nDM: {dm_val_real:.{config.PLOT_DM_PRECISION}f}\nTime: N/A\nDet: {conf:.2f}"
             
             # Dibujar rectángulo
             rect = plt.Rectangle(
@@ -425,7 +441,7 @@ def save_detection_plot(
         img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
         im_cb = ax_cb.imshow(img_gray, origin="lower", aspect="auto", cmap="mako")
         ax_cb.set_xticks(time_positions)
-        ax_cb.set_xticklabels([f"{t:.{config.PLOT_TIME_PRECISION}f}" for t in time_values])
+        ax_cb.set_xticklabels([f"{t:.{config.PLOT_TIME_PRECISION}f}s" for t in time_values])
         ax_cb.set_xlabel("Time (s)", fontsize=12, fontweight="bold")
         ax_cb.set_yticks(dm_positions)
         ax_cb.set_yticklabels([f"{dm:.{config.PLOT_DM_PRECISION}f}" for dm in dm_values])
@@ -598,6 +614,40 @@ def save_all_plots(
             candidate_times_abs=candidate_times_abs,
         )
 
+def validate_candidate_times(candidate_times_abs: Optional[Iterable[float]], 
+                           top_conf: Iterable, 
+                           top_boxes: Iterable | None) -> Tuple[bool, str]:
+    """
+    Valida que candidate_times_abs sea consistente y válido.
+    
+    Args:
+        candidate_times_abs: Lista de tiempos absolutos de candidatos
+        top_conf: Lista de confianzas de detección
+        top_boxes: Lista de bounding boxes
+        
+    Returns:
+        Tuple[is_valid, error_message]
+    """
+    if candidate_times_abs is None:
+        return False, "candidate_times_abs es None"
+    
+    if len(candidate_times_abs) == 0:
+        return False, "candidate_times_abs está vacío"
+    
+    if len(candidate_times_abs) != len(top_conf):
+        return False, f"candidate_times_abs ({len(candidate_times_abs)}) no coincide con top_conf ({len(top_conf)})"
+    
+    if top_boxes is not None and len(candidate_times_abs) != len(top_boxes):
+        return False, f"candidate_times_abs ({len(candidate_times_abs)}) no coincide con top_boxes ({len(top_boxes)})"
+    
+    # Verificar que todos los tiempos sean números válidos
+    for i, time in enumerate(candidate_times_abs):
+        if not isinstance(time, (int, float)) or np.isnan(time) or np.isinf(time):
+            return False, f"candidate_times_abs[{i}] = {time} no es un número válido"
+    
+    return True, "OK"
+
+
 def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
     """Get the frequency range (min, max) for a specific band.
     
@@ -751,8 +801,8 @@ def save_patch_plot(
         patch_end_time = detection_time + (patch_duration / 2)
         
         # Log de la funcionalidad especial de centrado temporal
-        logger.info(f"[PATCH] Patch centrado en candidato: tiempo={detection_time:.3f}s, "
-                   f"ventana=[{patch_start_time:.3f}s, {patch_end_time:.3f}s], duración={patch_duration:.3f}s")
+        logger.info(f"[PATCH] Patch centrado en candidato: tiempo={detection_time:.{config.PLOT_TIME_PRECISION}f}s, "
+                   f"ventana=[{patch_start_time:.{config.PLOT_TIME_PRECISION}f}s, {patch_end_time:.{config.PLOT_TIME_PRECISION}f}s], duración={patch_duration:.{config.PLOT_TIME_PRECISION}f}s")
     else:
         # Fallback: usar el tiempo de inicio original
         patch_start_time = start_time
@@ -883,7 +933,7 @@ def save_patch_plot(
     
     # Título con información del centrado temporal
     if detection_time is not None:
-        title = f"Candidate Patch - {band_name_with_freq}\nCentered at {detection_time:.3f}s | Peak SNR: {peak_snr:.1f}σ"
+        title = f"Candidate Patch - {band_name_with_freq}\nCentered at {detection_time:.{config.PLOT_TIME_PRECISION}f}s | Peak SNR: {peak_snr:.{config.PLOT_SNR_PRECISION}f}σ"
     else:
         title = f"Candidate Patch - {band_name_with_freq}\nPeak SNR: {peak_snr:.1f}σ"
     
@@ -1077,15 +1127,18 @@ def save_slice_summary(
             effective_len_det = slice_samples if slice_samples is not None else slice_len
             dm_val_cand, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, effective_len_det)
             
-            # CALCULAR TIEMPO ABSOLUTO DE LA DETECCIÓN
-            # Priorizar tiempo absoluto exacto pasado desde el pipeline
+            # UNIFICACIÓN: Usar SOLO candidate_times_abs para consistencia
             if candidate_times_abs is not None and idx < len(candidate_times_abs):
                 detection_time = float(candidate_times_abs[idx])
             else:
-                if absolute_start_time is not None:
-                    detection_time = absolute_start_time + t_sec_real
+                # UNIFICACIÓN: NO usar fallbacks inconsistentes
+                if candidate_times_abs is None:
+                    logger.warning(f"[DETECTION] candidate_times_abs es None para candidato {idx}")
+                elif idx >= len(candidate_times_abs):
+                    logger.warning(f"[DETECTION] Índice {idx} fuera de rango para candidate_times_abs (len={len(candidate_times_abs)})")
                 else:
-                    detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
+                    logger.warning(f"[DETECTION] candidate_times_abs[{idx}] no es válido")
+                detection_time = None
             
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
@@ -1095,18 +1148,31 @@ def save_slice_summary(
                 burst_status = "BURST" if is_burst else "NO BURST"
                 
                 # Etiqueta completa con tiempo absoluto - USANDO DM REAL
-                label = (
-                    f"#{idx+1}\n"
-                    f"DM: {dm_val_cand:.{config.PLOT_DM_PRECISION}f}\n"
-                    f"Time: {detection_time:.3f}s\n"
-                    f"Det: {conf:.2f}\n"
-                    f"Cls: {class_prob:.2f}\n"
-                    f"{burst_status}"
-                )
+                if detection_time is not None:
+                    label = (
+                        f"#{idx+1}\n"
+                        f"DM: {dm_val_cand:.{config.PLOT_DM_PRECISION}f}\n"
+                        f"Time: {detection_time:.{config.PLOT_TIME_PRECISION}f}s\n"
+                        f"Det: {conf:.2f}\n"
+                        f"Cls: {class_prob:.2f}\n"
+                        f"{burst_status}"
+                    )
+                else:
+                    label = (
+                        f"#{idx+1}\n"
+                        f"DM: {dm_val_cand:.{config.PLOT_DM_PRECISION}f}\n"
+                        f"Time: N/A\n"
+                        f"Det: {conf:.2f}\n"
+                        f"Cls: {class_prob:.2f}\n"
+                        f"{burst_status}"
+                    )
             else:
                 # Fallback si no hay probabilidades de clasificación
                 color = "lime"
-                label = f"#{idx+1}\nDM: {dm_val_cand:.{config.PLOT_DM_PRECISION}f}\nTime: {detection_time:.3f}s\nDet: {conf:.2f}"
+                if detection_time is not None:
+                    label = f"#{idx+1}\nDM: {dm_val_cand:.{config.PLOT_DM_PRECISION}f}\nTime: {detection_time:.{config.PLOT_TIME_PRECISION}f}s\nDet: {conf:.2f}"
+                else:
+                    label = f"#{idx+1}\nDM: {dm_val_cand:.{config.PLOT_DM_PRECISION}f}\nTime: N/A\nDet: {conf:.2f}"
             
             # Dibujar rectángulo
             rect = plt.Rectangle(
@@ -1461,31 +1527,24 @@ def save_slice_summary(
         peak_snr_patch, peak_time_patch, peak_idx_patch = find_snr_peak(snr_patch)
         
         # Centrar el patch en el tiempo de detección del candidato
-        # Calcular el tiempo de detección del candidato más fuerte
+        # UNIFICACIÓN: Usar SOLO candidate_times_abs para consistencia
         detection_time_patch = None  # Inicializar variable
         
-        if top_boxes is not None and len(top_boxes) > 0 and candidate_times_abs is not None:
-            # CORRECCIÓN CRÍTICA: Seleccionar el candidato correcto
-            # NO usar solo top_conf, sino considerar también el tiempo de detección
-            # Para el composite, queremos el candidato que esté más cerca del centro del slice
-            if len(candidate_times_abs) > 0:
-                # Usar el candidato con MAYOR CONFIANZA
-                # NO usar el más cercano al centro del slice, sino el más fuerte detectado
-                best_candidate_idx = np.argmax(top_conf)
-                
-                # Log de la selección del candidato
-                logger.info(f"[COMPOSITE] Seleccionando candidato para patch:")
-                logger.info(f"   - Candidatos disponibles: {[f'{t:.6f}s' for t in candidate_times_abs]}")
-                logger.info(f"   - Confianzas: {[f'{c:.3f}' for c in top_conf]}")
-                logger.info(f"   - Candidato seleccionado: {candidate_times_abs[best_candidate_idx]:.6f}s (índice {best_candidate_idx}, confianza {top_conf[best_candidate_idx]:.3f})")
-                logger.info(f"   - TIEMPO OBJETIVO: 4.725s (según imagen)")
-                logger.info(f"   - DIFERENCIA DEL OBJETIVO: {abs(candidate_times_abs[best_candidate_idx] - 4.725):.6f}s")
-                
-                detection_time_patch = float(candidate_times_abs[best_candidate_idx])
-            else:
-                # Fallback: usar el candidato con mayor confianza
-                best_candidate_idx = np.argmax(top_conf)
-                detection_time_patch = float(candidate_times_abs[best_candidate_idx])
+        # Validar candidate_times_abs antes de usarlo
+        is_valid, error_msg = validate_candidate_times(candidate_times_abs, top_conf, top_boxes)
+        
+        if is_valid and top_boxes is not None and len(top_boxes) > 0:
+            # UNIFICACIÓN: Seleccionar candidato usando SOLO candidate_times_abs
+            # Usar el candidato con MAYOR CONFIANZA (más fuerte detectado)
+            best_candidate_idx = np.argmax(top_conf)
+            
+            # Log de la selección del candidato
+            logger.info(f"[COMPOSITE] Seleccionando candidato para patch:")
+            logger.info(f"   - Candidatos disponibles: {[f'{t:.{config.PLOT_TIME_PRECISION}f}s' for t in candidate_times_abs]}")
+            logger.info(f"   - Confianzas: {[f'{c:.3f}' for c in top_conf]}")
+            logger.info(f"   - Candidato seleccionado: {candidate_times_abs[best_candidate_idx]:.{config.PLOT_TIME_PRECISION}f}s (índice {best_candidate_idx}, confianza {top_conf[best_candidate_idx]:.3f})")
+            
+            detection_time_patch = float(candidate_times_abs[best_candidate_idx])
             
             # Calcular el tiempo de inicio del patch para que el candidato quede centrado
             patch_duration = len(snr_patch) * time_reso_ds
@@ -1493,20 +1552,18 @@ def save_slice_summary(
             patch_end_abs = detection_time_patch + (patch_duration / 2)
             
             # Log de la funcionalidad especial de centrado temporal
-            logger.info(f"[COMPOSITE] Patch centrado en candidato: tiempo={detection_time_patch:.3f}s, "
-                       f"ventana=[{patch_start_abs:.3f}s, {patch_end_abs:.3f}s], duración={patch_duration:.3f}s")
+            logger.info(f"[COMPOSITE] Patch centrado en candidato: tiempo={detection_time_patch:.{config.PLOT_TIME_PRECISION}f}s, "
+                       f"ventana=[{patch_start_abs:.{config.PLOT_TIME_PRECISION}f}s, {patch_end_abs:.{config.PLOT_TIME_PRECISION}f}s], duración={patch_duration:.{config.PLOT_TIME_PRECISION}f}s")
         else:
-            # Fallback: usar el tiempo original del patch
-            if absolute_start_time is not None:
-                patch_start_abs = absolute_start_time + (patch_start - (slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE))
+            # UNIFICACIÓN: NO usar fallbacks inconsistentes
+            # Si no hay candidate_times_abs, NO generar patch centrado
+            if candidate_times_abs is not None:
+                logger.warning(f"[COMPOSITE] candidate_times_abs no es válido: {error_msg}")
             else:
-                patch_start_abs = patch_start
-            patch_end_abs = patch_start_abs + len(snr_patch) * time_reso_ds
-            
-            # En este caso, usar el centro del slice como tiempo de referencia para el patch
-            if detection_time_patch is None:
-                detection_time_patch = (patch_start_abs + patch_end_abs) / 2
-                logger.info(f"[COMPOSITE] Fallback: usando centro del slice como referencia: {detection_time_patch:.6f}s")
+                logger.warning(f"[COMPOSITE] candidate_times_abs es None, NO se puede centrar el patch")
+            detection_time_patch = None
+            patch_start_abs = None
+            patch_end_abs = None
         
         # Para el patch, usar bordes también para coherencia
         # Garantizar centrado exacto en el tiempo de detección
@@ -1616,7 +1673,7 @@ def save_slice_summary(
         
         # Título con información del centrado temporal
         if detection_time_patch is not None:
-            ax_patch_prof.set_title(f"Candidate Patch SNR\nCentered at {detection_time_patch:.3f}s | Peak={peak_snr_patch:.{config.PLOT_SNR_PRECISION}f}σ", fontsize=9, fontweight="bold")
+            ax_patch_prof.set_title(f"Candidate Patch SNR\nCentered at {detection_time_patch:.{config.PLOT_TIME_PRECISION}f}s | Peak={peak_snr_patch:.{config.PLOT_SNR_PRECISION}f}σ", fontsize=9, fontweight="bold")
         else:
             ax_patch_prof.set_title(f"Candidate Patch SNR\nPeak={peak_snr_patch:.{config.PLOT_SNR_PRECISION}f}σ", fontsize=9, fontweight="bold")
     else:

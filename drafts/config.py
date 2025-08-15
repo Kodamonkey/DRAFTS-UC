@@ -122,6 +122,17 @@ WATERFALL_CMAP: str = "mako"                # Colormap unificado para waterfalls
 WATERFALL_ORIGIN: str = "lower"             # 'lower' o 'upper'
 
 # =============================================================================
+# CONFIGURACIÓN DE PRECISIÓN EN PLOTS COMPOSITE (SISTEMA)
+# =============================================================================
+
+# Precisión de decimales para mejorar visualización en plots composite
+# Estas configuraciones controlan la cantidad de decimales mostrados en ejes y etiquetas
+PLOT_TIME_PRECISION: int = 5                # Decimales para tiempo en ejes X (3 = 0.123s, 6 = 0.123456s)
+PLOT_FREQ_PRECISION: int = 0                # Decimales para frecuencia en ejes Y (0 = 1200 MHz, 1 = 1200.0 MHz)
+PLOT_DM_PRECISION: int = 1                  # Decimales para DM en etiquetas (1 = 123.4 pc cm⁻³, 0 = 123 pc cm⁻³)
+PLOT_SNR_PRECISION: int = 1                 # Decimales para valores SNR (1 = 5.2σ, 2 = 5.23σ)
+
+# =============================================================================
 # CONFIGURACIONES AVANZADAS DE LOGGING Y DEBUG (SISTEMA)
 # =============================================================================
 
@@ -330,3 +341,35 @@ def check_model_files():
         }
     
     return model_status
+
+
+# =============================================================================
+# CONFIGURACIÓN AVANZADA DE SNR Y TIME SERIES
+# =============================================================================
+
+# Mejoras de SNR basadas en métodos robustos de detección
+ENHANCED_SNR_CALCULATION: bool = True      # True = usar métodos mejorados de SNR, False = métodos originales
+
+# Configuración de matched filtering para SNR
+SNR_MATCHED_FILTERING: bool = True         # True = aplicar matched filtering con múltiples anchos de boxcar
+SNR_BOXCAR_WIDTHS: list = [1, 2, 3, 4, 6, 9, 14, 20, 30]  # Anchos óptimos para detección FRB
+
+# Configuración de estimación de ruido robusta
+SNR_ROBUST_NOISE_ESTIMATION: bool = True   # True = usar estimación robusta de sigma (recorte central 95%)
+SNR_NOISE_CORRECTION_FACTOR: float = 1.148 # Factor de corrección para estimación robusta
+
+# Configuración de detección de picos mejorada
+SNR_ENHANCED_PEAK_DETECTION: bool = True   # True = usar interpolación cuadrática para precisión temporal
+SNR_MIN_THRESHOLD: float = 3.0             # Umbral mínimo de SNR para considerar picos válidos
+
+# Configuración de time series en waterfalls
+WATERFALL_SHOW_TIME_SERIES: bool = True    # True = mostrar time series integrada en waterfalls
+WATERFALL_SHOW_SNR_PROFILE: bool = True    # True = mostrar perfil SNR en waterfalls
+WATERFALL_TIME_SERIES_ALPHA: float = 0.7   # Transparencia de la time series (0.0-1.0)
+WATERFALL_SNR_PROFILE_ALPHA: float = 0.8  # Transparencia del perfil SNR (0.0-1.0)
+
+# Configuración de visualización de picos SNR
+SNR_SHOW_PEAK_MARKERS: bool = True         # True = mostrar marcadores de picos SNR en plots
+SNR_SHOW_PEAK_VALUES: bool = True          # True = mostrar valores de picos SNR en plots
+SNR_PEAK_MARKER_SIZE: int = 5              # Tamaño de marcadores de picos
+SNR_PEAK_LINE_COLOR: str = "red"           # Color de líneas de picos SNR

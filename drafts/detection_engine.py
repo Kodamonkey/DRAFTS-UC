@@ -72,7 +72,7 @@ def process_band(
     patches_dir=None,
     chunk_idx=None,  # ID del chunk
     band_idx=None,  # ID de la banda
-    slice_start_idx: int | None = None,  # NUEVO: inicio del slice (decimado) para índice global
+    slice_start_idx: int | None = None,  # inicio del slice (decimado) para índice global
 ):
     """Procesa una banda con tiempo absoluto para continuidad temporal.
     
@@ -141,13 +141,18 @@ def process_band(
             slice_len,
         )
         
-        # Usar compute_snr_profile para SNR consistente con composite
+        # Usar compute_snr_profile corregido para SNR consistente con composite
         # Extraer región del candidato para cálculo de SNR
         x1, y1, x2, y2 = map(int, box)
         candidate_region = band_img[y1:y2, x1:x2]
         if candidate_region.size > 0:
-            # Usar compute_snr_profile para consistencia con composite
-            snr_profile, _ = compute_snr_profile(candidate_region)
+            try:
+                from .analysis.snr_utils import compute_snr_profile_corrected
+                # Usar método corregido para consistencia con composite
+                snr_profile, _ = compute_snr_profile_corrected(candidate_region, config.TIME_RESO * config.DOWN_TIME_RATE)
+            except ImportError:
+                # Fallback al método original
+                snr_profile, _ = compute_snr_profile(candidate_region)
             snr_val_raw = np.max(snr_profile)  # Tomar el pico del SNR
         else:
             snr_val_raw = 0.0
@@ -541,6 +546,7 @@ def process_slice(
                 absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
                 chunk_idx=chunk_idx,  # PASAR CHUNK_ID
                 force_plots=force_plots,
+                candidate_times_abs=band_result["candidate_times_abs"],  # PASAR TIEMPOS DE CANDIDATOS
                 plot_context=comp_ctx,
             )
         else:

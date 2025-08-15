@@ -122,6 +122,17 @@ WATERFALL_CMAP: str = "mako"                # Colormap unificado para waterfalls
 WATERFALL_ORIGIN: str = "lower"             # 'lower' o 'upper'
 
 # =============================================================================
+# CONFIGURACIÓN DE PRECISIÓN EN PLOTS COMPOSITE (SISTEMA)
+# =============================================================================
+
+# Precisión de decimales para mejorar visualización en plots composite
+# Estas configuraciones controlan la cantidad de decimales mostrados en ejes y etiquetas
+PLOT_TIME_PRECISION: int = 5                # Decimales para tiempo en ejes X (3 = 0.123s, 6 = 0.123456s)
+PLOT_FREQ_PRECISION: int = 0                # Decimales para frecuencia en ejes Y (0 = 1200 MHz, 1 = 1200.0 MHz)
+PLOT_DM_PRECISION: int = 1                  # Decimales para DM en etiquetas (1 = 123.4 pc cm⁻³, 0 = 123 pc cm⁻³)
+PLOT_SNR_PRECISION: int = 1                 # Decimales para valores SNR (1 = 5.2σ, 2 = 5.23σ)
+
+# =============================================================================
 # CONFIGURACIONES AVANZADAS DE LOGGING Y DEBUG (SISTEMA)
 # =============================================================================
 

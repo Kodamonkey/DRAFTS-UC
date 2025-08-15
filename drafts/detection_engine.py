@@ -72,7 +72,7 @@ def process_band(
     patches_dir=None,
     chunk_idx=None,  # ID del chunk
     band_idx=None,  # ID de la banda
-    slice_start_idx: int | None = None,  # NUEVO: inicio del slice (decimado) para índice global
+    slice_start_idx: int | None = None,  # inicio del slice (decimado) para índice global
 ):
     """Procesa una banda con tiempo absoluto para continuidad temporal.
     
@@ -541,6 +541,7 @@ def process_slice(
                 absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
                 chunk_idx=chunk_idx,  # PASAR CHUNK_ID
                 force_plots=force_plots,
+                candidate_times_abs=band_result["candidate_times_abs"],  # PASAR TIEMPOS DE CANDIDATOS
                 plot_context=comp_ctx,
             )
         else:

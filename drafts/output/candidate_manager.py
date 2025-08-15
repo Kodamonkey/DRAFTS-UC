@@ -11,6 +11,21 @@ from typing import List, Tuple
 # Setup logger
 logger = logging.getLogger(__name__)
 
+def is_file_locked(file_path: Path) -> bool:
+    """Check if a file is locked by another process (Windows)."""
+    try:
+        if not file_path.exists():
+            return False
+        
+        # Intentar abrir el archivo en modo exclusivo
+        with file_path.open("r+b"):
+            pass
+        return False
+    except (PermissionError, OSError):
+        return True
+    except Exception:
+        return False
+
 # CSV header for candidate output
 CANDIDATE_HEADER = [
     "file",
@@ -34,23 +49,59 @@ CANDIDATE_HEADER = [
 
 def ensure_csv_header(csv_path: Path) -> None:
     """Create csv_path with the standard candidate header if needed."""
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    if csv_path.exists():
-        return
     try:
+        # Crear directorio si no existe
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Si el archivo ya existe, no hacer nada
+        if csv_path.exists():
+            return
+            
+        # Crear archivo con header
         with csv_path.open("w", newline="") as f_csv:
             writer = csv.writer(f_csv)
             writer.writerow(CANDIDATE_HEADER)
+            logger.debug(f"Header CSV creado en: {csv_path}")
+            
     except PermissionError as e:
-        logger.error("Error de permisos al crear CSV %s: %s", csv_path, e)
+        logger.error(f"Error de permisos al crear CSV {csv_path}: {e}")
+        logger.error("Verificar permisos de escritura en el directorio")
+        raise
+    except Exception as e:
+        logger.error(f"Error inesperado al crear CSV {csv_path}: {e}")
         raise
 
 
 def append_candidate(csv_path: Path, candidate_row: list) -> None:
     """Append a candidate row to the CSV file."""
-    with csv_path.open("a", newline="") as f_csv:
-        writer = csv.writer(f_csv)
-        writer.writerow(candidate_row)
+    try:
+        # Verificar que el directorio existe
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Verificar si el archivo existe, si no, crear con header
+        if not csv_path.exists():
+            ensure_csv_header(csv_path)
+        
+        # Verificar si el archivo está bloqueado
+        if is_file_locked(csv_path):
+            logger.warning(f"Archivo CSV bloqueado: {csv_path}")
+            logger.warning("Creando archivo alternativo...")
+            _create_alternative_csv(csv_path, candidate_row)
+            return
+        
+        # Intentar escribir el candidato
+        with csv_path.open("a", newline="") as f_csv:
+            writer = csv.writer(f_csv)
+            writer.writerow(candidate_row)
+            
+    except PermissionError as e:
+        logger.error(f"Error de permisos al escribir en CSV {csv_path}: {e}")
+        logger.error("El archivo puede estar siendo usado por otro proceso o no hay permisos de escritura")
+        _create_alternative_csv(csv_path, candidate_row)
+            
+    except Exception as e:
+        logger.error(f"Error inesperado al escribir candidato en CSV {csv_path}: {e}")
+        raise
 
 
 @dataclass(slots=True)
@@ -90,4 +141,23 @@ class Candidate:
             row.append("burst" if self.is_burst else "no_burst")
         if self.patch_file is not None:
             row.append(self.patch_file)
-        return row 
+        return row
+
+
+def _create_alternative_csv(original_path: Path, candidate_row: list) -> None:
+    """Create an alternative CSV file when the original is locked or has permission issues."""
+    try:
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        alt_path = original_path.parent / f"{original_path.stem}_{timestamp}.csv"
+        logger.info(f"Creando archivo alternativo: {alt_path}")
+        
+        with alt_path.open("w", newline="") as f_csv:
+            writer = csv.writer(f_csv)
+            writer.writerow(CANDIDATE_HEADER)
+            writer.writerow(candidate_row)
+        logger.info(f"Candidato guardado en archivo alternativo: {alt_path}")
+        
+    except Exception as e:
+        logger.error(f"No se pudo crear archivo alternativo: {e}")
+        raise 

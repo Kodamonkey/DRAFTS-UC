@@ -13,25 +13,29 @@ def calculate_slice_len_from_duration() -> Tuple[int, float]:
     """
     Calcula SLICE_LEN dinámicamente basado en SLICE_DURATION_MS y metadatos del archivo.
     
-    Fórmula inversa: SLICE_LEN = round(SLICE_DURATION_MS / (TIME_RESO × DOWN_TIME_RATE × 1000))
+    Fórmula inversa (dominio decimado):
+        dt_ds = TIME_RESO × DOWN_TIME_RATE
+        SLICE_LEN = floor( (SLICE_DURATION_MS/1000) / dt_ds + 0.5 )  # round half up estable
     
     Returns:
         Tuple[int, float]: (slice_len_calculado, duracion_real_ms)
     """
-    if config.TIME_RESO <= 0:
+    if config.TIME_RESO <= 0 or config.DOWN_TIME_RATE < 1:
         logger.warning("TIME_RESO no está configurado, usando SLICE_LEN_MIN")
         return config.SLICE_LEN_MIN, config.SLICE_DURATION_MS
     
     # SLICE_LEN se calcula para datos YA decimados
     # Por lo tanto, usar TIME_RESO * DOWN_TIME_RATE
     target_duration_s = config.SLICE_DURATION_MS / 1000.0
-    calculated_slice_len = round(target_duration_s / (config.TIME_RESO * config.DOWN_TIME_RATE))
+    dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+    # Evitar banker rounding; seguir el comportamiento de PRESTO (enteros estables)
+    calculated_slice_len = int(math.floor((target_duration_s / dt_ds) + 0.5))
     
     # Aplicar límites mín/máx
     slice_len = max(config.SLICE_LEN_MIN, min(config.SLICE_LEN_MAX, calculated_slice_len))
     
     # Calcular duración real obtenida (para datos decimados)
-    real_duration_s = slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    real_duration_s = slice_len * dt_ds
     real_duration_ms = real_duration_s * 1000.0
     
     # Actualizar config.SLICE_LEN con el valor calculado
@@ -69,10 +73,10 @@ def calculate_optimal_chunk_size(slice_len: Optional[int] = None) -> int:
         logger.warning("Metadatos del archivo no disponibles, usando chunk por defecto")
         return slice_len * 200
 
-    total_samples = config.FILE_LENG // max(1, config.DOWN_TIME_RATE)
-    n_channels = max(1, config.FREQ_RESO // max(1, config.DOWN_FREQ_RATE))
-    bytes_per_sample = 4 * n_channels
-    available_bytes = psutil.virtual_memory().available
+    total_samples = config.FILE_LENG // max(1, config.DOWN_TIME_RATE) # Tamaño total del archivo
+    n_channels = max(1, config.FREQ_RESO // max(1, config.DOWN_FREQ_RATE)) # Número de canales
+    bytes_per_sample = 4 * n_channels # Bytes por muestra
+    available_bytes = psutil.virtual_memory().available # Bytes disponibles
     file_bytes = total_samples * bytes_per_sample
 
     if file_bytes <= available_bytes * 0.8:
@@ -106,7 +110,7 @@ def get_processing_parameters() -> dict:
     Returns:
         dict: Parámetros de procesamiento calculados.
     """
-    slice_len, real_duration_ms = calculate_slice_len_from_duration()
+    slice_len, real_duration_ms = calculate_slice_len_from_duration() # Calcular slice_len y real_duration_ms
     # Calcular chunk_samples usando planificador si está habilitado
     if getattr(config, 'USE_PLANNED_CHUNKING', False):
         # Estimar bytes por muestra después de downsampling en frecuencia

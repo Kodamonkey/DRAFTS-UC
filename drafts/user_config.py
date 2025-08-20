@@ -10,7 +10,13 @@ RESULTS_DIR = Path("./Results/ObjectDetection")      # Directorio para guardar r
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-   "FRB20201124_0009"
+   "3100_0001_00_8bit",
+   "3096_0001_00_8bit",
+   "3097_0001_00_8bit",
+   "3098_0001_00_8bit",
+   "3099_0001_00_8bit",
+   "3101_0001_00_8bit",
+   "3102_0001_00_8bit",
 ]
 
 # =============================================================================
@@ -18,7 +24,7 @@ FRB_TARGETS = [
 # =============================================================================
 
 # Duración de cada slice temporal (milisegundos)
-SLICE_DURATION_MS: float = 500.0
+SLICE_DURATION_MS: float = 300.0
 
 # =============================================================================
 # CONFIGURACIÓN DE DOWNSAMPLING
@@ -64,9 +70,3 @@ DEBUG_FREQUENCY_ORDER: bool = False        # True = mostrar información detalla
 
 # Forzar generación de plots incluso sin candidatos (modo debug)
 FORCE_PLOTS: bool = False                  # True = siempre generar plots para inspección
-
-# =============================================================================
-# CONFIGURACIÓN AVANZADA DE SNR Y TIME SERIES
-# =============================================================================
-
-

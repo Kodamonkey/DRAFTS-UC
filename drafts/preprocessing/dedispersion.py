@@ -72,7 +72,7 @@ def _d_dm_time_cpu(
     mid_channel = nchan_ds // 2
 
     # Calcular valores exactos de DM para cada píxel
-    dm_values = np.linspace(dm_min, dm_max, height, dtype=np.float32)
+    dm_values = np.linspace(dm_min, dm_max, height).astype(np.float32)
 
     for i in range(height):
         DM = dm_values[i]

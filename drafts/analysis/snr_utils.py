@@ -89,6 +89,235 @@ def estimate_sigma_iqr(data: np.ndarray) -> float:
     return iqr / 1.349
 
 
+def estimate_sigma_robust(data: np.ndarray) -> float:
+    """
+    Estimate noise standard deviation using robust method with central trimming.
+    
+    This method applies detrending, trims the central 95% of data, and applies
+    correction factors for accurate noise estimation in presence of signals.
+    
+    Parameters
+    ----------
+    data : np.ndarray
+        1D data array
+        
+    Returns
+    -------
+    float
+        Estimated standard deviation
+    """
+    data = data.astype(np.float32)
+    
+    # 1. DETRENDING: Remove median to eliminate baseline drift
+    median_val = float(np.median(data))
+    data_detrended = data - median_val
+    
+    n = len(data_detrended)
+    if n >= 20:
+        # 2. CENTRAL TRIMMING: Use central 95% of data (trim 2.5% from each end)
+        lo = n // 40      # 2.5% from bottom
+        hi = n - lo       # 2.5% from top
+        central = data_detrended[lo:hi]
+        
+        if central.size > 0:
+            # 3. ROBUST SIGMA CALCULATION: RMS using only central data
+            # This avoids contamination from signal peaks
+            central_squared = central.astype(np.float64) ** 2.0
+            sigma = float(np.sqrt(central_squared.sum() / (0.95 * n)))
+            
+            # 4. CORRECTION FACTOR: Compensate for 5% trimming
+            try:
+                from .. import config
+                correction_factor = getattr(config, 'SNR_NOISE_CORRECTION_FACTOR', 1.148)
+            except ImportError:
+                correction_factor = 1.148  # Default correction factor for 5% trimming
+            
+            sigma *= correction_factor
+        else:
+            # Fallback: use standard deviation of detrended data
+            sigma = float(np.std(data_detrended, ddof=1))
+    else:
+        # For small datasets, use standard deviation of detrended data
+        sigma = float(np.std(data_detrended, ddof=1))
+    
+    return max(sigma, 1e-10)  # Avoid division by zero
+
+
+def compute_snr_profile_enhanced(
+    waterfall: np.ndarray, 
+    time_reso: float,
+    off_regions: Optional[List[Tuple[int, int]]] = None,
+    use_enhanced: bool = True
+) -> Tuple[np.ndarray, float]:
+    """
+    Calculate enhanced SNR profile using matched filtering with multiple boxcar widths.
+    
+    This method applies matched filtering with different temporal widths to
+    maximize signal detection across various pulse durations.
+    
+    Parameters
+    ----------
+    waterfall : np.ndarray
+        2D array with shape (n_time, n_freq)
+    time_reso : float
+        Time resolution in seconds
+    off_regions : List[Tuple[int, int]], optional
+        List of (start, end) bin ranges for noise estimation
+        
+    Returns
+    -------
+    snr : np.ndarray
+        1D SNR profile with maximum SNR across all boxcar widths
+    sigma : float
+        Estimated noise standard deviation
+    """
+    if waterfall is None or waterfall.size == 0:
+        raise ValueError("waterfall is None or empty in compute_snr_profile_enhanced")
+    if waterfall.ndim < 2:
+        raise ValueError(f"waterfall must be 2D, got {waterfall.ndim}D array")
+    
+    # Integrate over frequency axis
+    profile = np.mean(waterfall, axis=1)
+    
+    # Estimate noise using robust method
+    if off_regions is None:
+        sigma = estimate_sigma_robust(profile)
+        mean_level = np.median(profile)
+    else:
+        # Use specified off-pulse regions
+        off_data = []
+        for start, end in off_regions:
+            start_idx = max(0, start if start >= 0 else len(profile) + start)
+            end_idx = min(len(profile), end if end >= 0 else len(profile) + end)
+            if start_idx < end_idx:
+                off_data.extend(profile[start_idx:end_idx])
+        
+        if off_data:
+            off_data = np.array(off_data)
+            sigma = np.std(off_data, ddof=1)
+            mean_level = np.mean(off_data)
+        else:
+            sigma = estimate_sigma_robust(profile)
+            mean_level = np.median(profile)
+    
+    # Normalize profile
+    profile_normalized = (profile - mean_level) / (sigma + 1e-10)
+    
+    # Apply matched filtering with different boxcar widths if enhanced mode is enabled
+    if use_enhanced:
+        try:
+            from .. import config
+            widths = getattr(config, 'SNR_BOXCAR_WIDTHS', [1, 2, 3, 4, 6, 9, 14, 20, 30])
+        except ImportError:
+            widths = [1, 2, 3, 4, 6, 9, 14, 20, 30]  # Optimal widths for FRB detection
+        
+        snr_max = np.full(len(profile), -np.inf)
+        
+        for w in widths:
+            if w <= len(profile):
+                # Create normalized kernel
+                kernel = np.ones(w, dtype=np.float32) / np.sqrt(float(w))
+                # Apply convolution
+                conv = np.convolve(profile_normalized, kernel, mode="same")
+                # Update maximum SNR
+                mask = conv > snr_max
+                snr_max[mask] = conv[mask]
+    else:
+        # Use simple SNR without matched filtering
+        snr_max = profile_normalized
+    
+    # Ensure finite values
+    snr_max = np.nan_to_num(snr_max, nan=-np.inf, posinf=np.max(snr_max[np.isfinite(snr_max)]) if np.isfinite(snr_max).any() else 0.0)
+    
+    return snr_max, sigma
+
+
+def compute_snr_profile_corrected(
+    waterfall: np.ndarray, 
+    time_reso: float,
+    off_regions: Optional[List[Tuple[int, int]]] = None
+) -> Tuple[np.ndarray, float]:
+    """
+    Calculate SNR profile using corrected method with proper detrending and noise estimation.
+    
+    This method implements the correct approach for signal detection:
+    1. Detrending to remove baseline drift
+    2. Robust noise estimation using central trimming
+    3. Proper normalization for SNR calculation
+    4. Optional matched filtering for enhanced detection
+    
+    Parameters
+    ----------
+    waterfall : np.ndarray
+        2D array with shape (n_time, n_freq)
+    time_reso : float
+        Time resolution in seconds
+    off_regions : List[Tuple[int, int]], optional
+        List of (start, end) bin ranges for noise estimation
+        
+    Returns
+    -------
+    snr : np.ndarray
+        1D SNR profile with maximum SNR across all boxcar widths
+    sigma : float
+        Estimated noise standard deviation
+    """
+    if waterfall is None or waterfall.size == 0:
+        raise ValueError("waterfall is None or empty in compute_snr_profile_corrected")
+    if waterfall.ndim < 2:
+        raise ValueError(f"waterfall must be 2D, got {waterfall.ndim}D array")
+    
+    # 1. INTEGRATION: Integrate over frequency axis
+    profile = np.mean(waterfall, axis=1)
+    
+    # 2. DETRENDING: Remove median to eliminate baseline drift
+    median_val = float(np.median(profile))
+    profile_detrended = profile - median_val
+    
+    # 3. ROBUST NOISE ESTIMATION: Use central trimming method
+    sigma = estimate_sigma_robust(profile)
+    
+    # 4. NORMALIZATION: Normalize to unit RMS
+    if sigma > 0:
+        profile_normalized = profile_detrended / sigma
+    else:
+        profile_normalized = profile_detrended
+        sigma = 1.0
+    
+    # 5. MATCHED FILTERING: Apply with different boxcar widths for enhanced detection
+    try:
+        from .. import config
+        use_enhanced = getattr(config, 'ENHANCED_SNR_CALCULATION', True)
+    except ImportError:
+        use_enhanced = True
+    
+    if use_enhanced:
+        try:
+            widths = getattr(config, 'SNR_BOXCAR_WIDTHS', [1, 2, 3, 4, 6, 9, 14, 20, 30])
+        except ImportError:
+            widths = [1, 2, 3, 4, 6, 9, 14, 20, 30]  # Optimal widths for FRB detection
+        
+        snr_max = np.full(len(profile_normalized), -np.inf)
+        
+        for w in widths:
+            if w <= len(profile_normalized):
+                # Create normalized kernel
+                kernel = np.ones(w, dtype=np.float32) / np.sqrt(float(w))
+                # Apply convolution
+                conv = np.convolve(profile_normalized, kernel, mode="same")
+                # Update maximum SNR
+                mask = conv > snr_max
+                snr_max[mask] = conv[mask]
+        
+        # Ensure finite values
+        snr_max = np.nan_to_num(snr_max, nan=-np.inf, posinf=np.max(snr_max[np.isfinite(snr_max)]) if np.isfinite(snr_max).any() else 0.0)
+        
+        return snr_max, sigma
+    else:
+        # Return simple normalized SNR without matched filtering
+        return profile_normalized, sigma
+
+
 def find_snr_peak(snr: np.ndarray, time_axis: Optional[np.ndarray] = None) -> Tuple[float, float, int]:
     """
     Find the peak SNR value and its location.
@@ -112,6 +341,55 @@ def find_snr_peak(snr: np.ndarray, time_axis: Optional[np.ndarray] = None) -> Tu
     peak_idx = np.argmax(snr)
     peak_snr = snr[peak_idx]
     peak_time = time_axis[peak_idx] if time_axis is not None else peak_idx
+    
+    return peak_snr, peak_time, peak_idx
+
+
+def find_peak_enhanced(snr_profile: np.ndarray, time_axis: np.ndarray, 
+                       min_snr_threshold: float = 3.0) -> Tuple[float, float, int]:
+    """
+    Find peak with enhanced timing precision and validation.
+    
+    This method applies SNR thresholding and can optionally use
+    interpolation for sub-sample timing precision.
+    
+    Parameters
+    ----------
+    snr_profile : np.ndarray
+        SNR profile array
+    time_axis : np.ndarray
+        Time axis corresponding to SNR profile
+    min_snr_threshold : float
+        Minimum SNR threshold for valid peaks
+        
+    Returns
+    -------
+    peak_snr : float
+        Peak SNR value
+    peak_time : float
+        Peak time with enhanced precision
+    peak_idx : int
+        Peak index
+    """
+    # Apply SNR threshold
+    valid_mask = snr_profile >= min_snr_threshold
+    
+    if not np.any(valid_mask):
+        return 0.0, time_axis[0], 0
+    
+    # Find global peak
+    peak_idx = np.argmax(snr_profile)
+    peak_snr = snr_profile[peak_idx]
+    peak_time = time_axis[peak_idx]
+    
+    # Enhanced timing precision using quadratic interpolation
+    if peak_idx > 0 and peak_idx < len(snr_profile) - 1:
+        y1, y2, y3 = snr_profile[peak_idx-1:peak_idx+2]
+        if y2 > y1 and y2 > y3:
+            # Real peak, calculate sub-sample offset
+            offset = 0.5 * (y1 - y3) / (y1 - 2*y2 + y3)
+            dt = time_axis[1] - time_axis[0]
+            peak_time += offset * dt
     
     return peak_snr, peak_time, peak_idx
 

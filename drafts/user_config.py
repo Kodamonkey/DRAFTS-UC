@@ -32,8 +32,7 @@ SLICE_DURATION_MS: float = 300.0
 
 # Factores de reducción para optimizar el procesamiento
 DOWN_FREQ_RATE: int = 1                      # Factor de reducción en frecuencia (1 = sin reducción)
-DOWN_TIME_RATE: int = 8                     # Factor de reducción en tiempo (1 = sin reducción)
-
+DOWN_TIME_RATE: int = 8                      # Factor de reducción en tiempo (1 = sin reducción)
 
 # =============================================================================
 # CONFIGURACIÓN DE DISPERSIÓN (DM)
@@ -49,7 +48,7 @@ DM_max: int = 1024                          # DM máximo en pc cm⁻³
 
 # Probabilidades mínimas para detección y clasificación
 DET_PROB: float = 0.3                       # Probabilidad mínima para considerar una detección válida
-CLASS_PROB: float = 0.5                     # Probabilidad mínima para clasificar como burst
+CLASS_PROB: float = 0.5                    # Probabilidad mínima para clasificar como burst
 
 # Umbral de SNR para resaltar en visualizaciones
 SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en visualizaciones

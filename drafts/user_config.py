@@ -28,7 +28,6 @@ SLICE_DURATION_MS: float = 300.0
 DOWN_FREQ_RATE: int = 1                      # Factor de reducción en frecuencia (1 = sin reducción)
 DOWN_TIME_RATE: int = 16                     # Factor de reducción en tiempo (1 = sin reducción)
 
-
 # =============================================================================
 # CONFIGURACIÓN DE DISPERSIÓN (DM)
 # =============================================================================

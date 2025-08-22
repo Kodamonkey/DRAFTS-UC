@@ -14,7 +14,6 @@ from ..input.data_loader import (
 from ..visualization.visualization_unified import plot_waterfall_block
 from ..preprocessing.dedispersion import dedisperse_block
 
-
 def _infer_file_type(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix == ".fits":

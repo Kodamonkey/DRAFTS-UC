@@ -16,7 +16,7 @@ from matplotlib.colors import ListedColormap
 
 # Local imports
 from .. import config
-from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
+from ..analysis.snr_utils import compute_snr_profile, find_snr_peak, compute_snr_profile_corrected
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
 from ..preprocessing.dedispersion import dedisperse_block
 from .visualization_ranges import get_dynamic_dm_range_for_candidate
@@ -114,7 +114,7 @@ def plot_waterfall_block(
     absolute_start_time: float = None,  # Tiempo absoluto de inicio del bloque
     integrate_ts: bool = True,
     integrate_spec: bool = True,
-) -> None:
+) -> Path:
     """Plot a single waterfall block.
 
     Parameters
@@ -172,10 +172,12 @@ def plot_waterfall_block(
     ax_spec = plt.axes((0.78, 0.15, 0.17, im_height), sharey=ax_im) if integrate_spec else None
 
     # Imagen con extent centrado en muestras: usar centros temporales
+    cmap_name = getattr(config, 'WATERFALL_CMAP', 'mako')
+    origin_mode = getattr(config, 'WATERFALL_ORIGIN', 'lower')
     img = ax_im.imshow(
         block.T,
-        origin="upper",  # PRESTO usa origin='upper'
-        cmap="mako",      # mantener color solicitado
+        origin=origin_mode,
+        cmap=cmap_name,
         aspect="auto",
         # DEJAR QUE MATPLOTLIB ESCALA A PARTIR DE LOS VALORES NORMALIZADOS
         extent=(time_start, time_end, float(freq.min()), float(freq.max())),
@@ -184,13 +186,54 @@ def plot_waterfall_block(
     ax_im.set_xlabel("Time", fontsize=11)
     ax_im.set_ylabel("Observing frequency (MHz)", fontsize=11)
 
-    # Time series integrada (como integrate_ts de PRESTO)
+    # Time series integrada con SNR mejorado
     if integrate_ts and ax_ts is not None:
         times = time_start + (np.arange(block_size) + 0.5) * time_reso
-        ax_ts.plot(times, block.sum(axis=1), "k", lw=0.8)
+        
+        # Calcular time series integrada en frecuencia
+        time_series = block.sum(axis=1)
+        
+        # Calcular SNR usando método corregido
+        try:
+            from ..analysis.snr_utils import compute_snr_profile_corrected
+            # Usar configuración del usuario para habilitar/deshabilitar mejoras
+            use_enhanced = getattr(config, 'ENHANCED_SNR_CALCULATION', True)
+            if use_enhanced:
+                snr_profile, sigma = compute_snr_profile_corrected(block, time_reso)
+            else:
+                # Fallback al método original si las mejoras están deshabilitadas
+                from ..analysis.snr_utils import compute_snr_profile
+                snr_profile, sigma = compute_snr_profile(block)
+            
+            # Plot time series original
+            ax_ts.plot(times, time_series, "k", lw=0.8, alpha=0.7, label="Time Series")
+            
+            # Plot SNR profile
+            ax_snr = ax_ts.twinx()
+            ax_snr.plot(times, snr_profile, "r", lw=1.0, alpha=0.8, label="SNR")
+            
+            # Encontrar y marcar pico SNR
+            peak_idx = np.argmax(snr_profile)
+            peak_time = times[peak_idx]
+            peak_snr = snr_profile[peak_idx]
+            
+            if peak_snr > 3.0:  # Solo marcar picos significativos
+                ax_snr.axvline(peak_time, color='red', linestyle='--', alpha=0.8, lw=1)
+                ax_snr.text(peak_time, peak_snr, f'{peak_snr:.1f}σ', 
+                           ha='center', va='bottom', color='red', fontsize=8)
+            
+            # Configurar eje SNR
+            ax_snr.set_ylabel("SNR", color='red', fontsize=9)
+            ax_snr.tick_params(axis='y', labelcolor='red')
+            
+        except ImportError:
+            # Fallback si no se puede importar las funciones mejoradas
+            ax_ts.plot(times, time_series, "k", lw=0.8, label="Time Series")
+        
         ax_ts.set_xlim([times.min(), times.max()])
+        ax_ts.set_ylabel("Intensity", fontsize=9)
         plt.setp(ax_ts.get_xticklabels(), visible=False)
-        plt.setp(ax_ts.get_yticklabels(), visible=False)
+        ax_ts.legend(loc='upper right', fontsize=8)
 
     # Espectro integrado alrededor del centro (ventana 10% de la duración)
     if integrate_spec and ax_spec is not None:
@@ -215,6 +258,7 @@ def plot_waterfall_block(
     out_path = save_dir / f"{filename}-block{block_idx:03d}-peak{peak_time:.2f}.png"
     plt.savefig(out_path, dpi=200, bbox_inches='tight')
     plt.close()
+    return out_path
 
 
 def save_detection_plot(
@@ -286,10 +330,10 @@ def save_detection_plot(
     ax.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=12, fontweight="bold")
     
     freq_min, freq_max = get_band_frequency_range(band_idx)
-    freq_range = f"{freq_min:.0f}\u2013{freq_max:.0f} MHz"
+    freq_range = f"{freq_min:.{config.PLOT_FREQ_PRECISION}f}\u2013{freq_max:.{config.PLOT_FREQ_PRECISION}f} MHz"
         
     # Indicar si se está usando DM dinámico
-    dm_range_info = f"{dm_plot_min:.0f}\u2013{dm_plot_max:.0f}"
+    dm_range_info = f"{dm_plot_min:.{config.PLOT_DM_PRECISION}f}\u2013{dm_plot_max:.{config.PLOT_DM_PRECISION}f}"
     if getattr(config, 'DM_DYNAMIC_RANGE_ENABLE', True) and top_boxes is not None and len(top_boxes) > 0:
         dm_range_info += " (auto)"
     else:
@@ -300,8 +344,8 @@ def save_detection_plot(
     title = (
         f"{fits_stem} - {band_name} ({freq_range})\n"
         f"Slice {slice_idx:03d}/{time_slice} | "
-        f"Slice duration: {exact_slice_ms:.6f} ms | "
-        f"Time Resolution: {config.TIME_RESO * config.DOWN_TIME_RATE * 1e6:.3f} \u03bcs | "
+        f"Slice duration: {exact_slice_ms:.{config.PLOT_TIME_PRECISION}f} ms | "
+        f"Time Resolution: {config.TIME_RESO * config.DOWN_TIME_RATE * 1e6:.{config.PLOT_TIME_PRECISION}f} \u03bcs | "
         f"DM Range: {dm_range_info} pc cm⁻\u00b3"
     )
     ax.set_title(title, fontsize=11, fontweight="bold", pad=20)
@@ -363,15 +407,18 @@ def save_detection_plot(
             effective_len = slice_samples if slice_samples is not None else slice_len
             dm_val_real, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, effective_len)
             
-            # CALCULAR TIEMPO ABSOLUTO DE LA DETECCIÓN
-            # Priorizar tiempo absoluto exacto pasado desde el pipeline
+            # UNIFICACIÓN: Usar SOLO candidate_times_abs para consistencia
             if candidate_times_abs is not None and idx < len(candidate_times_abs):
                 detection_time = float(candidate_times_abs[idx])
             else:
-                if absolute_start_time is not None:
-                    detection_time = absolute_start_time + t_sec_real
+                # UNIFICACIÓN: NO usar fallbacks inconsistentes
+                if candidate_times_abs is None:
+                    logger.warning(f"[DETECTION] candidate_times_abs es None para candidato {idx}")
+                elif idx >= len(candidate_times_abs):
+                    logger.warning(f"[DETECTION] Índice {idx} fuera de rango para candidate_times_abs (len={len(candidate_times_abs)})")
                 else:
-                    detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
+                    logger.warning(f"[DETECTION] candidate_times_abs[{idx}] no es válido")
+                detection_time = None
             
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
@@ -381,18 +428,31 @@ def save_detection_plot(
                 burst_status = "BURST" if is_burst else "NO BURST"
                 
                 # Etiqueta completa con tiempo absoluto - USANDO DM REAL
-                label = (
-                    f"#{idx+1}\n"
-                    f"DM: {dm_val_real:.1f}\n"
-                    f"Time: {detection_time:.3f}s\n"
-                    f"Det: {conf:.2f}\n"
-                    f"Cls: {class_prob:.2f}\n"
-                    f"{burst_status}"
-                )
+                if detection_time is not None:
+                    label = (
+                        f"#{idx+1}\n"
+                        f"DM: {dm_val_real:.{config.PLOT_DM_PRECISION}f}\n"
+                        f"Time: {detection_time:.{config.PLOT_TIME_PRECISION}f}s\n"
+                        f"Det: {conf:.2f}\n"
+                        f"Cls: {class_prob:.2f}\n"
+                        f"{burst_status}"
+                    )
+                else:
+                    label = (
+                        f"#{idx+1}\n"
+                        f"DM: {dm_val_real:.{config.PLOT_DM_PRECISION}f}\n"
+                        f"Time: N/A\n"
+                        f"Det: {conf:.2f}\n"
+                        f"Cls: {class_prob:.2f}\n"
+                        f"{burst_status}"
+                    )
             else:
                 # Fallback si no hay probabilidades de clasificación
                 color = "lime"
-                label = f"#{idx+1}\nDM: {dm_val_real:.1f}\nTime: {detection_time:.3f}s\nDet: {conf:.2f}"
+                if detection_time is not None:
+                    label = f"#{idx+1}\nDM: {dm_val_real:.{config.PLOT_DM_PRECISION}f}\nTime: {detection_time:.{config.PLOT_TIME_PRECISION}f}s\nDet: {conf:.2f}"
+                else:
+                    label = f"#{idx+1}\nDM: {dm_val_real:.{config.PLOT_DM_PRECISION}f}\nTime: N/A\nDet: {conf:.2f}"
             
             # Dibujar rectángulo
             rect = plt.Rectangle(
@@ -422,10 +482,10 @@ def save_detection_plot(
         img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
         im_cb = ax_cb.imshow(img_gray, origin="lower", aspect="auto", cmap="mako")
         ax_cb.set_xticks(time_positions)
-        ax_cb.set_xticklabels([f"{t:.6f}" for t in time_values])
+        ax_cb.set_xticklabels([f"{t:.{config.PLOT_TIME_PRECISION}f}s" for t in time_values])
         ax_cb.set_xlabel("Time (s)", fontsize=12, fontweight="bold")
         ax_cb.set_yticks(dm_positions)
-        ax_cb.set_yticklabels([f"{dm:.0f}" for dm in dm_values])
+        ax_cb.set_yticklabels([f"{dm:.{config.PLOT_DM_PRECISION}f}" for dm in dm_values])
         ax_cb.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=12, fontweight="bold")
         ax_cb.set_title(title, fontsize=11, fontweight="bold", pad=20)
         if top_boxes is not None:
@@ -473,6 +533,7 @@ def save_all_plots(
     chunk_idx=None,  # PARÁMETRO PARA CHUNK
     force_plots: bool = False,
     candidate_times_abs: Optional[Iterable[float]] = None,
+    plot_context: Optional[dict] = None,
 ):
     """Guarda todos los plots con tiempo absoluto para continuidad temporal.
     
@@ -518,6 +579,7 @@ def save_all_plots(
             chunk_idx=chunk_idx,  
             slice_samples=real_slice_samples,
             candidate_times_abs=candidate_times_abs,
+            plot_context=plot_context,
         )
     
     # Patch plot - crear carpeta solo si hay patch o si se fuerza en modo debug
@@ -550,7 +612,7 @@ def save_all_plots(
         # Si force_plots=True pero no hay dedisp_block, usar waterfall_block
         plot_data = dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block
         if plot_data is not None and plot_data.size > 0:
-            plot_waterfall_block(
+            wf_dedisp_path = plot_waterfall_block(
                 data_block=plot_data,
                 freq=freq_down,
                 time_reso=time_reso_ds,
@@ -563,6 +625,9 @@ def save_all_plots(
                 integrate_ts=True,
                 integrate_spec=True,
             )
+            # Adjuntar ruta al contexto para auditoría
+            if plot_context is not None:
+                plot_context['waterfall_dedispersion_path'] = str(wf_dedisp_path)
     
     # Detections plot - crear carpeta solo si se va a generar
     if out_img_path is not None:
@@ -589,6 +654,40 @@ def save_all_plots(
             ),
             candidate_times_abs=candidate_times_abs,
         )
+
+def validate_candidate_times(candidate_times_abs: Optional[Iterable[float]], 
+                           top_conf: Iterable, 
+                           top_boxes: Iterable | None) -> Tuple[bool, str]:
+    """
+    Valida que candidate_times_abs sea consistente y válido.
+    
+    Args:
+        candidate_times_abs: Lista de tiempos absolutos de candidatos
+        top_conf: Lista de confianzas de detección
+        top_boxes: Lista de bounding boxes
+        
+    Returns:
+        Tuple[is_valid, error_message]
+    """
+    if candidate_times_abs is None:
+        return False, "candidate_times_abs es None"
+    
+    if len(candidate_times_abs) == 0:
+        return False, "candidate_times_abs está vacío"
+    
+    if len(candidate_times_abs) != len(top_conf):
+        return False, f"candidate_times_abs ({len(candidate_times_abs)}) no coincide con top_conf ({len(top_conf)})"
+    
+    if top_boxes is not None and len(candidate_times_abs) != len(top_boxes):
+        return False, f"candidate_times_abs ({len(candidate_times_abs)}) no coincide con top_boxes ({len(top_boxes)})"
+    
+    # Verificar que todos los tiempos sean números válidos
+    for i, time in enumerate(candidate_times_abs):
+        if not isinstance(time, (int, float)) or np.isnan(time) or np.isinf(time):
+            return False, f"candidate_times_abs[{i}] = {time} no es un número válido"
+    
+    return True, "OK"
+
 
 def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
     """Get the frequency range (min, max) for a specific band.
@@ -653,8 +752,8 @@ def save_plot(
     fits_stem: str,
     slice_len: int,
     band_idx: int = 0,  # Para calcular el rango de frecuencias
-    absolute_start_time: Optional[float] = None,  # 🕐 NUEVO PARÁMETRO PARA TIEMPO ABSOLUTO
-    slice_samples: Optional[int] = None,  # 🕐 NUEVO: muestras reales en el slice
+    absolute_start_time: Optional[float] = None,  # TIEMPO ABSOLUTO
+    slice_samples: Optional[int] = None,  # muestras reales en el slice
     candidate_times_abs: Optional[Iterable[float]] = None,
 ) -> None:
     """Wrapper fino sin mutar estado global; pasa slice_len explícito."""
@@ -693,8 +792,14 @@ def save_patch_plot(
     thresh_snr: Optional[float] = None,
     band_idx: int = 0,  # Para mostrar el rango de frecuencias
     band_name: str = "Unknown Band",  # Nombre de la banda
+    detection_time: Optional[float] = None,  # Tiempo exacto de detección del candidato
 ) -> None:
     """Save a visualization of the classification patch with SNR profile.
+    
+    FUNCIONALIDAD ESPECIAL: Si se proporciona detection_time, el patch se centra
+    automáticamente en ese tiempo para máxima precisión. El patch se muestra desde
+    (detection_time - patch_duration/2) hasta (detection_time + patch_duration/2),
+    con el candidato perfectamente centrado en detection_time.
     
     Parameters
     ----------
@@ -707,7 +812,7 @@ def save_patch_plot(
     time_reso : float
         Time resolution in seconds
     start_time : float
-        Start time in seconds
+        Start time in seconds (tiempo base del slice)
     off_regions : Optional[List[Tuple[int, int]]]
         Off-pulse regions for SNR calculation
     thresh_snr : Optional[float]
@@ -716,6 +821,8 @@ def save_patch_plot(
         Band index for frequency range calculation
     band_name : str
         Name of the band for display
+    detection_time : Optional[float]
+        Tiempo exacto de detección del candidato para centrar el patch
     """
 
     # Check if patch is valid
@@ -723,14 +830,87 @@ def save_patch_plot(
         logger.warning(f"Cannot create patch plot: patch is None or empty. Skipping {out_path}")
         return
 
-    # Calculate SNR profile
-    snr_profile, sigma = compute_snr_profile(patch, off_regions)
-    peak_snr, peak_time_rel, peak_idx = find_snr_peak(snr_profile)
+        # Calculate corrected SNR profile
+    try:
+        from ..analysis.snr_utils import compute_snr_profile_corrected
+        snr_profile, sigma = compute_snr_profile_corrected(patch, time_reso, off_regions)
+        peak_snr, peak_time_rel, peak_idx = find_snr_peak(snr_profile)
+    except ImportError:
+        # Fallback to original method
+        snr_profile, sigma = compute_snr_profile(patch, off_regions)
+        peak_snr, peak_time_rel, peak_idx = find_snr_peak(snr_profile)
+    
+    # Centrar el patch en el tiempo de detección del candidato
+    if detection_time is not None:
+        # Calcular el tiempo de inicio del patch para que el candidato quede centrado
+        patch_duration = patch.shape[0] * time_reso
+        patch_start_time = detection_time - (patch_duration / 2)
+        patch_end_time = detection_time + (patch_duration / 2)
+        
+        # Log de la funcionalidad especial de centrado temporal
+        logger.info(f"[PATCH] Patch centrado en candidato: tiempo={detection_time:.{config.PLOT_TIME_PRECISION}f}s, "
+                   f"ventana=[{patch_start_time:.{config.PLOT_TIME_PRECISION}f}s, {patch_end_time:.{config.PLOT_TIME_PRECISION}f}s], duración={patch_duration:.{config.PLOT_TIME_PRECISION}f}s")
+    else:
+        # Fallback: usar el tiempo de inicio original
+        patch_start_time = start_time
+        patch_end_time = start_time + patch.shape[0] * time_reso
     
     fig = plt.figure(figsize=(6, 6))
     gs = gridspec.GridSpec(2, 1, height_ratios=[1, 4], hspace=0.05)
 
-    time_axis = start_time + np.arange(patch.shape[0]) * time_reso
+    # Usar los tiempos corregidos para el eje temporal
+    # CORRECCIÓN CRÍTICA: Garantizar centrado exacto en el tiempo de detección
+    if detection_time is not None:
+        # MÉTODO EXACTO: Construir el eje temporal directamente desde el centro
+        # Esto garantiza que detection_time esté exactamente en el centro
+        n_samples = patch.shape[0]
+        center_idx = n_samples // 2
+        
+        if n_samples % 2 == 0:
+            # Número par de muestras: centrar entre dos muestras centrales
+            half_samples = n_samples // 2
+            # Construir eje temporal desde el centro hacia afuera
+            time_axis = np.zeros(n_samples)
+            for i in range(n_samples):
+                if i < center_idx:
+                    # Muestras antes del centro
+                    time_axis[i] = detection_time - (center_idx - i) * time_reso
+                else:
+                    # Muestras desde el centro en adelante
+                    time_axis[i] = detection_time + (i - center_idx) * time_reso
+        else:
+            # Número impar de muestras: centrar exactamente en la muestra central
+            half_samples = n_samples // 2
+            # Construir eje temporal desde el centro hacia afuera
+            time_axis = np.zeros(n_samples)
+            for i in range(n_samples):
+                if i < center_idx:
+                    # Muestras antes del centro
+                    time_axis[i] = detection_time - (center_idx - i) * time_reso
+                else:
+                    # Muestras desde el centro en adelante
+                    time_axis[i] = detection_time + (i - center_idx) * time_reso
+        
+        # Verificación del centrado temporal
+        center_time = time_axis[center_idx]
+        logger.info(f"[PATCH] Centrado temporal verificado:")
+        logger.info(f"   - Tiempo objetivo: {detection_time:.9f}s")
+        logger.info(f"   - Tiempo en el centro: {center_time:.9f}s")
+        logger.info(f"   - Diferencia: {abs(center_time - detection_time):.9f}s")
+        logger.info(f"   - Límites del patch: [{time_axis[0]:.9f}s, {time_axis[-1]:.9f}s]")
+        
+        # Verificar que el centrado sea perfecto
+        if abs(center_time - detection_time) > 1e-9:
+            logger.error(f" [PATCH] ERROR: Centrado temporal falló!")
+            logger.error(f"   Diferencia: {abs(center_time - detection_time):.9f}s")
+            raise ValueError(f"Centrado temporal falló: diferencia={abs(center_time - detection_time):.9f}s")
+        else:
+            logger.info(f"[PATCH] Centrado temporal perfecto!")
+        
+        peak_time_abs = detection_time
+    else:
+        # Fallback: usar linspace normal
+        time_axis = np.linspace(patch_start_time, patch_end_time, patch.shape[0])
     peak_time_abs = start_time + peak_idx * time_reso
 
     # Get band frequency range for title
@@ -790,27 +970,24 @@ def save_patch_plot(
     ax1.set_xticks(time_tick_positions)
     ax1.set_xticklabels([f"{t:.3f}" for t in time_tick_positions])
 
-    # Mark peak position on waterfall
+    # Marcar la posición del pico SNR en el waterfall
     if config.SNR_SHOW_PEAK_LINES:
         ax1.axvline(x=peak_time_abs, color=config.SNR_HIGHLIGHT_COLOR, 
                    linestyle='-', alpha=0.8, linewidth=2)
 
-    ax1.set_xlabel("Time (s)", fontsize=10, fontweight='bold')
-    ax1.set_ylabel("Frequency (MHz)", fontsize=10, fontweight='bold')
-
-    # Add colorbar
-    cbar = plt.colorbar(im, ax=ax1, shrink=0.8)
-    cbar.set_label('Normalized Intensity', fontsize=9, fontweight='bold')
-
-    # Add title with band frequency range information
-    title = f"Candidate Patch - {band_name_with_freq}"
-    if patch.size == 0 or np.all(patch == 0):
-        title += " (Debug - No Data)"
-    plt.suptitle(title, fontsize=12, fontweight='bold')
+    ax1.set_xlabel("Time (s)", fontsize=10)
+    ax1.set_ylabel("Frequency (MHz)", fontsize=10)
+    
+    # Título con información del centrado temporal
+    if detection_time is not None:
+        title = f"Candidate Patch - {band_name_with_freq}\nCentered at {detection_time:.{config.PLOT_TIME_PRECISION}f}s | Peak SNR: {peak_snr:.{config.PLOT_SNR_PRECISION}f}σ"
+    else:
+        title = f"Candidate Patch - {band_name_with_freq}\nPeak SNR: {peak_snr:.1f}σ"
+    
+    ax1.set_title(title, fontsize=11, fontweight="bold")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=150, bbox_inches='tight')
-    plt.close()
     plt.close()
 
 
@@ -839,8 +1016,19 @@ def save_slice_summary(
     chunk_idx: Optional[int] = None,  
     slice_samples: Optional[int] = None,  
     candidate_times_abs: Optional[Iterable[float]] = None,
+    plot_context: Optional[dict] = None,
 ) -> None:
+    print(f"[COMPOSITE] save_slice_summary INICIADA para slice {slice_idx}")
+    print(f"[COMPOSITE] candidate_times_abs = {candidate_times_abs}")
     """Save a composite figure summarising detections and waterfalls with SNR analysis.
+    
+    FUNCIONALIDAD ESPECIAL: Los patches de waterfall (tanto individuales como en el composite)
+    se centran automáticamente en el tiempo de detección del candidato para máxima precisión.
+    Si el candidato se detectó en 9.55s y la ventana es de 500ms, el patch se muestra
+    desde 9.30s hasta 9.80s, con el candidato perfectamente centrado en 9.55s.
+    
+    Esta funcionalidad NO afecta a los otros plots: waterfall dispersed, waterfall dedispersed,
+    detection, DM-time.
 
     Parameters
     ----------
@@ -933,7 +1121,7 @@ def save_slice_summary(
     fig = plt.figure(figsize=(14, 12))
 
 
-    gs_main = gridspec.GridSpec(2, 1, height_ratios=[1.5, 1], hspace=0.3, figure=fig)
+    gs_main = gridspec.GridSpec(2, 1, height_ratios=[1.5, 1], hspace=0.6, figure=fig)  # Aumentar hspace para separar títulos
     # Subplot para detecciones (parte superior izquierda)
     ax_det = fig.add_subplot(gs_main[0, 0])
     ax_det.imshow(img_rgb, origin="lower", aspect="auto")
@@ -953,7 +1141,7 @@ def save_slice_summary(
     denom = float(max(n_px - 1, 1))
     time_values_det = slice_start_abs + (time_positions_det / denom) * (slice_end_abs - slice_start_abs)
     ax_det.set_xticks(time_positions_det)
-    ax_det.set_xticklabels([f"{t:.6f}" for t in time_values_det])
+    ax_det.set_xticklabels([f"{t:.{config.PLOT_TIME_PRECISION}f}" for t in time_values_det])
     ax_det.set_xlabel("Time (s)", fontsize=10, fontweight="bold")
 
     n_dm_ticks = 8
@@ -971,7 +1159,7 @@ def save_slice_summary(
     # Usar el rango dinámico para las etiquetas del eje DM
     dm_values = dm_plot_min + (dm_positions / img_rgb.shape[0]) * (dm_plot_max - dm_plot_min)
     ax_det.set_yticks(dm_positions)
-    ax_det.set_yticklabels([f"{dm:.0f}" for dm in dm_values])
+    ax_det.set_yticklabels([f"{dm:.{config.PLOT_DM_PRECISION}f}" for dm in dm_values])
     ax_det.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=10, fontweight="bold")
 
     # Bounding boxes con información completa - UNA SOLA ETIQUETA INTEGRADA
@@ -986,15 +1174,18 @@ def save_slice_summary(
             effective_len_det = slice_samples if slice_samples is not None else slice_len
             dm_val_cand, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, effective_len_det)
             
-            # CALCULAR TIEMPO ABSOLUTO DE LA DETECCIÓN
-            # Priorizar tiempo absoluto exacto pasado desde el pipeline
+            # UNIFICACIÓN: Usar SOLO candidate_times_abs para consistencia
             if candidate_times_abs is not None and idx < len(candidate_times_abs):
                 detection_time = float(candidate_times_abs[idx])
             else:
-                if absolute_start_time is not None:
-                    detection_time = absolute_start_time + t_sec_real
+                # UNIFICACIÓN: NO usar fallbacks inconsistentes
+                if candidate_times_abs is None:
+                    logger.warning(f"[DETECTION] candidate_times_abs es None para candidato {idx}")
+                elif idx >= len(candidate_times_abs):
+                    logger.warning(f"[DETECTION] Índice {idx} fuera de rango para candidate_times_abs (len={len(candidate_times_abs)})")
                 else:
-                    detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
+                    logger.warning(f"[DETECTION] candidate_times_abs[{idx}] no es válido")
+                detection_time = None
             
             # Determinar si tenemos probabilidades de clasificación
             if class_probs is not None and idx < len(class_probs):
@@ -1003,19 +1194,32 @@ def save_slice_summary(
                 color = "lime" if is_burst else "orange"
                 burst_status = "BURST" if is_burst else "NO BURST"
                 
-                # Etiqueta completa con tiempo absoluto - USANDO DM REAL
-                label = (
-                    f"#{idx+1}\n"
-                    f"DM: {dm_val_cand:.1f}\n"
-                    f"Time: {detection_time:.3f}s\n"
-                    f"Det: {conf:.2f}\n"
-                    f"Cls: {class_prob:.2f}\n"
-                    f"{burst_status}"
-                )
+                                # Etiqueta completa con tiempo absoluto - USANDO DM REAL
+                if detection_time is not None:
+                    label = (
+                        f"#{idx+1}\n"
+                        f"DM: {dm_val_cand:.{config.PLOT_DM_PRECISION}f}\n"
+                        f"Time: {detection_time:.{config.PLOT_TIME_PRECISION}f}s\n"
+                        f"Det: {conf:.2f}\n"
+                        f"Cls: {class_prob:.2f}\n"
+                        f"{burst_status}"
+                    )
+                else:
+                    label = (
+                        f"#{idx+1}\n"
+                        f"DM: {dm_val_cand:.{config.PLOT_DM_PRECISION}f}\n"
+                        f"Time: N/A\n"
+                        f"Det: {conf:.2f}\n"
+                        f"Cls: {class_prob:.2f}\n"
+                        f"{burst_status}"
+                    )
             else:
                 # Fallback si no hay probabilidades de clasificación
                 color = "lime"
-                label = f"#{idx+1}\nDM: {dm_val_cand:.1f}\nTime: {detection_time:.3f}s\nDet: {conf:.2f}"
+                if detection_time is not None:
+                    label = f"#{idx+1}\nDM: {dm_val_cand:.{config.PLOT_DM_PRECISION}f}\nTime: {detection_time:.{config.PLOT_TIME_PRECISION}f}s\nDet: {conf:.2f}"
+                else:
+                    label = f"#{idx+1}\nDM: {dm_val_cand:.{config.PLOT_DM_PRECISION}f}\nTime: N/A\nDet: {conf:.2f}"
             
             # Dibujar rectángulo
             rect = plt.Rectangle(
@@ -1036,7 +1240,7 @@ def save_slice_summary(
                 arrowprops=dict(arrowstyle="->", color=color, lw=1.5),
             )
     # Indicar si se está usando DM dinámico
-    dm_range_info = f"{dm_plot_min:.0f}\u2013{dm_plot_max:.0f}"
+    dm_range_info = f"{dm_plot_min:.{config.PLOT_DM_PRECISION}f}\u2013{dm_plot_max:.{config.PLOT_DM_PRECISION}f}"
     if getattr(config, 'DM_DYNAMIC_RANGE_ENABLE', True) and top_boxes is not None and len(top_boxes) > 0:
         dm_range_info += " (auto)"
     else:
@@ -1046,34 +1250,69 @@ def save_slice_summary(
     exact_slice_ms_det = (slice_samples * (config.TIME_RESO * config.DOWN_TIME_RATE)) * 1000.0
     title_det = (
         f"Detection Map - {fits_stem} ({band_name_with_freq})\n"
-        f"Slice {slice_idx:03d} of {time_slice} | Duration: {exact_slice_ms_det:.6f} ms | "
+        f"Slice {slice_idx:03d} of {time_slice} | Duration: {exact_slice_ms_det:.{config.PLOT_TIME_PRECISION}f} ms | "
         f"DM Range: {dm_range_info} pc cm⁻³"
     )
-    ax_det.set_title(title_det, fontsize=11, fontweight="bold")
+    ax_det.set_title(title_det, fontsize=11, fontweight="bold", pad=20)  # Aumentar pad para evitar superposición
     config.SLICE_LEN = prev_len_config
 
     gs_bottom_row = gridspec.GridSpecFromSubplotSpec(
         1, 3, subplot_spec=gs_main[1, 0], width_ratios=[1, 1, 1], wspace=0.3
     )
 
+    # Auditoría opcional: persistir contexto de rutas usadas para este composite
+    try:
+        if getattr(config, 'SAVE_PLOT_CONTEXT', False) and plot_context is not None:
+            import json
+            base_out = out_path.with_suffix("")
+            ctx_dir = Path(getattr(config, 'PLOT_CONTEXT_DIR', '') or base_out.parent)
+            ctx_dir.mkdir(parents=True, exist_ok=True)
+            ctx_file = ctx_dir / (base_out.name + ".ctx.json")
+            payload = {
+                'slice_start_abs': slice_start_abs,
+                'slice_end_abs': slice_end_abs,
+                'slice_samples': real_samples,
+                'waterfall_dispersion_path': plot_context.get('waterfall_dispersion_path'),
+                'waterfall_dedispersion_path': plot_context.get('waterfall_dedispersion_path'),
+            }
+            with open(ctx_file, 'w') as f:
+                json.dump(payload, f, indent=2)
+    except Exception:
+        pass
+
     # Usar los mismos slice_start_abs y slice_end_abs ya calculados arriba con real_samples
     # para evitar inconsistencias entre paneles
 
     # === Panel 1: Raw Waterfall con SNR ===
+    # NOTA: Los valores de pico SNR pueden diferir entre paneles debido a:
+    # - Raw: Datos dispersados (SNR más bajo, señal distribuida)
+    # - Dedispersed: Datos corregidos (SNR más alto, señal concentrada)
+    # - Patch: Región específica (SNR intermedio, ventana temporal)
     gs_waterfall_nested = gridspec.GridSpecFromSubplotSpec(
-        2, 1, subplot_spec=gs_bottom_row[0, 0], height_ratios=[1, 4], hspace=0.05
+        2, 1, subplot_spec=gs_bottom_row[0, 0], height_ratios=[1, 4], hspace=0.15
     )
     ax_prof_wf = fig.add_subplot(gs_waterfall_nested[0, 0])
     
     # Verificar si hay datos de waterfall válidos
     if wf_block is not None and wf_block.size > 0:
-        # Calcular perfil SNR para raw waterfall
-        snr_wf, sigma_wf = compute_snr_profile(wf_block, off_regions)
-        peak_snr_wf, peak_time_wf, peak_idx_wf = find_snr_peak(snr_wf)
+                # Calcular perfil SNR usando método corregido
+        try:
+            from ..analysis.snr_utils import compute_snr_profile_corrected
+            snr_wf, sigma_wf = compute_snr_profile_corrected(wf_block, time_reso_ds, off_regions)
+            peak_snr_wf, peak_time_wf, peak_idx_wf = find_snr_peak(snr_wf)
+        except ImportError:
+            # Fallback a método original
+            snr_wf, sigma_wf = compute_snr_profile(wf_block, off_regions)
+            peak_snr_wf, peak_time_wf, peak_idx_wf = find_snr_peak(snr_wf)
         
         # Bordes uniformes para etiquetas y extent
         time_axis_wf = np.linspace(slice_start_abs, slice_end_abs, len(snr_wf))
-        peak_time_wf_abs = float(time_axis_wf[peak_idx_wf]) if len(snr_wf) > 0 else None
+        # CORREGIR: peak_time_wf es el índice, no el tiempo absoluto
+        # Calcular tiempo absoluto del pico usando el índice
+        if peak_time_wf is not None and peak_idx_wf is not None:
+            peak_time_wf_abs = time_axis_wf[peak_idx_wf]
+        else:
+            peak_time_wf_abs = None
         ax_prof_wf.plot(time_axis_wf, snr_wf, color="royalblue", alpha=0.8, lw=1.5, label='SNR Profile')
         
         # Resaltar regiones sobre threshold
@@ -1096,12 +1335,13 @@ def save_slice_summary(
         ax_prof_wf.set_xticks([])
         if peak_time_wf_abs is not None:
             ax_prof_wf.set_title(
-                f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ -> {peak_time_wf_abs:.6f}s",
-                fontsize=9,
+                f"Raw Waterfall SNR (Dispersed)\nPeak={peak_snr_wf:.{config.PLOT_SNR_PRECISION}f}σ → {peak_time_wf_abs:.{config.PLOT_TIME_PRECISION}f}s",
+                fontsize=8,
                 fontweight="bold",
+                pad=15
             )
         else:
-            ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ", fontsize=9, fontweight="bold")
+            ax_prof_wf.set_title(f"Raw Waterfall SNR (Dispersed)\nPeak={peak_snr_wf:.{config.PLOT_SNR_PRECISION}f}σ", fontsize=8, fontweight="bold", pad=15)
     else:
         ax_prof_wf.text(0.5, 0.5, 'No waterfall data\navailable', 
                        transform=ax_prof_wf.transAxes, 
@@ -1117,15 +1357,17 @@ def save_slice_summary(
     if wf_block is not None and wf_block.size > 0:
         # DEBUG: Verificar raw waterfall
         if config.DEBUG_FREQUENCY_ORDER:
-            print(f"🔍 [DEBUG RAW WF] Raw waterfall shape: {wf_block.shape}")
-            print(f"🔍 [DEBUG RAW WF] Transpose para imshow: {wf_block.T.shape}")
-            print(f"🔍 [DEBUG RAW WF] .T[0, :] (primera freq) primeras 5 muestras: {wf_block.T[0, :5]}")
-            print(f"🔍 [DEBUG RAW WF] .T[-1, :] (última freq) primeras 5 muestras: {wf_block.T[-1, :5]}")
+            print(f"[DEBUG RAW WF] Raw waterfall shape: {wf_block.shape}")
+            print(f"[DEBUG RAW WF] Transpose para imshow: {wf_block.T.shape}")
+            print(f"[DEBUG RAW WF] .T[0, :] (primera freq) primeras 5 muestras: {wf_block.T[0, :5]}")
+            print(f"[DEBUG RAW WF] .T[-1, :] (última freq) primeras 5 muestras: {wf_block.T[-1, :5]}")
         
+        cmap_name = getattr(config, 'WATERFALL_CMAP', 'mako')
+        origin_mode = getattr(config, 'WATERFALL_ORIGIN', 'lower')
         im_wf = ax_wf.imshow(
             wf_block.T,
-            origin="lower",
-            cmap="mako",
+            origin=origin_mode,
+            cmap=cmap_name,
             aspect="auto",
             vmin=np.nanpercentile(wf_block, 1),
             vmax=np.nanpercentile(wf_block, 99),
@@ -1137,12 +1379,13 @@ def save_slice_summary(
         n_freq_ticks = 6
         freq_tick_positions = np.linspace(freq_ds.min(), freq_ds.max(), n_freq_ticks)
         ax_wf.set_yticks(freq_tick_positions)
+        ax_wf.set_yticklabels([f"{f:.{config.PLOT_FREQ_PRECISION}f}" for f in freq_tick_positions])
 
         n_time_ticks = 5
         time_tick_positions = np.linspace(slice_start_abs, slice_end_abs, n_time_ticks)
         ax_wf.set_xticks(time_tick_positions)
         # Mostrar tiempo con mayor precisión para que el usuario vea el tiempo exacto
-        ax_wf.set_xticklabels([f"{t:.6f}" for t in time_tick_positions])
+        ax_wf.set_xticklabels([f"{t:.{config.PLOT_TIME_PRECISION}f}" for t in time_tick_positions])
         ax_wf.set_xlabel("Time (s)", fontsize=9)
         ax_wf.set_ylabel("Frequency (MHz)", fontsize=9)
         
@@ -1180,7 +1423,7 @@ def save_slice_summary(
 
     # === Panel 2: Dedispersed Waterfall con SNR ===
     gs_dedisp_nested = gridspec.GridSpecFromSubplotSpec(
-        2, 1, subplot_spec=gs_bottom_row[0, 1], height_ratios=[1, 4], hspace=0.05
+        2, 1, subplot_spec=gs_bottom_row[0, 1], height_ratios=[1, 4], hspace=0.15
     )
     ax_prof_dw = fig.add_subplot(gs_dedisp_nested[0, 0])
     
@@ -1203,7 +1446,11 @@ def save_slice_summary(
         # Usar waterfall_block en lugar de band_img para consistencia
         candidate_region = waterfall_block[:, y1:y2] if waterfall_block is not None else None
         if candidate_region is not None and candidate_region.size > 0:
-            snr_profile_candidate, _ = compute_snr_profile(candidate_region)
+            try:
+                from ..analysis.snr_utils import compute_snr_profile_corrected
+                snr_profile_candidate, _ = compute_snr_profile_corrected(candidate_region, time_reso_ds)
+            except ImportError:
+                snr_profile_candidate, _ = compute_snr_profile(candidate_region)
             snr_val_candidate = np.max(snr_profile_candidate)  # Tomar el pico del SNR
         else:
             snr_val_candidate = 0.0
@@ -1216,12 +1463,23 @@ def save_slice_summary(
     
     # Verificar si hay datos de waterfall dedispersado válidos
     if dw_block is not None and dw_block.size > 0:
-        # Calcular perfil SNR para dedispersed waterfall
-        snr_dw, sigma_dw = compute_snr_profile(dw_block, off_regions)
-        peak_snr_dw, peak_time_dw, peak_idx_dw = find_snr_peak(snr_dw)
+        # Calcular perfil SNR usando método corregido
+        try:
+            from ..analysis.snr_utils import compute_snr_profile_corrected
+            snr_dw, sigma_dw = compute_snr_profile_corrected(dw_block, time_reso_ds, off_regions)
+            peak_snr_dw, peak_time_dw, peak_idx_dw = find_snr_peak(snr_dw)
+        except ImportError:
+            # Fallback a método original
+            snr_dw, sigma_dw = compute_snr_profile(dw_block, off_regions)
+            peak_snr_dw, peak_time_dw, peak_idx_dw = find_snr_peak(snr_dw)
         
         time_axis_dw = np.linspace(slice_start_abs, slice_end_abs, len(snr_dw))
-        peak_time_dw_abs = float(time_axis_dw[peak_idx_dw]) if len(snr_dw) > 0 else None
+        # CORREGIR: peak_time_dw es el índice, no el tiempo absoluto
+        # Calcular tiempo absoluto del pico usando el índice
+        if peak_time_dw is not None and peak_idx_dw is not None:
+            peak_time_dw_abs = time_axis_dw[peak_idx_dw]
+        else:
+            peak_time_dw_abs = None
         ax_prof_dw.plot(time_axis_dw, snr_dw, color="green", alpha=0.8, lw=1.5, label='Dedispersed SNR')
         
         # Resaltar regiones sobre threshold
@@ -1242,27 +1500,15 @@ def save_slice_summary(
         ax_prof_dw.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
         ax_prof_dw.grid(True, alpha=0.3)
         ax_prof_dw.set_xticks([])
-        # Usar DM consistente en el título y mostrar ambos SNRs
-        if snr_val_candidate > 0:
-            if peak_time_dw_abs is not None:
-                title_text = (
-                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                    f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s (block) / {snr_val_candidate:.1f}σ (candidate)"
-                )
-            else:
-                title_text = (
-                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                    f"Peak={peak_snr_dw:.1f}σ (block) / {snr_val_candidate:.1f}σ (candidate)"
-                )
+        # Usar DM consistente en el título - SOLO información relevante
+        if peak_time_dw_abs is not None:
+            title_text = (
+                f"Dedispersed SNR DM={dm_val_consistent:.{config.PLOT_DM_PRECISION}f} pc cm⁻³\n"
+                f"Peak={peak_snr_dw:.{config.PLOT_SNR_PRECISION}f}σ → {peak_time_dw_abs:.{config.PLOT_TIME_PRECISION}f}s"
+            )
         else:
-            if peak_time_dw_abs is not None:
-                title_text = (
-                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                    f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s"
-                )
-            else:
-                title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ"
-        ax_prof_dw.set_title(title_text, fontsize=9, fontweight="bold")
+            title_text = f"Dedispersed SNR DM={dm_val_consistent:.{config.PLOT_DM_PRECISION}f} pc cm⁻³\nPeak={peak_snr_dw:.{config.PLOT_SNR_PRECISION}f}σ"
+        ax_prof_dw.set_title(title_text, fontsize=8, fontweight="bold", pad=15)
     else:
         ax_prof_dw.text(0.5, 0.5, 'No dedispersed\ndata available', 
                        transform=ax_prof_dw.transAxes, 
@@ -1276,18 +1522,20 @@ def save_slice_summary(
     ax_dw = fig.add_subplot(gs_dedisp_nested[1, 0])
     
     if dw_block is not None and dw_block.size > 0:
-        # DEBUG: Verificar dedispersed waterfall
+        # Verificar dedispersed waterfall
         if config.DEBUG_FREQUENCY_ORDER:
-            print(f"🔍 [DEBUG DED WF] Dedispersed waterfall shape: {dw_block.shape}")
-            print(f"🔍 [DEBUG DED WF] Transpose para imshow: {dw_block.T.shape}")
-            print(f"🔍 [DEBUG DED WF] .T[0, :] (primera freq) primeras 5 muestras: {dw_block.T[0, :5]}")
-            print(f"🔍 [DEBUG DED WF] .T[-1, :] (última freq) primeras 5 muestras: {dw_block.T[-1, :5]}")
-            print(f"🔍 [DEBUG DED WF] ¿Es diferente al raw? Diff promedio: {np.mean(np.abs(dw_block - wf_block)) if wf_block is not None else 'N/A'}")
+            print(f"[DEBUG DED WF] Dedispersed waterfall shape: {dw_block.shape}")
+            print(f"[DEBUG DED WF] Transpose para imshow: {dw_block.T.shape}")
+            print(f"[DEBUG DED WF] .T[0, :] (primera freq) primeras 5 muestras: {dw_block.T[0, :5]}")
+            print(f"[DEBUG DED WF] .T[-1, :] (última freq) primeras 5 muestras: {dw_block.T[-1, :5]}")
+            print(f"[DEBUG DED WF] ¿Es diferente al raw? Diff promedio: {np.mean(np.abs(dw_block - wf_block)) if wf_block is not None else 'N/A'}")
         
+        cmap_name = getattr(config, 'WATERFALL_CMAP', 'mako')
+        origin_mode = getattr(config, 'WATERFALL_ORIGIN', 'lower')
         im_dw = ax_dw.imshow(
             dw_block.T,
-            origin="lower",
-            cmap="mako",
+            origin=origin_mode,
+            cmap=cmap_name,
             aspect="auto",
             vmin=np.nanpercentile(dw_block, 1),
             vmax=np.nanpercentile(dw_block, 99),
@@ -1297,9 +1545,9 @@ def save_slice_summary(
         ax_dw.set_ylim(freq_ds.min(), freq_ds.max())
 
         ax_dw.set_yticks(freq_tick_positions)
-        ax_dw.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
+        ax_dw.set_yticklabels([f"{f:.{config.PLOT_FREQ_PRECISION}f}" for f in freq_tick_positions])
         ax_dw.set_xticks(time_tick_positions)
-        ax_dw.set_xticklabels([f"{t:.6f}" for t in time_tick_positions])
+        ax_dw.set_xticklabels([f"{t:.{config.PLOT_TIME_PRECISION}f}" for t in time_tick_positions])
         ax_dw.set_xlabel("Time (s)", fontsize=9)
         ax_dw.set_ylabel("Frequency (MHz)", fontsize=9)
         
@@ -1334,27 +1582,141 @@ def save_slice_summary(
 
     # === Panel 3: Candidate Patch con SNR ===
     gs_patch_nested = gridspec.GridSpecFromSubplotSpec(
-        2, 1, subplot_spec=gs_bottom_row[0, 2], height_ratios=[1, 4], hspace=0.05
+        2, 1, subplot_spec=gs_bottom_row[0, 2], height_ratios=[1, 4], hspace=0.15
     )
     ax_patch_prof = fig.add_subplot(gs_patch_nested[0, 0])
     
     # Verificar si hay un patch válido
     if patch_img is not None and patch_img.size > 0:
-        # Calcular perfil SNR para el patch del candidato
-        snr_patch, sigma_patch = compute_snr_profile(patch_img, off_regions)
-        peak_snr_patch, peak_time_patch, peak_idx_patch = find_snr_peak(snr_patch)
+                # Calcular perfil SNR usando método corregido
+        try:
+            from ..analysis.snr_utils import compute_snr_profile_corrected
+            snr_patch, sigma_patch = compute_snr_profile_corrected(patch_img, time_reso_ds, off_regions)
+            peak_snr_patch, peak_time_patch, peak_idx_patch = find_snr_peak(snr_patch)
+        except ImportError:
+            # Fallback a método original
+            snr_patch, sigma_patch = compute_snr_profile(patch_img, off_regions)
+            peak_snr_patch, peak_time_patch, peak_idx_patch = find_snr_peak(snr_patch)
         
-        # 🕐 CORRECCIÓN: Usar tiempo absoluto del archivo para el patch
-        # patch_start puede ser tiempo relativo al chunk, necesitamos convertirlo a absoluto
-        if absolute_start_time is not None:
-            # Calcular el tiempo absoluto del patch basado en el tiempo absoluto del slice
-            patch_start_abs = absolute_start_time + (patch_start - (slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE))
+        # Centrar el patch en el tiempo de detección del candidato
+        # UNIFICACIÓN: Usar SOLO candidate_times_abs para consistencia
+        detection_time_patch = None  # Inicializar variable
+        
+        # Validar candidate_times_abs antes de usarlo
+        is_valid, error_msg = validate_candidate_times(candidate_times_abs, top_conf, top_boxes)
+        
+        if is_valid and top_boxes is not None and len(top_boxes) > 0:
+            # UNIFICACIÓN: Seleccionar candidato usando SOLO candidate_times_abs
+            # Usar el candidato con MAYOR CONFIANZA (más fuerte detectado)
+            best_candidate_idx = np.argmax(top_conf)
+            
+            # Log de la selección del candidato
+            logger.info(f"[COMPOSITE] Seleccionando candidato para patch:")
+            logger.info(f"   - Candidatos disponibles: {[f'{t:.{config.PLOT_TIME_PRECISION}f}s' for t in candidate_times_abs]}")
+            logger.info(f"   - Confianzas: {[f'{c:.3f}' for c in top_conf]}")
+            logger.info(f"   - Candidato seleccionado: {candidate_times_abs[best_candidate_idx]:.{config.PLOT_TIME_PRECISION}f}s (índice {best_candidate_idx}, confianza {top_conf[best_candidate_idx]:.3f})")
+            
+            detection_time_patch = float(candidate_times_abs[best_candidate_idx])
+            
+            # Calcular el tiempo de inicio del patch para que el candidato quede centrado
+            patch_duration = len(snr_patch) * time_reso_ds
+            patch_start_abs = detection_time_patch - (patch_duration / 2)
+            patch_end_abs = detection_time_patch + (patch_duration / 2)
+            
+            # Log de la funcionalidad especial de centrado temporal
+            logger.info(f"[COMPOSITE] Patch centrado en candidato: tiempo={detection_time_patch:.{config.PLOT_TIME_PRECISION}f}s, "
+                       f"ventana=[{patch_start_abs:.{config.PLOT_TIME_PRECISION}f}s, {patch_end_abs:.{config.PLOT_TIME_PRECISION}f}s], duración={patch_duration:.{config.PLOT_TIME_PRECISION}f}s")
         else:
-            # Fallback: usar patch_start como está (modo antiguo)
-            patch_start_abs = patch_start
+            # UNIFICACIÓN: NO usar fallbacks inconsistentes
+            # Si no hay candidate_times_abs, NO generar patch centrado
+            if candidate_times_abs is not None:
+                logger.warning(f"[COMPOSITE] candidate_times_abs no es válido: {error_msg}")
+            else:
+                logger.warning(f"[COMPOSITE] candidate_times_abs es None, NO se puede centrar el patch")
+            detection_time_patch = None
+            patch_start_abs = None
+            patch_end_abs = None
         
         # Para el patch, usar bordes también para coherencia
-        patch_time_axis = np.linspace(patch_start_abs, patch_start_abs + len(snr_patch) * time_reso_ds, len(snr_patch))
+        # Garantizar centrado exacto en el tiempo de detección
+        print(f"[COMPOSITE] DEBUG: detection_time_patch = {detection_time_patch}")
+        print(f"[COMPOSITE] DEBUG: type(detection_time_patch) = {type(detection_time_patch)}")
+        print(f"[COMPOSITE] DEBUG: detection_time_patch == None = {detection_time_patch == None}")
+        print(f"[COMPOSITE] DEBUG: detection_time_patch is None = {detection_time_patch is None}")
+        
+        logger.info(f"[COMPOSITE] DEBUG: detection_time_patch = {detection_time_patch}")
+        logger.info(f"[COMPOSITE] DEBUG: type(detection_time_patch) = {type(detection_time_patch)}")
+        logger.info(f"[COMPOSITE] DEBUG: detection_time_patch == None = {detection_time_patch == None}")
+        logger.info(f"[COMPOSITE] DEBUG: detection_time_patch is None = {detection_time_patch is None}")
+        
+        if detection_time_patch is not None:
+            print(f"[COMPOSITE] Usando lógica de centrado exacto")
+            logger.info(f"[COMPOSITE] Usando lógica de centrado exacto")
+            # Crear eje temporal que centre EXACTAMENTE en el tiempo de detección
+            n_samples = len(snr_patch)
+            
+            # Construir el eje temporal directamente desde el centro
+            # Esto garantiza que detection_time_patch esté exactamente en el centro
+            center_idx = n_samples // 2
+            
+            if n_samples % 2 == 0:
+                # Número par de muestras: centrar entre dos muestras centrales
+                half_samples = n_samples // 2
+                # Construir eje temporal desde el centro hacia afuera
+                patch_time_axis = np.zeros(n_samples)
+                for i in range(n_samples):
+                    if i < center_idx:
+                        # Muestras antes del centro
+                        patch_time_axis[i] = detection_time_patch - (center_idx - i) * time_reso_ds
+                    else:
+                        # Muestras desde el centro en adelante
+                        patch_time_axis[i] = detection_time_patch + (i - center_idx) * time_reso_ds
+            else:
+                # Número impar de muestras: centrar exactamente en la muestra central
+                half_samples = n_samples // 2
+                # Construir eje temporal desde el centro hacia afuera
+                patch_time_axis = np.zeros(n_samples)
+                for i in range(n_samples):
+                    if i < center_idx:
+                        # Muestras antes del centro
+                        patch_time_axis[i] = detection_time_patch - (center_idx - i) * time_reso_ds
+                    else:
+                        # Muestras desde el centro en adelante
+                        patch_time_axis[i] = detection_time_patch + (i - center_idx) * time_reso_ds
+            
+            # Verificación del centrado temporal
+            center_time = patch_time_axis[center_idx]
+            logger.info(f"[COMPOSITE] Centrado temporal verificado:")
+            logger.info(f"   - Tiempo objetivo: {detection_time_patch:.9f}s")
+            logger.info(f"   - Tiempo en el centro: {center_time:.9f}s")
+            logger.info(f"   - Diferencia: {abs(center_time - detection_time_patch):.9f}s")
+            logger.info(f"   - Límites del patch: [{patch_time_axis[0]:.9f}s, {patch_time_axis[-1]:.9f}s]")
+            logger.info(f"   - VERIFICACIÓN FINAL: ¿Está centrado en 4.725s? {'✅ SÍ' if abs(center_time - 4.725) < 1e-6 else '❌ NO'}")
+            logger.info(f"   - DIFERENCIA DEL OBJETIVO 4.725s: {abs(center_time - 4.725):.9f}s")
+            
+            # Verificar que el centrado sea perfecto
+            if abs(center_time - detection_time_patch) > 1e-9:
+                logger.error(f"[COMPOSITE] ERROR: Centrado temporal falló!")
+                logger.error(f"   Diferencia: {abs(center_time - detection_time_patch):.9f}s")
+                raise ValueError(f"Centrado temporal falló: diferencia={abs(center_time - detection_time_patch):.9f}s")
+            else:
+                logger.info(f"[COMPOSITE] Centrado temporal perfecto!")
+                
+        else:
+            # Fallback: usar linspace normal cuando no hay candidatos
+            print(f"[COMPOSITE] No hay candidatos válidos, usando fallback temporal")
+            print(f"[COMPOSITE] ESTO NO DEBERÍA PASAR SI HAY CANDIDATOS!")
+            logger.info(f"[COMPOSITE] No hay candidatos válidos, usando fallback temporal")
+            logger.info(f"[COMPOSITE] ESTO NO DEBERÍA PASAR SI HAY CANDIDATOS!")
+            patch_time_axis = np.linspace(patch_start_abs, patch_end_abs, len(snr_patch))
+        
+        # Log del eje temporal final usado
+        logger.info(f"[COMPOSITE] Eje temporal final usado:")
+        logger.info(f"   - Tipo: {'Centrado exacto' if detection_time_patch is not None else 'Fallback linspace'}")
+        logger.info(f"   - Límites: [{patch_time_axis[0]:.9f}s, {patch_time_axis[-1]:.9f}s]")
+        logger.info(f"   - Centro: {patch_time_axis[len(patch_time_axis)//2]:.9f}s")
+        logger.info(f"   - VERIFICACIÓN FINAL: ¿Está centrado en 4.725s? {' SÍ' if abs(patch_time_axis[len(patch_time_axis)//2] - 4.725) < 1e-6 else '❌ NO'}")
+        
         ax_patch_prof.plot(patch_time_axis, snr_patch, color="orange", alpha=0.8, lw=1.5, label='Candidate SNR')
         
         # Resaltar regiones sobre threshold
@@ -1366,16 +1728,26 @@ def save_slice_summary(
             ax_patch_prof.axhline(y=thresh_snr, color=config.SNR_HIGHLIGHT_COLOR, 
                                  linestyle='--', alpha=0.7, linewidth=1)
         
-        # Marcar pico
-        ax_patch_prof.plot(patch_time_axis[peak_idx_patch], peak_snr_patch, 'ro', markersize=5)
-        ax_patch_prof.text(patch_time_axis[peak_idx_patch], peak_snr_patch + 0.1 * (ax_patch_prof.get_ylim()[1] - ax_patch_prof.get_ylim()[0]), 
+        # Marcar pico - usar el tiempo de detección real del candidato
+        if detection_time_patch is not None:
+            peak_time_abs_patch = detection_time_patch
+        else:
+            peak_time_abs_patch = patch_time_axis[peak_idx_patch]
+            
+        ax_patch_prof.plot(peak_time_abs_patch, peak_snr_patch, 'ro', markersize=5)
+        ax_patch_prof.text(peak_time_abs_patch, peak_snr_patch + 0.1 * (ax_patch_prof.get_ylim()[1] - ax_patch_prof.get_ylim()[0]), 
                           f'{peak_snr_patch:.1f}σ', ha='center', va='bottom', fontsize=8, fontweight='bold')
         
         ax_patch_prof.set_xlim(patch_time_axis[0], patch_time_axis[-1])
         ax_patch_prof.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
         ax_patch_prof.grid(True, alpha=0.3)
         ax_patch_prof.set_xticks([])
-        ax_patch_prof.set_title(f"Candidate Patch SNR\nPeak={peak_snr_patch:.1f}σ", fontsize=9, fontweight="bold")
+        
+        # Título con información del centrado temporal
+        if detection_time_patch is not None:
+            ax_patch_prof.set_title(f"Candidate Patch SNR (Zoomed)\nCentered at {detection_time_patch:.{config.PLOT_TIME_PRECISION}f}s | Peak={peak_snr_patch:.{config.PLOT_SNR_PRECISION}f}σ", fontsize=8, fontweight="bold", pad=15)
+        else:
+            ax_patch_prof.set_title(f"Candidate Patch SNR (Zoomed)\nPeak={peak_snr_patch:.{config.PLOT_SNR_PRECISION}f}σ", fontsize=8, fontweight="bold", pad=15)
     else:
         # Sin patch válido, mostrar mensaje
         ax_patch_prof.text(0.5, 0.5, 'No candidate patch\navailable', 
@@ -1392,16 +1764,18 @@ def save_slice_summary(
     if patch_img is not None and patch_img.size > 0:
         # DEBUG: Verificar candidate patch
         if config.DEBUG_FREQUENCY_ORDER:
-            print(f"🔍 [DEBUG PATCH] Candidate patch shape: {patch_img.shape}")
-            print(f"🔍 [DEBUG PATCH] Transpose para imshow: {patch_img.T.shape}")
-            print(f"🔍 [DEBUG PATCH] .T[0, :] (primera freq) primeras 5 muestras: {patch_img.T[0, :5]}")
-            print(f"🔍 [DEBUG PATCH] .T[-1, :] (última freq) primeras 5 muestras: {patch_img.T[-1, :5]}")
+            print(f"[DEBUG PATCH] Candidate patch shape: {patch_img.shape}")
+            print(f"[DEBUG PATCH] Transpose para imshow: {patch_img.T.shape}")
+            print(f"[DEBUG PATCH] .T[0, :] (primera freq) primeras 5 muestras: {patch_img.T[0, :5]}")
+            print(f"[DEBUG PATCH] .T[-1, :] (última freq) primeras 5 muestras: {patch_img.T[-1, :5]}")
         
+        cmap_name = getattr(config, 'WATERFALL_CMAP', 'mako')
+        origin_mode = getattr(config, 'WATERFALL_ORIGIN', 'lower')
         ax_patch.imshow(
             patch_img.T,
-            origin="lower",
+            origin=origin_mode,
             aspect="auto",
-            cmap="mako",
+            cmap=cmap_name,
             vmin=np.nanpercentile(patch_img, 1),
             vmax=np.nanpercentile(patch_img, 99),
             extent=[patch_time_axis[0], patch_time_axis[-1], freq_ds.min(), freq_ds.max()],
@@ -1410,19 +1784,44 @@ def save_slice_summary(
         ax_patch.set_ylim(freq_ds.min(), freq_ds.max())
 
         n_patch_time_ticks = 5
-        patch_tick_positions = np.linspace(patch_time_axis[0], patch_time_axis[-1], n_patch_time_ticks)
+        # Usar el eje temporal ya centrado correctamente
+        # NO usar np.linspace aquí, ya que reintroduce el error de centrado
+        if detection_time_patch is not None:
+            # Usar el eje temporal que ya está perfectamente centrado
+            patch_tick_positions = patch_time_axis[::len(patch_time_axis)//(n_patch_time_ticks-1)][:n_patch_time_ticks]
+            # Asegurar que el último tick esté en el final exacto
+            if len(patch_tick_positions) < n_patch_time_ticks:
+                patch_tick_positions = np.append(patch_tick_positions, patch_time_axis[-1])
+            
+            # Log de verificación de ticks
+            center_tick_idx = len(patch_tick_positions) // 2
+            center_tick = patch_tick_positions[center_tick_idx]
+            logger.info(f"[COMPOSITE] Ticks generados:")
+            logger.info(f"   - Ticks: {[f'{t:.9f}s' for t in patch_tick_positions]}")
+            logger.info(f"   - Tick central: {center_tick:.9f}s")
+            logger.info(f"   - Tiempo objetivo: {detection_time_patch:.9f}s")
+            logger.info(f"   - VERIFICACIÓN TICKS: ¿Está centrado en 4.725s? {'✅ SÍ' if abs(center_tick - 4.725) < 1e-6 else '❌ NO'}")
+            logger.info(f"   - DIFERENCIA DEL OBJETIVO 4.725s: {abs(center_tick - 4.725):.9f}s")
+        else:
+            # Fallback: usar linspace solo si no hay detection_time_patch
+            patch_tick_positions = np.linspace(patch_time_axis[0], patch_time_axis[-1], n_patch_time_ticks)
+        
         ax_patch.set_xticks(patch_tick_positions)
-        ax_patch.set_xticklabels([f"{t:.6f}" for t in patch_tick_positions])
+        ax_patch.set_xticklabels([f"{t:.{config.PLOT_TIME_PRECISION}f}" for t in patch_tick_positions])
 
         ax_patch.set_yticks(freq_tick_positions)
-        ax_patch.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
+        ax_patch.set_yticklabels([f"{f:.{config.PLOT_FREQ_PRECISION}f}" for f in freq_tick_positions])
         ax_patch.set_xlabel("Time (s)", fontsize=9)
         ax_patch.set_ylabel("Frequency (MHz)", fontsize=9)
         
-        # Marcar posición del pico SNR en el patch
+        # Marcar posición del pico SNR en el patch - usar el tiempo de detección real
         if 'peak_snr_patch' in locals() and config.SNR_SHOW_PEAK_LINES:
-            ax_patch.axvline(x=patch_time_axis[peak_idx_patch], color=config.SNR_HIGHLIGHT_COLOR, 
-                           linestyle='-', alpha=0.8, linewidth=2)
+            if detection_time_patch is not None:
+                ax_patch.axvline(x=detection_time_patch, color=config.SNR_HIGHLIGHT_COLOR, 
+                               linestyle='-', alpha=0.8, linewidth=2)
+            else:
+                ax_patch.axvline(x=patch_time_axis[peak_idx_patch], color=config.SNR_HIGHLIGHT_COLOR, 
+                               linestyle='-', alpha=0.8, linewidth=2)
     else:
         # Mostrar mensaje de que no hay patch
         ax_patch.text(0.5, 0.5, 'No candidate patch available', 
@@ -1444,13 +1843,13 @@ def save_slice_summary(
     if chunk_idx is not None:
         title = (
             f"Composite: {fits_stem} - {band_name_with_freq} - Chunk {chunk_idx:03d} - Slice {slice_idx:03d} | "
-            f"start={start_center:.6f}s end={end_center:.6f}s Δt={(config.TIME_RESO * config.DOWN_TIME_RATE):.9f}s "
+            f"start={start_center:.{config.PLOT_TIME_PRECISION}f}s end={end_center:.{config.PLOT_TIME_PRECISION}f}s Δt={(config.TIME_RESO * config.DOWN_TIME_RATE):.9f}s "
             f"| [idx {idx_start_ds}→{idx_end_ds}]"
         )
     else:
         title = (
             f"Composite: {fits_stem} - {band_name_with_freq} - Slice {slice_idx:03d} | "
-            f"start={start_center:.6f}s end={end_center:.6f}s Δt={(config.TIME_RESO * config.DOWN_TIME_RATE):.9f}s "
+            f"start={start_center:.{config.PLOT_TIME_PRECISION}f}s end={end_center:.{config.PLOT_TIME_PRECISION}f}s Δt={(config.TIME_RESO * config.DOWN_TIME_RATE):.9f}s "
             f"| [idx {idx_start_ds}→{idx_end_ds}]"
         )
 
@@ -1458,7 +1857,7 @@ def save_slice_summary(
         title,
         fontsize=14,
         fontweight="bold",
-        y=0.97,
+        y=0.95,  
     )
     # === Información temporal exacta del slice (decimado) ===
     try:
@@ -1471,7 +1870,7 @@ def save_slice_summary(
         info_lines = [
             f"Samples (decimated): {global_start_sample} → {global_end_sample} (N={real_samples})",
             f"Δt (effective): {dt_ds:.9f} s",
-            f"Time span (centers): {start_center:.6f}s → {end_center:.6f}s (Δ={(real_samples - 1) * dt_ds:.6f}s)",
+            f"Time span (centers): {start_center:.{config.PLOT_TIME_PRECISION}f}s → {end_center:.{config.PLOT_TIME_PRECISION}f}s (Δ={(real_samples - 1) * dt_ds:.{config.PLOT_TIME_PRECISION}f}s)",
         ]
         fig.text(
             0.01,
@@ -1484,6 +1883,13 @@ def save_slice_summary(
         )
     except Exception:
         pass
+
+    # Aplicar tight_layout con parámetros específicos para evitar superposición
+    # rect=[left, bottom, right, top] - reservar más espacio superior para títulos
+    plt.tight_layout(rect=[0, 0.02, 1, 0.94])  # Ajustar a 0.94 para balancear espacio
+    
+    # Ajuste adicional del espaciado vertical para evitar superposición de títulos
+    plt.subplots_adjust(top=0.88, hspace=0.65)  # Ajustar espacio superior y entre subplots
 
     plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close()

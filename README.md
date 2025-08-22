@@ -45,8 +45,34 @@ Our pipeline offers three key components:
 - Nearly doubles burst detection compared to Heimdall
 - Classification accuracy exceeding 99% on FAST and GBT data
 - Significantly reduces manual verification requirements
+- **NEW:** Millimeter-wave strategies (E1/E2) for ALMA Band 3 burst detection
 
 📄 **Publication:** [DRAFTS: A Deep Learning-Based Radio Fast Transient Search Pipeline (arXiv:2410.03200)](https://arxiv.org/abs/2410.03200)
+
+## 🆕 Millimeter-Wave Detection Strategies
+
+DRAFTS-MB now includes advanced strategies for detecting bursts in the millimeter regime (ALMA Band 3):
+
+### E1: Expand DM Strategy
+
+- Expands DM range and step to "open" the bow-tie in time-DM plots
+- Verifies **DM\* > 0** with statistical significance
+- Optimized step size based on smearing tolerance
+
+### E2: Fish Near DM≈0 Strategy
+
+- Detects candidates near DM≈0 with relaxed thresholds
+- Validates using DM-aware local micro-grids
+- Multi-band consistency checks for RFI rejection
+
+**Benefits:**
+
+- 🎯 **Higher recall** for low-DM bursts in millimeter observations
+- 🔍 **Intelligent validation** prevents false positives from RFI
+- ⚡ **No retraining required** - works with existing models
+- 📊 **Interpretable scoring** for candidate prioritization
+
+📖 **See detailed usage:** [Millimeter Strategies Guide](./GUIA_EJECUCION_MILLIMETER.md)
 
 ## New Features
 

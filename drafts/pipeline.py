@@ -133,11 +133,62 @@ def _downsample_chunk(block: np.ndarray) -> tuple[np.ndarray, float]:
     return block_ds, dt_ds
 
 
-def _build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max: float) -> np.ndarray:
-    """Construye el cubo DM–tiempo para el bloque decimado completo."""
+def _build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max: float, use_millimeter_strategies: bool = False) -> tuple:
+    """Construye el cubo DM–tiempo para el bloque decimado completo.
+    
+    Args:
+        block_ds: Bloque decimado
+        height: Altura del cubo DM-tiempo
+        dm_min: DM mínimo
+        dm_max: DM máximo  
+        use_millimeter_strategies: Si usar estrategias milimétricas E1/E2
+        
+    Returns:
+        Si use_millimeter_strategies=False: dm_time_cube (compatibilidad)
+        Si use_millimeter_strategies=True: (dm_time_expand, dm_time_fish, meta_expand, meta_fish)
+    """
     width = block_ds.shape[0]
     from .preprocessing.dedispersion import d_dm_time_g
-    return d_dm_time_g(block_ds, height=height, width=width, dm_min=dm_min, dm_max=dm_max)
+    
+    if not use_millimeter_strategies:
+        # Modo clásico - compatibilidad con pipeline existente
+        dm_time_cube, _ = d_dm_time_g(block_ds, height=height, width=width, dm_min=dm_min, dm_max=dm_max)
+        return dm_time_cube
+    
+    # Modo estrategias milimétricas E1/E2
+    from .preprocessing.dm_planner import build_dm_grids
+    from .input.data_loader import get_obparams  # Para extraer parámetros
+    
+    # Construir parámetros de observación mínimos
+    obparams = {
+        'freq_mhz': config.FREQ if config.FREQ is not None else np.linspace(1000, 1500, config.FREQ_RESO),
+        'time_resolution_s': config.TIME_RESO * config.DOWN_TIME_RATE,
+        'n_channels': config.FREQ_RESO // config.DOWN_FREQ_RATE
+    }
+    
+    # Construir grids de DM según estrategias E1 y E2
+    grid_expand, grid_fish, meta_expand, meta_fish = build_dm_grids(
+        obparams, 
+        config_expand=getattr(config, 'STRATEGY_DM_EXPAND', None),
+        config_fish=getattr(config, 'STRATEGY_FISH_NEAR_ZERO', None)
+    )
+    
+    # Construir cubos DM-tiempo para cada estrategia
+    dm_time_expand, meta_expand_cube = d_dm_time_g(
+        block_ds, height=len(grid_expand), width=width, 
+        dm_values=grid_expand
+    )
+    
+    dm_time_fish, meta_fish_cube = d_dm_time_g(
+        block_ds, height=len(grid_fish), width=width,
+        dm_values=grid_fish
+    )
+    
+    # Combinar metadatos
+    meta_expand.update(meta_expand_cube)
+    meta_fish.update(meta_fish_cube)
+    
+    return dm_time_expand, dm_time_fish, meta_expand, meta_fish
 
 
 def _trim_valid_window(block_ds: np.ndarray, dm_time_full: np.ndarray, overlap_left_ds: int, overlap_right_ds: int) -> tuple[np.ndarray, np.ndarray, int, int]:
@@ -258,8 +309,27 @@ def _process_block(
         
         logger.info(f"Chunk {chunk_idx:03d}: {metadata['actual_chunk_size']} muestras → {time_slice} slices")
         
-        # Generar DM-time cube del bloque decimado completo
-        dm_time_full = _build_dm_time_cube(block, height=height, dm_min=config.DM_min, dm_max=config.DM_max)
+        # Verificar si usar estrategias milimétricas
+        use_millimeter_strategies = (
+            getattr(config, 'STRATEGY_DM_EXPAND', {}).get('enabled', False) or
+            getattr(config, 'STRATEGY_FISH_NEAR_ZERO', {}).get('enabled', False)
+        )
+        
+        if use_millimeter_strategies:
+            # Generar cubos DM-tiempo para estrategias E1/E2
+            dm_time_expand, dm_time_fish, meta_expand, meta_fish = _build_dm_time_cube(
+                block, height=height, dm_min=config.DM_min, dm_max=config.DM_max, 
+                use_millimeter_strategies=True
+            )
+            # Para compatibilidad, usar el cubo expandido como principal
+            dm_time_full = dm_time_expand
+            logger.info(f"Chunk {chunk_idx:03d}: Estrategias milimétricas activadas")
+            logger.info(f"   • Grid E1 (expandido): {len(meta_expand['dm_values'])} DMs, {meta_expand['dm_min']:.1f}-{meta_expand['dm_max']:.1f} pc cm⁻³")
+            logger.info(f"   • Grid E2 (fish): {len(meta_fish['dm_values'])} DMs, {meta_fish['dm_min']:.1f}-{meta_fish['dm_max']:.1f} pc cm⁻³")
+        else:
+            # Generar DM-time cube del bloque decimado completo (modo clásico)
+            dm_time_full = _build_dm_time_cube(block, height=height, dm_min=config.DM_min, dm_max=config.DM_max)
+            dm_time_expand, dm_time_fish, meta_expand, meta_fish = None, None, None, None
 
         # Extraer ventana válida (sin bordes inválidos) usando los solapes decimados
         block, dm_time, valid_start_ds, valid_end_ds = _trim_valid_window(
@@ -415,6 +485,28 @@ def _process_block(
             detections_dir = save_dir / "Detections" / file_folder_name / chunk_folder_name
             patches_dir = save_dir / "Patches" / file_folder_name / chunk_folder_name
 
+            # Preparar datos de estrategias milimétricas para process_slice
+            millimeter_data = None
+            if use_millimeter_strategies:
+                # Extraer slices correspondientes de los cubos E1/E2
+                if dm_time_expand is not None and dm_time_fish is not None:
+                    # Aplicar mismo trimming que al cubo principal
+                    if dm_time_expand.ndim == 3:
+                        dm_time_expand_trimmed = dm_time_expand[:, :, valid_start_ds:valid_end_ds]
+                        dm_time_fish_trimmed = dm_time_fish[:, :, valid_start_ds:valid_end_ds]
+                    else:
+                        dm_time_expand_trimmed = dm_time_expand[:, valid_start_ds:valid_end_ds]
+                        dm_time_fish_trimmed = dm_time_fish[:, valid_start_ds:valid_end_ds]
+                    
+                    millimeter_data = {
+                        'dm_time_expand': dm_time_expand_trimmed,
+                        'dm_time_fish': dm_time_fish_trimmed,
+                        'meta_expand': meta_expand,
+                        'meta_fish': meta_fish,
+                        'config_expand': getattr(config, 'STRATEGY_DM_EXPAND', {}),
+                        'config_fish': getattr(config, 'STRATEGY_FISH_NEAR_ZERO', {})
+                    }
+            
             # Pass chunked paths to process_slice (these will be used in plot_manager)
             cands, bursts, no_bursts, max_prob = process_slice( # Procesar el slice
                 j, dm_time, block, slice_len, det_model, cls_model, fits_path, save_dir,
@@ -428,6 +520,7 @@ def _process_block(
                 force_plots=config.FORCE_PLOTS,
                 slice_start_idx=start_idx,
                 slice_end_idx=end_idx,
+                millimeter_data=millimeter_data,  # NUEVO: datos para estrategias milimétricas
             )
 
             cand_counter += cands

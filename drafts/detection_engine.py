@@ -342,6 +342,7 @@ def process_slice(
     force_plots: bool = False,
     slice_start_idx: int | None = None,  # NUEVO: inicio del slice en muestras (dominio decimado)
     slice_end_idx: int | None = None,    # NUEVO: fin exclusivo del slice (dominio decimado)
+    millimeter_data: dict | None = None,  # NUEVO: datos para estrategias milimétricas E1/E2
 ):
     """Procesa un slice con tiempo absoluto para continuidad temporal entre chunks.
     
@@ -448,6 +449,121 @@ def process_slice(
     if block.shape[0] % slice_len != 0:
         time_slice += 1
 
+    # =========================================================================
+    # PROCESAMIENTO DE ESTRATEGIAS MILIMÉTRICAS E1/E2
+    # =========================================================================
+    millimeter_candidates = []
+    if millimeter_data is not None:
+        try:
+            from .validators.dm_validator import DMValidator
+            from .preprocessing.dedispersion import dm_index_to_physical
+            
+            global_logger.logger.info(f"{Colors.PIPELINE}Aplicando estrategias milimétricas E1/E2 en slice {j:03d}{Colors.ENDC}")
+            
+            # Extraer datos de estrategias
+            dm_time_expand = millimeter_data['dm_time_expand']
+            dm_time_fish = millimeter_data['dm_time_fish'] 
+            meta_expand = millimeter_data['meta_expand']
+            meta_fish = millimeter_data['meta_fish']
+            config_expand = millimeter_data['config_expand']
+            config_fish = millimeter_data['config_fish']
+            
+            # Procesar slice de cada cubo DM-tiempo
+            if slice_start_idx is not None and slice_end_idx is not None:
+                slice_cube_expand = dm_time_expand[:, start_idx:end_idx]
+                slice_cube_fish = dm_time_fish[:, start_idx:end_idx]
+            else:
+                slice_cube_expand = dm_time_expand[:, slice_len * j:slice_len * (j + 1)]
+                slice_cube_fish = dm_time_fish[:, slice_len * j:slice_len * (j + 1)]
+            
+            # E1: Detección con verificación DM* > 0
+            if config_expand.get('enabled', False) and slice_cube_expand.size > 0:
+                # Usar solo primera banda para estrategias milimétricas
+                band_img_expand = slice_cube_expand[0] if len(slice_cube_expand.shape) > 2 else slice_cube_expand
+                img_tensor_expand = preprocess_img(band_img_expand)
+                top_conf_expand, top_boxes_expand = detect(det_model, img_tensor_expand)
+                
+                if top_boxes_expand:
+                    min_dm_sigmas = config_expand.get('min_dm_sigmas', 3.0)
+                    for conf, box in zip(top_conf_expand, top_boxes_expand):
+                        # Convertir posición de caja a DM físico
+                        dm_idx = int((box[1] + box[3]) / 2)  # Centro vertical de la caja
+                        dm_physical = dm_index_to_physical(dm_idx, meta_expand)
+                        
+                        # Verificar que DM* > 0 con significancia
+                        dm_step = meta_expand.get('dm_step', 1.0)
+                        dm_significance = dm_physical / (dm_step * min_dm_sigmas) if dm_step > 0 else 0
+                        
+                        if dm_significance >= 1.0 and dm_physical > 0:
+                            millimeter_candidates.append({
+                                'strategy': 'E1_expand',
+                                'confidence': conf,
+                                'box': box,
+                                'dm_star': dm_physical,
+                                'dm_significance': dm_significance,
+                                'slice_cube': band_img_expand,
+                                'metadata': meta_expand
+                            })
+                            global_logger.logger.info(f"   • E1: Candidato DM*={dm_physical:.1f} (significancia={dm_significance:.1f}σ)")
+            
+            # E2: Detección laxa + validación
+            if config_fish.get('enabled', False) and slice_cube_fish.size > 0:
+                band_img_fish = slice_cube_fish[0] if len(slice_cube_fish.shape) > 2 else slice_cube_fish
+                img_tensor_fish = preprocess_img(band_img_fish)
+                fish_thresh = config_fish.get('fish_thresh', 0.3)
+                
+                # Detección con umbral laxo temporalmente (usando umbral normal por ahora)
+                top_conf_fish, top_boxes_fish = detect(det_model, img_tensor_fish)
+                
+                if top_boxes_fish:
+                    validator = DMValidator(config_fish.get('refine', {}))
+                    
+                    for conf, box in zip(top_conf_fish, top_boxes_fish):
+                        # Crear candidato para validación
+                        candidate_data = {
+                            'confidence': conf,
+                            'box': box,
+                            't0': start_idx * time_reso_ds,  # Tiempo aproximado
+                            'slice_data': band_img_fish
+                        }
+                        
+                        # Validar candidato
+                        try:
+                            validation_result = validator.validate_candidate(
+                                candidate_data, 
+                                waterfall_block,  # Datos originales del slice
+                                freq_down,
+                                time_reso_ds
+                            )
+                            
+                            if validation_result.passed:
+                                millimeter_candidates.append({
+                                    'strategy': 'E2_fish',
+                                    'confidence': conf,
+                                    'box': box,
+                                    'dm_star': validation_result.dm_star,
+                                    'dm_star_err': validation_result.dm_star_err,
+                                    'delta_snr': validation_result.delta_snr,
+                                    'subband_agreement': validation_result.subband_agreement,
+                                    'validation_result': validation_result,
+                                    'slice_cube': band_img_fish,
+                                    'metadata': meta_fish
+                                })
+                                global_logger.logger.info(f"   • E2: Candidato validado DM*={validation_result.dm_star:.1f}±{validation_result.dm_star_err:.1f} ΔSNR={validation_result.delta_snr:.2f}")
+                        except Exception as e:
+                            global_logger.logger.warning(f"   • E2: Error validando candidato: {e}")
+            
+            if millimeter_candidates:
+                global_logger.logger.info(f"   • Total candidatos milimétricos: {len(millimeter_candidates)}")
+            
+        except ImportError as e:
+            global_logger.logger.warning(f"Estrategias milimétricas no disponibles: {e}")
+        except Exception as e:
+            global_logger.logger.error(f"Error procesando estrategias milimétricas: {e}")
+
+    # =========================================================================
+    # PROCESAMIENTO NORMAL DE BANDAS (modo clásico + candidatos milimétricos)
+    # =========================================================================
     for band_idx, band_suffix, band_name in band_configs:
         band_img = slice_cube[band_idx]
         band_result = process_band(

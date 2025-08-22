@@ -124,14 +124,39 @@ def _d_dm_time_cpu(
     return out
 
 
-def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128, dm_min: float = None, dm_max: float = None) -> np.ndarray:
-    result = np.zeros((3, height, width), dtype=np.float32)
+def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128, dm_min: float = None, dm_max: float = None, dm_values: np.ndarray = None) -> tuple[np.ndarray, dict]:
+    """
+    Dedispersión principal que acepta una lista específica de DMs o rango.
     
-    # Si no se proporcionan dm_min y dm_max, usar config
-    if dm_min is None:
-        dm_min = config.DM_min
-    if dm_max is None:
-        dm_max = config.DM_max
+    Args:
+        data: Array de datos (tiempo, freq) o (tiempo, pol, freq)
+        height: Altura del cubo DM-tiempo (número de DMs)
+        width: Ancho del cubo DM-tiempo (muestras temporales)
+        chunk_size: Tamaño de chunk para procesamiento GPU
+        dm_min: DM mínimo (usado solo si dm_values es None)
+        dm_max: DM máximo (usado solo si dm_values es None)
+        dm_values: Lista específica de valores DM (prioridad sobre dm_min/dm_max)
+        
+    Returns:
+        tuple: (dm_time_cube, metadata)
+    """
+    # Si se proporciona dm_values, usarlo directamente
+    if dm_values is not None:
+        if len(dm_values) != height:
+            raise ValueError(f"dm_values debe tener {height} elementos, no {len(dm_values)}")
+        dm_min = dm_values.min()
+        dm_max = dm_values.max()
+        dm_step = dm_values[1] - dm_values[0] if len(dm_values) > 1 else 1.0
+    else:
+        # Si no se proporcionan dm_min y dm_max, usar config
+        if dm_min is None:
+            dm_min = config.DM_min
+        if dm_max is None:
+            dm_max = config.DM_max
+        dm_step = (dm_max - dm_min) / (height - 1) if height > 1 else 1.0
+        dm_values = np.linspace(dm_min, dm_max, height, dtype=np.float32)
+    
+    result = np.zeros((3, height, width), dtype=np.float32)
     
     # Pre-whitening por canal opcional para mitigar bandpass/RFI leve
     try:
@@ -160,7 +185,19 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
     # Si hay PyTorch con CUDA, usar implementación GPU con torch
     if torch is not None and torch.cuda.is_available() and str(getattr(config, 'DEVICE', 'cpu')).startswith('cuda'):
         try:
-            return _d_dm_time_torch_gpu(data, height, width, dm_min, dm_max, freq_values)
+            dm_time_cube = _d_dm_time_torch_gpu(data, height, width, dm_min, dm_max, freq_values)
+            # Construir metadatos
+            metadata = {
+                'dm_min': dm_min,
+                'dm_max': dm_max,
+                'dm_step': dm_step,
+                'dm_values': dm_values,
+                'height': height,
+                'width': width,
+                'freq_values': freq_values,
+                'strategy': 'torch_gpu'
+            }
+            return dm_time_cube, metadata
         except Exception as e:
             print(f"[WARNING] Error en torch GPU ({e}), intentando Numba GPU...")
 
@@ -192,10 +229,33 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
             result[:, start_dm:end_dm, :] = dm_time_gpu.copy_to_host()
             del dm_time_gpu, dm_values_gpu
         print("[INFO] Dedispersión GPU completada exitosamente")
-        return result
+        # Construir metadatos
+        metadata = {
+            'dm_min': dm_min,
+            'dm_max': dm_max,
+            'dm_step': dm_step,
+            'dm_values': dm_values,
+            'height': height,
+            'width': width,
+            'freq_values': freq_values,
+            'strategy': 'numba_gpu'
+        }
+        return result, metadata
     except (cuda.cudadrv.driver.CudaAPIError, Exception) as e:
         print(f"[WARNING] Error GPU ({e}), cambiando a CPU...")
-        return _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values)
+        dm_time_cube = _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values)
+        # Construir metadatos
+        metadata = {
+            'dm_min': dm_min,
+            'dm_max': dm_max,
+            'dm_step': dm_step,
+            'dm_values': dm_values,
+            'height': height,
+            'width': width,
+            'freq_values': freq_values,
+            'strategy': 'numba_cpu'
+        }
+        return dm_time_cube, metadata
 
 
 def _d_dm_time_torch_gpu(
@@ -370,3 +430,49 @@ def dedisperse_block(
     for idx in range(freq_down.size):
         block[:, idx] = segment[delays[idx] : delays[idx] + block_len, idx]
     return block
+
+
+def dm_index_to_physical(dm_idx: int, metadata: dict) -> float:
+    """
+    Convierte un índice DM del cubo a su valor físico en pc cm⁻³.
+    
+    Args:
+        dm_idx: Índice del eje DM (0 a height-1)
+        metadata: Metadatos del cubo DM-tiempo
+        
+    Returns:
+        float: Valor DM físico en pc cm⁻³
+    """
+    if 'dm_values' in metadata and metadata['dm_values'] is not None:
+        # Si tenemos valores DM específicos, usarlos directamente
+        if 0 <= dm_idx < len(metadata['dm_values']):
+            return float(metadata['dm_values'][dm_idx])
+        else:
+            raise IndexError(f"Índice DM {dm_idx} fuera de rango [0, {len(metadata['dm_values'])-1}]")
+    else:
+        # Calcular desde dm_min y dm_step
+        dm_min = metadata.get('dm_min', 0.0)
+        dm_step = metadata.get('dm_step', 1.0)
+        return dm_min + dm_idx * dm_step
+
+
+def get_dm_metadata_summary(metadata: dict) -> str:
+    """
+    Genera un resumen legible de los metadatos del cubo DM-tiempo.
+    
+    Args:
+        metadata: Metadatos del cubo DM-tiempo
+        
+    Returns:
+        str: Resumen formateado de los metadatos
+    """
+    summary = f"DM Grid: {metadata.get('dm_min', 0):.1f} - {metadata.get('dm_max', 0):.1f} pc cm⁻³"
+    summary += f" (ΔDM = {metadata.get('dm_step', 0):.2f})"
+    summary += f" | Size: {metadata.get('height', 0)}×{metadata.get('width', 0)}"
+    summary += f" | Strategy: {metadata.get('strategy', 'unknown')}"
+    
+    if 'freq_values' in metadata and metadata['freq_values'] is not None:
+        freq_values = metadata['freq_values']
+        summary += f" | Freq: {freq_values.min():.1f} - {freq_values.max():.1f} MHz"
+    
+    return summary

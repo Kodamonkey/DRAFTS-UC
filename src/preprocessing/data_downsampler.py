@@ -1,9 +1,11 @@
 """Data downsampler for FRB pipeline - reduces temporal and frequency resolution."""
 from __future__ import annotations
 
+# Third-party imports
 import numpy as np
 
-from .. import config
+# Local imports
+from ..config import config
 
 
 def downsample_data(data: np.ndarray) -> np.ndarray:

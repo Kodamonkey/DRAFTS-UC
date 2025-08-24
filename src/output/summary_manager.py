@@ -1,12 +1,15 @@
 """Summary manager for FRB pipeline - handles logging, statistics, and progress tracking."""
+# Standard library imports
 import json
 import logging
 import time
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
-from .. import config
+# Local imports
+from ..config import config
 
+# Setup logger
 logger = logging.getLogger(__name__)
 
 def _write_summary_with_timestamp(summary: dict, save_path: Path, preserve_history: bool = True) -> None:

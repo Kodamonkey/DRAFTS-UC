@@ -1,17 +1,27 @@
 """Detection engine for FRB pipeline - orchestrates detection, classification, and visualization."""
 from __future__ import annotations
 
-from .visualization.visualization_unified import save_all_plots, plot_waterfall_block, preprocess_img, postprocess_img
-from .preprocessing.dedispersion import dedisperse_patch
-from .preprocessing.dedispersion import dedisperse_block
-from .detection.model_interface import detect, classify_patch
-# from .detection.metrics import compute_snr  # Archivo eliminado, no se usa
-from .analysis.snr_utils import compute_snr_profile  
-from .preprocessing.dm_candidate_extractor import extract_candidate_dm
-from .output.candidate_manager import append_candidate, Candidate
-from .preprocessing.slice_len_calculator import update_slice_len_dynamic
-import numpy as np
+# Standard library imports
 import logging
+
+# Third-party imports
+import numpy as np
+
+# Local imports
+from ..analysis.snr_utils import compute_presto_matched_snr, compute_snr_profile
+from ..detection.model_interface import classify_patch, detect
+from ..logging.logging_config import Colors, get_global_logger
+from ..output.candidate_manager import Candidate, append_candidate
+from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
+from ..preprocessing.dedispersion import dedisperse_block, dedisperse_patch
+from ..preprocessing.slice_len_calculator import update_slice_len_dynamic
+from ..visualization.visualization_unified import (
+    postprocess_img,
+    preprocess_img,
+    save_all_plots
+)
+
+# Setup logger
 logger = logging.getLogger(__name__)
 
 def _presto_time_ref_correction(dm_val: float, freq_ref_used_mhz: float, freq_ref_global_mhz: float) -> float:
@@ -81,7 +91,6 @@ def process_band(
     """
     # Obtener el logger global para mensajes informativos
     try:
-        from .logging.logging_config import get_global_logger, Colors
         global_logger = get_global_logger()
     except ImportError:
         global_logger = None
@@ -163,7 +172,6 @@ def process_band(
         snr_val = 0.0  # Valor por defecto
         peak_idx_patch = None
         if patch is not None and patch.size > 0:
-            from .analysis.snr_utils import compute_presto_matched_snr
             # patch: (time, freq)
             dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
             snr_profile_pre, best_w = compute_presto_matched_snr(patch, dt_seconds=dt_ds)
@@ -271,7 +279,6 @@ def process_band(
         
         # Mensaje informativo sobre el candidato encontrado
         try:
-            from .logging.logging_config import get_global_logger
             global_logger = get_global_logger()
             global_logger.candidate_detected(dm_val, absolute_candidate_time, conf, class_prob, is_burst, snr_val_raw, snr_val)
         except ImportError:
@@ -331,8 +338,6 @@ def process_slice(
     time_reso_ds,
     band_configs,
     snr_list,
-    waterfall_dispersion_dir,
-    waterfall_dedispersion_dir,
     config,
     absolute_start_time=None,
     composite_dir=None,
@@ -351,7 +356,6 @@ def process_slice(
     """
     # Obtener el logger global para mensajes informativos
     try:
-        from .logging.logging_config import get_global_logger, Colors
         global_logger = get_global_logger()
     except ImportError:
         global_logger = None
@@ -405,20 +409,7 @@ def process_slice(
     if global_logger:
         global_logger.logger.debug(f"{Colors.OKCYAN} Creando waterfall dispersado para slice {j}{Colors.ENDC}")
     
-    # Crear carpeta de waterfall dispersado solo si hay datos para procesar
-    if waterfall_block.size > 0:
-        waterfall_dispersion_dir.mkdir(parents=True, exist_ok=True)
-        plot_waterfall_block(
-            data_block=waterfall_block, # Bloque de datos
-            freq=freq_down, # Frecuencia
-            time_reso=time_reso_ds, # Resolución temporal
-            block_size=waterfall_block.shape[0], # Tamaño del bloque
-            block_idx=j, # Índice del bloque
-            save_dir=waterfall_dispersion_dir, # Directorio de guardado
-            filename=fits_path.stem, # Nombre del archivo
-            normalize=True, # Normalizar
-            absolute_start_time=absolute_start_time, # Tiempo absoluto
-        ) # Guardar el plot
+   
     
     slice_has_candidates = False # Indica si el slice tiene candidatos
     cand_counter = 0 # Contador de candidatos
@@ -484,7 +475,7 @@ def process_slice(
                 global_logger.slice_completed(j, cand_counter, n_bursts, n_no_bursts)
 
             dm_to_use = band_result["first_dm"] if band_result["first_dm"] is not None else 0.0
-            waterfall_dedispersion_dir.mkdir(parents=True, exist_ok=True)
+       
             start = start_idx
             block_len = end_idx - start_idx
             dedisp_block = dedisperse_block(block, freq_down, dm_to_use, start, block_len)
@@ -514,13 +505,8 @@ def process_slice(
                 thresh_snr=config.SNR_THRESH,
                 band_idx=band_idx,
                 patch_path=band_result["patch_path"],
-                waterfall_dedispersion_dir=waterfall_dedispersion_dir,
-                freq_down=freq_down,
-                time_reso_ds=time_reso_ds,
-                detections_dir=detections_dir,
-                out_img_path=out_img_path,
-                absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
-                chunk_idx=chunk_idx,  # PASAR CHUNK_ID
+                absolute_start_time=absolute_start_time,
+                chunk_idx=chunk_idx, 
                 force_plots=force_plots,
             )
         else:

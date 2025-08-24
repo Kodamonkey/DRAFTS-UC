@@ -1,19 +1,25 @@
 """Dedispersion helpers using GPU/CPU."""
 from __future__ import annotations
 
+# Standard library imports
 import logging
+
+# Third-party imports
 import numpy as np
 from numba import cuda, njit, prange
 
-from .. import config
+# Local imports
+from ..config import config
 
-logger = logging.getLogger(__name__)
-
-# Intentar usar PyTorch para GPU si está disponible (más estable que Numba en Windows)
+# Optional third-party imports
 try:
     import torch
 except Exception:
     torch = None
+
+# Setup logger
+logger = logging.getLogger(__name__)
+
 
 @cuda.jit
 def _de_disp_gpu(dm_time, data, freq, index, dm_values, mid_channel):
@@ -72,7 +78,7 @@ def _d_dm_time_cpu(
     mid_channel = nchan_ds // 2
 
     # Calcular valores exactos de DM para cada píxel
-    dm_values = np.linspace(dm_min, dm_max, height, dtype=np.float32)
+    dm_values = np.linspace(dm_min, dm_max, height).astype(np.float32)
 
     for i in range(height):
         DM = dm_values[i]

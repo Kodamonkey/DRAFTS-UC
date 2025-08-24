@@ -7,7 +7,10 @@ detallada del data loader, especialmente para operaciones de streaming
 de archivos FITS y FIL.
 """
 
-from typing import Dict, Any, Optional
+# Standard library imports
+from typing import Any, Dict, Optional
+
+# Local imports
 from .logging_config import get_global_logger
 
 

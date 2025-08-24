@@ -12,12 +12,13 @@ para el pipeline de detección de FRB. Incluye:
 - Logging automático a archivo .log
 """
 
+# Standard library imports
+import json
 import logging
 import sys
-from pathlib import Path
-from typing import Optional, Dict, Any
 from datetime import datetime
-import json
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 # Colores ANSI para terminal
 class Colors:

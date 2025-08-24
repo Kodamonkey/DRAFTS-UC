@@ -6,7 +6,10 @@ Este módulo proporciona funciones especializadas para mostrar información
 detallada del sistema de chunking de manera organizada y profesional.
 """
 
-from typing import Dict, Any
+# Standard library imports
+from typing import Any, Dict
+
+# Local imports
 from .logging_config import get_global_logger
 
 

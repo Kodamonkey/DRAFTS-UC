@@ -1,8 +1,11 @@
 """Utilities for SNR calculation and analysis in FRB detection."""
 from __future__ import annotations
 
+# Standard library imports
+from typing import List, Optional, Tuple
+
+# Third-party imports
 import numpy as np
-from typing import List, Tuple, Optional
 
 # Nota: este módulo no requiere configuración global del pipeline
 

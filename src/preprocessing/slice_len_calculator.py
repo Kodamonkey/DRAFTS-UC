@@ -1,11 +1,16 @@
 """Slice length calculator for FRB pipeline - dynamically calculates optimal temporal segmentation."""
+# Standard library imports
 import logging
-from typing import Tuple, Optional
+import math
+from typing import Optional, Tuple
+
+# Third-party imports
 import psutil
 
-from .. import config
-import math
+# Local imports
+from ..config import config
 
+# Setup logger
 logger = logging.getLogger(__name__)
 
 

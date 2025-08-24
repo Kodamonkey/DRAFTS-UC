@@ -1,3 +1,0 @@
-
-
- docker run --rm -v "${PWD}:/work" -w /work -e MPLBACKEND=Agg presto5:latest python scripts/presto_waterfaller_headless.py --filename "Data/raw/2017-04-03-08-16-13_142_0003_t39.977.fits" --start 39.949 --duration 0.5 --dm 1770 --downsamp 32 --output "Results/presto_waterfall.png"

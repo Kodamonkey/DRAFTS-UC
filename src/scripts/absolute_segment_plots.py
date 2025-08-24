@@ -1,18 +1,24 @@
+"""Script for generating absolute segment plots from FRB data files."""
 from __future__ import annotations
 
+# Standard library imports
 import argparse
 from pathlib import Path
+
+# Third-party imports
 import numpy as np
 
-from .. import config
+# Local imports
+from ..config import config
 from ..input.data_loader import (
     get_obparams,
     get_obparams_fil,
-    load_fits_file,
     load_fil_file,
+    load_fits_file
 )
-from ..visualization.visualization_unified import plot_waterfall_block
 from ..preprocessing.dedispersion import dedisperse_block
+from ..visualization.plot_waterfall_dispersed import save_waterfall_dispersed_plot
+from ..visualization.plot_waterfall_dedispersed import save_waterfall_dedispersed_plot
 
 
 def _infer_file_type(path: Path) -> str:
@@ -105,18 +111,22 @@ def run_single_segment(
     _ensure_dir(seg_dir)
 
     # 5) Waterfall dispersado (segmento crudo decimado) con eje absoluto
-    plot_waterfall_block(
-        data_block=block,
-        freq=_compute_freq_down(),
-        time_reso=dt_ds,
-        block_size=block.shape[0],
-        block_idx=0,
-        save_dir=seg_dir,
-        filename=f"{file_stem}_disp",
+    # NOTA: plot_waterfall_block ha sido reemplazado por save_waterfall_dispersed_plot
+    # que genera plots idénticos al composite
+    waterfall_dispersed_path = seg_dir / f"{file_stem}_disp_waterfall_dispersed.png"
+    save_waterfall_dispersed_plot(
+        waterfall_block=block,
+        out_path=waterfall_dispersed_path,
+        slice_idx=0,
+        time_slice=1,
+        band_name="Segment",
+        band_suffix="segment",
+        fits_stem=file_stem,
+        slice_len=block.shape[0],
         normalize=normalize,
+        band_idx=0,
         absolute_start_time=start,
-        integrate_ts=True,
-        integrate_spec=True,
+        slice_samples=block.shape[0],
     )
 
     # 6) Waterfall dedispersado en la misma ventana (estilo PRESTO)
@@ -134,18 +144,25 @@ def run_single_segment(
     except Exception:
         dedisp = block
 
-    plot_waterfall_block(
-        data_block=dedisp,
-        freq=_compute_freq_down(),
-        time_reso=dt_ds,
-        block_size=dedisp.shape[0],
-        block_idx=0,
-        save_dir=seg_dir,
-        filename=f"{file_stem}_dedisp_dm{int(round(dm))}",
+    # NOTA: plot_waterfall_block ha sido reemplazado por save_waterfall_dedispersed_plot
+    # que genera plots idénticos al composite
+    waterfall_dedispersed_path = seg_dir / f"{file_stem}_dedisp_dm{int(round(dm))}_waterfall_dedispersed.png"
+    save_waterfall_dedispersed_plot(
+        dedispersed_block=dedisp,
+        waterfall_block=block,  # Usar el bloque original como referencia
+        top_conf=[],  # No hay detecciones en este script
+        top_boxes=[],  # No hay detecciones en este script
+        out_path=waterfall_dedispersed_path,
+        slice_idx=0,
+        time_slice=1,
+        band_name="Segment",
+        band_suffix="segment",
+        fits_stem=file_stem,
+        slice_len=dedisp.shape[0],
         normalize=normalize,
+        band_idx=0,
         absolute_start_time=start,
-        integrate_ts=True,
-        integrate_spec=True,
+        slice_samples=dedisp.shape[0],
     )
 
 

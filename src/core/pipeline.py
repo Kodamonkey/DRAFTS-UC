@@ -6,54 +6,53 @@
 """High level pipeline for FRB detection with CenterNet."""
 from __future__ import annotations
 
-import logging
-import time
+# Standard library imports
 import gc
+import logging
+import shutil
+import time
 from pathlib import Path
 from typing import List
-import shutil
 
+# Third-party imports
+import numpy as np
+
+# Optional third-party imports
 try:
     import torch
 except ImportError:  
     torch = None
-import numpy as np
 
-# Importar matplotlib al nivel del módulo para evitar problemas de scope
 try:
     import matplotlib.pyplot as plt
 except ImportError:
     plt = None
 
-from . import config
-from .input.data_loader import get_obparams, stream_fil, stream_fits, get_obparams_fil
-from .output.candidate_manager import ensure_csv_header
-
-from .config import get_band_configs
+# Local imports
+from ..config import config
 from .detection_engine import process_slice
-from .preprocessing.chunk_planner import plan_slices_for_chunk
-from .preprocessing.dedispersion import d_dm_time_g
-from .output.summary_manager import (
-    _update_summary_with_results,
-    _write_summary_with_timestamp, 
-)
-from .logging import (
-    log_streaming_parameters,
+from ..input.data_loader import get_obparams, get_obparams_fil, stream_fil, stream_fits
+from ..logging import (
     log_block_processing,
-    log_processing_summary,
-    log_file_detection,
-    log_fits_detected,
     log_fil_detected,
-    log_unsupported_file_type,
+    log_fits_detected,
+    log_pipeline_file_completion,
     log_pipeline_file_processing,
-    log_pipeline_file_completion
+    log_processing_summary,
+    log_streaming_parameters,
+    log_unsupported_file_type
 )
+from ..output.candidate_manager import ensure_csv_header
+from ..output.summary_manager import _update_summary_with_results, _write_summary_with_timestamp
+from ..preprocessing.chunk_planner import plan_slices_for_chunk
+from ..preprocessing.dedispersion import d_dm_time_g
 
+# Setup logger
 logger = logging.getLogger(__name__)
 
 def _trace_info(message: str, *args) -> None:
     try:
-        from .logging.logging_config import get_global_logger
+        from ..logging.logging_config import get_global_logger
         gl = get_global_logger()
         gl.logger.info(message % args if args else message)
     except Exception:
@@ -127,7 +126,7 @@ def _downsample_chunk(block: np.ndarray) -> tuple[np.ndarray, float]:
         block_ds: bloque decimado (tiempo, freq)
         dt_ds: resolución temporal efectiva (s)
     """
-    from .preprocessing.data_downsampler import downsample_data
+    from ..preprocessing.data_downsampler import downsample_data
     block_ds = downsample_data(block)
     dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
     return block_ds, dt_ds
@@ -136,7 +135,7 @@ def _downsample_chunk(block: np.ndarray) -> tuple[np.ndarray, float]:
 def _build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max: float) -> np.ndarray:
     """Construye el cubo DM–tiempo para el bloque decimado completo."""
     width = block_ds.shape[0]
-    from .preprocessing.dedispersion import d_dm_time_g
+    from ..preprocessing.dedispersion import d_dm_time_g
     return d_dm_time_g(block_ds, height=height, width=width, dm_min=dm_min, dm_max=dm_max)
 
 
@@ -164,7 +163,7 @@ def _plan_slices(block_valid: np.ndarray, slice_len: int, chunk_idx: int) -> lis
             time_tol_ms=getattr(config, 'TIME_TOL_MS', 0.1),
         )
         try:
-            from .logging.chunking_logging import log_slice_plan_summary
+            from ..logging.chunking_logging import log_slice_plan_summary
             log_slice_plan_summary(chunk_idx, plan)
         except Exception:
             pass
@@ -252,7 +251,7 @@ def _process_block(
         )
         
         # Calcular slice_len dinámicamente
-        from .preprocessing.slice_len_calculator import update_slice_len_dynamic # Importar la función de actualización de slice_len
+        from ..preprocessing.slice_len_calculator import update_slice_len_dynamic # Importar la función de actualización de slice_len
         slice_len, real_duration_ms = update_slice_len_dynamic() # Actualiza slice_len según la configuración
         time_slice = (width_total + slice_len - 1) // slice_len # Número de slices por chunk
         
@@ -272,7 +271,7 @@ def _process_block(
         )
         
         # Configurar bandas
-        band_configs = get_band_configs() # Configuración de bandas (fullband, lowband, highband)
+        band_configs = config.get_band_configs() # Configuración de bandas (fullband, lowband, highband)
         
         # Procesar slices
         cand_counter = 0 # Contador de candidatos
@@ -289,7 +288,7 @@ def _process_block(
             # Mensaje de progreso cada 10 slices o en el primer slice
             if j % 10 == 0 or j == 0:
                 try:
-                    from .logging.logging_config import get_global_logger
+                    from ..logging.logging_config import get_global_logger
                     global_logger = get_global_logger()
                     global_logger.slice_progress(j, time_slice, chunk_idx)
                 except ImportError:
@@ -406,8 +405,7 @@ def _process_block(
             chunk_folder_name = f"chunk{chunk_idx:03d}"
             
 
-            waterfall_dispersion_dir = save_dir / "waterfall_dispersion" / file_folder_name / chunk_folder_name
-            waterfall_dedispersion_dir = save_dir / "waterfall_dedispersion" / file_folder_name / chunk_folder_name
+            
 
             # Estructura de carpetas para plots (se crearán solo si hay candidatos)
             # Results/ObjectDetection/Composite/3096_0001_00_8bit/chunk000/
@@ -419,7 +417,7 @@ def _process_block(
             cands, bursts, no_bursts, max_prob = process_slice( # Procesar el slice
                 j, dm_time, block, slice_len, det_model, cls_model, fits_path, save_dir,
                 freq_down, csv_file, config.TIME_RESO * config.DOWN_TIME_RATE, band_configs,
-                snr_list, waterfall_dispersion_dir, waterfall_dedispersion_dir, config,
+                snr_list, config, 
                 absolute_start_time=slice_start_time_sec,
                 composite_dir=composite_dir,
                 detections_dir=detections_dir,
@@ -448,7 +446,7 @@ def _process_block(
 
         # Mensaje de resumen del chunk
         try:
-            from .logging.logging_config import get_global_logger
+            from ..logging.logging_config import get_global_logger
             global_logger = get_global_logger()
             global_logger.chunk_completed(chunk_idx, cand_counter, n_bursts, n_no_bursts)
         except ImportError:
@@ -698,6 +696,7 @@ def _get_streaming_function(file_path: Path):
         Tuple[streaming_function, file_type]: Función de streaming y tipo de archivo
     """
     # *** DEBUG CRÍTICO: CONFIRMAR DETECCIÓN DE TIPO DE ARCHIVO ***
+    from ..logging import log_file_detection
     log_file_detection(str(file_path), file_path.suffix.lower(), str(file_path))
     
     if str(file_path).endswith('.fits'):
@@ -729,7 +728,7 @@ def _find_data_files(frb: str) -> List[Path]:
 # Controla el flujo principal: carga modelos, busca archivos, procesa cada archivo y guarda el resumen global.
 # =============================================================================
 def run_pipeline(chunk_samples: int = 0) -> None:
-    from .logging.logging_config import setup_logging, set_global_logger
+    from ..logging.logging_config import setup_logging, set_global_logger
     
     logger = setup_logging(level="INFO", use_colors=True) # Configurar logging
     set_global_logger(logger) # Establecer el logger global
@@ -772,8 +771,8 @@ def run_pipeline(chunk_samples: int = 0) -> None:
             logger.logger.info("Parámetros de observación cargados")
             
             # CALCULAR PARÁMETROS DE PROCESAMIENTO AUTOMÁTICAMENTE
-            from .preprocessing.slice_len_calculator import get_processing_parameters, validate_processing_parameters
-            from .logging.chunking_logging import display_detailed_chunking_info
+            from ..preprocessing.slice_len_calculator import get_processing_parameters, validate_processing_parameters
+            from ..logging.chunking_logging import display_detailed_chunking_info
             
             if chunk_samples == 0:  # Modo automático
                 processing_params = get_processing_parameters() # Obtener los parámetros de procesamiento

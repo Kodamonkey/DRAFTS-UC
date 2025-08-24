@@ -15,19 +15,25 @@ from typing import Dict, Generator, List, Tuple, Type
 import numpy as np
 from astropy.io import fits
 
+# Optional third-party imports
+try:
+    import fitsio
+except ImportError:
+    fitsio = None
+
 # Local imports
-from .. import config
-from ..preprocessing.data_downsampler import downsample_data
-from ..output.summary_manager import _update_summary_with_file_debug
+from ..config import config
 from ..logging import (
-    log_stream_fil_parameters,
     log_stream_fil_block_generation,
+    log_stream_fil_parameters,
     log_stream_fil_summary,
-    log_stream_fits_parameters,
-    log_stream_fits_load_strategy,
     log_stream_fits_block_generation,
+    log_stream_fits_load_strategy,
+    log_stream_fits_parameters,
     log_stream_fits_summary
 )
+from ..output.summary_manager import _update_summary_with_file_debug
+from ..preprocessing.data_downsampler import downsample_data
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -93,7 +99,8 @@ def load_fits_file(file_name: str) -> np.ndarray:
                 except Exception as e:
                     raise ValueError(f"Error al hacer reshape de los datos: {e}")
             else:
-                import fitsio
+                if fitsio is None:
+                    raise ImportError("fitsio no está instalado. Instale con: pip install fitsio")
                 temp_data, h = fitsio.read(file_name, header=True)
                 if "DATA" in temp_data.dtype.names:
                     total_samples = _safe_int(h.get("NAXIS2", 1)) * _safe_int(h.get("NSBLK", 1))
@@ -1314,7 +1321,8 @@ def stream_fits(
                     nchans = nchan
                 else:
                     # Fallback para otros formatos FITS
-                    import fitsio
+                    if fitsio is None:
+                        raise ImportError("fitsio no está instalado. Instale con: pip install fitsio")
                     temp_data, h = fitsio.read(file_name, header=True)
                     nsamples = _safe_int(h.get("NAXIS2", 1)) * _safe_int(h.get("NSBLK", 1))
                     npols = _safe_int(h.get("NPOL", 2))
@@ -1322,7 +1330,6 @@ def stream_fits(
                 
                 print(f"[INFO] Datos FITS detectados: {nsamples} muestras, {npols} pols, {nchans} canales")
                 
-                # *** DEBUG CRÍTICO: CONFIRMAR PARÁMETROS DE STREAMING FITS ***
                 log_stream_fits_parameters(nsamples, chunk_samples, overlap_samples, 
                                          nsubint if 'nsubint' in locals() else None, 
                                          nchan if 'nchan' in locals() else None,

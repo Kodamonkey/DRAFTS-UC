@@ -1,8 +1,13 @@
-"""Planificador de slicing por chunk con ajuste a divisores y contigüidad estricta."""
+"""Chunk planner for FRB pipeline - plans optimal chunk and slice sizes."""
 from __future__ import annotations
 
+# Standard library imports
+import logging
 from dataclasses import dataclass
-from typing import List, Dict
+from typing import Dict, List
+
+# Setup logger
+logger = logging.getLogger(__name__)
 
 
 @dataclass

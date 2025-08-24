@@ -7,7 +7,10 @@ detallada del pipeline, especialmente para operaciones de chunking y
 procesamiento de archivos.
 """
 
-from typing import Dict, Any, Optional, Callable
+# Standard library imports
+from typing import Any, Callable, Dict, Optional
+
+# Local imports
 from .logging_config import get_global_logger
 
 

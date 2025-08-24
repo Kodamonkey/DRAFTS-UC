@@ -1,18 +1,34 @@
 """Model interface for FRB detection and classification - handles neural network inference."""
-import numpy as np
+# Standard library imports
 import logging
-from .. import config
 
+# Third-party imports
+import numpy as np
+
+# Local imports
+from ..config import config
+
+# Training imports
+try:
+    from training.ObjectDet.centernet_utils import get_res
+except ImportError:
+    get_res = None
+
+# Optional third-party imports
 try:
     import torch
 except ImportError:
     torch = None
 
+# Setup logger
 logger = logging.getLogger(__name__)
 
 def detect(model, img_tensor: np.ndarray):
     """Run the detection model and return confidences and boxes."""
-    from training.ObjectDet.centernet_utils import get_res
+    if get_res is None:
+        logger.error("get_res no está disponible. Verifique que training.ObjectDet.centernet_utils esté instalado.")
+        return [], []
+    
     try:
         with torch.no_grad():
             hm, wh, offset = model(
@@ -26,10 +42,9 @@ def detect(model, img_tensor: np.ndarray):
         if top_boxes is None:
             return [], []
         try:
-            import torch as _torch
-            if _torch.is_tensor(top_conf):
+            if torch.is_tensor(top_conf):
                 top_conf = top_conf.detach().cpu().numpy()
-            if _torch.is_tensor(top_boxes):
+            if torch.is_tensor(top_boxes):
                 top_boxes = top_boxes.detach().cpu().numpy()
         except Exception:
             pass

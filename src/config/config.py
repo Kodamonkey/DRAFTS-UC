@@ -15,13 +15,48 @@ from __future__ import annotations
 
 # Importar configuraciones del usuario
 try:
-    from .user_config import *
+    from .user_config import (
+        DATA_DIR,
+        DEBUG_FREQUENCY_ORDER,
+        DM_max,
+        DM_min,
+        DOWN_FREQ_RATE,
+        DOWN_TIME_RATE,
+        DET_PROB,
+        CLASS_PROB,
+        FORCE_PLOTS,
+        FRB_TARGETS,
+        RESULTS_DIR,
+        SLICE_DURATION_MS,
+        SNR_THRESH,
+        USE_MULTI_BAND
+    )
 except ImportError:
     # Si se ejecuta como script independiente
-    from user_config import *
+    from user_config import (
+        DATA_DIR,
+        DEBUG_FREQUENCY_ORDER,
+        DM_max,
+        DM_min,
+        DOWN_FREQ_RATE,
+        DOWN_TIME_RATE,
+        DET_PROB,
+        CLASS_PROB,
+        FORCE_PLOTS,
+        FRB_TARGETS,
+        RESULTS_DIR,
+        SLICE_DURATION_MS,
+        SNR_THRESH,
+        USE_MULTI_BAND
+    )
 
-import numpy as np
+# Standard library imports
 from pathlib import Path
+
+# Third-party imports
+import numpy as np
+
+# Optional third-party imports
 try:
     import torch
 except ImportError:  # Si torch no está instalado, lo dejamos como None
@@ -58,8 +93,11 @@ FILE_LENG: int = 0                          # Longitud del archivo (muestras)
 # Configuración de Slice Temporal (calculada dinámicamente)
 SLICE_LEN: int = 512                        # Número de muestras por slice (calculado automáticamente desde SLICE_DURATION_MS)
 
-# Configuración de datos
+# Configuraciones de datos
 DATA_NEEDS_REVERSAL: bool = False           # Invertir eje de frecuencia si es necesario
+
+# Límite de muestras para archivos grandes
+MAX_SAMPLES_LIMIT: int = 10_000_000         # Límite máximo de muestras para archivos .fil (10M muestras)
 
 # =============================================================================
 # CONFIGURACIONES AVANZADAS DEL SISTEMA

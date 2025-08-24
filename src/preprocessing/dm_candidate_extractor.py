@@ -1,6 +1,8 @@
+"""DM candidate extractor for FRB pipeline - extracts DM and time information from detection boxes."""
 from __future__ import annotations
 
-from .. import config
+# Local imports
+from ..config import config
 
 
 def extract_candidate_dm(px: float, py: float, slice_len: int) -> tuple[float, float, int]:

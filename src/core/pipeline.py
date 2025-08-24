@@ -116,9 +116,6 @@ def _load_class_model() -> torch.nn.Module:
     model.eval()
     return model
 
-
-# Helpers de orquestación
-
 def _downsample_chunk(block: np.ndarray) -> tuple[np.ndarray, float]:
     """Aplica downsampling temporal (suma) y frecuencial (promedio) al chunk completo.
 

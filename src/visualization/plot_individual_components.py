@@ -110,6 +110,7 @@ def generate_individual_plots(
             absolute_start_time=absolute_start_time,
             chunk_idx=chunk_idx,
             slice_samples=slice_samples,
+            dm_value=dm_val,  # Agregar DM para corrección de dispersión
         )
         logger.info(f"✓ Waterfall dispersed plot saved: {waterfall_dispersed_path}")
         

@@ -6,7 +6,7 @@ from pathlib import Path
 
 # Directorios de entrada y salida
 DATA_DIR = Path("./Data/raw")                        # Directorio con archivos de entrada (.fits, .fil)
-RESULTS_DIR = Path("./Results/ObjectDetection")      # Directorio para guardar resultados
+RESULTS_DIR = Path("./Results")      # Directorio para guardar resultados
 
 # Lista de archivos a procesar
 FRB_TARGETS = [

@@ -74,10 +74,9 @@ def print_debug_frequencies(prefix: str, file_name: str, freq_axis_inverted: boo
 def save_file_debug_info(file_name: str, debug_info: Dict) -> None:
     """Guarda debug info (FITS o FIL) en summary.json inmediatamente (unificado)."""
     try:
-        results_dir = getattr(config, 'RESULTS_DIR', Path('./Results/ObjectDetection'))
-        model_dir = results_dir / config.MODEL_NAME
-        model_dir.mkdir(parents=True, exist_ok=True)
+        results_dir = getattr(config, 'RESULTS_DIR', Path('./Results'))
+        results_dir.mkdir(parents=True, exist_ok=True)
         filename = Path(file_name).stem
-        _update_summary_with_file_debug(model_dir, filename, debug_info)
+        _update_summary_with_file_debug(results_dir, filename, debug_info)
     except Exception as e:
         print(f"[WARNING] Error guardando debug info para {file_name}: {e}")

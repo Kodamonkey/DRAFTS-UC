@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 # Standard library imports
@@ -59,8 +58,17 @@ from .filterbank_handler import (
     stream_fil
 )
 
+# Importar las nuevas funciones inteligentes
+from .file_detector import detect_file_type, validate_file_compatibility
+from .parameter_extractor import extract_parameters_auto, get_parameters_function
+from .streaming_orchestrator import get_streaming_function, stream_file_auto
+
 # Setup logger
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# FUNCIONES DE COMPATIBILIDAD - MANTENER INTERFAZ EXISTENTE
+# =============================================================================
 
 def _safe_float(value, default=0.0):
     """Return ``value`` as ``float`` or ``default`` if conversion fails."""
@@ -85,3 +93,95 @@ def _print_debug_frequencies(prefix: str, file_name: str, freq_axis_inverted: bo
 def _save_file_debug_info(file_name: str, debug_info: dict) -> None:
     """Guarda debug info (FITS o FIL) en summary.json inmediatamente (unificado)."""
     save_file_debug_info(file_name, debug_info)
+
+# =============================================================================
+# FUNCIONES INTELIGENTES NUEVAS - INTERFAZ UNIFICADA
+# =============================================================================
+
+def detect_file_type_auto(file_path: Path) -> str:
+    """
+    Detecta automáticamente el tipo de archivo (compatibilidad con pipeline).
+    
+    Args:
+        file_path: Path al archivo
+        
+    Returns:
+        Tipo de archivo detectado ('fits' o 'filterbank')
+    """
+    return detect_file_type(file_path)
+
+def get_streaming_function_auto(file_path: Path):
+    """
+    Retorna la función de streaming apropiada (compatibilidad con pipeline).
+    
+    Args:
+        file_path: Path al archivo
+        
+    Returns:
+        Tuple[streaming_function, file_type]
+    """
+    return get_streaming_function(file_path)
+
+def extract_parameters_auto(file_path: Path):
+    """
+    Extrae parámetros automáticamente (compatibilidad con pipeline).
+    
+    Args:
+        file_path: Path al archivo
+        
+    Returns:
+        Resultado de la extracción
+    """
+    return extract_parameters_auto(file_path)
+
+# =============================================================================
+# DOCUMENTACIÓN DE COMPATIBILIDAD
+# =============================================================================
+"""
+ESTRUCTURA REFACTORIZADA:
+
+1. MÓDULO UTILS (src/input/utils.py):
+   - safe_float() → _safe_float() (compatibilidad)
+   - safe_int() → _safe_int() (compatibilidad)
+   - auto_config_downsampling() → _auto_config_downsampling() (compatibilidad)
+   - print_debug_frequencies() → _print_debug_frequencies() (compatibilidad)
+   - save_file_debug_info() → _save_file_debug_info() (compatibilidad)
+
+2. MÓDULO FITS_HANDLER (src/input/fits_handler.py):
+   - load_fits_file() → importado directamente
+   - get_obparams() → importado directamente
+   - stream_fits() → importado directamente
+
+3. MÓDULO FILTERBANK_HANDLER (src/input/filterbank_handler.py):
+   - _read_int() → importado directamente
+   - _read_double() → importado directamente
+   - _read_string() → importado directamente
+   - _read_header() → importado directamente
+   - _read_non_standard_header() → importado directamente
+   - load_fil_file() → importado directamente
+   - get_obparams_fil() → importado directamente
+   - stream_fil() → importado directamente
+
+4. NUEVOS MÓDULOS INTELIGENTES:
+   - file_detector.py: Detección y validación de tipos de archivo
+   - parameter_extractor.py: Extracción automática de parámetros
+   - streaming_orchestrator.py: Orquestación inteligente de streaming
+
+5. WRAPPER PRINCIPAL (src/input/data_loader.py):
+   - Mantiene todas las funciones públicas para compatibilidad
+   - Importa funciones de los módulos especializados
+   - Proporciona funciones de compatibilidad con prefijo _
+   - Expone nuevas funciones inteligentes
+
+BENEFICIOS DE LA REFACTORIZACIÓN:
+- Código más modular y mantenible
+- Separación clara de responsabilidades
+- Fácil testing y debugging por módulo
+- Compatibilidad total con el pipeline existente
+- Mejor organización del código
+- Reutilización de funciones comunes
+- Funciones inteligentes para detección automática
+
+NOTA: Todas las funciones públicas del módulo original siguen disponibles
+con la misma interfaz, por lo que el pipeline existente no se verá afectado.
+"""

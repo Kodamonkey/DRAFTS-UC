@@ -127,6 +127,7 @@ def run_single_segment(
         band_idx=0,
         absolute_start_time=start,
         slice_samples=block.shape[0],
+        dm_value=float(dm),  # Agregar DM para corrección de dispersión
     )
 
     # 6) Waterfall dedispersado en la misma ventana (estilo PRESTO)

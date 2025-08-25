@@ -8,9 +8,9 @@ import numpy as np
 # Local imports
 from ..config import config
 
-# Training imports
+# Model imports
 try:
-    from training.ObjectDet.centernet_utils import get_res
+    from ..models.ObjectDet.centernet_utils import get_res
 except ImportError:
     get_res = None
 
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 def detect(model, img_tensor: np.ndarray):
     """Run the detection model and return confidences and boxes."""
     if get_res is None:
-        logger.error("get_res no está disponible. Verifique que training.ObjectDet.centernet_utils esté instalado.")
+        logger.error("get_res no está disponible. Verifique que models.ObjectDet.centernet_utils esté instalado.")
         return [], []
     
     try:

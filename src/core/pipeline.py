@@ -1,9 +1,3 @@
-# =============================================================================
-# PIPELINE PRINCIPAL DE DETECCIÓN DE FRB #
-#
-# Orquesta la carga de modelos, procesamiento de archivos FITS/FIL, y guarda los resultados.
-# =============================================================================
-"""High level pipeline for FRB detection with CenterNet."""
 from __future__ import annotations
 
 # Standard library imports
@@ -30,8 +24,21 @@ except ImportError:
 
 # Local imports
 from ..config import config
-from .detection_engine import process_slice
-from ..input.data_loader import get_obparams, get_obparams_fil, stream_fil, stream_fits
+from .detection_engine import process_slice_with_multiple_bands
+from .data_flow_manager import (
+    build_dm_time_cube,
+    create_chunk_directories,
+    downsample_chunk,
+    get_chunk_processing_parameters,
+    plan_slices,
+    trim_valid_window,
+    validate_slice_indices,
+)
+from .pipeline_parameters import calculate_absolute_slice_time
+from ..input.data_loader import stream_fil, stream_fits
+from ..input.parameter_extractor import extract_parameters_auto
+from ..input.streaming_orchestrator import get_streaming_function
+from ..input.file_finder import find_data_files
 from ..logging import (
     log_block_processing,
     log_fil_detected,
@@ -44,7 +51,6 @@ from ..logging import (
 )
 from ..output.candidate_manager import ensure_csv_header
 from ..output.summary_manager import _update_summary_with_results, _write_summary_with_timestamp
-from ..preprocessing.chunk_planner import plan_slices_for_chunk
 from ..preprocessing.dedispersion import d_dm_time_g
 
 # Setup logger
@@ -87,11 +93,6 @@ def _optimize_memory(aggressive: bool = False) -> None:
         time.sleep(0.01)  # 10ms para limpieza normal
 
 
-# =============================================================================
-# CARGA DE MODELOS DE DETECCIÓN Y CLASIFICACIÓN #
-#
-# Funciones para cargar los modelos de CenterNet y clasificación binaria desde disco.
-# =============================================================================
 def _load_detection_model() -> torch.nn.Module:
     """Load the CenterNet model configured in :mod:`config`."""
     if torch is None:
@@ -115,69 +116,6 @@ def _load_class_model() -> torch.nn.Module:
     model.load_state_dict(state)
     model.eval()
     return model
-
-def _downsample_chunk(block: np.ndarray) -> tuple[np.ndarray, float]:
-    """Aplica downsampling temporal (suma) y frecuencial (promedio) al chunk completo.
-
-    Returns:
-        block_ds: bloque decimado (tiempo, freq)
-        dt_ds: resolución temporal efectiva (s)
-    """
-    from ..preprocessing.data_downsampler import downsample_data
-    block_ds = downsample_data(block)
-    dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
-    return block_ds, dt_ds
-
-
-def _build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max: float) -> np.ndarray:
-    """Construye el cubo DM–tiempo para el bloque decimado completo."""
-    width = block_ds.shape[0]
-    from ..preprocessing.dedispersion import d_dm_time_g
-    return d_dm_time_g(block_ds, height=height, width=width, dm_min=dm_min, dm_max=dm_max)
-
-
-def _trim_valid_window(block_ds: np.ndarray, dm_time_full: np.ndarray, overlap_left_ds: int, overlap_right_ds: int) -> tuple[np.ndarray, np.ndarray, int, int]:
-
-    valid_start_ds = max(0, overlap_left_ds)
-    # Conservar el lado derecho completo para continuidad
-    valid_end_ds = block_ds.shape[0]
-    if valid_end_ds <= valid_start_ds:
-        valid_start_ds, valid_end_ds = 0, block_ds.shape[0]
-    dm_time = dm_time_full[:, :, valid_start_ds:valid_end_ds]
-    block_valid = block_ds[valid_start_ds:valid_end_ds]
-    return block_valid, dm_time, valid_start_ds, valid_end_ds
-
-
-def _plan_slices(block_valid: np.ndarray, slice_len: int, chunk_idx: int) -> list[tuple[int, int, int]]:
-    """Genera (j, start_idx, end_idx) por slice para el bloque válido."""
-    if getattr(config, 'USE_PLANNED_CHUNKING', False):
-        time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
-        plan = plan_slices_for_chunk(
-            num_samples_decimated=block_valid.shape[0],
-            target_duration_ms=config.SLICE_DURATION_MS,
-            time_reso_decimated_s=time_reso_ds,
-            max_slice_count=getattr(config, 'MAX_SLICE_COUNT', 5000),
-            time_tol_ms=getattr(config, 'TIME_TOL_MS', 0.1),
-        )
-        try:
-            from ..logging.chunking_logging import log_slice_plan_summary
-            log_slice_plan_summary(chunk_idx, plan)
-        except Exception:
-            pass
-        return [(idx, sl.start_idx, sl.end_idx) for idx, sl in enumerate(plan["slices"])]
-    else:
-        time_slice = (block_valid.shape[0] + slice_len - 1) // slice_len
-        return [(j, j * slice_len, min((j + 1) * slice_len, block_valid.shape[0])) for j in range(time_slice)]
-
-
-def _absolute_slice_time(chunk_start_time_sec: float, start_idx: int, dt_ds: float) -> float:
-    """Calcula el inicio absoluto del slice en segundos desde el inicio del archivo.
-
-    Nota: chunk_start_time_sec ya corresponde al inicio válido del chunk
-    (sin solape izquierdo), por lo que NO se suma ningún desplazamiento adicional.
-    """
-    return chunk_start_time_sec + (start_idx * dt_ds)
-
 
 def _process_block(
     det_model: torch.nn.Module, # Modelo de detección
@@ -215,7 +153,7 @@ def _process_block(
     
     try:
         # Aplicar downsampling al bloque
-        block, dt_ds = _downsample_chunk(block)
+        block, dt_ds = downsample_chunk(block)
 
         dt_raw = config.TIME_RESO
         _trace_info(
@@ -224,41 +162,31 @@ def _process_block(
             metadata.get("start_sample", -1), metadata.get("end_sample", -1)
         )
         
-        # Calcular parámetros para este bloque
-        freq_down = np.mean(
-            config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
-            axis=1,
-        )
+        # Obtener parámetros del chunk usando el nuevo módulo centralizado
+        chunk_params = get_chunk_processing_parameters(metadata)
+        freq_down = chunk_params['freq_down']
+        height = chunk_params['height']
+        width_total = chunk_params['width_total']
+        slice_len = chunk_params['slice_len']
+        real_duration_ms = chunk_params['real_duration_ms']
+        time_slice = chunk_params['time_slice']
+        overlap_left_ds = chunk_params['overlap_left_ds']
+        overlap_right_ds = chunk_params['overlap_right_ds']
         
-        height = config.DM_max - config.DM_min + 1
-
-        width_total = config.FILE_LENG // config.DOWN_TIME_RATE
-
-        # Calcular solapamiento equivalente en muestras decimadas
-        # IMPORTANTE: usar ceil para no incluir bins decimados contaminados por el solape parcial
-        _ol_raw = int(metadata.get("overlap_left", 0))
-        _or_raw = int(metadata.get("overlap_right", 0))
-        R = int(config.DOWN_TIME_RATE)
-        overlap_left_ds = (_ol_raw + R - 1) // R
-        overlap_right_ds = (_or_raw + R - 1) // R
         # TRACE: mostrar cómo se mapean los solapes
         logger.info(
             "[TRACE] Overlap raw→ds: left=%d→%d (R=%d) right=%d→%d",
-            _ol_raw, overlap_left_ds, R, _or_raw, overlap_right_ds
-        )
-        
-        # Calcular slice_len dinámicamente
-        from ..preprocessing.slice_len_calculator import update_slice_len_dynamic # Importar la función de actualización de slice_len
-        slice_len, real_duration_ms = update_slice_len_dynamic() # Actualiza slice_len según la configuración
-        time_slice = (width_total + slice_len - 1) // slice_len # Número de slices por chunk
+            int(metadata.get("overlap_left", 0)), overlap_left_ds, int(config.DOWN_TIME_RATE), 
+            int(metadata.get("overlap_right", 0)), overlap_right_ds
+        ) # Número de slices por chunk
         
         logger.info(f"Chunk {chunk_idx:03d}: {metadata['actual_chunk_size']} muestras → {time_slice} slices")
         
         # Generar DM-time cube del bloque decimado completo
-        dm_time_full = _build_dm_time_cube(block, height=height, dm_min=config.DM_min, dm_max=config.DM_max)
+        dm_time_full = build_dm_time_cube(block, height=height, dm_min=config.DM_min, dm_max=config.DM_max)
 
         # Extraer ventana válida (sin bordes inválidos) usando los solapes decimados
-        block, dm_time, valid_start_ds, valid_end_ds = _trim_valid_window(
+        block, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(
             block, dm_time_full, overlap_left_ds, overlap_right_ds
         )
 
@@ -278,8 +206,7 @@ def _process_block(
         snr_list = [] # Lista de SNRs de los candidatos
         
         # Plan de slices por chunk con contigüidad y ajuste divisor
-        time_slice = (config.FILE_LENG // config.DOWN_TIME_RATE + slice_len - 1) // slice_len
-        slices_to_process = _plan_slices(block, slice_len, chunk_idx)
+        slices_to_process = plan_slices(block, slice_len, chunk_idx)
 
         for j, start_idx, end_idx in slices_to_process: # Procesar cada slice
             # Mensaje de progreso cada 10 slices o en el primer slice
@@ -291,15 +218,21 @@ def _process_block(
                 except ImportError:
                     pass
             
-            # Verificar que tenemos suficientes datos para este slice (índices ya calculados)
-
-            # =============================================================================
-            # LOGGING INFORMATIVO DETALLADO PARA AJUSTES Y SALTOS
-            # =============================================================================
+            # Validar índices del slice usando el nuevo módulo
             
-            # Información base del slice (tiempo absoluto calculado con recorte válido)
+            es_valido, start_idx_ajustado, end_idx_ajustado, razon = validate_slice_indices(
+                start_idx, end_idx, block.shape[0], slice_len, j, chunk_idx
+            )
+            
+            if not es_valido:
+                logger.warning(f"SALTANDO SLICE {j} (chunk {chunk_idx}): {razon}")
+                continue
+            
+            # Usar índices ajustados si fue necesario
+            start_idx, end_idx = start_idx_ajustado, end_idx_ajustado
+            
+            # Información del slice para logging
             dt_ds_local = config.TIME_RESO * config.DOWN_TIME_RATE
-            # El índice 0 de 'block' (tras recorte izquierdo) corresponde exactamente a chunk_start_time_sec
             slice_abs_start_preview = chunk_start_time_sec + (start_idx * dt_ds_local)
             slice_info = {
                 'slice_idx': j,
@@ -311,52 +244,6 @@ def _process_block(
                 'tiempo_absoluto_inicio': slice_abs_start_preview,
                 'duracion_slice_esperada_ms': slice_len * config.TIME_RESO * config.DOWN_TIME_RATE * 1000
             }
-
-            # Verificar que no excedemos los límites del bloque
-            if start_idx >= block.shape[0]: # Si el índice de inicio es mayor o igual al tamaño del bloque
-                logger.warning(
-                    f"SALTANDO SLICE {j} (chunk {chunk_idx}):\n"
-                    f"   • start_idx ({start_idx}) >= block.shape[0] ({block.shape[0]})\n"
-                    f"   • Slice fuera de límites - no hay datos que procesar\n"
-                    f"   • Tiempo absoluto: {slice_info['tiempo_absoluto_inicio']:.3f}s\n"
-                    f"   • Duración esperada: {slice_info['duracion_slice_esperada_ms']:.1f}ms\n"
-                    f"   • Datos disponibles en bloque: {block.shape[0]} muestras\n"
-                    f"   • Razón: El slice empieza después del final del bloque"
-                )
-                continue
-
-            if end_idx > block.shape[0]: # Si el índice de fin es mayor al tamaño del bloque
-                # Calcular información antes del ajuste
-                muestras_esperadas = end_idx - start_idx
-                muestras_disponibles = block.shape[0] - start_idx
-                porcentaje_ajuste = ((end_idx - block.shape[0]) / (end_idx - start_idx)) * 100
-                
-                logger.warning(
-                    f"AJUSTANDO SLICE {j} (chunk {chunk_idx}):\n"
-                    f"   • end_idx calculado ({end_idx}) > block.shape[0] ({block.shape[0]})\n"
-                    f"   • Muestras esperadas: {muestras_esperadas}\n"
-                    f"   • Muestras disponibles: {muestras_disponibles}\n"
-                    f"   • Ajuste necesario: {end_idx - block.shape[0]} muestras ({porcentaje_ajuste:.1f}%)\n"
-                    f"   • Tiempo absoluto: {slice_info['tiempo_absoluto_inicio']:.3f}s\n"
-                    f"   • Duración esperada: {slice_info['duracion_slice_esperada_ms']:.1f}ms\n"
-                    f"   • Razón: Último slice del chunk con datos residuales"
-                )
-                
-                end_idx = block.shape[0] # Ajustar el índice de fin al tamaño del bloque
-                
-                # Si el slice es muy pequeño, saltarlo
-                if end_idx - start_idx < slice_len // 2:
-                    logger.warning(
-                        f"SALTANDO SLICE {j} (chunk {chunk_idx}) - MUY PEQUEÑO:\n"
-                        f"   • Tamaño después del ajuste: {end_idx - start_idx} muestras\n"
-                        f"   • Tamaño mínimo requerido: {slice_len // 2} muestras\n"
-                        f"   • Porcentaje del tamaño esperado: {((end_idx - start_idx) / slice_len) * 100:.1f}%\n"
-                        f"   • Tiempo absoluto: {slice_info['tiempo_absoluto_inicio']:.3f}s\n"
-                        f"   • Razón: Slice demasiado pequeño para procesamiento efectivo"
-                    )
-                    continue
-
-            # Procesamiento del slice
             
             slice_cube = dm_time[:, :, start_idx : end_idx] # Cubo DM-time para este slice
             waterfall_block = block[start_idx : end_idx] # Bloque de datos para este slice
@@ -385,7 +272,7 @@ def _process_block(
 
             # Calcular tiempo absoluto para este slice específico
             # Importante: tras recorte izquierdo, el índice 0 de 'block' corresponde a chunk_start_time_sec
-            slice_start_time_sec = _absolute_slice_time(
+            slice_start_time_sec = calculate_absolute_slice_time(
                 chunk_start_time_sec, start_idx, dt_ds
             )
 
@@ -397,21 +284,13 @@ def _process_block(
                 dt_ds,
             )
 
-            # Crear carpeta principal del archivo
-            file_folder_name = fits_path.stem
-            chunk_folder_name = f"chunk{chunk_idx:03d}"
-            
+            # Crear directorios del chunk usando el nuevo módulo
+            composite_dir, detections_dir, patches_dir = create_chunk_directories(
+                save_dir, fits_path, chunk_idx
+            )
 
-            
-
-            # Estructura de carpetas para plots (se crearán solo si hay candidatos)
-            # Results/ObjectDetection/Composite/3096_0001_00_8bit/chunk000/
-            composite_dir = save_dir / "Composite" / file_folder_name / chunk_folder_name
-            detections_dir = save_dir / "Detections" / file_folder_name / chunk_folder_name
-            patches_dir = save_dir / "Patches" / file_folder_name / chunk_folder_name
-
-            # Pass chunked paths to process_slice (these will be used in plot_manager)
-            cands, bursts, no_bursts, max_prob = process_slice( # Procesar el slice
+            # Pass chunked paths to process_slice_with_multiple_bands (these will be used in plot_manager)
+            cands, bursts, no_bursts, max_prob = process_slice_with_multiple_bands( # Procesar el slice
                 j, dm_time, block, slice_len, det_model, cls_model, fits_path, save_dir,
                 freq_down, csv_file, config.TIME_RESO * config.DOWN_TIME_RATE, band_configs,
                 snr_list, config, 
@@ -454,6 +333,9 @@ def _process_block(
         # =============================================================================
         # Si este chunk contiene al menos un candidato BURST, moverlo a ChunksWithFRBs
         if n_bursts > 0:
+            # Definir nombres de carpetas para la reorganización
+            file_folder_name = fits_path.stem
+            chunk_folder_name = f"chunk{chunk_idx:03d}"
             try:
                 # Crear la carpeta ChunksWithFRBs si no existe
                 chunks_with_frbs_dir = save_dir / "Composite" / file_folder_name / "ChunksWithFRBs"
@@ -574,7 +456,7 @@ def _process_file_chunked(
         overlap_raw = int(np.ceil(dt_max_sec / config.TIME_RESO)) # Tiempo de solapamiento (en muestras)
 
         # Obtener función de streaming apropiada para el tipo de archivo
-        streaming_func, file_type = _get_streaming_function(fits_path) 
+        streaming_func, file_type = get_streaming_function(fits_path) 
         logger.info(f"DETECTADO: Archivo {file_type.upper()} - {fits_path.name}")
         logger.info(f"Usando streaming {file_type.upper()}: {streaming_func.__name__}")
         
@@ -681,49 +563,6 @@ def _process_file_chunked(
             "error_details": str(e)
         }
 
-
-def _get_streaming_function(file_path: Path):
-    """
-    Detecta automáticamente el tipo de archivo y retorna la función de streaming apropiada.
-    
-    Args:
-        file_path: Path al archivo a procesar
-        
-    Returns:
-        Tuple[streaming_function, file_type]: Función de streaming y tipo de archivo
-    """
-    # *** DEBUG CRÍTICO: CONFIRMAR DETECCIÓN DE TIPO DE ARCHIVO ***
-    from ..logging import log_file_detection
-    log_file_detection(str(file_path), file_path.suffix.lower(), str(file_path))
-    
-    if str(file_path).endswith('.fits'):
-        log_fits_detected(str(file_path))
-        return stream_fits, "fits"
-    elif str(file_path).endswith('.fil'):
-        log_fil_detected(str(file_path))
-        return stream_fil, "fil"
-    else:
-        log_unsupported_file_type(str(file_path))
-        raise ValueError(f"Tipo de archivo no soportado: {file_path}. Solo se soportan .fits y .fil")
-
-
-# =============================================================================
-# BÚSQUEDA DE ARCHIVOS DE DATOS #
-#
-# Encuentra archivos FITS o FIL que coincidan con el target FRB en el directorio de datos.
-# =============================================================================
-def _find_data_files(frb: str) -> List[Path]:
-    """Return FITS or filterbank files matching ``frb`` within ``config.DATA_DIR``."""
-
-    files = list(config.DATA_DIR.glob("*.fits")) + list(config.DATA_DIR.glob("*.fil"))
-    return sorted(f for f in files if frb in f.name)
-
-
-# =============================================================================
-# EJECUCIÓN DEL PIPELINE COMPLETO #
-#
-# Controla el flujo principal: carga modelos, busca archivos, procesa cada archivo y guarda el resumen global.
-# =============================================================================
 def run_pipeline(chunk_samples: int = 0) -> None:
     from ..logging.logging_config import setup_logging, set_global_logger
     
@@ -740,7 +579,7 @@ def run_pipeline(chunk_samples: int = 0) -> None:
     
     logger.pipeline_start(pipeline_config) 
 
-    save_dir = config.RESULTS_DIR / config.MODEL_NAME # Directorio de resultados
+    save_dir = config.RESULTS_DIR # Directorio de resultados (sin subcarpeta del modelo)
     save_dir.mkdir(parents=True, exist_ok=True) # Crear el directorio de resultados
     
     logger.logger.info("Cargando modelos...")
@@ -751,21 +590,22 @@ def run_pipeline(chunk_samples: int = 0) -> None:
     summary: dict[str, dict] = {}
     for frb in config.FRB_TARGETS: # Procesar cada archivo de datos
         logger.logger.info(f"Buscando archivos para target: {frb}") # Log de búsqueda de archivos
-        file_list = _find_data_files(frb) # Buscar archivos de datos
+        file_list = find_data_files(frb) # Buscar archivos de datos usando el nuevo sistema inteligente
         logger.logger.info(f"Archivos encontrados: {[f.name for f in file_list]}") # Log de archivos encontrados
         if not file_list:
             logger.logger.warning(f"No se encontraron archivos para {frb}")
             continue
-
         try:
-            # Obtener los parámetros del archivo
-            first_file = file_list[0] # Obtener el primer archivo de la lista
-            logger.logger.info(f"Leyendo parámetros desde: {first_file.name}") # Log de lectura de parámetros
-            if first_file.suffix.lower() == ".fits":
-                get_obparams(str(first_file)) # Obtener los parámetros del archivo
+            # Extraer parámetros automáticamente usando el nuevo sistema inteligente
+            first_file = file_list[0]
+            logger.logger.info(f"Extrayendo parámetros automáticamente desde: {first_file.name}")
+            
+            extraction_result = extract_parameters_auto(first_file)
+            if extraction_result['success']:
+                logger.logger.info(f"Parámetros extraídos exitosamente: {', '.join(extraction_result['parameters_extracted'])}")
             else:
-                get_obparams_fil(str(first_file)) # Obtener los parámetros del archivo
-            logger.logger.info("Parámetros de observación cargados")
+                logger.logger.error(f"Error extrayendo parámetros: {', '.join(extraction_result['errors'])}")
+                continue
             
             # CALCULAR PARÁMETROS DE PROCESAMIENTO AUTOMÁTICAMENTE
             from ..preprocessing.slice_len_calculator import get_processing_parameters, validate_processing_parameters
@@ -846,25 +686,5 @@ def run_pipeline(chunk_samples: int = 0) -> None:
     logger.pipeline_end(summary)
 
 if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Run FRB detection pipeline")
-    parser.add_argument("--data-dir", type=Path, help="Directory with FITS files")
-    parser.add_argument("--results-dir", type=Path, help="Directory for results")
-    parser.add_argument("--det-model", type=Path, help="Detection model path")
-    parser.add_argument("--class-model", type=Path, help="Classification model path")
-    parser.add_argument("--chunk-samples", type=int, default=0, 
-                       help="Número de muestras por bloque para archivos .fil (0 = modo antiguo)")
-    args = parser.parse_args()
-
-    if args.data_dir:
-        config.DATA_DIR = args.data_dir
-    if args.results_dir:
-        config.RESULTS_DIR = args.results_dir
-    if args.det_model:
-        config.MODEL_PATH = args.det_model
-    if args.class_model:
-        config.CLASS_MODEL_PATH = args.class_model
-
-    run_pipeline(chunk_samples=args.chunk_samples)
-   
+    # Ejecutar pipeline con configuración por defecto
+    run_pipeline()

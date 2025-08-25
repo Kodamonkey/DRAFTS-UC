@@ -1,4 +1,11 @@
-"""Detection engine for FRB pipeline - orchestrates detection, classification, and visualization."""
+"""Motor de detección FRB - detecta candidatos, los clasifica y coordina visualizaciones.
+
+Este módulo contiene las funciones principales para:
+1. detect_and_classify_candidates_in_band(): Detección y clasificación en una banda específica
+2. process_slice_with_multiple_bands(): Coordinación de múltiples bandas y generación de visualizaciones
+
+Cada función tiene responsabilidades claras y nombres descriptivos que explican su propósito.
+"""
 from __future__ import annotations
 
 # Standard library imports
@@ -24,45 +31,7 @@ from ..visualization.visualization_unified import (
 # Setup logger
 logger = logging.getLogger(__name__)
 
-def _presto_time_ref_correction(dm_val: float, freq_ref_used_mhz: float, freq_ref_global_mhz: float) -> float:
-    """Corrección de referencia temporal al estilo PRESTO (segundos).
-
-    PRESTO ajusta el inicio del eje temporal cuando se cambia la frecuencia de
-    referencia (por ejemplo, tras subbandeo). La corrección es:
-        Δt = 4.1488e3 * DM * (|1/ref_global^2 - 1/ref_used^2|)
-    con frecuencias en MHz y Δt en segundos.
-
-    Args:
-        dm_val: DM del candidato
-        freq_ref_used_mhz: frecuencia de referencia efectiva usada para dedispersión/plot
-        freq_ref_global_mhz: frecuencia de referencia global (tope de banda original)
-    Returns:
-        float: corrección en segundos (sumar al tiempo reportado)
-    """
-    try:
-        f1 = float(freq_ref_global_mhz)
-        f2 = float(freq_ref_used_mhz)
-        if f1 <= 0 or f2 <= 0 or dm_val is None:
-            return 0.0
-        return 4.1488e3 * float(dm_val) * abs(1.0 / (f1 * f1) - 1.0 / (f2 * f2))
-    except Exception:
-        return 0.0
-
-def get_pipeline_parameters(config):
-    if config.FREQ_RESO == 0 or config.DOWN_FREQ_RATE == 0:
-        raise ValueError(f"Parámetros de frecuencia inválidos: FREQ_RESO={config.FREQ_RESO}, DOWN_FREQ_RATE={config.DOWN_FREQ_RATE}")
-    freq_down = np.mean(
-        config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
-        axis=1,
-    )
-    height = config.DM_max - config.DM_min + 1
-    width_total = config.FILE_LENG // config.DOWN_TIME_RATE
-    slice_len, real_duration_ms = update_slice_len_dynamic()
-    time_slice = (width_total + slice_len - 1) // slice_len
-    slice_duration = slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
-    return freq_down, height, width_total, slice_len, real_duration_ms, time_slice, slice_duration
-
-def process_band(
+def detect_and_classify_candidates_in_band(
     det_model,
     cls_model,
     band_img,
@@ -82,12 +51,34 @@ def process_band(
     band_idx=None,  # ID de la banda
     slice_start_idx: int | None = None,  # NUEVO: inicio del slice (decimado) para índice global
 ):
-    """Procesa una banda con tiempo absoluto para continuidad temporal.
+    """Detecta candidatos FRB en una banda de frecuencia, los clasifica y selecciona el mejor.
+    
+    Esta función realiza el flujo completo de detección y clasificación para una banda específica:
+    1. Detecta candidatos usando el modelo de detección
+    2. Clasifica cada candidato como BURST o NO BURST
+    3. Calcula SNR y parámetros de cada candidato
+    4. Selecciona el mejor candidato para visualización
+    5. Guarda todos los candidatos en CSV
     
     Args:
-        absolute_start_time: Tiempo absoluto de inicio del slice en segundos desde el inicio del archivo
+        det_model: Modelo de detección de objetos
+        cls_model: Modelo de clasificación binaria
+        band_img: Imagen de la banda de frecuencia
+        slice_len: Longitud del slice en muestras
+        j: Índice del slice
+        fits_path: Path del archivo FITS
+        save_dir: Directorio de guardado
+        data: Datos del bloque completo
+        freq_down: Frecuencias decimadas
+        csv_file: Archivo CSV para guardar candidatos
+        time_reso_ds: Resolución temporal decimada
+        snr_list: Lista para acumular valores SNR
+        config: Configuración del pipeline
+        absolute_start_time: Tiempo absoluto de inicio del slice
+        patches_dir: Directorio para guardar patches
         chunk_idx: ID del chunk donde se encuentra este slice
         band_idx: ID de la banda (0=fullband, 1=lowband, 2=highband)
+        slice_start_idx: Inicio del slice en muestras decimadas
     """
     # Obtener el logger global para mensajes informativos
     try:
@@ -324,7 +315,7 @@ def process_band(
         "candidate_times_abs": candidate_times_abs,
     }
 
-def process_slice(
+def process_slice_with_multiple_bands(
     j,
     dm_time,
     block,
@@ -348,11 +339,38 @@ def process_slice(
     slice_start_idx: int | None = None,  # NUEVO: inicio del slice en muestras (dominio decimado)
     slice_end_idx: int | None = None,    # NUEVO: fin exclusivo del slice (dominio decimado)
 ):
-    """Procesa un slice con tiempo absoluto para continuidad temporal entre chunks.
+    """Coordina el procesamiento de múltiples bandas en un slice temporal y genera visualizaciones.
+    
+    Esta función es el coordinador principal para un slice:
+    1. Procesa cada banda de frecuencia (fullband, lowband, highband)
+    2. Llama a detect_and_classify_candidates_in_band() para cada banda
+    3. Genera visualizaciones (waterfall, composite, patches)
+    4. Maneja la dedispersión del bloque completo
+    5. Retorna estadísticas consolidadas del slice
     
     Args:
-        absolute_start_time: Tiempo absoluto de inicio del slice en segundos desde el inicio del archivo
+        j: Índice del slice
+        dm_time: Cubo DM-tiempo del bloque
+        block: Bloque de datos completo
+        slice_len: Longitud del slice en muestras
+        det_model: Modelo de detección de objetos
+        cls_model: Modelo de clasificación binaria
+        fits_path: Path del archivo FITS
+        save_dir: Directorio de guardado
+        freq_down: Frecuencias decimadas
+        csv_file: Archivo CSV para guardar candidatos
+        time_reso_ds: Resolución temporal decimada
+        band_configs: Configuración de bandas a procesar
+        snr_list: Lista para acumular valores SNR
+        config: Configuración del pipeline
+        absolute_start_time: Tiempo absoluto de inicio del slice
+        composite_dir: Directorio para plots compuestos
+        detections_dir: Directorio para plots de detecciones
+        patches_dir: Directorio para patches
         chunk_idx: ID del chunk donde se encuentra este slice
+        force_plots: Forzar generación de plots incluso sin candidatos
+        slice_start_idx: Inicio del slice en muestras decimadas
+        slice_end_idx: Fin del slice en muestras decimadas
     """
     # Obtener el logger global para mensajes informativos
     try:
@@ -441,7 +459,7 @@ def process_slice(
 
     for band_idx, band_suffix, band_name in band_configs:
         band_img = slice_cube[band_idx]
-        band_result = process_band(
+        band_result = detect_and_classify_candidates_in_band(
             det_model,
             cls_model,
             band_img,

@@ -6,7 +6,7 @@ from pathlib import Path
 
 # Directorios de entrada y salida
 DATA_DIR = Path("./Data/raw")                        # Directorio con archivos de entrada (.fits, .fil)
-RESULTS_DIR = Path("./Results")      # Directorio para guardar resultados
+RESULTS_DIR = Path("./Results")                      # Directorio para guardar resultados
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
@@ -18,7 +18,7 @@ FRB_TARGETS = [
 # =============================================================================
 
 # Duración de cada slice temporal (milisegundos)
-SLICE_DURATION_MS: float = 300.0
+SLICE_DURATION_MS: float = 500.0
 
 # =============================================================================
 # CONFIGURACIÓN DE DOWNSAMPLING
@@ -26,8 +26,7 @@ SLICE_DURATION_MS: float = 300.0
 
 # Factores de reducción para optimizar el procesamiento
 DOWN_FREQ_RATE: int = 1                      # Factor de reducción en frecuencia (1 = sin reducción)
-DOWN_TIME_RATE: int = 8                     # Factor de reducción en tiempo (1 = sin reducción)
-
+DOWN_TIME_RATE: int = 12                     # Factor de reducción en tiempo (1 = sin reducción)
 
 # =============================================================================
 # CONFIGURACIÓN DE DISPERSIÓN (DM)
@@ -65,3 +64,10 @@ DEBUG_FREQUENCY_ORDER: bool = False        # True = mostrar información detalla
 
 # Forzar generación de plots incluso sin candidatos (modo debug)
 FORCE_PLOTS: bool = False                  # True = siempre generar plots para inspección
+
+# =============================================================================
+# CONFIGURACIÓN DE FILTRADO DE CANDIDATOS
+# =============================================================================
+
+# Solo guardar y mostrar candidatos clasificados como BURST
+SAVE_ONLY_BURST: bool = True             # True = solo guardar candidatos BURST, False = guardar todos los candidatos

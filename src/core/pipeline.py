@@ -6,7 +6,6 @@ import logging
 import shutil
 import time
 from pathlib import Path
-from typing import List
 
 # Third-party imports
 import numpy as np
@@ -329,10 +328,11 @@ def _process_block(
             pass
         
         # =============================================================================
-        # REORGANIZACIÓN DE CHUNKS CON FRBs
+        # REORGANIZACIÓN DE CHUNKS CON FRBs (solo cuando SAVE_ONLY_BURST = False)
         # =============================================================================
-        # Si este chunk contiene al menos un candidato BURST, moverlo a ChunksWithFRBs
-        if n_bursts > 0:
+        # Solo reorganizar chunks cuando SAVE_ONLY_BURST = False
+        # Si SAVE_ONLY_BURST = True, todos los candidatos guardados son BURST por definición
+        if not config.SAVE_ONLY_BURST and n_bursts > 0:
             # Definir nombres de carpetas para la reorganización
             file_folder_name = fits_path.stem
             chunk_folder_name = f"chunk{chunk_idx:03d}"
@@ -369,11 +369,26 @@ def _process_block(
                     
             except Exception as e:
                 logger.error(f"Error moviendo chunk {chunk_idx:03d} a ChunksWithFRBs: {e}")
+        elif config.SAVE_ONLY_BURST and n_bursts > 0:
+            # Cuando SAVE_ONLY_BURST = True, todos los candidatos guardados son BURST
+            logger.info(f"Chunk {chunk_idx:03d} contiene {n_bursts} candidatos BURST "
+                       f"(SAVE_ONLY_BURST=True, no se reorganiza - todos los chunks con candidatos son chunks con FRBs)")
+        
+        # FILTRADO: Si SAVE_ONLY_BURST está activado, solo contar candidatos BURST para estadísticas
+        if config.SAVE_ONLY_BURST:
+            effective_cand_counter = n_bursts
+            effective_n_bursts = n_bursts
+            effective_n_no_bursts = 0  # No contar NO BURST cuando solo se guardan BURST
+        else:
+            # Comportamiento normal: contar todos los candidatos
+            effective_cand_counter = cand_counter
+            effective_n_bursts = n_bursts
+            effective_n_no_bursts = n_no_bursts
         
         return {
-            "n_candidates": cand_counter,
-            "n_bursts": n_bursts,
-            "n_no_bursts": n_no_bursts,
+            "n_candidates": effective_cand_counter,
+            "n_bursts": effective_n_bursts,
+            "n_no_bursts": effective_n_no_bursts,
             "max_prob": prob_max,
             "mean_snr": float(np.mean(snr_list)) if snr_list else 0.0,
             "time_slice": time_slice,
@@ -519,10 +534,21 @@ def _process_file_chunked(
             f"{cand_counter_total} candidatos, max prob {prob_max_total:.2f}, ⏱️ {runtime:.1f}s"
         )
         
+        # FILTRADO: Si SAVE_ONLY_BURST está activado, solo contar candidatos BURST para estadísticas
+        if config.SAVE_ONLY_BURST:
+            effective_cand_counter_total = n_bursts_total
+            effective_n_bursts_total = n_bursts_total
+            effective_n_no_bursts_total = 0  # No contar NO BURST cuando solo se guardan BURST
+        else:
+            # Comportamiento normal: contar todos los candidatos
+            effective_cand_counter_total = cand_counter_total
+            effective_n_bursts_total = n_bursts_total
+            effective_n_no_bursts_total = n_no_bursts_total
+        
         return {
-            "n_candidates": cand_counter_total,
-            "n_bursts": n_bursts_total,
-            "n_no_bursts": n_no_bursts_total,
+            "n_candidates": effective_cand_counter_total,
+            "n_bursts": effective_n_bursts_total,
+            "n_no_bursts": effective_n_no_bursts_total,
             "runtime_s": runtime,
             "max_prob": prob_max_total,
             "mean_snr": float(np.mean(snr_list_total)) if snr_list_total else 0.0,
@@ -578,6 +604,17 @@ def run_pipeline(chunk_samples: int = 0) -> None:
     }
     
     logger.pipeline_start(pipeline_config) 
+
+    # Mostrar configuración de filtrado de candidatos
+    if config.SAVE_ONLY_BURST:
+        logger.logger.info("CONFIGURACIÓN ACTIVADA: SAVE_ONLY_BURST=True")
+        logger.logger.info("   → Solo se guardarán y mostrarán candidatos clasificados como BURST")
+        logger.logger.info("   → Los candidatos NO BURST serán detectados pero no guardados ni visualizados")
+        logger.logger.info("   → NO se reorganizarán chunks a 'ChunksWithFRBs' (todos los chunks con candidatos son chunks con FRBs)")
+    else:
+        logger.logger.info("CONFIGURACIÓN: SAVE_ONLY_BURST=False")
+        logger.logger.info("   → Se guardarán y mostrarán TODOS los candidatos (BURST y NO BURST)")
+        logger.logger.info("   → SÍ se reorganizarán chunks con FRBs a 'ChunksWithFRBs' para separar chunks con/sin FRBs")
 
     save_dir = config.RESULTS_DIR # Directorio de resultados (sin subcarpeta del modelo)
     save_dir.mkdir(parents=True, exist_ok=True) # Crear el directorio de resultados

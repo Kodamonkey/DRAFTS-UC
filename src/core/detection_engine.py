@@ -21,7 +21,7 @@ from ..logging.logging_config import Colors, get_global_logger
 from ..output.candidate_manager import Candidate, append_candidate
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
 from ..preprocessing.dedispersion import dedisperse_block, dedisperse_patch
-from ..preprocessing.slice_len_calculator import update_slice_len_dynamic
+
 from ..visualization.visualization_unified import (
     postprocess_img,
     preprocess_img,
@@ -49,7 +49,7 @@ def detect_and_classify_candidates_in_band(
     patches_dir=None,
     chunk_idx=None,  # ID del chunk
     band_idx=None,  # ID de la banda
-    slice_start_idx: int | None = None,  # NUEVO: inicio del slice (decimado) para índice global
+    slice_start_idx: int | None = None,  # Inicio del slice (decimado) para índice global
 ):
     """Detecta candidatos FRB en una banda de frecuencia, los clasifica y selecciona el mejor.
     
@@ -137,12 +137,12 @@ def detect_and_classify_candidates_in_band(
             slice_len,
         )
         
-        # Usar compute_snr_profile para SNR consistente con composite
+        # Calcular SNR consistente con composite
         # Extraer región del candidato para cálculo de SNR
         x1, y1, x2, y2 = map(int, box)
         candidate_region = band_img[y1:y2, x1:x2]
         if candidate_region.size > 0:
-            # Usar compute_snr_profile para consistencia con composite
+            # Calcular SNR para consistencia con composite
             snr_profile, _ = compute_snr_profile(candidate_region)
             snr_val_raw = np.max(snr_profile)  # Tomar el pico del SNR
         else:
@@ -159,7 +159,7 @@ def detect_and_classify_candidates_in_band(
             data, freq_down, dm_val, global_sample
         )
         
-        # Calcular SNR del patch dedispersado al estilo PRESTO (matched filter)
+        # Calcular SNR del patch dedispersado usando matched filter
         snr_val = 0.0  # Valor por defecto
         peak_idx_patch = None
         if patch is not None and patch.size > 0:
@@ -176,7 +176,7 @@ def detect_and_classify_candidates_in_band(
         class_probs_list.append(class_prob)
         is_burst = class_prob >= config.CLASS_PROB
         
-        # LÓGICA DE SELECCIÓN DEL MEJOR CANDIDATO PARA COMPOSITE
+        # Selección del mejor candidato para composite
         # Guardar el primer candidato para compatibilidad
         if first_patch is None:
             first_patch = proc_patch
@@ -184,14 +184,7 @@ def detect_and_classify_candidates_in_band(
             offset_within_slice = (start_sample - (slice_start_idx if slice_start_idx is not None else 0))
             first_start = (absolute_start_time if absolute_start_time is not None else 0.0) 
             first_start += offset_within_slice * config.TIME_RESO * config.DOWN_TIME_RATE
-            # Ajuste opcional PRESTO: si la frecuencia de referencia efectiva difiere de la global
-            try:
-                freq_ref_used = float(freq_down.max()) if hasattr(freq_down, 'max') else None
-                freq_ref_global = float(np.max(config.FREQ)) if getattr(config, 'FREQ', None) is not None else None
-                if freq_ref_used and freq_ref_global:
-                    first_start += _presto_time_ref_correction(dm_val, freq_ref_used, freq_ref_global)
-            except Exception:
-                pass
+            
             first_dm = dm_val
         
         # Almacenar información del candidato para análisis posterior
@@ -205,7 +198,7 @@ def detect_and_classify_candidates_in_band(
         }
         all_candidates.append(candidate_info)
         
-        # SELECCIÓN INTELIGENTE: Priorizar candidatos BURST sobre NO BURST
+        # Selección inteligente: priorizar candidatos BURST sobre NO BURST
         if best_patch is None:
             # Primer candidato siempre se guarda como fallback
             best_patch = proc_patch
@@ -220,7 +213,7 @@ def detect_and_classify_candidates_in_band(
             best_is_burst = is_burst
         # Si ambos son BURST o ambos son NO BURST, mantener el primero (orden de detección)
         
-        # CALCULAR TIEMPO ABSOLUTO DEL CANDIDATO PRIORIZANDO PROCESAMIENTO (pico SNR del patch)
+        # Calcular tiempo absoluto del candidato (pico SNR del patch)
         dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
         if peak_idx_patch is not None:
             # Tiempo absoluto de inicio del patch dentro del archivo
@@ -234,28 +227,21 @@ def detect_and_classify_candidates_in_band(
             else:
                 absolute_candidate_time = t_sec
 
-        # Ajuste opcional PRESTO: corregir por frecuencia de referencia si aplica
-        try:
-            freq_ref_used = float(freq_down.max()) if hasattr(freq_down, 'max') else None
-            freq_ref_global = float(np.max(config.FREQ)) if getattr(config, 'FREQ', None) is not None else None
-            if freq_ref_used and freq_ref_global:
-                absolute_candidate_time += _presto_time_ref_correction(dm_val, freq_ref_used, freq_ref_global)
-        except Exception:
-            pass
+        
         candidate_times_abs.append(float(absolute_candidate_time))
         
-        # Usar chunk_idx en el candidato
+        # Crear candidato con información completa
         cand = Candidate(
             fits_path.name,
-            chunk_idx if chunk_idx is not None else 0,  # AGREGAR CHUNK_ID
+            chunk_idx if chunk_idx is not None else 0,  # ID del chunk
             j,  # slice_id
-            band_idx if band_idx is not None else 0,  # BAND_ID CORRECTO
+            band_idx if band_idx is not None else 0,  # ID de la banda
             float(conf),
             dm_val,
-            absolute_candidate_time,  # USAR TIEMPO ABSOLUTO
+            absolute_candidate_time,  # Tiempo absoluto del candidato
             t_sample,
             tuple(map(int, box)),
-            snr_val,  # SNR CORREGIDO
+            snr_val,  # SNR del patch dedispersado
             class_prob,
             is_burst,
             patch_path.name,
@@ -289,7 +275,7 @@ def detect_and_classify_candidates_in_band(
                 f"Candidato NO BURST filtrado (SAVE_ONLY_BURST=True): DM {dm_val:.2f} t={absolute_candidate_time:.3f}s "
                 f"conf={conf:.2f} class={class_prob:.2f} → NO BURST (no guardado)"
             )
-    # SELECCIONAR EL CANDIDATO FINAL PARA EL COMPOSITE
+    # Seleccionar el candidato final para el composite
     # Si hay múltiples candidatos, priorizar BURST sobre NO BURST
     # Si no hay BURST, usar el primer candidato
     final_patch = best_patch if best_patch is not None else first_patch
@@ -310,17 +296,17 @@ def detect_and_classify_candidates_in_band(
         "top_conf": top_conf,
         "top_boxes": top_boxes,
         "class_probs_list": class_probs_list,
-        "first_patch": final_patch,  # USAR EL MEJOR CANDIDATO SELECCIONADO
-        "first_start": final_start,  # USAR EL MEJOR CANDIDATO SELECCIONADO
-        "first_dm": final_dm,        # USAR EL MEJOR CANDIDATO SELECCIONADO
+        "first_patch": final_patch,  # Mejor candidato seleccionado
+        "first_start": final_start,  # Mejor candidato seleccionado
+        "first_dm": final_dm,        # Mejor candidato seleccionado
         "img_rgb": img_rgb,
         "cand_counter": cand_counter,
         "n_bursts": n_bursts,
         "n_no_bursts": n_no_bursts,
         "prob_max": prob_max,
         "patch_path": patch_path,
-        "best_is_burst": best_is_burst,  # INFORMACIÓN ADICIONAL PARA DEBUG
-        "total_candidates": len(all_candidates),  # INFORMACIÓN ADICIONAL PARA DEBUG
+        "best_is_burst": best_is_burst,  # Información adicional para debug
+        "total_candidates": len(all_candidates),  # Información adicional para debug
         "candidate_times_abs": candidate_times_abs,
     }
 
@@ -345,43 +331,10 @@ def process_slice_with_multiple_bands(
     patches_dir=None,
     chunk_idx=None,  #  ID del chunk
     force_plots: bool = False,
-    slice_start_idx: int | None = None,  # NUEVO: inicio del slice en muestras (dominio decimado)
-    slice_end_idx: int | None = None,    # NUEVO: fin exclusivo del slice (dominio decimado)
+    slice_start_idx: int | None = None,  # Inicio del slice en muestras (dominio decimado)
+    slice_end_idx: int | None = None,    # Fin exclusivo del slice (dominio decimado)
 ):
-    """Coordina el procesamiento de múltiples bandas en un slice temporal y genera visualizaciones.
-    
-    Esta función es el coordinador principal para un slice:
-    1. Procesa cada banda de frecuencia (fullband, lowband, highband)
-    2. Llama a detect_and_classify_candidates_in_band() para cada banda
-    3. Genera visualizaciones (waterfall, composite, patches)
-    4. Maneja la dedispersión del bloque completo
-    5. Retorna estadísticas consolidadas del slice
-    
-    Args:
-        j: Índice del slice
-        dm_time: Cubo DM-tiempo del bloque
-        block: Bloque de datos completo
-        slice_len: Longitud del slice en muestras
-        det_model: Modelo de detección de objetos
-        cls_model: Modelo de clasificación binaria
-        fits_path: Path del archivo FITS
-        save_dir: Directorio de guardado
-        freq_down: Frecuencias decimadas
-        csv_file: Archivo CSV para guardar candidatos
-        time_reso_ds: Resolución temporal decimada
-        band_configs: Configuración de bandas a procesar
-        snr_list: Lista para acumular valores SNR
-        config: Configuración del pipeline
-        absolute_start_time: Tiempo absoluto de inicio del slice
-        composite_dir: Directorio para plots compuestos
-        detections_dir: Directorio para plots de detecciones
-        patches_dir: Directorio para patches
-        chunk_idx: ID del chunk donde se encuentra este slice
-        force_plots: Forzar generación de plots incluso sin candidatos
-        slice_start_idx: Inicio del slice en muestras decimadas
-        slice_end_idx: Fin del slice en muestras decimadas
-    """
-    # Obtener el logger global para mensajes informativos
+
     try:
         global_logger = get_global_logger()
     except ImportError:
@@ -427,7 +380,7 @@ def process_slice_with_multiple_bands(
         logger.warning(f"Slice {j}: slice_cube o waterfall_block vacío, saltando...")
         return 0, 0, 0, 0.0
     
-    # CALCULAR TIEMPO ABSOLUTO DEL SLICE SI NO SE PROPORCIONA
+    # Calcular tiempo absoluto del slice si no se proporciona
     if absolute_start_time is None:
         # Tiempo relativo al chunk (modo antiguo)
         absolute_start_time = start_idx * config.TIME_RESO * config.DOWN_TIME_RATE
@@ -436,8 +389,7 @@ def process_slice_with_multiple_bands(
     if global_logger:
         global_logger.logger.debug(f"{Colors.OKCYAN} Creando waterfall dispersado para slice {j}{Colors.ENDC}")
     
-   
-    
+
     slice_has_candidates = False # Indica si el slice tiene candidatos
     cand_counter = 0 # Contador de candidatos
     n_bursts = 0 # Contador de candidatos de tipo burst
@@ -472,7 +424,7 @@ def process_slice_with_multiple_bands(
             det_model,
             cls_model,
             band_img,
-            end_idx - start_idx,  # usar muestras REALES del slice
+            end_idx - start_idx,  # Usar muestras reales del slice
             j,
             fits_path,
             save_dir,
@@ -482,11 +434,11 @@ def process_slice_with_multiple_bands(
             time_reso_ds,
             snr_list,
             config,
-            absolute_start_time=absolute_start_time,  # PASAR TIEMPO ABSOLUTO
-            patches_dir=patches_dir,  # PASAR CARPETA DE PATCHES POR CHUNK
-            chunk_idx=chunk_idx,  # PASAR CHUNK_ID
-            band_idx=band_idx,  # PASAR BAND_ID CORRECTO
-            slice_start_idx=start_idx,  # PASAR INICIO REAL DEL SLICE
+            absolute_start_time=absolute_start_time,  # Tiempo absoluto del slice
+            patches_dir=patches_dir,  # Directorio de patches por chunk
+            chunk_idx=chunk_idx,  # ID del chunk
+            band_idx=band_idx,  # ID de la banda
+            slice_start_idx=start_idx,  # Inicio real del slice
         )
         cand_counter += band_result["cand_counter"]
         n_bursts += band_result["n_bursts"]

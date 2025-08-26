@@ -1,4 +1,3 @@
-"""Wrapper for running the refactored Effelsberg FRB detection pipeline."""
 from src.core.pipeline import run_pipeline
 
 

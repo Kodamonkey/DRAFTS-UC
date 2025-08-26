@@ -370,10 +370,21 @@ def _process_block(
             except Exception as e:
                 logger.error(f"Error moviendo chunk {chunk_idx:03d} a ChunksWithFRBs: {e}")
         
+        # FILTRADO: Si SAVE_ONLY_BURST está activado, solo contar candidatos BURST para estadísticas
+        if config.SAVE_ONLY_BURST:
+            effective_cand_counter = n_bursts
+            effective_n_bursts = n_bursts
+            effective_n_no_bursts = 0  # No contar NO BURST cuando solo se guardan BURST
+        else:
+            # Comportamiento normal: contar todos los candidatos
+            effective_cand_counter = cand_counter
+            effective_n_bursts = n_bursts
+            effective_n_no_bursts = n_no_bursts
+        
         return {
-            "n_candidates": cand_counter,
-            "n_bursts": n_bursts,
-            "n_no_bursts": n_no_bursts,
+            "n_candidates": effective_cand_counter,
+            "n_bursts": effective_n_bursts,
+            "n_no_bursts": effective_n_no_bursts,
             "max_prob": prob_max,
             "mean_snr": float(np.mean(snr_list)) if snr_list else 0.0,
             "time_slice": time_slice,
@@ -519,10 +530,21 @@ def _process_file_chunked(
             f"{cand_counter_total} candidatos, max prob {prob_max_total:.2f}, ⏱️ {runtime:.1f}s"
         )
         
+        # FILTRADO: Si SAVE_ONLY_BURST está activado, solo contar candidatos BURST para estadísticas
+        if config.SAVE_ONLY_BURST:
+            effective_cand_counter_total = n_bursts_total
+            effective_n_bursts_total = n_bursts_total
+            effective_n_no_bursts_total = 0  # No contar NO BURST cuando solo se guardan BURST
+        else:
+            # Comportamiento normal: contar todos los candidatos
+            effective_cand_counter_total = cand_counter_total
+            effective_n_bursts_total = n_bursts_total
+            effective_n_no_bursts_total = n_no_bursts_total
+        
         return {
-            "n_candidates": cand_counter_total,
-            "n_bursts": n_bursts_total,
-            "n_no_bursts": n_no_bursts_total,
+            "n_candidates": effective_cand_counter_total,
+            "n_bursts": effective_n_bursts_total,
+            "n_no_bursts": effective_n_no_bursts_total,
             "runtime_s": runtime,
             "max_prob": prob_max_total,
             "mean_snr": float(np.mean(snr_list_total)) if snr_list_total else 0.0,
@@ -578,6 +600,15 @@ def run_pipeline(chunk_samples: int = 0) -> None:
     }
     
     logger.pipeline_start(pipeline_config) 
+
+    # Mostrar configuración de filtrado de candidatos
+    if config.SAVE_ONLY_BURST:
+        logger.logger.info("CONFIGURACIÓN ACTIVADA: SAVE_ONLY_BURST=True")
+        logger.logger.info("   → Solo se guardarán y mostrarán candidatos clasificados como BURST")
+        logger.logger.info("   → Los candidatos NO BURST serán detectados pero no guardados ni visualizados")
+    else:
+        logger.logger.info("CONFIGURACIÓN: SAVE_ONLY_BURST=False")
+        logger.logger.info("   → Se guardarán y mostrarán TODOS los candidatos (BURST y NO BURST)")
 
     save_dir = config.RESULTS_DIR # Directorio de resultados (sin subcarpeta del modelo)
     save_dir.mkdir(parents=True, exist_ok=True) # Crear el directorio de resultados

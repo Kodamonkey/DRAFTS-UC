@@ -266,19 +266,28 @@ def detect_and_classify_candidates_in_band(
         else:
             n_no_bursts += 1
         prob_max = max(prob_max, float(conf))
-        append_candidate(csv_file, cand.to_row())
         
-        # Mensaje informativo sobre el candidato encontrado
-        try:
-            global_logger = get_global_logger()
-            global_logger.candidate_detected(dm_val, absolute_candidate_time, conf, class_prob, is_burst, snr_val_raw, snr_val)
-        except ImportError:
-            # Fallback al logger original
-            logger.info(
-                f"Candidato DM {dm_val:.2f} t={absolute_candidate_time:.3f}s conf={conf:.2f} class={class_prob:.2f} → {'BURST' if is_burst else 'no burst'}"
-            )
-            logger.info(
-                f"SNR Raw: {snr_val_raw:.2f}σ, SNR Patch Dedispersado: {snr_val:.2f}σ (guardado en CSV)"
+        # FILTRADO: Solo guardar candidatos BURST si SAVE_ONLY_BURST está activado
+        if not config.SAVE_ONLY_BURST or is_burst:
+            append_candidate(csv_file, cand.to_row())
+            
+            # Mensaje informativo sobre el candidato encontrado
+            try:
+                global_logger = get_global_logger()
+                global_logger.candidate_detected(dm_val, absolute_candidate_time, conf, class_prob, is_burst, snr_val_raw, snr_val)
+            except ImportError:
+                # Fallback al logger original
+                logger.info(
+                    f"Candidato DM {dm_val:.2f} t={absolute_candidate_time:.3f}s conf={conf:.2f} class={class_prob:.2f} → {'BURST' if is_burst else 'no burst'}"
+                )
+                logger.info(
+                    f"SNR Raw: {snr_val_raw:.2f}σ, SNR Patch Dedispersado: {snr_val:.2f}σ (guardado en CSV)"
+                )
+        else:
+            # Si SAVE_ONLY_BURST está activado y no es BURST, solo contar pero no guardar
+            logger.debug(
+                f"Candidato NO BURST filtrado (SAVE_ONLY_BURST=True): DM {dm_val:.2f} t={absolute_candidate_time:.3f}s "
+                f"conf={conf:.2f} class={class_prob:.2f} → NO BURST (no guardado)"
             )
     # SELECCIONAR EL CANDIDATO FINAL PARA EL COMPOSITE
     # Si hay múltiples candidatos, priorizar BURST sobre NO BURST
@@ -488,7 +497,16 @@ def process_slice_with_multiple_bands(
 
         dedisp_block = None
 
-        if slice_has_candidates or force_plots:
+        # FILTRADO: Si SAVE_ONLY_BURST está activado, solo generar visualizaciones si hay candidatos BURST
+        should_generate_plots = False
+        if config.SAVE_ONLY_BURST:
+            # Solo generar plots si hay candidatos BURST o si force_plots está activado
+            should_generate_plots = (n_bursts > 0) or force_plots
+        else:
+            # Comportamiento normal: generar plots si hay candidatos o force_plots
+            should_generate_plots = slice_has_candidates or force_plots
+        
+        if should_generate_plots:
             if slice_has_candidates and global_logger:
                 global_logger.slice_completed(j, cand_counter, n_bursts, n_no_bursts)
 
@@ -529,6 +547,21 @@ def process_slice_with_multiple_bands(
             )
         else:
             if global_logger:
-                global_logger.logger.debug(f"{Colors.OKCYAN} Slice {j}: Sin candidatos detectados{Colors.ENDC}")
+                if config.SAVE_ONLY_BURST and n_no_bursts > 0:
+                    global_logger.logger.debug(f"{Colors.OKCYAN} Slice {j}: Solo candidatos NO BURST detectados (SAVE_ONLY_BURST=True, no plots){Colors.ENDC}")
+                else:
+                    global_logger.logger.debug(f"{Colors.OKCYAN} Slice {j}: Sin candidatos detectados{Colors.ENDC}")
     
-    return cand_counter, n_bursts, n_no_bursts, prob_max 
+    # FILTRADO: Si SAVE_ONLY_BURST está activado, solo retornar candidatos BURST para estadísticas
+    if config.SAVE_ONLY_BURST:
+        # Solo contar candidatos BURST para estadísticas y visualizaciones
+        effective_cand_counter = n_bursts
+        effective_n_bursts = n_bursts
+        effective_n_no_bursts = 0  # No contar NO BURST cuando solo se guardan BURST
+    else:
+        # Comportamiento normal: contar todos los candidatos
+        effective_cand_counter = cand_counter
+        effective_n_bursts = n_bursts
+        effective_n_no_bursts = n_no_bursts
+    
+    return effective_cand_counter, effective_n_bursts, effective_n_no_bursts, prob_max 

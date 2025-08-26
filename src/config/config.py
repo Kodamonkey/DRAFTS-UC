@@ -29,7 +29,8 @@ try:
         RESULTS_DIR,
         SLICE_DURATION_MS,
         SNR_THRESH,
-        USE_MULTI_BAND
+        USE_MULTI_BAND,
+        SAVE_ONLY_BURST
     )
 except ImportError:
     # Si se ejecuta como script independiente
@@ -47,7 +48,8 @@ except ImportError:
         RESULTS_DIR,
         SLICE_DURATION_MS,
         SNR_THRESH,
-        USE_MULTI_BAND
+        USE_MULTI_BAND,
+        SAVE_ONLY_BURST
     )
 
 # Standard library imports

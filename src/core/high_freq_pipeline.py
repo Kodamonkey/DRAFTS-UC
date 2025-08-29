@@ -10,7 +10,7 @@ import numpy as np
 
 # Local imports
 from ..config import config
-from ..analysis.snr_utils import compute_presto_matched_snr, compute_snr_profile
+from ..analysis.snr_utils import compute_presto_matched_snr, compute_snr_profile, find_snr_peak
 from ..logging.logging_config import Colors, get_global_logger
 from ..output.candidate_manager import Candidate, append_candidate
 from ..preprocessing.dedispersion import dedisperse_block, dedisperse_patch
@@ -93,16 +93,29 @@ def snr_detect_and_classify_candidates_in_band(
     # SNR sobre el waterfall del slice (time x freq)
     snr_profile, _ = compute_snr_profile(waterfall_block)
     peaks = _find_snr_peaks(snr_profile, float(config.SNR_THRESH))
+    # Forzar que el primer candidato sea EXACTAMENTE el pico usado en el panel inferior
+    peak_snr_global, _, peak_idx_global = find_snr_peak(snr_profile)
+    if peak_snr_global >= float(config.SNR_THRESH):
+        # Insertar al frente si no está, si está moverlo al frente
+        peaks = [peak_idx_global] + [p for p in peaks if p != peak_idx_global]
+    else:
+        # Si el pico global no supera umbral, mantener lista (puede quedar vacía)
+        peaks = sorted(peaks, key=lambda p: snr_profile[p], reverse=True)
 
     if global_logger:
         band_names = ["Full Band", "Low Band", "High Band"]
         band_name = band_names[band_idx] if band_idx < len(band_names) else f"Band {band_idx}"
         global_logger.band_candidates(band_name, len(peaks))
 
-    # Parámetros geométricos para crear cajas
+    # Parámetros geométricos para crear cajas (en espacio original de band_img)
     img_h, img_w = band_img.shape[:2]
     half_w = max(4, slice_len // 64)
     half_h = max(3, img_h // 32)
+    # Escalas a espacio de red (preprocess_img redimensiona a 512x512)
+    target_w = 512
+    target_h = 512
+    scale_x = float(target_w) / float(max(1, img_w))
+    scale_y = float(target_h) / float(max(1, img_h))
 
     # Salidas acumuladas compatibles con el resto del pipeline
     top_conf: list[float] = []
@@ -131,10 +144,15 @@ def snr_detect_and_classify_candidates_in_band(
         cx = int(max(0, min(img_w - 1, peak_idx)))
         dm_val = _dm_from_image_at_time(band_img, cx)
         cy_row = int(round((dm_val - float(config.DM_min)) / max(float(config.DM_max - config.DM_min), 1e-6) * (img_h - 1)))
-        x1 = max(0, cx - half_w)
-        x2 = min(img_w - 1, cx + half_w)
-        y1 = max(0, cy_row - half_h)
-        y2 = min(img_h - 1, cy_row + half_h)
+        x1_raw = max(0, cx - half_w)
+        x2_raw = min(img_w - 1, cx + half_w)
+        y1_raw = max(0, cy_row - half_h)
+        y2_raw = min(img_h - 1, cy_row + half_h)
+        # Transformar caja al espacio 512x512 para que coincida con img_rgb
+        x1 = int(round(x1_raw * scale_x))
+        x2 = int(round(x2_raw * scale_x))
+        y1 = int(round(y1_raw * scale_y))
+        y2 = int(round(y2_raw * scale_y))
         box = (x1, y1, x2, y2)
 
         # Confianza derivada de SNR (acotada)
@@ -159,7 +177,8 @@ def snr_detect_and_classify_candidates_in_band(
         from ..detection.model_interface import classify_patch
         class_prob, proc_patch = classify_patch(cls_model, patch)
         is_burst = class_prob >= float(config.CLASS_PROB)
-
+        
+        '''
         # Tiempo absoluto del candidato (pico del patch si existe, si no, centro de la caja)
         if peak_idx_patch is not None:
             offset_samples = start_sample - int(slice_start_idx)
@@ -167,6 +186,11 @@ def snr_detect_and_classify_candidates_in_band(
             absolute_candidate_time = patch_start_abs + peak_idx_patch * time_reso_ds
         else:
             absolute_candidate_time = (absolute_start_time or 0.0) + (peak_idx * time_reso_ds)
+        '''
+                
+
+        # Tiempo absoluto del candidato: FORZAR el centro exactamente al pico SNR del waterfall
+        absolute_candidate_time = (absolute_start_time or 0.0) + (peak_idx * time_reso_ds)
 
         # Registrar
         snr_list.append(snr_peak)

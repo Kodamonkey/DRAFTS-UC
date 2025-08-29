@@ -37,6 +37,7 @@ from .pipeline_parameters import calculate_absolute_slice_time
 from ..input.data_loader import stream_fil, stream_fits
 from ..input.parameter_extractor import extract_parameters_auto
 from ..input.streaming_orchestrator import get_streaming_function
+from .high_freq_pipeline import _process_file_chunked_high_freq
 from ..input.file_finder import find_data_files
 from ..logging import (
     log_block_processing,
@@ -477,6 +478,27 @@ def _process_file_chunked(
         
         log_streaming_parameters(effective_chunk_samples, overlap_raw, total_samples, chunk_samples, streaming_func, file_type)
         
+        # Desvío a pipeline de alta frecuencia si corresponde
+        try:
+            freq_ds_local = np.mean(
+                config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
+                axis=1,
+            )
+            center_mhz = float(np.median(freq_ds_local))
+            is_high_freq = center_mhz >= 8000.0  # 8 GHz
+        except Exception:
+            is_high_freq = False
+
+        if is_high_freq:
+            logger.info("RUTA ALTERNATIVA: Pipeline Alta Frecuencia (detección por SNR, sin detector)")
+            return _process_file_chunked_high_freq(
+                cls_model=cls_model,
+                fits_path=fits_path,
+                save_dir=save_dir,
+                chunk_samples=effective_chunk_samples,
+                streaming_func=streaming_func,
+            )
+
         # Procesar cada bloque con solapamiento
         for block, metadata in streaming_func(str(fits_path), effective_chunk_samples, overlap_samples=overlap_raw):
             actual_chunk_count += 1 # Incrementar el contador de chunks procesados

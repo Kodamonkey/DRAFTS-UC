@@ -10,7 +10,7 @@ RESULTS_DIR = Path("./Results")                      # Directorio para guardar r
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-   "2017-04-03-12_56_05_230_0003_t36.548",
+   "2017-04-03-12_56_05_230_0002_t2.3_t17.395",
 ]
 
 # =============================================================================
@@ -34,15 +34,15 @@ DOWN_TIME_RATE: int = 32                     # Factor de reducción en tiempo (1
 
 # Rango de Dispersion Measure para búsqueda
 DM_min: int = 0                             # DM mínimo en pc cm⁻³
-DM_max: int = 1024                          # DM máximo en pc cm⁻³
+DM_max: int = 5000                          # DM máximo en pc cm⁻³
 
 # =============================================================================
 # UMBRALES DE DETECCIÓN
 # =============================================================================
 
 # Probabilidades mínimas para detección y clasificación
-DET_PROB: float = 0.05                       # Probabilidad mínima para considerar una detección válida
-CLASS_PROB: float = 0.6                     # Probabilidad mínima para clasificar como burst
+DET_PROB: float = 0.1                       # Probabilidad mínima para considerar una detección válida
+CLASS_PROB: float = 0.5                     # Probabilidad mínima para clasificar como burst
 
 # Umbral de SNR para resaltar en visualizaciones
 SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en visualizaciones

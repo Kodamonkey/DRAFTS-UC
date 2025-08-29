@@ -70,8 +70,22 @@ def prep_patch(patch: np.ndarray) -> np.ndarray:
 def classify_patch(model, patch: np.ndarray):
     """Return probability from binary model for patch along with the processed patch."""
     proc = prep_patch(patch)
-    tensor = torch.from_numpy(proc[None, None, :, :]).float().to(config.DEVICE)
-    with torch.no_grad():
-        out = model(tensor)
-        prob = out.softmax(dim=1)[0, 1].item()
-    return prob, proc
+    # Fallback robusto: permitir que el modelo sea None (p. ej., pipeline alta frecuencia)
+    try:
+        if model is None or torch is None:
+            from ..analysis.snr_utils import compute_presto_matched_snr
+            dt_ds = getattr(config, 'TIME_RESO', 1.0) * getattr(config, 'DOWN_TIME_RATE', 1.0)
+            snr_profile, _ = compute_presto_matched_snr(proc, dt_seconds=dt_ds)
+            snr_peak = float(np.max(snr_profile)) if snr_profile is not None and snr_profile.size > 0 else 0.0
+            thresh = float(getattr(config, 'SNR_THRESH', 3.0))
+            # Mapear SNR a probabilidad con sigmoide centrada en el umbral
+            prob = 1.0 / (1.0 + np.exp(-((snr_peak - thresh) / 2.0)))
+            return float(prob), proc
+        tensor = torch.from_numpy(proc[None, None, :, :]).float().to(config.DEVICE)
+        with torch.no_grad():
+            out = model(tensor)
+            prob = out.softmax(dim=1)[0, 1].item()
+        return prob, proc
+    except Exception as e:
+        logger.error(f"Error en classify_patch (fallback): {e}")
+        return 0.0, proc

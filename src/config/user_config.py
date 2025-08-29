@@ -10,7 +10,7 @@ RESULTS_DIR = Path("./Results")                      # Directorio para guardar r
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-   "2017-04-03-08-16-13_142_0003_t39.977"
+   "2017-04-03-12_56_05_230_0003_t36.548",
 ]
 
 # =============================================================================
@@ -41,8 +41,8 @@ DM_max: int = 1024                          # DM máximo en pc cm⁻³
 # =============================================================================
 
 # Probabilidades mínimas para detección y clasificación
-DET_PROB: float = 0.1                       # Probabilidad mínima para considerar una detección válida
-CLASS_PROB: float = 0.5                     # Probabilidad mínima para clasificar como burst
+DET_PROB: float = 0.05                       # Probabilidad mínima para considerar una detección válida
+CLASS_PROB: float = 0.6                     # Probabilidad mínima para clasificar como burst
 
 # Umbral de SNR para resaltar en visualizaciones
 SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en visualizaciones

@@ -175,9 +175,12 @@ def compute_presto_matched_snr(
     # Detrend + normalización aproximando PRESTO
     ts = _detrend_normalize_timeseries(timeseries)
 
-    # Conjunto de anchos por defecto (subset de PRESTO)
+    # Conjunto de anchos por defecto alineado con PRESTO
+    # PRESTO usa: [1 (implícito), 2, 3, 4, 6, 9, 14, 20, 30, 45, 70, 100, 150, 220, 300]
+    # En su búsqueda primero umbraliza sin suavizar (equiv. a 1) y luego aplica boxcars.
+    # Aquí incluimos directamente el set completo y lo recortamos por max_downfact.
     if widths is None:
-        widths = [1, 2, 3, 4, 6, 9, 14, 20, 30]
+        widths = [2, 3, 4, 6, 9, 14, 20, 30, 45, 70, 100, 150, 220, 300]
     widths = [w for w in widths if w <= max_downfact and w >= 1]
     n = ts.shape[0]
     snr_max = np.full(n, -np.inf, dtype=np.float32)

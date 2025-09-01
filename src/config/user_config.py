@@ -55,6 +55,17 @@ SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en vis
 USE_MULTI_BAND: bool = False                # True = usar análisis multi-banda, False = solo banda completa
 
 # =============================================================================
+# CONFIGURACIÓN DEL PIPELINE DE ALTA FRECUENCIA
+# =============================================================================
+
+# Controla si el pipeline de alta frecuencia se activa automáticamente
+# según la frecuencia central del archivo (por defecto, ≥ 8000 MHz)
+AUTO_HIGH_FREQ_PIPELINE: bool = True
+
+# Umbral de frecuencia central (en MHz) para considerar "alta frecuencia"
+HIGH_FREQ_THRESHOLD_MHZ: float = 8000.0
+
+# =============================================================================
 # CONFIGURACIÓN DE POLARIZACIÓN (ENTRADA PSRFITS)
 # =============================================================================
 
@@ -82,4 +93,4 @@ FORCE_PLOTS: bool = True                  # True = siempre generar plots para in
 # =============================================================================
 
 # Solo guardar y mostrar candidatos clasificados como BURST
-SAVE_ONLY_BURST: bool = False             # True = solo guardar candidatos BURST, False = guardar todos los candidatos
+SAVE_ONLY_BURST: bool = True             # True = solo guardar candidatos BURST, False = guardar todos los candidatos

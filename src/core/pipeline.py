@@ -478,19 +478,26 @@ def _process_file_chunked(
         
         log_streaming_parameters(effective_chunk_samples, overlap_raw, total_samples, chunk_samples, streaming_func, file_type)
         
-        # Desvío a pipeline de alta frecuencia si corresponde
+        # Desvío a pipeline de alta frecuencia si corresponde y si está permitido por configuración
         try:
             freq_ds_local = np.mean(
                 config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
                 axis=1,
             )
             center_mhz = float(np.median(freq_ds_local))
-            is_high_freq = center_mhz >= 8000.0  # 8 GHz
+            exceeds_threshold = center_mhz >= float(getattr(config, 'HIGH_FREQ_THRESHOLD_MHZ', 8000.0))
         except Exception:
-            is_high_freq = False
+            exceeds_threshold = False
 
-        if is_high_freq:
-            logger.info("RUTA ALTERNATIVA: Pipeline Alta Frecuencia (detección por SNR, sin detector)")
+        auto_high_freq_enabled = bool(getattr(config, 'AUTO_HIGH_FREQ_PIPELINE', True))
+
+        if auto_high_freq_enabled and exceeds_threshold:
+            logger.info(
+                "RUTA ALTERNATIVA: Pipeline Alta Frecuencia (detección por SNR, sin detector)"
+            )
+            logger.info(
+                f"Motivo: frecuencia central {center_mhz:.1f} MHz ≥ umbral {float(getattr(config, 'HIGH_FREQ_THRESHOLD_MHZ', 8000.0)):.1f} MHz"
+            )
             return _process_file_chunked_high_freq(
                 cls_model=cls_model,
                 fits_path=fits_path,

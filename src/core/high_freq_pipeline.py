@@ -10,7 +10,7 @@ import numpy as np
 
 # Local imports
 from ..config import config
-from ..analysis.snr_utils import compute_presto_matched_snr, compute_snr_profile, find_snr_peak
+from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..logging.logging_config import Colors, get_global_logger
 from ..output.candidate_manager import Candidate, append_candidate
 from ..preprocessing.dedispersion import dedisperse_block, dedisperse_patch
@@ -91,7 +91,7 @@ def snr_detect_and_classify_candidates_in_band(
         global_logger = None
 
     # SNR sobre el waterfall del slice (time x freq)
-    snr_profile, _ = compute_snr_profile(waterfall_block)
+    snr_profile, _, _ = compute_snr_profile(waterfall_block)
     peaks = _find_snr_peaks(snr_profile, float(config.SNR_THRESH))
     # Forzar que el primer candidato sea EXACTAMENTE el pico usado en el panel inferior
     peak_snr_global, _, peak_idx_global = find_snr_peak(snr_profile)
@@ -166,7 +166,7 @@ def snr_detect_and_classify_candidates_in_band(
         snr_val = 0.0
         peak_idx_patch = None
         if patch is not None and patch.size > 0:
-            snr_profile_pre, _ = compute_presto_matched_snr(patch, dt_seconds=time_reso_ds)
+            snr_profile_pre, _, best_w_vec = compute_snr_profile(patch)
             if snr_profile_pre.size > 0:
                 peak_idx_patch = int(np.argmax(snr_profile_pre))
                 snr_val = float(np.max(snr_profile_pre))
@@ -207,6 +207,14 @@ def snr_detect_and_classify_candidates_in_band(
             best_is_burst = is_burst
 
         # Construir fila CSV
+        # Calcular width_ms usando ancho óptimo en el pico
+        width_ms = None
+        try:
+            if peak_idx_patch is not None and 'best_w_vec' in locals() and best_w_vec.size > 0:
+                width_ms = float(best_w_vec[int(peak_idx_patch)] * time_reso_ds * 1000.0)
+        except Exception:
+            width_ms = None
+
         cand = Candidate(
             fits_path.name,
             chunk_idx if chunk_idx is not None else 0,
@@ -221,6 +229,7 @@ def snr_detect_and_classify_candidates_in_band(
             float(class_prob),
             bool(is_burst),
             patch_path.name,
+            width_ms,
         )
         cand_counter += 1
         if is_burst:

@@ -73,9 +73,8 @@ def classify_patch(model, patch: np.ndarray):
     # Fallback robusto: permitir que el modelo sea None (p. ej., pipeline alta frecuencia)
     try:
         if model is None or torch is None:
-            from ..analysis.snr_utils import compute_presto_matched_snr
-            dt_ds = getattr(config, 'TIME_RESO', 1.0) * getattr(config, 'DOWN_TIME_RATE', 1.0)
-            snr_profile, _ = compute_presto_matched_snr(proc, dt_seconds=dt_ds)
+            from ..analysis.snr_utils import compute_snr_profile
+            snr_profile, _, _ = compute_snr_profile(proc)
             snr_peak = float(np.max(snr_profile)) if snr_profile is not None and snr_profile.size > 0 else 0.0
             thresh = float(getattr(config, 'SNR_THRESH', 3.0))
             # Mapear SNR a probabilidad con sigmoide centrada en el umbral

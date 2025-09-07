@@ -11,63 +11,62 @@ import numpy as np
 
 
 def compute_snr_profile(
-    waterfall: np.ndarray, 
+    waterfall: np.ndarray,
     off_regions: Optional[List[Tuple[int, int]]] = None
-) -> Tuple[np.ndarray, float]:
+) -> Tuple[np.ndarray, float, np.ndarray]:
     """
-    Calculate SNR profile from a waterfall array.
-    
-    Parameters
-    ----------
-    waterfall : np.ndarray
-        2D array with shape (n_time, n_freq)
-    off_regions : List[Tuple[int, int]], optional
-        List of (start, end) bin ranges to use for noise estimation.
-        If None, uses IQR method over the entire profile.
-    
+    Calcula un único perfil SNR unificado (estilo PRESTO) desde un waterfall 2D.
+
+    Flujo:
+    - Integración en frecuencia → serie temporal
+    - Detrend/normalización por bloques (RMS≈1) con corrección 1.148
+    - Matched filtering con boxcars normalizados por √width
+    - Devuelve el perfil SNR máximo por muestra y sigma≈1.0
+
+    Nota: el parámetro off_regions se mantiene por compatibilidad pero no se usa
+    en este esquema, ya que la normalización por bloques ya estabiliza la RMS.
+
     Returns
     -------
     snr : np.ndarray
-        1D SNR profile with shape (n_time,)
+        Perfil SNR 1D (máximo sobre anchos) con shape (n_time,)
     sigma : float
-        Estimated noise standard deviation
+        Desviación estándar efectiva del ruido (≈1.0 tras normalización)
+    best_width : np.ndarray
+        Ancho de boxcar (en muestras) que maximiza el SNR en cada muestra
     """
-    # Verificación básica para arrays válidos
     if waterfall is None or waterfall.size == 0:
         raise ValueError("waterfall is None or empty in compute_snr_profile")
-    if waterfall.ndim < 2:
-        raise ValueError(f"waterfall must be 2D, got {waterfall.ndim}D array")
-    
-    # Integrate over frequency axis
-    profile = np.mean(waterfall, axis=1)
-    
-    if off_regions is None:
-        # Use IQR method for robust noise estimation
-        sigma = estimate_sigma_iqr(profile)
-        mean_level = np.median(profile)
-    else:
-        # Use specified off-pulse regions
-        off_data = []
-        for start, end in off_regions:
-            # Handle negative indices and bounds
-            start_idx = max(0, start if start >= 0 else len(profile) + start)
-            end_idx = min(len(profile), end if end >= 0 else len(profile) + end)
-            if start_idx < end_idx:
-                off_data.extend(profile[start_idx:end_idx])
-        
-        if off_data:
-            off_data = np.array(off_data)
-            sigma = np.std(off_data, ddof=1)
-            mean_level = np.mean(off_data)
-        else:
-            # Fallback to IQR if no valid off regions
-            sigma = estimate_sigma_iqr(profile)
-            mean_level = np.median(profile)
-    
-    # Calculate SNR
-    snr = (profile - mean_level) / (sigma + 1e-10)  # Add small epsilon to avoid division by zero
-    
-    return snr, sigma
+    if waterfall.ndim != 2:
+        raise ValueError("waterfall must be 2D (time, freq)")
+
+    # 1) Integrar en frecuencia → serie temporal
+    timeseries = np.mean(waterfall, axis=1).astype(np.float32)
+
+    # 2) Detrend/normalización por bloques (RMS≈1)
+    ts = _detrend_normalize_by_blocks(timeseries, block_len=1000, fast=True)
+
+    # 3) Matched filtering con set de anchos PRESTO (recortado a 30 por defecto)
+    widths = [1, 2, 3, 4, 6, 9, 14, 20, 30]
+    n = ts.shape[0]
+    # Evitar broadcasting: limitar anchos a la longitud disponible
+    widths = [w for w in widths if 1 <= w <= n]
+    if not widths:
+        widths = [1]
+    snr_max = np.full(n, -np.inf, dtype=np.float32)
+    best_width = np.zeros(n, dtype=np.int32)
+    for w in widths:
+        if w <= 0:
+            continue
+        kernel = np.ones(w, dtype=np.float32) / np.sqrt(float(w))
+        conv = np.convolve(ts, kernel, mode="same").astype(np.float32)
+        mask = conv > snr_max
+        snr_max[mask] = conv[mask]
+        best_width[mask] = w
+
+    snr_max = np.nan_to_num(snr_max, nan=-np.inf,
+                            posinf=np.max(snr_max[np.isfinite(snr_max)]) if np.isfinite(snr_max).any() else 0.0)
+    return snr_max, 1.0, best_width
 
 
 def estimate_sigma_iqr(data: np.ndarray) -> float:
@@ -144,6 +143,72 @@ def _detrend_normalize_timeseries(timeseries: np.ndarray) -> np.ndarray:
     if sigma <= 0:
         sigma = 1.0
     return ts / sigma
+
+
+def _detrend_normalize_by_blocks(timeseries: np.ndarray, block_len: int = 1000, fast: bool = True) -> np.ndarray:
+    """Detrend y normaliza por bloques al estilo PRESTO, devolviendo RMS≈1.
+
+    - Divide la serie en bloques de longitud ~block_len (último bloque puede ser menor)
+    - Para cada bloque: remueve tendencia (mediana si fast=True), estima σ robusta
+      con recorte ~5% y aplica corrección 1.148; normaliza el bloque por σ
+    - Opcionalmente, suprime bloques anómalos (σ fuera de rango) poniéndolos en 0
+    """
+    t = timeseries.astype(np.float32, copy=False)
+    n = t.shape[0]
+    if n == 0:
+        return t
+    blen = max(32, min(block_len, n))
+    out = np.empty_like(t)
+
+    # Estimar σ por bloque de forma robusta
+    block_sigmas: list[float] = []
+    blocks: list[tuple[int, int]] = []
+    for start in range(0, n, blen):
+        end = min(n, start + blen)
+        block = t[start:end].copy()
+        if fast:
+            # Remoción de mediana (modo 'fast' de PRESTO)
+            med = float(np.median(block))
+            block -= med
+            work = block.copy()
+        else:
+            # Detrend lineal aproximado (fallback)
+            x = np.linspace(0.0, 1.0, block.shape[0], dtype=np.float32)
+            p = np.polyfit(x, block.astype(np.float64), deg=1)
+            trend = (p[0] * x + p[1]).astype(np.float32)
+            block = block - trend
+            work = block.copy()
+
+        # σ robusta por recorte central (~95%) y corrección 1.148
+        work.sort()
+        m = work.shape[0]
+        lo = m // 40
+        hi = m - lo
+        central = work[lo:hi]
+        if central.size == 0:
+            sigma = float(np.std(work))
+        else:
+            sigma = float(np.sqrt((central.astype(np.float64) ** 2.0).sum() / (0.95 * m)))
+            sigma *= 1.148
+        if sigma <= 0 or not np.isfinite(sigma):
+            sigma = 1.0
+        block /= sigma
+        out[start:end] = block
+        block_sigmas.append(sigma)
+        blocks.append((start, end))
+
+    # Identificar bloques anómalos y suprimirlos (similar al filtrado de bad blocks)
+    sigmas_arr = np.asarray(block_sigmas, dtype=np.float32)
+    if sigmas_arr.size >= 3:
+        med = float(np.median(sigmas_arr))
+        sdev = float(np.std(sigmas_arr))
+        lo_th = med - 4.0 * sdev
+        hi_th = med + 4.0 * sdev
+        for (start, end), s in zip(blocks, sigmas_arr):
+            if s < lo_th or s > hi_th:
+                out[start:end] = 0.0
+
+    return out
 
 
 def compute_presto_matched_snr(

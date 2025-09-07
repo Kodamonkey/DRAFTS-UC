@@ -15,7 +15,7 @@ import logging
 import numpy as np
 
 # Local imports
-from ..analysis.snr_utils import compute_presto_matched_snr, compute_snr_profile
+from ..analysis.snr_utils import compute_snr_profile
 from ..detection.model_interface import classify_patch, detect
 from ..logging.logging_config import Colors, get_global_logger
 from ..output.candidate_manager import Candidate, append_candidate
@@ -143,7 +143,7 @@ def detect_and_classify_candidates_in_band(
         candidate_region = band_img[y1:y2, x1:x2]
         if candidate_region.size > 0:
             # Calcular SNR para consistencia con composite
-            snr_profile, _ = compute_snr_profile(candidate_region)
+            snr_profile, _, _ = compute_snr_profile(candidate_region)
             snr_val_raw = np.max(snr_profile)  # Tomar el pico del SNR
         else:
             snr_val_raw = 0.0
@@ -163,10 +163,8 @@ def detect_and_classify_candidates_in_band(
         snr_val = 0.0  # Valor por defecto
         peak_idx_patch = None
         if patch is not None and patch.size > 0:
-            # patch: (time, freq)
-            dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
-            snr_profile_pre, best_w = compute_presto_matched_snr(patch, dt_seconds=dt_ds)
-            # pico y su índice
+            # Medir SNR unificado sobre el patch dedispersado
+            snr_profile_pre, _, best_w_vec = compute_snr_profile(patch)
             peak_idx_patch = int(np.argmax(snr_profile_pre)) if snr_profile_pre.size > 0 else None
             snr_val = float(np.max(snr_profile_pre)) if snr_profile_pre.size > 0 else 0.0
         else:
@@ -231,6 +229,15 @@ def detect_and_classify_candidates_in_band(
         candidate_times_abs.append(float(absolute_candidate_time))
         
         # Crear candidato con información completa
+        # Calcular width_ms si obtuvimos vector de anchos
+        width_ms = None
+        try:
+            if peak_idx_patch is not None and 'best_w_vec' in locals() and best_w_vec.size > 0:
+                dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+                width_ms = float(best_w_vec[int(peak_idx_patch)] * dt_ds * 1000.0)
+        except Exception:
+            width_ms = None
+
         cand = Candidate(
             fits_path.name,
             chunk_idx if chunk_idx is not None else 0,  # ID del chunk
@@ -245,6 +252,7 @@ def detect_and_classify_candidates_in_band(
             class_prob,
             is_burst,
             patch_path.name,
+            width_ms,
         )
         cand_counter += 1
         if is_burst:

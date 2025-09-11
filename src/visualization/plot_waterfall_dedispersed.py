@@ -187,8 +187,15 @@ def create_waterfall_dedispersed_plot(
     ax_dw = fig.add_subplot(gs_dedisp_nested[1, 0])
     
     if dw_block is not None and dw_block.size > 0:
+        # Verificar orientación de frecuencias antes de plotear
+        if config.DEBUG_FREQUENCY_ORDER:
+            print(f"[DEBUG PLOT DW] dw_block shape: {dw_block.shape}")
+            print(f"[DEBUG PLOT DW] freq_ds range: {freq_ds.min():.2f} - {freq_ds.max():.2f} MHz")
+            print(f"[DEBUG PLOT DW] freq_ds[0]: {freq_ds[0]:.2f} MHz (debería ser la más baja)")
+            print(f"[DEBUG PLOT DW] freq_ds[-1]: {freq_ds[-1]:.2f} MHz (debería ser la más alta)")
+        
         im_dw = ax_dw.imshow(
-            dw_block.T,
+            dw_block.T,  # Transponer para que frecuencias estén en eje Y
             origin="lower",
             cmap="mako",
             aspect="auto",

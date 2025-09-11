@@ -468,7 +468,13 @@ def _process_file_chunked(
         nu_max = float(freq_ds.max()) # Frecuencia máxima
         # Usamos constante para frecuencias en MHz: Δt_sec = 4.1488e3 * DM * (ν_min^-2 − ν_max^-2)
         dt_max_sec = 4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2) # Tiempo máximo de solapamiento (en segundos)
-        overlap_raw = int(np.ceil(dt_max_sec / config.TIME_RESO)) # Tiempo de solapamiento (en muestras)
+        
+        # Verificar que TIME_RESO sea válido antes de la división
+        if config.TIME_RESO <= 0:
+            logger.warning(f"TIME_RESO inválido ({config.TIME_RESO}), usando valor por defecto para overlap")
+            overlap_raw = 1024  # Valor por defecto razonable
+        else:
+            overlap_raw = int(np.ceil(dt_max_sec / config.TIME_RESO)) # Tiempo de solapamiento (en muestras)
 
         # Obtener función de streaming apropiada para el tipo de archivo
         streaming_func, file_type = get_streaming_function(fits_path) 

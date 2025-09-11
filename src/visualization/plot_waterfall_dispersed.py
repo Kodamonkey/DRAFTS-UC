@@ -230,8 +230,15 @@ def create_waterfall_dispersed_plot(
         # Usar el tiempo corregido para el extent del waterfall
         waterfall_end_time = burst_start_time_corrected + real_samples * time_reso_ds
         
+        # Verificar orientación de frecuencias antes de plotear
+        if config.DEBUG_FREQUENCY_ORDER:
+            print(f"[DEBUG PLOT] wf_block shape: {wf_block.shape}")
+            print(f"[DEBUG PLOT] freq_ds range: {freq_ds.min():.2f} - {freq_ds.max():.2f} MHz")
+            print(f"[DEBUG PLOT] freq_ds[0]: {freq_ds[0]:.2f} MHz (debería ser la más baja)")
+            print(f"[DEBUG PLOT] freq_ds[-1]: {freq_ds[-1]:.2f} MHz (debería ser la más alta)")
+        
         im_wf = ax_wf.imshow(
-            wf_block.T,
+            wf_block.T,  # Transponer para que frecuencias estén en eje Y
             origin="lower",
             cmap="mako",
             aspect="auto",

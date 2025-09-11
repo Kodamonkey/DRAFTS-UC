@@ -184,7 +184,27 @@ def load_fits_file(file_name: str) -> np.ndarray:
             if "SUBINT" in [hdu.name for hdu in hdul] and "DATA" in hdul["SUBINT"].columns.names:
                 subint = hdul["SUBINT"]
                 hdr = subint.header
-                tbl = subint.data
+                # MANEJO DE ARCHIVOS TRUNCADOS: Intentar leer datos con manejo de errores
+                try:
+                    # MANEJO DE ARCHIVOS TRUNCADOS: Intentar leer datos con manejo de errores
+                    try:
+                        tbl = subint.data
+                    except (TypeError, ValueError, OSError) as e:
+                        if "buffer is too small" in str(e) or "truncated" in str(e).lower():
+                            print(f"[WARN] Archivo truncado detectado: {file_name}")
+                            print(f"[WARN] Error: {e}")
+                            print(f"[WARN] Saltando archivo truncado")
+                            raise ValueError(f"Archivo FITS truncado: {file_name}") from e
+                        else:
+                            raise
+                except (TypeError, ValueError, OSError) as e:
+                    if "buffer is too small" in str(e) or "truncated" in str(e).lower():
+                        print(f"[WARN] Archivo truncado detectado: {file_name}")
+                        print(f"[WARN] Error: {e}")
+                        print(f"[WARN] Saltando archivo truncado")
+                        raise ValueError(f"Archivo FITS truncado: {file_name}") from e
+                    else:
+                        raise
                 nsubint = safe_int(hdr.get("NAXIS2", 0))
                 nchan = safe_int(hdr.get("NCHAN", 0))
                 npol = safe_int(hdr.get("NPOL", 0))
@@ -464,7 +484,17 @@ def get_obparams(file_name: str) -> None:
             
             hdr = f["SUBINT"].header
             primary = f["PRIMARY"].header if "PRIMARY" in [h.name for h in f] else {}
-            sub_data = f["SUBINT"].data
+            # MANEJO DE ARCHIVOS TRUNCADOS: Intentar leer datos con manejo de errores
+            try:
+                sub_data = f["SUBINT"].data
+            except (TypeError, ValueError, OSError) as e:
+                if "buffer is too small" in str(e) or "truncated" in str(e).lower():
+                    print(f"[WARN] Archivo truncado detectado en get_obparams: {file_name}")
+                    print(f"[WARN] Error: {e}")
+                    print(f"[WARN] Saltando archivo truncado")
+                    raise ValueError(f"Archivo FITS truncado: {file_name}") from e
+                else:
+                    raise
             # Convertir a tipos numéricos explícitamente por si vengan como strings
             config.TIME_RESO = safe_float(hdr.get("TBIN"))
             # Tiempo por subint: TSUBINT o NSBLK*TBIN
@@ -561,6 +591,12 @@ def get_obparams(file_name: str) -> None:
                     freq_axis_inverted = True
                     if config.DEBUG_FREQUENCY_ORDER:
                         print(f"[DEBUG HEADER] DAT_FREQ descendente → invertir banda (estilo PRESTO)")
+                else:
+                    # CORRECCIÓN: Invertir también frecuencias ascendentes para mantener estándar de radioastronomía
+                    # (alta frecuencia arriba, como en plot_waterfall.py)
+                    freq_axis_inverted = True
+                    if config.DEBUG_FREQUENCY_ORDER:
+                        print(f"[DEBUG HEADER] DAT_FREQ ascendente → invertir banda (estilo radioastronomía)")
         else:
             # DEBUG: Procesando formato FITS estándar
             if config.DEBUG_FREQUENCY_ORDER:
@@ -649,6 +685,11 @@ def get_obparams(file_name: str) -> None:
                             freq_axis_inverted = True
                             if config.DEBUG_FREQUENCY_ORDER:
                                 print(f"[DEBUG HEADER]   ⚠️ CDELT negativo - frecuencias invertidas!")
+                        else:
+                            # CORRECCIÓN: Invertir también frecuencias ascendentes para mantener estándar de radioastronomía
+                            freq_axis_inverted = True
+                            if config.DEBUG_FREQUENCY_ORDER:
+                                print(f"[DEBUG HEADER]   ⚠️ CDELT positivo - invirtiendo para estándar radioastronomía!")
                     else:
                         if config.DEBUG_FREQUENCY_ORDER:
                             print(f"[DEBUG HEADER] ⚠️ Usando frecuencias por defecto: 1000-1500 MHz")
@@ -950,7 +991,17 @@ def stream_fits(
                 if "SUBINT" in [hdu.name for hdu in hdul] and "DATA" in hdul["SUBINT"].columns.names:
                     subint = hdul["SUBINT"]
                     hdr = subint.header
-                    tbl = subint.data
+                    # MANEJO DE ARCHIVOS TRUNCADOS: Intentar leer datos con manejo de errores
+                    try:
+                        tbl = subint.data
+                    except (TypeError, ValueError, OSError) as e:
+                        if "buffer is too small" in str(e) or "truncated" in str(e).lower():
+                            print(f"[WARN] Archivo truncado detectado: {file_name}")
+                            print(f"[WARN] Error: {e}")
+                            print(f"[WARN] Saltando archivo truncado")
+                            raise ValueError(f"Archivo FITS truncado: {file_name}") from e
+                        else:
+                            raise
                     nsubint = safe_int(hdr.get("NAXIS2", 0))
                     nchan = safe_int(hdr.get("NCHAN", 0))
                     npol = safe_int(hdr.get("NPOL", 0))
@@ -1180,7 +1231,17 @@ def stream_fits(
                 if "SUBINT" in [hdu.name for hdu in hdul] and "DATA" in hdul["SUBINT"].columns.names:
                     subint = hdul["SUBINT"]
                     hdr = subint.header
-                    tbl = subint.data
+                    # MANEJO DE ARCHIVOS TRUNCADOS: Intentar leer datos con manejo de errores
+                    try:
+                        tbl = subint.data
+                    except (TypeError, ValueError, OSError) as e:
+                        if "buffer is too small" in str(e) or "truncated" in str(e).lower():
+                            print(f"[WARN] Archivo truncado detectado: {file_name}")
+                            print(f"[WARN] Error: {e}")
+                            print(f"[WARN] Saltando archivo truncado")
+                            raise ValueError(f"Archivo FITS truncado: {file_name}") from e
+                        else:
+                            raise
                     nsubint = safe_int(hdr.get("NAXIS2", 0))
                     nchan = safe_int(hdr.get("NCHAN", 0))
                     npol = safe_int(hdr.get("NPOL", 0))

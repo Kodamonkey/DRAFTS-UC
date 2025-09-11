@@ -284,6 +284,12 @@ def get_obparams_fil(file_name: str) -> None:
             freq_axis_inverted = True
             if config.DEBUG_FREQUENCY_ORDER:
                 print(f"[DEBUG FILTERBANK] Frecuencias detectadas en orden descendente!")
+        else:
+            # CORRECCIÓN: Invertir también frecuencias ascendentes para mantener estándar de radioastronomía
+            # (alta frecuencia arriba, como en plot_waterfall.py)
+            freq_axis_inverted = True
+            if config.DEBUG_FREQUENCY_ORDER:
+                print(f"[DEBUG FILTERBANK] foff positivo - invirtiendo para estándar radioastronomía!")
         
         # Aplicar corrección de orden (homólogo a io.py)
         if freq_axis_inverted:

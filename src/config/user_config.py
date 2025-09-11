@@ -10,8 +10,9 @@ RESULTS_DIR = Path("./Results")                      # Directorio para guardar r
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-   "B0355+54_FB_20220918",
+   "3096_0001_00_8bit",
 ]
+
 
 # =============================================================================
 # CONFIGURACIÓN DE ANÁLISIS TEMPORAL

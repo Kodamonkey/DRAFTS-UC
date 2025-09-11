@@ -831,6 +831,41 @@ def stream_fits(
         Tuple[data_block, metadata]: Bloque de datos (time, pol, chan) y metadatos
     """
     
+    # Función auxiliar para convertir fila SUBINT a bloque (disponible para ambos casos)
+    def _row_to_block(row_data: np.ndarray, row: np.ndarray, subint, nbits: int, nsblk: int, npol: int, nchan: int, zero_off: float, pol_type: str) -> np.ndarray:
+        # Desempaquetar y reshape a (nsblk, npol, nchan)
+        if nbits < 8:
+            if nbits == 4:
+                unpacked = _unpack_4bit(row_data)
+            elif nbits == 2:
+                unpacked = _unpack_2bit(row_data)
+            elif nbits == 1:
+                unpacked = _unpack_1bit(row_data)
+            else:
+                raise ValueError(f"NBITS={nbits} no soportado")
+            try:
+                tmpb = unpacked.reshape(nsblk, npol, nchan)
+            except Exception:
+                tmpb = unpacked.reshape(nsblk, nchan, npol).swapaxes(1, 2)
+            tmpb = tmpb.astype(np.float32, copy=False)
+        else:
+            arrb = np.asarray(row_data)
+            try:
+                tmpb = arrb.reshape(nsblk, npol, nchan)
+            except Exception:
+                tmpb = arrb.reshape(nsblk, nchan, npol).swapaxes(1, 2)
+            if tmpb.dtype != np.float32:
+                tmpb = tmpb.astype(np.float32, copy=False)
+
+        # Calibración por fila
+        dat_wts_b = row["DAT_WTS"].astype(np.float32, copy=False) if "DAT_WTS" in subint.columns.names else None
+        dat_scl_b = row["DAT_SCL"].astype(np.float32, copy=False) if "DAT_SCL" in subint.columns.names else None
+        dat_offs_b = row["DAT_OFFS"].astype(np.float32, copy=False) if "DAT_OFFS" in subint.columns.names else None
+        tmpb = _apply_calibration(tmpb, dat_wts_b, dat_scl_b, dat_offs_b, zero_off)
+        # Seleccionar polarización según config
+        sel = _select_polarization(tmpb, pol_type, getattr(config, 'POLARIZATION_MODE', 'intensity'), getattr(config, 'POLARIZATION_INDEX', 0))
+        return sel
+    
     try:
         print(f"[INFO] Streaming datos FITS: chunk_size={chunk_samples}, overlap={overlap_samples}")
         
@@ -950,40 +985,7 @@ def stream_fits(
                     out_buf = np.empty((0, 1, nchan), dtype=np.float32)
                     emitted = 0  # muestras emitidas
 
-                    # Funciones auxiliares
-                    def _row_to_block(row_data: np.ndarray) -> np.ndarray:
-                        # Desempaquetar y reshape a (nsblk, npol, nchan)
-                        if nbits < 8:
-                            if nbits == 4:
-                                unpacked = _unpack_4bit(row_data)
-                            elif nbits == 2:
-                                unpacked = _unpack_2bit(row_data)
-                            elif nbits == 1:
-                                unpacked = _unpack_1bit(row_data)
-                            else:
-                                raise ValueError(f"NBITS={nbits} no soportado")
-                            try:
-                                tmpb = unpacked.reshape(nsblk, npol, nchan)
-                            except Exception:
-                                tmpb = unpacked.reshape(nsblk, nchan, npol).swapaxes(1, 2)
-                            tmpb = tmpb.astype(np.float32, copy=False)
-                        else:
-                            arrb = np.asarray(row_data)
-                            try:
-                                tmpb = arrb.reshape(nsblk, npol, nchan)
-                            except Exception:
-                                tmpb = arrb.reshape(nsblk, nchan, npol).swapaxes(1, 2)
-                            if tmpb.dtype != np.float32:
-                                tmpb = tmpb.astype(np.float32, copy=False)
-
-                        # Calibración por fila
-                        dat_wts_b = row["DAT_WTS"].astype(np.float32, copy=False) if "DAT_WTS" in subint.columns.names else None
-                        dat_scl_b = row["DAT_SCL"].astype(np.float32, copy=False) if "DAT_SCL" in subint.columns.names else None
-                        dat_offs_b = row["DAT_OFFS"].astype(np.float32, copy=False) if "DAT_OFFS" in subint.columns.names else None
-                        tmpb = _apply_calibration(tmpb, dat_wts_b, dat_scl_b, dat_offs_b, zero_off)
-                        # Seleccionar polarización según config
-                        sel = _select_polarization(tmpb, pol_type, getattr(config, 'POLARIZATION_MODE', 'intensity'), getattr(config, 'POLARIZATION_INDEX', 0))
-                        return sel
+                    # Funciones auxiliares (movidas fuera del bloque try-except)
 
                     # Para control de gaps: función que da el sample index esperado del inicio de subint
                     def _expected_start_sample(offs_sub_seconds: float, sub_index: int) -> int:
@@ -1017,7 +1019,7 @@ def stream_fits(
                             emitted += gap
 
                         # Convertir fila a bloque calibrado
-                        block = _row_to_block(row["DATA"])
+                        block = _row_to_block(row["DATA"], row, subint, nbits, nsblk, npol, nchan, zero_off, pol_type)
                         out_buf = np.concatenate([out_buf, block], axis=0)
                         emitted += block.shape[0]
 
@@ -1170,8 +1172,170 @@ def stream_fits(
                     yield block, metadata
                 log_stream_fits_summary(chunk_counter)
         except Exception as e:
-            print(f"[ERROR] Error en stream_fits: {e}")
-            raise
+            print(f"[WARN] Error con 'your' PSRFITS, usando fallback de astropy: {e}")
+            # Continuar con el fallback de astropy dentro del mismo bloque try
+            
+            # Streaming específico PSRFITS leyendo filas SUBINT (manejo de gaps por OFFS_SUB)
+            with fits.open(file_name, memmap=True) as hdul:
+                if "SUBINT" in [hdu.name for hdu in hdul] and "DATA" in hdul["SUBINT"].columns.names:
+                    subint = hdul["SUBINT"]
+                    hdr = subint.header
+                    tbl = subint.data
+                    nsubint = safe_int(hdr.get("NAXIS2", 0))
+                    nchan = safe_int(hdr.get("NCHAN", 0))
+                    npol = safe_int(hdr.get("NPOL", 0))
+                    nsblk = safe_int(hdr.get("NSBLK", 1))
+                    nbits = safe_int(hdr.get("NBITS", 8))
+                    zero_off = safe_float(hdr.get("ZERO_OFF", 0.0))
+                    tbin = safe_float(hdr.get("TBIN"))
+                    # TSUBINT preferente, si no: nsblk * tbin
+                    tsub = safe_float(hdr.get("TSUBINT", nsblk * tbin))
+                    # TSTART_MJD y su corrección (para trazabilidad absoluta)
+                    primary = hdul["PRIMARY"].header if "PRIMARY" in [h.name for h in hdul] else {}
+                    tstart_mjd = safe_float(primary.get("TSTART", 0.0))
+                    nsuboffs = safe_int(primary.get("NSUBOFFS", 0))
+                    
+                    print(f"[INFO] Streaming PSRFITS (astropy fallback): nsubint={nsubint}, nchan={nchan}, npol={npol}, tbin={tbin}")
+                    
+                    # POL_TYPE del header (necesario para _row_to_block)
+                    pol_type = str(hdr.get("POL_TYPE", "")).upper() if hdr.get("POL_TYPE") is not None else ""
+                    
+                    # Calcular parámetros de streaming
+                    total_samples = nsubint * nsblk
+                    log_stream_fits_parameters(total_samples, chunk_samples, overlap_samples, None, nchan, npol, None)
+                    
+                    # Buffer para acumular datos con solape
+                    out_buf = np.zeros((0, 1, nchan), dtype=np.float32)
+                    emitted = 0
+                    chunk_counter = 0
+                    
+                    # Procesar cada fila SUBINT
+                    for i, row in enumerate(tbl):
+                        # Calcular inicio esperado (sin gaps)
+                        expected_start = i * nsblk
+                        
+                        # Manejar gaps si existen
+                        if expected_start > emitted:
+                            gap = expected_start - emitted
+                            pad = np.zeros((gap, 1, nchan), dtype=np.float32)
+                            # Añadir pad al buffer
+                            out_buf = np.concatenate([out_buf, pad], axis=0)
+                            emitted += gap
+                        
+                        # Convertir fila a bloque calibrado
+                        block = _row_to_block(row["DATA"], row, subint, nbits, nsblk, npol, nchan, zero_off, pol_type)
+                        out_buf = np.concatenate([out_buf, block], axis=0)
+                        emitted += block.shape[0]
+                        
+                        # Emitir chunks cuando haya suficientes muestras
+                        while out_buf.shape[0] >= (chunk_samples + overlap_samples * 2):
+                            chunk_counter += 1
+                            start_with_overlap = 0
+                            end_with_overlap = chunk_samples + overlap_samples * 2
+                            valid_start = overlap_samples
+                            valid_end = valid_start + chunk_samples
+                            block_out = out_buf[start_with_overlap:end_with_overlap].copy()
+                            
+                            # Aplicar inversión unificada si es necesaria
+                            if config.DATA_NEEDS_REVERSAL:
+                                block_out = block_out[:, :, ::-1]
+                            
+                            # Metadatos de tiempo - CORRECCIÓN FINAL: start_sample relativo al inicio del archivo
+                            # Para el primer chunk, start_sample debe ser 0
+                            start_sample_idx = emitted - out_buf.shape[0]
+                            end_sample_idx = start_sample_idx + chunk_samples
+                            
+                            # Log y yield
+                            log_stream_fits_block_generation(
+                                chunk_counter,
+                                block_out.shape,
+                                str(block_out.dtype),
+                                start_sample_idx,
+                                end_sample_idx,
+                                start_with_overlap,
+                                end_with_overlap,
+                                chunk_samples,
+                            )
+                            metadata = {
+                                "chunk_idx": start_sample_idx // chunk_samples,
+                                "start_sample": start_sample_idx,
+                                "end_sample": end_sample_idx,
+                                "actual_chunk_size": chunk_samples,
+                                "block_start_sample": emitted - out_buf.shape[0],
+                                "block_end_sample": emitted - out_buf.shape[0] + end_with_overlap,
+                                "overlap_left": overlap_samples,
+                                "overlap_right": overlap_samples,
+                                "total_samples": total_samples,
+                                "nchans": nchan,
+                                "nifs": 1,
+                                "dtype": str(block_out.dtype),
+                                "shape": block_out.shape,
+                                "file_type": "fits",
+                                # Tiempos relativos en segundos (homólogo a plot_waterfall)
+                                "tbin_sec": tbin,
+                                "t_rel_start_sec": start_sample_idx * tbin,
+                                "t_rel_end_sec": end_sample_idx * tbin,
+                                # Trazabilidad absoluta (MJD) si se requiere
+                                "tstart_mjd": tstart_mjd,
+                                "tstart_mjd_corr": tstart_mjd + (nsuboffs * tsub) / 86400.0,
+                                "tsubint_sec": tsub,
+                            }
+                            yield block_out, metadata
+                            # Recortar buffer (dejar el solape al frente)
+                            out_buf = out_buf[chunk_samples:]
+                    
+                    # Emitir resto si existe
+                    if out_buf.shape[0] > 0:
+                        chunk_counter += 1
+                        # No podemos garantizar los solapes al final; emitir tal cual
+                        valid_start = 0
+                        valid_end = out_buf.shape[0]
+                        block_out = out_buf.copy()
+                        
+                        # Aplicar inversión unificada si es necesaria
+                        if config.DATA_NEEDS_REVERSAL:
+                            block_out = block_out[:, :, ::-1]
+                        
+                        log_stream_fits_block_generation(
+                            chunk_counter,
+                            block_out.shape,
+                            str(block_out.dtype),
+                            emitted - out_buf.shape[0],  # CORRECCIÓN: start_sample correcto
+                            emitted,  # CORRECCIÓN: end_sample correcto
+                            valid_start,
+                            valid_end,
+                            valid_end - valid_start,
+                        )
+                        metadata = {
+                            "chunk_idx": (emitted - out_buf.shape[0]) // max(1, chunk_samples),
+                            "start_sample": emitted - out_buf.shape[0],  # CORRECCIÓN: start_sample correcto
+                            "end_sample": emitted,
+                            "actual_chunk_size": valid_end - valid_start,
+                            "block_start_sample": emitted - out_buf.shape[0],
+                            "block_end_sample": emitted,
+                            "overlap_left": 0,
+                            "overlap_right": 0,
+                            "total_samples": total_samples,
+                            "nchans": nchan,
+                            "nifs": 1,
+                            "dtype": str(block_out.dtype),
+                            "shape": block_out.shape,
+                            "file_type": "fits",
+                            # Tiempos relativos en segundos (homólogo a plot_waterfall)
+                            "tbin_sec": tbin,
+                            "t_rel_start_sec": (emitted - out_buf.shape[0]) * tbin,
+                            "t_rel_end_sec": emitted * tbin,
+                            # Trazabilidad absoluta (MJD) si se requiere
+                            "tstart_mjd": tstart_mjd,
+                            "tstart_mjd_corr": tstart_mjd + (nsuboffs * tsub) / 86400.0,
+                            "tsubint_sec": tsub,
+                        }
+                        yield block_out, metadata
+                    
+                    log_stream_fits_summary(chunk_counter)
+                    return
+                else:
+                    raise ValueError(f"Archivo FITS no tiene estructura SUBINT válida: {file_name}")
         
     except Exception as e:
         print(f"[ERROR] Error en stream_fits: {e}")

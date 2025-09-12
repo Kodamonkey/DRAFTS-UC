@@ -6,11 +6,11 @@ from pathlib import Path
 
 # Directorios de entrada y salida
 DATA_DIR = Path("./Data/raw")                        # Directorio con archivos de entrada (.fits, .fil)
-RESULTS_DIR = Path("./Results")                      # Directorio para guardar resultados
+RESULTS_DIR = Path("./results/DRAFTS++")                      # Directorio para guardar resultados
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-   "3096_0001_00_8bit",
+   ""
 ]
 
 
@@ -35,7 +35,7 @@ DOWN_TIME_RATE: int = 16                     # Factor de reducción en tiempo (1
 
 # Rango de Dispersion Measure para búsqueda
 DM_min: int = 0                             # DM mínimo en pc cm⁻³
-DM_max: int = 132                          # DM máximo en pc cm⁻³
+DM_max: int = 1024                          # DM máximo en pc cm⁻³
 
 # =============================================================================
 # UMBRALES DE DETECCIÓN

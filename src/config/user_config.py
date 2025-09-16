@@ -6,16 +6,11 @@ from pathlib import Path
 
 # Directorios de entrada y salida
 DATA_DIR = Path("./Data/raw")                        # Directorio con archivos de entrada (.fits, .fil)
-RESULTS_DIR = Path("./results/DRAFTS++")                      # Directorio para guardar resultados
+RESULTS_DIR = Path("./results-test-refactor/DRAFTS++")                      # Directorio para guardar resultados
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-   "2017-04-03-12_56_05_230_0002_t2.3_t17.395",
-   "2017-04-03-08_16_13_142_0006_t10.882_t25.829",
-   "2017-04-03-08_55_22_153_0006_t23.444",
-   "2017-04-03-08-16-13_142_0003_t39.977",
-   "2017-04-03-12_56_05_230_0003_t36.548",
-   "2017-04-03-13_38_31_242_0005_t44.169",
+   "3096_0001_00_8bit",
 ]
 
 
@@ -32,7 +27,7 @@ SLICE_DURATION_MS: float = 300.0
 
 # Factores de reducción para optimizar el procesamiento
 DOWN_FREQ_RATE: int = 1                      # Factor de reducción en frecuencia (1 = sin reducción)
-DOWN_TIME_RATE: int = 32                     # Factor de reducción en tiempo (1 = sin reducción)
+DOWN_TIME_RATE: int = 8                     # Factor de reducción en tiempo (1 = sin reducción)
 
 # =============================================================================
 # CONFIGURACIÓN DE DISPERSIÓN (DM)
@@ -40,7 +35,7 @@ DOWN_TIME_RATE: int = 32                     # Factor de reducción en tiempo (1
 
 # Rango de Dispersion Measure para búsqueda
 DM_min: int = 0                             # DM mínimo en pc cm⁻³
-DM_max: int = 4000                          # DM máximo en pc cm⁻³
+DM_max: int = 1024                          # DM máximo en pc cm⁻³
 
 # =============================================================================
 # UMBRALES DE DETECCIÓN
@@ -81,7 +76,7 @@ DEBUG_FREQUENCY_ORDER: bool = True         # True = mostrar información detalla
                                            # False = modo silencioso (recomendado para procesamiento en lote)
 
 # Forzar generación de plots incluso sin candidatos (modo debug)
-FORCE_PLOTS: bool = True                  # True = siempre generar plots para inspección
+FORCE_PLOTS: bool = False                  # True = siempre generar plots para inspección
 
 # =============================================================================
 # CONFIGURACIÓN DE FILTRADO DE CANDIDATOS

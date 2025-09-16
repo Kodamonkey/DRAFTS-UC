@@ -163,10 +163,10 @@ def generate_individual_plots(
         )
         logger.info(f"✓ Patches plot saved: {patches_path}")
         
-        logger.info(f"✅ All individual plots generated successfully in: {individual_dir}")
+        logger.info(f"All individual plots generated successfully in: {individual_dir}")
         
     except Exception as e:
-        logger.error(f"❌ Error generating individual plots: {e}")
+        logger.error(f"Error generating individual plots: {e}")
         raise
 
 

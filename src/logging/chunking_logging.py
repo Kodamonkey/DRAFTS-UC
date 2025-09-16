@@ -85,13 +85,13 @@ def display_detailed_chunking_info(parameters: Dict[str, Any]) -> None:
     logger.logger.info(f"   • Tamaño por chunk: {parameters['chunk_size_gb']:.2f} GB")
     logger.logger.info(f"   • Memoria disponible: {parameters['available_memory_gb']:.1f} GB")
     logger.logger.info(f"   • Memoria total: {parameters['total_memory_gb']:.1f} GB")
-    logger.logger.info(f"   • ¿Puede cargar archivo completo?: {'✅ Sí' if parameters['can_load_full_file'] else '❌ No'}")
+    logger.logger.info(f"   • ¿Puede cargar archivo completo?: {'Sí' if parameters['can_load_full_file'] else 'No'}")
     
                                                                                    
                         
                                                                                    
     logger.logger.info("ESTADO DEL SISTEMA:")
-    logger.logger.info(f"   • Modo optimizado de memoria: {'✅ Activado' if parameters['memory_optimized'] else '❌ Desactivado'}")
+    logger.logger.info(f"   • Modo optimizado de memoria: {'Activado' if parameters['memory_optimized'] else 'Desactivado'}")
     
                                                                                    
                          

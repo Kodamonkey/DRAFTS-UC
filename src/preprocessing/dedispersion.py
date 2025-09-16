@@ -149,7 +149,7 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
             std_ch = np.where(std_ch < eps, 1.0, std_ch)
             data = (data - mean_ch) / std_ch
     except Exception as e:
-        print(f"[WARNING] Error en prewhitening: {e}")
+        logger.warning("Prewhitening failed: %s", e)
     
                                                  
     if config.FREQ is None or config.FREQ.size == 0:
@@ -168,10 +168,10 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
         try:
             return _d_dm_time_torch_gpu(data, height, width, dm_min, dm_max, freq_values)
         except Exception as e:
-            print(f"[WARNING] Error en torch GPU ({e}), intentando Numba GPU...")
+            logger.warning("Torch GPU dedispersion failed (%s); attempting Numba GPU...", e)
 
     try:
-        print("[INFO] Intentando usar GPU para dedispersión...")
+        logger.info("Attempting GPU dedispersion...")
         
         freq_gpu = cuda.to_device(freq_values)
         nchan_ds = config.FREQ_RESO // config.DOWN_FREQ_RATE
@@ -197,10 +197,10 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
             cuda.synchronize()
             result[:, start_dm:end_dm, :] = dm_time_gpu.copy_to_host()
             del dm_time_gpu, dm_values_gpu
-        print("[INFO] Dedispersión GPU completada exitosamente")
+        logger.info("GPU dedispersion completed successfully")
         return result
     except (cuda.cudadrv.driver.CudaAPIError, Exception) as e:
-        print(f"[WARNING] Error GPU ({e}), cambiando a CPU...")
+        logger.warning("GPU dedispersion failed (%s); falling back to CPU", e)
         return _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values)
 
 
@@ -351,21 +351,21 @@ def dedisperse_block(
 
                                    
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"[DEBUG] [DEBUG DEDISPERSIÓN] DM: {dm:.2f} pc cm⁻³")
-        print(f"[DEBUG] [DEBUG DEDISPERSIÓN] freq_down shape: {freq_down.shape}")
-        print(f"[DEBUG] [DEBUG DEDISPERSIÓN] Primeras 3 freq_down: {freq_down[:3]}")
-        print(f"[DEBUG] [DEBUG DEDISPERSIÓN] Últimas 3 freq_down: {freq_down[-3:]}")
-        print(f"[DEBUG] [DEBUG DEDISPERSIÓN] freq_down.max(): {freq_down.max():.2f} MHz")
-        print(f"[DEBUG] [DEBUG DEDISPERSIÓN] Primeros 3 delays: {delays[:3]} muestras")
-        print(f"[DEBUG] [DEBUG DEDISPERSIÓN] Últimos 3 delays: {delays[-3:]} muestras")
-        print(f"[DEBUG] [DEBUG DEDISPERSIÓN] max_delay: {delays.max()} muestras")
-        print(f"[DEBUG] [DEBUG DEDISPERSIÓN] Dedispersión esperada: freq ALTAS llegan primero (delay=0), freq BAJAS llegan después (delay>0)")
+        logger.debug(f" [DEBUG DEDISPERSIÓN] DM: {dm:.2f} pc cm⁻³")
+        logger.debug(f" [DEBUG DEDISPERSIÓN] freq_down shape: {freq_down.shape}")
+        logger.debug(f" [DEBUG DEDISPERSIÓN] Primeras 3 freq_down: {freq_down[:3]}")
+        logger.debug(f" [DEBUG DEDISPERSIÓN] Últimas 3 freq_down: {freq_down[-3:]}")
+        logger.debug(f" [DEBUG DEDISPERSIÓN] freq_down.max(): {freq_down.max():.2f} MHz")
+        logger.debug(f" [DEBUG DEDISPERSIÓN] Primeros 3 delays: {delays[:3]} muestras")
+        logger.debug(f" [DEBUG DEDISPERSIÓN] Últimos 3 delays: {delays[-3:]} muestras")
+        logger.debug(f" [DEBUG DEDISPERSIÓN] max_delay: {delays.max()} muestras")
+        logger.debug(f" [DEBUG DEDISPERSIÓN] Dedispersión esperada: freq ALTAS llegan primero (delay=0), freq BAJAS llegan después (delay>0)")
         if freq_down[0] < freq_down[-1]:              
             expected_delay_pattern = "delays DECRECIENTES (de max a 0)"
         else:               
             expected_delay_pattern = "delays CRECIENTES (de 0 a max)"
-        print(f"[DEBUG] [DEBUG DEDISPERSIÓN] Patrón esperado de delays: {expected_delay_pattern}")
-        print("[DEBUG] [DEBUG DEDISPERSIÓN] " + "="*60)
+        logger.debug(f" [DEBUG DEDISPERSIÓN] Patrón esperado de delays: {expected_delay_pattern}")
+        logger.debug(" [DEBUG DEDISPERSIÓN] " + "="*60)
 
     max_delay = int(delays.max())
     if start + block_len + max_delay > data.shape[0]:

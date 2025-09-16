@@ -30,10 +30,16 @@ def log_streaming_parameters(effective_chunk_samples: int, overlap_raw: int,
         streaming_func: Función de streaming utilizada
         file_type: Tipo de archivo detectado
     """
-    logger = get_global_logger()
-    logger.logger.debug(f"[DEBUG] DEBUG STREAMING: effective_chunk_samples={effective_chunk_samples:,}, overlap_raw={overlap_raw}")
-    logger.logger.debug(f"[DEBUG] DEBUG STREAMING: total_samples={total_samples:,}, chunk_samples={chunk_samples:,}")
-    logger.logger.debug(f"[DEBUG] DEBUG STREAMING: streaming_func={getattr(streaming_func, '__name__', str(streaming_func))}, file_type={file_type}")
+    logger = get_global_logger().logger
+    logger.info(
+        "Streaming • type=%s • reader=%s • chunk=%s (effective=%s) • overlap=%d • total=%s",
+        file_type,
+        getattr(streaming_func, "__name__", str(streaming_func)),
+        f"{chunk_samples:,}",
+        f"{effective_chunk_samples:,}",
+        overlap_raw,
+        f"{total_samples:,}",
+    )
 
 
 def log_block_processing(actual_chunk_count: int, block_shape: tuple, block_dtype: str,
@@ -47,16 +53,15 @@ def log_block_processing(actual_chunk_count: int, block_shape: tuple, block_dtyp
         block_dtype: Tipo de datos del bloque
         metadata: Metadatos del bloque
     """
-    logger = get_global_logger()
-    logger.logger.debug(f"[DEBUG] DEBUG BLOQUE {actual_chunk_count}: shape={block_shape}, dtype={block_dtype}")
-    # Evitar problemas de serialización JSON con metadatos complejos
-    metadata_str = str(metadata) if metadata else "None"
-    logger.logger.debug(f"[DEBUG] DEBUG BLOQUE {actual_chunk_count}: metadata={metadata_str}")
-    logger.logger.debug(f"[DEBUG] DEBUG BLOQUE {actual_chunk_count}: chunk_idx={metadata.get('chunk_idx', 'N/A')}")
-    logger.logger.debug(f"[DEBUG] DEBUG BLOQUE {actual_chunk_count}: start_sample={metadata.get('start_sample', 'N/A'):,}")
-    logger.logger.debug(f"[DEBUG] DEBUG BLOQUE {actual_chunk_count}: end_sample={metadata.get('end_sample', 'N/A'):,}")
-    logger.logger.debug(f"[DEBUG] DEBUG BLOQUE {actual_chunk_count}: overlap_left={metadata.get('overlap_left', 'N/A')}")
-    logger.logger.debug(f"[DEBUG] DEBUG BLOQUE {actual_chunk_count}: overlap_right={metadata.get('overlap_right', 'N/A')}")
+    logger = get_global_logger().logger
+    metadata_str = str(metadata) if metadata else "{}"
+    logger.debug(
+        "Block %d • shape=%s • dtype=%s • metadata=%s",
+        actual_chunk_count,
+        block_shape,
+        block_dtype,
+        metadata_str,
+    )
 
 
 def log_processing_summary(actual_chunk_count: int, chunk_count: int,
@@ -70,10 +75,14 @@ def log_processing_summary(actual_chunk_count: int, chunk_count: int,
         cand_counter_total: Total de candidatos encontrados
         n_bursts_total: Total de bursts detectados
     """
-    logger = get_global_logger()
-    logger.logger.debug(f"[DEBUG] DEBUG RESUMEN: chunks procesados={actual_chunk_count}, total estimado={chunk_count}")
-    logger.logger.debug(f"[DEBUG] DEBUG RESUMEN: candidatos totales={cand_counter_total}, bursts={n_bursts_total}")
-    logger.logger.debug(f"[DEBUG] DEBUG RESUMEN: archivo procesado completamente a través de streaming")
+    logger = get_global_logger().logger
+    logger.info(
+        "Progress • chunks=%d/%d • candidates=%d • bursts=%d",
+        actual_chunk_count,
+        chunk_count,
+        cand_counter_total,
+        n_bursts_total,
+    )
 
 
 def log_pipeline_file_processing(fits_path_name: str, file_suffix: str,
@@ -87,12 +96,14 @@ def log_pipeline_file_processing(fits_path_name: str, file_suffix: str,
         total_samples: Total de muestras del archivo
         chunk_samples: Tamaño configurado del chunk
     """
-    logger = get_global_logger()
-    logger.logger.debug(f"[DEBUG] DEBUG PIPELINE: Procesando archivo: {fits_path_name}")
-    logger.logger.debug(f"[DEBUG] DEBUG PIPELINE: Tipo de archivo: {file_suffix}")
-    logger.logger.debug(f"[DEBUG] DEBUG PIPELINE: Muestras totales: {total_samples:,}")
-    logger.logger.debug(f"[DEBUG] DEBUG PIPELINE: chunk_samples configurado: {chunk_samples:,}")
-    logger.logger.debug(f"[DEBUG] DEBUG PIPELINE: SIEMPRE llamando a _process_file_chunked (nunca a _process_file)")
+    logger = get_global_logger().logger
+    logger.debug(
+        "File processing • %s (%s) • samples=%s • chunk=%s",
+        fits_path_name,
+        file_suffix,
+        f"{total_samples:,}",
+        f"{chunk_samples:,}",
+    )
 
 
 def log_pipeline_file_completion(fits_path_name: str, results: Dict[str, Any]) -> None:
@@ -103,8 +114,11 @@ def log_pipeline_file_completion(fits_path_name: str, results: Dict[str, Any]) -
         fits_path_name: Nombre del archivo
         results: Resultados del procesamiento
     """
-    logger = get_global_logger()
-    logger.logger.debug(f"[DEBUG] DEBUG PIPELINE: Archivo {fits_path_name} procesado exitosamente")
-    logger.logger.debug(f"[DEBUG] DEBUG PIPELINE: Status: {results.get('status', 'N/A')}")
-    logger.logger.debug(f"[DEBUG] DEBUG PIPELINE: Chunks procesados: {results.get('chunks_processed', 'N/A')}")
-    logger.logger.debug(f"[DEBUG] DEBUG PIPELINE: Modo de procesamiento: {results.get('processing_mode', 'N/A')}")
+    logger = get_global_logger().logger
+    logger.debug(
+        "File completed • %s • status=%s • chunks=%s • mode=%s",
+        fits_path_name,
+        results.get("status", "N/A"),
+        results.get("chunks_processed", "N/A"),
+        results.get("processing_mode", "N/A"),
+    )

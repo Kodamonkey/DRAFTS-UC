@@ -125,7 +125,7 @@ def create_waterfall_dedispersed_plot(
         x1, y1, x2, y2 = map(int, best_box)
         candidate_region = waterfall_block[:, y1:y2] if waterfall_block is not None else None
         if candidate_region is not None and candidate_region.size > 0:
-            snr_profile_candidate, _ = compute_snr_profile(candidate_region)
+            snr_profile_candidate, _, _ = compute_snr_profile(candidate_region)
             snr_val_candidate = np.max(snr_profile_candidate)
         else:
             snr_val_candidate = 0.0
@@ -134,8 +134,9 @@ def create_waterfall_dedispersed_plot(
         snr_val_candidate = 0.0
     
     if dw_block is not None and dw_block.size > 0:
-        snr_dw, sigma_dw = compute_snr_profile(dw_block, off_regions)
+        snr_dw, sigma_dw, best_w_dw = compute_snr_profile(dw_block, off_regions)
         peak_snr_dw, peak_time_dw, peak_idx_dw = find_snr_peak(snr_dw)
+        width_ms_dw = float(best_w_dw[int(peak_idx_dw)]) * time_reso_ds * 1000.0 if len(best_w_dw) == len(snr_dw) else None
         
         time_axis_dw = np.linspace(slice_start_abs, slice_end_abs, len(snr_dw))
         peak_time_dw_abs = float(time_axis_dw[peak_idx_dw]) if len(snr_dw) > 0 else None
@@ -160,23 +161,44 @@ def create_waterfall_dedispersed_plot(
         
         if snr_val_candidate > 0:
             if peak_time_dw_abs is not None:
-                title_text = (
-                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                    f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s (block) / {snr_val_candidate:.1f}σ (candidate)"
-                )
+                if width_ms_dw is not None:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ (w≈{width_ms_dw:.3f} ms) -> {peak_time_dw_abs:.6f}s (block) / {snr_val_candidate:.1f}σ (candidate)"
+                    )
+                else:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s (block) / {snr_val_candidate:.1f}σ (candidate)"
+                    )
             else:
-                title_text = (
-                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                    f"Peak={peak_snr_dw:.1f}σ (block) / {snr_val_candidate:.1f}σ (candidate)"
-                )
+                if width_ms_dw is not None:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ (w≈{width_ms_dw:.3f} ms) (block) / {snr_val_candidate:.1f}σ (candidate)"
+                    )
+                else:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ (block) / {snr_val_candidate:.1f}σ (candidate)"
+                    )
         else:
             if peak_time_dw_abs is not None:
-                title_text = (
-                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                    f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s"
-                )
+                if width_ms_dw is not None:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ (w≈{width_ms_dw:.3f} ms) -> {peak_time_dw_abs:.6f}s"
+                    )
+                else:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s"
+                    )
             else:
-                title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ"
+                if width_ms_dw is not None:
+                    title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ (w≈{width_ms_dw:.3f} ms)"
+                else:
+                    title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ"
         ax_prof_dw.set_title(title_text, fontsize=9, fontweight="bold")
     else:
         ax_prof_dw.text(0.5, 0.5, 'No dedispersed\ndata available', 

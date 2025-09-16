@@ -28,6 +28,7 @@ CANDIDATE_HEADER = [
     "x2",
     "y2",
     "snr",
+    "width_ms",
     "class_prob",
     "is_burst",
     "patch_file",
@@ -73,6 +74,7 @@ class Candidate:
     class_prob: float | None = None
     is_burst: bool | None = None
     patch_file: str | None = None
+    width_ms: float | None = None
 
     # This function converts a candidate to a CSV row.
     def to_row(self) -> List:
@@ -89,6 +91,10 @@ class Candidate:
             *self.box,
             f"{self.snr:.2f}",
         ]
+        if self.width_ms is not None:
+            row.append(f"{self.width_ms:.3f}")
+        else:
+            row.append("")
         if self.class_prob is not None:
             row.append(f"{self.class_prob:.3f}")
         if self.is_burst is not None:

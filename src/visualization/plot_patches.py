@@ -113,7 +113,7 @@ def create_patches_plot(
     ax_patch_prof = fig.add_subplot(gs_patch_nested[0, 0])
     
     if patch_data is not None and patch_data.size > 0:
-        snr_patch, sigma_patch = compute_snr_profile(patch_data, off_regions)
+        snr_patch, sigma_patch, best_w_patch = compute_snr_profile(patch_data, off_regions)
         peak_snr_patch, peak_time_patch, peak_idx_patch = find_snr_peak(snr_patch)
         
         patch_start_abs = patch_start

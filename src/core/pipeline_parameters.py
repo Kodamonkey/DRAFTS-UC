@@ -7,33 +7,40 @@ from ..preprocessing.slice_len_calculator import update_slice_len_dynamic
 
 
 def calculate_frequency_downsampled() -> np.ndarray:
-    """Calcula las frecuencias decimadas del pipeline.
-    
-    Returns:
-        np.ndarray: Array de frecuencias decimadas
-    """
-    return np.mean(
-        config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
-        axis=1,
-    )
+    """Calcula las frecuencias decimadas del pipeline."""
+
+    if config.FREQ is None or getattr(config, "FREQ_RESO", 0) <= 0:
+        raise ValueError("Los metadatos de frecuencia no han sido cargados")
+
+    down_rate = int(getattr(config, "DOWN_FREQ_RATE", 1))
+    if down_rate <= 0:
+        raise ValueError("DOWN_FREQ_RATE debe ser mayor que cero")
+
+    total_channels = len(config.FREQ)
+    usable = total_channels - (total_channels % down_rate)
+    if usable == 0:
+        raise ValueError("DOWN_FREQ_RATE es mayor que el número de canales disponibles")
+
+    trimmed = config.FREQ[:usable]
+    return trimmed.reshape(-1, down_rate).mean(axis=1)
 
 
 def calculate_dm_height() -> int:
-    """Calcula la altura del cubo DM-tiempo.
-    
-    Returns:
-        int: Número de valores DM (height)
-    """
-    return config.DM_max - config.DM_min + 1
+    """Calcula la altura del cubo DM-tiempo."""
+
+    dm_max = int(getattr(config, "DM_max", 0))
+    dm_min = int(getattr(config, "DM_min", 0))
+    return max(0, dm_max - dm_min + 1)
 
 
-def calculate_width_total() -> int:
-    """Calcula el ancho total decimado del archivo.
-    
-    Returns:
-        int: Ancho total en muestras decimadas
-    """
-    return config.FILE_LENG // config.DOWN_TIME_RATE
+def calculate_width_total(total_samples: int | None = None) -> int:
+    """Calcula el ancho total decimado del archivo."""
+
+    samples = int(total_samples) if total_samples is not None else int(getattr(config, "FILE_LENG", 0))
+    down_rate = int(getattr(config, "DOWN_TIME_RATE", 1))
+    if samples <= 0 or down_rate <= 0:
+        return 0
+    return samples // down_rate
 
 
 def calculate_slice_parameters() -> tuple[int, float]:
@@ -59,15 +66,13 @@ def calculate_time_slice(width_total: int, slice_len: int) -> int:
 
 
 def calculate_slice_duration(slice_len: int) -> float:
-    """Calcula la duración de un slice en segundos.
-    
-    Args:
-        slice_len: Longitud del slice en muestras
-        
-    Returns:
-        float: Duración en segundos
-    """
-    return slice_len * config.TIME_RESO * config.DOWN_TIME_RATE
+    """Calcula la duración de un slice en segundos."""
+
+    if slice_len <= 0:
+        return 0.0
+    time_reso = float(getattr(config, "TIME_RESO", 0.0))
+    down_rate = int(getattr(config, "DOWN_TIME_RATE", 1))
+    return slice_len * time_reso * max(down_rate, 1)
 
 
 def get_pipeline_parameters() -> dict:

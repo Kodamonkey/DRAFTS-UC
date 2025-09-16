@@ -6,10 +6,14 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Dict
+import logging
 
-               
+
 from ..config import config
 from ..output.summary_manager import _update_summary_with_file_debug
+
+
+logger = logging.getLogger(__name__)
 
 
 def safe_float(value, default=0.0) -> float:
@@ -55,22 +59,23 @@ def auto_config_downsampling() -> None:
 
 
 def print_debug_frequencies(prefix: str, file_name: str, freq_axis_inverted: bool) -> None:
-    """Print a standard frequency debug block with the given prefix."""
-    print(f"{prefix} File: {file_name}")
-    print(f"{prefix} Detected freq_axis_inverted: {freq_axis_inverted}")
-    print(f"{prefix} DATA_NEEDS_REVERSAL: {config.DATA_NEEDS_REVERSAL}")
-    print(f"{prefix} First 5 frequencies: {config.FREQ[:5]}")
-    print(f"{prefix} Last 5 frequencies: {config.FREQ[-5:]}")
-    print(f"{prefix} Minimum frequency: {config.FREQ.min():.2f} MHz")
-    print(f"{prefix} Maximum frequency: {config.FREQ.max():.2f} MHz")
-    print(f"{prefix} Expected order: ascending frequencies")
+    """Log a standard frequency debug block with the given prefix."""
+
+    logger.debug("%s File: %s", prefix, file_name)
+    logger.debug("%s Detected freq_axis_inverted: %s", prefix, freq_axis_inverted)
+    logger.debug("%s DATA_NEEDS_REVERSAL: %s", prefix, config.DATA_NEEDS_REVERSAL)
+    logger.debug("%s First 5 frequencies: %s", prefix, config.FREQ[:5])
+    logger.debug("%s Last 5 frequencies: %s", prefix, config.FREQ[-5:])
+    logger.debug("%s Minimum frequency: %.2f MHz", prefix, config.FREQ.min())
+    logger.debug("%s Maximum frequency: %.2f MHz", prefix, config.FREQ.max())
+    logger.debug("%s Expected order: ascending frequencies", prefix)
     if config.FREQ[0] < config.FREQ[-1]:
-        print(f"{prefix} Order CORRECT: {config.FREQ[0]:.2f} < {config.FREQ[-1]:.2f}")
+        logger.debug("%s Order CORRECT: %.2f < %.2f", prefix, config.FREQ[0], config.FREQ[-1])
     else:
-        print(f"{prefix} Order INCORRECT: {config.FREQ[0]:.2f} > {config.FREQ[-1]:.2f}")
-    print(f"{prefix} DOWN_FREQ_RATE: {config.DOWN_FREQ_RATE}")
-    print(f"{prefix} DOWN_TIME_RATE: {config.DOWN_TIME_RATE}")
-    print(f"{prefix} " + "="*50)
+        logger.debug("%s Order INCORRECT: %.2f > %.2f", prefix, config.FREQ[0], config.FREQ[-1])
+    logger.debug("%s DOWN_FREQ_RATE: %s", prefix, config.DOWN_FREQ_RATE)
+    logger.debug("%s DOWN_TIME_RATE: %s", prefix, config.DOWN_TIME_RATE)
+    logger.debug("%s %s", prefix, "=" * 50)
 
 
 def save_file_debug_info(file_name: str, debug_info: Dict) -> None:
@@ -81,4 +86,4 @@ def save_file_debug_info(file_name: str, debug_info: Dict) -> None:
         filename = Path(file_name).stem
         _update_summary_with_file_debug(results_dir, filename, debug_info)
     except Exception as e:
-        print(f"[WARNING] Error saving debug info for {file_name}: {e}")
+        logger.warning("Failed to save debug info for %s: %s", file_name, e)

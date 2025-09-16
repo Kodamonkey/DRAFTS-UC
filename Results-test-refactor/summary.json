@@ -1,0 +1,90 @@
+{
+  "pipeline_info": {
+    "timestamp": "2025-09-16 02:35:55",
+    "model": "resnet50",
+    "dm_range": "0-1024",
+    "slice_duration_ms": 500.0,
+    "debug_enabled": true
+  },
+  "files_processed": {
+    "3096_0001_00_8bit": {
+      "debug_info": {
+        "file_type": "filterbank",
+        "file_size_bytes": 33749992332,
+        "file_size_gb": 31.432129751890898,
+        "header_size_bytes": 396,
+        "format": "SIGPROC Filterbank (.fil)",
+        "source_name": " 0531+33_FB        ",
+        "telescope_id": 8,
+        "raw_parameters": {
+          "tsamp": 5.4613333333333334e-05,
+          "nchans": 512,
+          "nifs": 1,
+          "nbits": 8,
+          "nsamples": 65917953,
+          "fch1": 1510.0,
+          "foff": -0.5859375
+        },
+        "frequency_analysis": {
+          "fch1_mhz": 1510.0,
+          "foff_mhz": -0.5859375,
+          "freq_min_mhz": 1210.5859375,
+          "freq_max_mhz": 1510.0,
+          "bandwidth_mhz": 299.4140625,
+          "resolution_per_channel_mhz": 0.5859375,
+          "original_order": "DESCENDENTE (foff<0)",
+          "final_order": "ASCENDENTE",
+          "freq_axis_inverted": true,
+          "data_needs_reversal": true
+        },
+        "time_analysis": {
+          "time_resolution_sec": 5.4613333333333334e-05,
+          "total_samples": 65917953,
+          "total_duration_sec": 3599.99913984,
+          "total_duration_min": 59.999985664,
+          "total_duration_hours": 0.9999997610666668
+        },
+        "decimation": {
+          "down_freq_rate": 1,
+          "down_time_rate": 12,
+          "channels_after_decimation": 512,
+          "time_resolution_after_decimation_sec": 0.00065536,
+          "total_reduction_factor": 12
+        },
+        "slice_config": {
+          "slice_len_calculated": 763,
+          "slice_len_limits": [
+            32,
+            2048
+          ]
+        },
+        "processing_config": {
+          "multi_band_enabled": false,
+          "dm_range": [
+            0,
+            1024
+          ],
+          "detection_thresholds": {
+            "det_prob": 0.3,
+            "class_prob": 0.5,
+            "snr_thresh": 3.0
+          }
+        },
+        "file_temporal_info": {
+          "total_duration_sec": 3599.99913984,
+          "total_duration_formatted": "0h 59m 60.0s",
+          "sample_rate_hz": 18310.546875,
+          "effective_sample_rate_after_decimation_hz": 1525.87890625
+        }
+      },
+      "status": "debug_completed",
+      "debug_timestamp": "2025-09-16 02:35:55"
+    }
+  },
+  "global_stats": {
+    "total_files": 0,
+    "total_candidates": 0,
+    "total_bursts": 0,
+    "total_processing_time": 0.0
+  }
+}

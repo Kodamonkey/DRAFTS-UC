@@ -6,7 +6,7 @@ from pathlib import Path
 
 # Directorios de entrada y salida
 DATA_DIR = Path("./Data/raw")                        # Directorio con archivos de entrada (.fits, .fil)
-RESULTS_DIR = Path("./Results")                      # Directorio para guardar resultados
+RESULTS_DIR = Path("./Results-test-refactor")                      # Directorio para guardar resultados
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
@@ -59,7 +59,7 @@ USE_MULTI_BAND: bool = False                # True = usar análisis multi-banda,
 # =============================================================================
 
 # Debug de frecuencias y archivos
-DEBUG_FREQUENCY_ORDER: bool = False        # True = mostrar información detallada de frecuencias y archivos
+DEBUG_FREQUENCY_ORDER: bool = True        # True = mostrar información detallada de frecuencias y archivos
                                            # False = modo silencioso (recomendado para procesamiento en lote)
 
 # Forzar generación de plots incluso sin candidatos (modo debug)

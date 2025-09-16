@@ -23,7 +23,6 @@ from ..visualization.plot_waterfall_dispersed import save_waterfall_dispersed_pl
 from ..visualization.plot_waterfall_dedispersed import save_waterfall_dedispersed_plot
 
 
-# This function infers file type.
 def _infer_file_type(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix == ".fits":
@@ -33,12 +32,10 @@ def _infer_file_type(path: Path) -> str:
     raise ValueError(f"Tipo de archivo no soportado: {suffix}")
 
 
-# This function ensures that the output directory exists.
 def _ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
 
-# This function computes indices.
 def _compute_indices(start_sec: float, duration_sec: float) -> tuple[int, int, float]:
     """Convierte tiempo absoluto a índices en dominio decimado del pipeline.
 
@@ -51,7 +48,6 @@ def _compute_indices(start_sec: float, duration_sec: float) -> tuple[int, int, f
     return start_idx, end_idx, dt_ds
 
 
-# This function computes the downsampled frequency grid.
 def _compute_freq_down() -> np.ndarray:
     """Devuelve el eje de frecuencias decimado exactamente como el pipeline (promedio por grupos)."""
     freq = np.asarray(config.FREQ).reshape(-1)
@@ -66,7 +62,6 @@ def _compute_freq_down() -> np.ndarray:
     return freq_ds
 
 
-# This function runs single segment.
 def run_single_segment(
     filename: Path,
     start: float,
@@ -174,7 +169,6 @@ def run_single_segment(
     )
 
 
-# This function runs the absolute segment plotting script.
 def main():
     parser = argparse.ArgumentParser(
         description=(

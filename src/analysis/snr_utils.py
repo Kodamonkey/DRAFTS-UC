@@ -12,31 +12,29 @@ import numpy as np
                                                                  
 
 
-# This function computes SNR profile.
 def compute_snr_profile(
     waterfall: np.ndarray,
     off_regions: Optional[List[Tuple[int, int]]] = None
 ) -> Tuple[np.ndarray, float, np.ndarray]:
-    """
-    Calcula un único perfil SNR unificado (estilo PRESTO) desde un waterfall 2D.
+    """Compute a unified PRESTO-style SNR profile from a 2D waterfall.
 
-    Flujo:
-    - Integración en frecuencia → serie temporal
-    - Detrend/normalización por bloques (RMS≈1) con corrección 1.148
-    - Matched filtering con boxcars normalizados por √width
-    - Devuelve el perfil SNR máximo por muestra y sigma≈1.0
+    Pipeline:
+    - Integrate over frequency to obtain a time series
+    - Detrend/normalize in blocks (RMS≈1) with the 1.148 correction
+    - Apply matched filtering with boxcars normalized by ``√width``
+    - Return the per-sample maximum SNR and effective sigma≈1.0
 
-    Nota: el parámetro off_regions se mantiene por compatibilidad pero no se usa
-    en este esquema, ya que la normalización por bloques ya estabiliza la RMS.
+    The ``off_regions`` parameter is kept for compatibility but is unused because
+    block normalization already stabilizes the RMS.
 
     Returns
     -------
     snr : np.ndarray
-        Perfil SNR 1D (máximo sobre anchos) con shape (n_time,)
+        1D SNR profile (maximum over widths) with shape ``(n_time,)``
     sigma : float
-        Desviación estándar efectiva del ruido (≈1.0 tras normalización)
+        Effective noise standard deviation (≈1.0 after normalization)
     best_width : np.ndarray
-        Ancho de boxcar (en muestras) que maximiza el SNR en cada muestra
+        Boxcar width (in samples) that maximizes the SNR at each sample
     """
     if waterfall is None or waterfall.size == 0:
         raise ValueError("waterfall is None or empty in compute_snr_profile")
@@ -71,7 +69,6 @@ def compute_snr_profile(
                             posinf=np.max(snr_max[np.isfinite(snr_max)]) if np.isfinite(snr_max).any() else 0.0)
     return snr_max, 1.0, best_width
 
-# This function estimates sigma iqr.
 def estimate_sigma_iqr(data: np.ndarray) -> float:
     """
     Estimate noise standard deviation using the Interquartile Range method.
@@ -94,7 +91,6 @@ def estimate_sigma_iqr(data: np.ndarray) -> float:
     return iqr / 1.349
 
 
-# This function finds SNR peak.
 def find_snr_peak(snr: np.ndarray, time_axis: Optional[np.ndarray] = None) -> Tuple[float, float, int]:
     """
     Find the peak SNR value and its location.
@@ -122,7 +118,6 @@ def find_snr_peak(snr: np.ndarray, time_axis: Optional[np.ndarray] = None) -> Tu
     return peak_snr, peak_time, peak_idx
 
 
-# This function detrends and normalizes a time series.
 def _detrend_normalize_timeseries(timeseries: np.ndarray) -> np.ndarray:
     """Approximate PRESTO-style detrend and normalize to RMS≈1.
 
@@ -271,7 +266,6 @@ def compute_presto_matched_snr(
                                                                                      
 
 
-# This function injects synthetic FRB.
 def inject_synthetic_frb(
     waterfall: np.ndarray,
     peak_time_idx: int,
@@ -321,7 +315,6 @@ def inject_synthetic_frb(
     return waterfall_with_pulse
 
 
-# This function computes detection significance.
 def compute_detection_significance(
     snr_peak: float, 
     n_samples: int, 

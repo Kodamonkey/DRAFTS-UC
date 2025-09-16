@@ -6,7 +6,6 @@ from torchvision import transforms
 
 
 if True:
-    # This function applies random resizing to inputs.
     def random_resize(inputs):
 
         h, w = np.random.randint(128, 513), np.random.randint(128, 513)
@@ -15,7 +14,6 @@ if True:
         return inputs
 
 if False:
-    # This function applies random resizing to inputs.
     def random_resize(inputs):
 
         random_seed = np.random.rand()
@@ -39,7 +37,6 @@ if False:
 
 class BinaryNet(torch.nn.Module):
 
-    # This function initializes the binary classification network.
     def __init__(self, model_name='resnet18', num_classes=2):
         super(BinaryNet, self).__init__()
         model_dict = {
@@ -53,7 +50,6 @@ class BinaryNet(torch.nn.Module):
         self.base_model.conv1 = torch.nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
         self.base_model.fc    = torch.nn.Linear(num_ch, num_classes)
 
-    # This function runs a forward pass for classification.
     def forward(self, x):
         x = self.base_model(x)               
         return x
@@ -61,12 +57,10 @@ class BinaryNet(torch.nn.Module):
 
 class SpatialPyramidPool2D(torch.nn.Module):
 
-    # This function initializes the spatial pyramid pooling module.
     def __init__(self, out_side):
         super(SpatialPyramidPool2D, self).__init__()
         self.out_side = out_side
 
-    # This function applies spatial pyramid pooling.
     def forward(self, x):
         out         = None
         for n in self.out_side:
@@ -80,7 +74,6 @@ class SpatialPyramidPool2D(torch.nn.Module):
 
 class SPPResNet(torch.nn.Module):
 
-    # This function initializes the SPP ResNet classifier.
     def __init__(self, model_name='resnet18', num_classes=2, pool_size=(1, 2, 6)):
 
         super().__init__()
@@ -98,7 +91,6 @@ class SPPResNet(torch.nn.Module):
         num_features    = num_ch * (pool_size[0]**2 + pool_size[1]**2 + pool_size[2]**2)
         self.classifier = torch.nn.Linear(num_features, num_classes)
 
-    # This function runs a forward pass with spatial pyramid pooling.
     def forward(self, x):
 
         x = self.base_model.conv1(x)

@@ -1,12 +1,6 @@
 # This module extracts observational parameters from input files.
 
-"""Extractor de parámetros de observación para archivos astronómicos.
-
-Este módulo se encarga de:
-1. Extraer parámetros de observación de archivos FITS y filterbank
-2. Configurar variables globales en config
-3. Aplicar configuraciones automáticas de decimación
-"""
+"""Utilities to extract observation parameters from FITS and filterbank files."""
 
 from pathlib import Path
 from typing import Dict, Any
@@ -19,24 +13,8 @@ from .utils import auto_config_downsampling
 
 logger = logging.getLogger(__name__)
 
-# This function extracts parameters auto.
 def extract_parameters_auto(file_path: Path) -> Dict[str, Any]:
-    """
-    Extrae parámetros automáticamente según el tipo de archivo detectado.
-    
-    Args:
-        file_path: Path al archivo del cual extraer parámetros
-        
-    Returns:
-        Dict con información de la extracción:
-        - success: bool
-        - file_type: str
-        - parameters_extracted: List[str]
-        - errors: List[str]
-        
-    Raises:
-        ValueError: Si el archivo no es compatible o hay errores durante la extracción
-    """
+    """Extract observation parameters using the appropriate handler for the file type."""
     extraction_result = {
         'success': False,
         'file_type': None,
@@ -50,13 +28,13 @@ def extract_parameters_auto(file_path: Path) -> Dict[str, Any]:
         validation = validate_file_compatibility(file_path)
         if not validation['is_compatible']:
             extraction_result['errors'].extend(validation['validation_errors'])
-            raise ValueError(f"Archivo no compatible: {', '.join(validation['validation_errors'])}")
+            raise ValueError(f"Incompatible file: {', '.join(validation['validation_errors'])}")
         
                                   
         file_type = detect_file_type(file_path)
         extraction_result['file_type'] = file_type
         
-        logger.info(f"Extrayendo parámetros de archivo {file_type.upper()}: {file_path.name}")
+        logger.info(f"Extracting parameters from {file_type.upper()} file: {file_path.name}")
         
                                           
         if file_type == "fits":
@@ -72,7 +50,7 @@ def extract_parameters_auto(file_path: Path) -> Dict[str, Any]:
             ]
         
                                                            
-        logger.info("Aplicando configuraciones automáticas de decimación...")
+        logger.info("Applying automatic downsampling configuration...")
         auto_config_downsampling()
         
                                                                            
@@ -86,38 +64,28 @@ def extract_parameters_auto(file_path: Path) -> Dict[str, Any]:
                 missing_params.append(param)
         
         if missing_params:
-            raise ValueError(f"Parámetros críticos faltantes: {', '.join(missing_params)}")
-        
+            raise ValueError(f"Missing critical parameters: {', '.join(missing_params)}")
+
         extraction_result['success'] = True
-        logger.info(f"Parámetros extraídos exitosamente de {file_path.name}")
-        
-                                     
-        logger.info(f"Parámetros extraídos:")
-        logger.info(f"  - Resolución temporal: {config.TIME_RESO:.2e} s")
-        logger.info(f"  - Canales de frecuencia: {config.FREQ_RESO}")
-        logger.info(f"  - Muestras totales: {config.FILE_LENG:,}")
-        logger.info(f"  - Rango de frecuencias: {config.FREQ.min():.1f} - {config.FREQ.max():.1f} MHz")
-        logger.info(f"  - Decimación frecuencia: {getattr(config, 'DOWN_FREQ_RATE', 'N/A')}x")
-        logger.info(f"  - Decimación tiempo: {getattr(config, 'DOWN_TIME_RATE', 'N/A')}x")
-        
+        logger.info(f"Successfully extracted parameters from {file_path.name}")
+
+        logger.info("Extracted parameters:")
+        logger.info(f"  - Time resolution: {config.TIME_RESO:.2e} s")
+        logger.info(f"  - Frequency channels: {config.FREQ_RESO}")
+        logger.info(f"  - Total samples: {config.FILE_LENG:,}")
+        logger.info(f"  - Frequency range: {config.FREQ.min():.1f} - {config.FREQ.max():.1f} MHz")
+        logger.info(f"  - Frequency downsampling: {getattr(config, 'DOWN_FREQ_RATE', 'N/A')}x")
+        logger.info(f"  - Time downsampling: {getattr(config, 'DOWN_TIME_RATE', 'N/A')}x")
+
     except Exception as e:
         extraction_result['errors'].append(str(e))
-        logger.error(f"Error extrayendo parámetros de {file_path}: {e}")
+        logger.error(f"Error extracting parameters from {file_path}: {e}")
         raise
     
     return extraction_result
 
-# This function gets parameters function.
 def get_parameters_function(file_path: Path):
-    """
-    Retorna la función apropiada para extraer parámetros según el tipo de archivo.
-    
-    Args:
-        file_path: Path al archivo
-        
-    Returns:
-        Función apropiada para extraer parámetros
-    """
+    """Return the helper that extracts parameters for the detected file type."""
     file_type = detect_file_type(file_path)
     
     if file_type == "fits":
@@ -125,44 +93,26 @@ def get_parameters_function(file_path: Path):
     else:
         return get_obparams_fil
 
-# This function extracts parameters for target.
 def extract_parameters_for_target(file_list: list[Path]) -> Dict[str, Any]:
-    """
-    Extrae parámetros del primer archivo de una lista para configurar el pipeline.
-    
-    Args:
-        file_list: Lista de archivos del mismo target FRB
-        
-    Returns:
-        Dict con información de la extracción
-        
-    Raises:
-        ValueError: Si no hay archivos o hay errores durante la extracción
-    """
+    """Extract parameters from the first file in ``file_list`` for pipeline setup."""
     if not file_list:
-        raise ValueError("Lista de archivos vacía")
-    
-                                                    
+        raise ValueError("File list is empty")
+
+
     first_file = file_list[0]
-    logger.info(f"Extrayendo parámetros desde: {first_file.name}")
-    
+    logger.info(f"Extracting parameters from: {first_file.name}")
+
     try:
         result = extract_parameters_auto(first_file)
-        logger.info("Parámetros de observación cargados exitosamente")
+        logger.info("Observation parameters loaded successfully")
         return result
-        
+
     except Exception as e:
-        logger.error(f"Error obteniendo parámetros: {e}")
+        logger.error(f"Error obtaining parameters: {e}")
         raise
 
-# This function validates extracted parameters.
 def validate_extracted_parameters() -> Dict[str, Any]:
-    """
-    Valida que los parámetros extraídos sean coherentes y válidos.
-    
-    Returns:
-        Dict con resultado de la validación
-    """
+    """Validate that the extracted parameters are consistent and usable."""
     from ..config import config
     
     validation_result = {
@@ -182,30 +132,30 @@ def validate_extracted_parameters() -> Dict[str, Any]:
         
         for param_name, param_value in critical_params.items():
             if param_value is None:
-                validation_result['errors'].append(f"Parámetro {param_name} es None")
+                validation_result['errors'].append(f"Parameter {param_name} is None")
                 validation_result['is_valid'] = False
             elif param_value <= 0:
-                validation_result['errors'].append(f"Parámetro {param_name} debe ser > 0, actual: {param_value}")
+                validation_result['errors'].append(f"Parameter {param_name} must be > 0, current: {param_value}")
                 validation_result['is_valid'] = False
         
                                              
         if hasattr(config, 'FREQ') and config.FREQ is not None:
             if len(config.FREQ) != config.FREQ_RESO:
                 validation_result['warnings'].append(
-                    f"Longitud de array FREQ ({len(config.FREQ)}) no coincide con FREQ_RESO ({config.FREQ_RESO})"
+                    f"Length of FREQ array ({len(config.FREQ)}) does not match FREQ_RESO ({config.FREQ_RESO})"
                 )
             
             if len(config.FREQ) > 1:
                 freq_range = config.FREQ.max() - config.FREQ.min()
                 if freq_range <= 0:
-                    validation_result['warnings'].append("Rango de frecuencias inválido o muy pequeño")
+                    validation_result['warnings'].append("Frequency range is invalid or too small")
         
                                             
         down_freq = getattr(config, 'DOWN_FREQ_RATE', 1)
         down_time = getattr(config, 'DOWN_TIME_RATE', 1)
         
         if down_freq <= 0 or down_time <= 0:
-            validation_result['errors'].append("Factores de decimación deben ser > 0")
+            validation_result['errors'].append("Downsampling factors must be greater than zero")
             validation_result['is_valid'] = False
         
                                      
@@ -219,7 +169,7 @@ def validate_extracted_parameters() -> Dict[str, Any]:
         }
         
     except Exception as e:
-        validation_result['errors'].append(f"Error durante validación: {e}")
+        validation_result['errors'].append(f"Validation error: {e}")
         validation_result['is_valid'] = False
     
     return validation_result

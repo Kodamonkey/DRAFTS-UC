@@ -1,6 +1,6 @@
 # This module handles SIGPROC filterbank file ingestion.
 
-"""Manejo de archivos filterbank (.fil) para el pipeline de detección de FRBs."""
+"""Manage SIGPROC filterbank (.fil) files for the FRB detection pipeline."""
 from __future__ import annotations
 
 import gc
@@ -20,26 +20,22 @@ from ..logging import (
 from .utils import safe_float, safe_int, auto_config_downsampling, print_debug_frequencies, save_file_debug_info
 
 
-# This function reads int.
 def _read_int(f) -> int:
-    """Lee un entero de 32 bits del archivo."""
+    """Read a 32-bit integer from the file."""
     return struct.unpack("<i", f.read(4))[0]
 
 
-# This function reads double.
 def _read_double(f) -> float:
-    """Lee un double de 64 bits del archivo."""
+    """Read a 64-bit floating-point value from the file."""
     return struct.unpack("<d", f.read(8))[0]
 
 
-# This function reads string.
 def _read_string(f) -> str:
-    """Lee una cadena de caracteres del archivo."""
+    """Read a length-prefixed string from the file."""
     length = _read_int(f)
     return f.read(length).decode('utf-8', errors='ignore')
 
 
-# This function reads header.
 def _read_header(f) -> Tuple[dict, int]:
     """Read filterbank header, handling both standard and non-standard formats."""
     original_pos = f.tell()
@@ -99,7 +95,6 @@ def _read_header(f) -> Tuple[dict, int]:
         return _read_non_standard_header(f)
 
 
-# This function reads non standard header.
 def _read_non_standard_header(f) -> Tuple[dict, int]:
     """Handle non-standard filterbank files by assuming common parameters."""
     print("[INFO] Detectado archivo .fil con formato no estándar, usando parámetros estimados")
@@ -134,7 +129,6 @@ def _read_non_standard_header(f) -> Tuple[dict, int]:
     return header, 512
 
 
-# This function loads filterbank file.
 def load_fil_file(file_name: str) -> np.ndarray:
     """Load a filterbank file and return the data array in shape (time, pol, channel)."""
     global_vars = config
@@ -219,7 +213,6 @@ def load_fil_file(file_name: str) -> np.ndarray:
     return data_array
 
 
-# This function gets obparams filterbank.
 def get_obparams_fil(file_name: str) -> None:
     """Extract observation parameters and populate :mod:`config`."""
     
@@ -454,7 +447,6 @@ def get_obparams_fil(file_name: str) -> None:
         })
 
 
-# This function streams filterbank.
 def stream_fil(
     file_name: str,
     chunk_samples: int = 2_097_152,

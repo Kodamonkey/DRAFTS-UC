@@ -6,7 +6,6 @@ from torch import nn
 from torchvision.ops import nms
 
 
-# This function denormalizes.
 def denormalize(img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
 
     img *= std
@@ -16,7 +15,6 @@ def denormalize(img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
     return img
 
 
-# This function pools nms.
 def pool_nms(heat, kernel=3):
 
     pad  = (kernel - 1) // 2
@@ -26,7 +24,6 @@ def pool_nms(heat, kernel=3):
     return heat * keep
 
 
-# This function decodes bbox.
 def decode_bbox(pred_hms, pred_whs, pred_offsets, confidence, cuda):
                                                                                
                                     
@@ -98,7 +95,6 @@ def decode_bbox(pred_hms, pred_whs, pred_offsets, confidence, cuda):
     return detects
 
 
-# This function postprocesses.
 def postprocess(prediction, need_nms, input_shape, nms_iou=0.4):
     output = [None for _ in range(len(prediction))]
 
@@ -141,7 +137,6 @@ def postprocess(prediction, need_nms, input_shape, nms_iou=0.4):
     return output
 
 
-# This function extracts detection results from model outputs.
 def get_res(hm, wh, offset, confidence):
 
     outputs = decode_bbox(hm, wh, offset, confidence, cuda=True)

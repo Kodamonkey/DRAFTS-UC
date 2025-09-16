@@ -23,7 +23,6 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
-# This function performs GPU-based dedispersion.
 def _de_disp_gpu(dm_time, data, freq, index, dm_values, mid_channel):
     x, y = cuda.grid(2)
     if x < dm_time.shape[1] and y < dm_time.shape[2]:
@@ -61,7 +60,6 @@ def _de_disp_gpu(dm_time, data, freq, index, dm_values, mid_channel):
         dm_time[2, x, y] = dm_time[0, x, y] - mid_val
 
 
-# This function performs CPU-based DM-time accumulation.
 def _d_dm_time_cpu(
     data: np.ndarray,
     height: int,
@@ -132,7 +130,6 @@ def _d_dm_time_cpu(
     return out
 
 
-# This function computes the DM-time cube with GPU acceleration.
 def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128, dm_min: float = None, dm_max: float = None) -> np.ndarray:
     result = np.zeros((3, height, width), dtype=np.float32)
     
@@ -207,7 +204,6 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
         return _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values)
 
 
-# This function performs Torch GPU dedispersion.
 def _d_dm_time_torch_gpu(
     data_np: np.ndarray,
     height: int,
@@ -279,7 +275,6 @@ def _d_dm_time_torch_gpu(
     result = torch.stack([out0, out1, out2], dim=0).detach().cpu().numpy().astype(np.float32)
     return result
 
-# This function dedisperses patch.
 def dedisperse_patch(
     data: np.ndarray,
     freq_down: np.ndarray,
@@ -316,7 +311,6 @@ def dedisperse_patch(
         patch[:, idx] = segment[delays[idx] : delays[idx] + patch_len, idx]
     return patch, start
 
-# This function dedisperses block.
 def dedisperse_block(
     data: np.ndarray,
     freq_down: np.ndarray,

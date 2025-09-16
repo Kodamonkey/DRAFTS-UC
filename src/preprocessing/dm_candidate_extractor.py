@@ -7,7 +7,6 @@ from __future__ import annotations
 from ..config import config
 
 
-# This function extracts candidate DM.
 def extract_candidate_dm(px: float, py: float, slice_len: int) -> tuple[float, float, int]:
     dm_range = config.DM_max - config.DM_min + 1
     scale_dm = dm_range / 512.0

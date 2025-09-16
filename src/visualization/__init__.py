@@ -1,3 +1,5 @@
+# This module aggregates visualization entry points.
+
 """Visualization module for FRB pipeline."""
 
 from . import plot_composite

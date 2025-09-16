@@ -1,24 +1,27 @@
+# This module creates patch-level diagnostic plots.
+
 """Patches plot generation module for FRB pipeline - identical to the right panel in composite plot."""
 from __future__ import annotations
 
-# Standard library imports
+                          
 import logging
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
-# Third-party imports
+                     
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import gridspec
 
-# Local imports
+               
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..config import config
 
-# Setup logger
+              
 logger = logging.getLogger(__name__)
 
 
+# This function gets band frequency range.
 def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
     """Get the frequency range (min, max) for a specific band."""
     freq_ds = np.mean(
@@ -26,12 +29,12 @@ def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
         axis=1,
     )
     
-    if band_idx == 0:  # Full Band
+    if band_idx == 0:             
         return freq_ds.min(), freq_ds.max()
-    elif band_idx == 1:  # Low Band 
+    elif band_idx == 1:             
         mid_channel = len(freq_ds) // 2
         return freq_ds.min(), freq_ds[mid_channel]
-    elif band_idx == 2:  # High Band
+    elif band_idx == 2:             
         mid_channel = len(freq_ds) // 2  
         return freq_ds[mid_channel], freq_ds.max()
     else:
@@ -39,12 +42,14 @@ def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
         return freq_ds.min(), freq_ds.max()
 
 
+# This function gets band name with frequency range.
 def get_band_name_with_freq_range(band_idx: int, band_name: str) -> str:
     """Get band name with frequency range information."""
     freq_min, freq_max = get_band_frequency_range(band_idx)
     return f"{band_name} ({freq_min:.0f}-{freq_max:.0f} MHz)"
 
 
+# This function creates patches plot.
 def create_patches_plot(
     patch_img: np.ndarray,
     patch_start: float,
@@ -64,7 +69,7 @@ def create_patches_plot(
 ) -> plt.Figure:
     """Create patches plot identical to the right panel in composite plot."""
     
-    # Get band frequency range for display
+                                          
     band_name_with_freq = get_band_name_with_freq_range(band_idx, band_name)
     
     freq_ds = np.mean(
@@ -76,7 +81,7 @@ def create_patches_plot(
     )
     time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
 
-    # Check if patch_img is valid
+                                 
     if patch_img is not None and patch_img.size > 0:
         patch_data = patch_img.copy()
     else:
@@ -91,7 +96,7 @@ def create_patches_plot(
             patch_data -= patch_data.min()
             patch_data /= patch_data.max() - patch_data.min()
 
-    # Calculate absolute time ranges - IDÉNTICO al composite
+                                                            
     if absolute_start_time is not None:
         slice_start_abs = absolute_start_time
     else:
@@ -100,11 +105,11 @@ def create_patches_plot(
     real_samples = slice_samples if slice_samples is not None else slice_len
     slice_end_abs = slice_start_abs + real_samples * config.TIME_RESO * config.DOWN_TIME_RATE
 
-    # Create figure and gridspec - IDÉNTICO al composite
+                                                        
     fig = plt.figure(figsize=(8, 10))
     gs_patch_nested = gridspec.GridSpec(2, 1, height_ratios=[1, 4], hspace=0.05)
     
-    # Panel 1: SNR Profile - IDÉNTICO al composite
+                                                  
     ax_patch_prof = fig.add_subplot(gs_patch_nested[0, 0])
     
     if patch_data is not None and patch_data.size > 0:
@@ -143,7 +148,7 @@ def create_patches_plot(
         ax_patch_prof.set_xticks([])
         ax_patch_prof.set_title("No Candidate Patch", fontsize=9, fontweight="bold")
 
-    # Candidate patch image - IDÉNTICO al composite
+                                                   
     ax_patch = fig.add_subplot(gs_patch_nested[1, 0])
     
     if patch_data is not None and patch_data.size > 0:
@@ -184,7 +189,7 @@ def create_patches_plot(
         ax_patch.set_xlabel("Time (s)", fontsize=9)
         ax_patch.set_ylabel("Frequency (MHz)", fontsize=9)
 
-    # Set main title - IDÉNTICO al composite
+                                            
     idx_start_ds = int(round(slice_start_abs / (config.TIME_RESO * config.DOWN_TIME_RATE)))
     idx_end_ds = idx_start_ds + real_samples - 1
     start_center = slice_start_abs
@@ -205,7 +210,7 @@ def create_patches_plot(
 
     fig.suptitle(title, fontsize=14, fontweight="bold", y=0.97)
     
-    # Add temporal information - IDÉNTICO al composite
+                                                      
     try:
         dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
         global_start_sample = int(round(slice_start_abs / dt_ds))
@@ -231,6 +236,7 @@ def create_patches_plot(
     return fig
 
 
+# This function saves patches plot.
 def save_patches_plot(
     patch_img: np.ndarray,
     patch_start: float,
@@ -251,7 +257,7 @@ def save_patches_plot(
 ) -> None:
     """Save patches plot by creating the figure and saving it to file."""
     
-    # Create the patches figure
+                               
     fig = create_patches_plot(
         patch_img=patch_img,
         patch_start=patch_start,
@@ -270,10 +276,10 @@ def save_patches_plot(
         slice_samples=slice_samples,
     )
     
-    # Ensure output directory exists
+                                    
     out_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Save the figure
+                     
     plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close(fig)
 

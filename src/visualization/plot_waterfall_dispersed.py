@@ -1,24 +1,27 @@
+# This module plots dispersed waterfall visualizations.
+
 """Waterfall dispersed plot generation module for FRB pipeline - identical to the left panel in composite plot."""
 from __future__ import annotations
 
-# Standard library imports
+                          
 import logging
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
-# Third-party imports
+                     
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import gridspec
 
-# Local imports
+               
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..config import config
 
-# Setup logger
+              
 logger = logging.getLogger(__name__)
 
 
+# This function calculates undispersed burst time.
 def calculate_undispersed_burst_time(
     observed_time: float, 
     dm: float, 
@@ -55,14 +58,14 @@ def calculate_undispersed_burst_time(
     float
         Tiempo de llegada no dispersado del burst (segundos)
     """
-    # Constante de dispersión en unidades cgs: k ≈ 4.15 × 10³ s·MHz²·pc⁻¹·cm³
-    # Convertir a unidades más convenientes: s·MHz²·pc⁻¹·cm³
+                                                                             
+                                                            
     k_dispersion = 4.15e3
     
-    # Calcular retraso de dispersión
+                                    
     delta_t = k_dispersion * dm * ((1.0 / (freq_low**2)) - (1.0 / (freq_high**2)))
     
-    # Tiempo no dispersado
+                          
     undispersed_time = observed_time - delta_t
     
     logger.debug(f"[CORRECCIÓN DISPERSIÓN] DM: {dm:.2f} pc cm⁻³")
@@ -74,6 +77,7 @@ def calculate_undispersed_burst_time(
     return undispersed_time
 
 
+# This function gets band frequency range.
 def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
     """Get the frequency range (min, max) for a specific band."""
     freq_ds = np.mean(
@@ -81,12 +85,12 @@ def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
         axis=1,
     )
     
-    if band_idx == 0:  # Full Band
+    if band_idx == 0:             
         return freq_ds.min(), freq_ds.max()
-    elif band_idx == 1:  # Low Band 
+    elif band_idx == 1:             
         mid_channel = len(freq_ds) // 2
         return freq_ds.min(), freq_ds[mid_channel]
-    elif band_idx == 2:  # High Band
+    elif band_idx == 2:             
         mid_channel = len(freq_ds) // 2  
         return freq_ds[mid_channel], freq_ds.max()
     else:
@@ -94,12 +98,14 @@ def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
         return freq_ds.min(), freq_ds.max()
 
 
+# This function gets band name with frequency range.
 def get_band_name_with_freq_range(band_idx: int, band_name: str) -> str:
     """Get band name with frequency range information."""
     freq_min, freq_max = get_band_frequency_range(band_idx)
     return f"{band_name} ({freq_min:.0f}-{freq_max:.0f} MHz)"
 
 
+# This function creates waterfall dispersed plot.
 def create_waterfall_dispersed_plot(
     waterfall_block: np.ndarray,
     slice_idx: int,
@@ -115,11 +121,11 @@ def create_waterfall_dispersed_plot(
     absolute_start_time: Optional[float] = None, 
     chunk_idx: Optional[int] = None,  
     slice_samples: Optional[int] = None,
-    dm_value: Optional[float] = None,  # Nuevo parámetro para DM
+    dm_value: Optional[float] = None,                           
 ) -> plt.Figure:
     """Create waterfall dispersed plot identical to the left panel in composite plot."""
     
-    # Get band frequency range for display
+                                          
     band_name_with_freq = get_band_name_with_freq_range(band_idx, band_name)
     
     freq_ds = np.mean(
@@ -131,7 +137,7 @@ def create_waterfall_dispersed_plot(
     )
     time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
 
-    # Check if waterfall_block is valid
+                                       
     if waterfall_block is not None and waterfall_block.size > 0:
         wf_block = waterfall_block.copy()
     else:
@@ -146,7 +152,7 @@ def create_waterfall_dispersed_plot(
             wf_block -= wf_block.min()
             wf_block /= wf_block.max() - wf_block.min()
 
-    # Calculate absolute time ranges - IDÉNTICO al composite
+                                                            
     if absolute_start_time is not None:
         slice_start_abs = absolute_start_time
     else:
@@ -155,27 +161,27 @@ def create_waterfall_dispersed_plot(
     real_samples = slice_samples if slice_samples is not None else slice_len
     slice_end_abs = slice_start_abs + real_samples * config.TIME_RESO * config.DOWN_TIME_RATE
 
-    # CORRECCIÓN PARA MOSTRAR LA PARÁBOLA NATURAL DEL BURST
-    # Si tenemos un valor de DM, calculamos el tiempo no dispersado del burst
+                                                           
+                                                                             
     burst_start_time_corrected = slice_start_abs
     if dm_value is not None and dm_value > 0:
         freq_min, freq_max = get_band_frequency_range(band_idx)
-        # Calcular el tiempo no dispersado del burst
+                                                    
         burst_start_time_corrected = calculate_undispersed_burst_time(
             observed_time=slice_start_abs,
             dm=dm_value,
             freq_low=freq_min,
             freq_high=freq_max
         )
-        logger.info(f"🎯 [CORRECCIÓN BURST] Tiempo original del burst: {burst_start_time_corrected:.6f}s")
-        logger.info(f"🎯 [CORRECCIÓN BURST] Tiempo observado: {slice_start_abs:.6f}s")
-        logger.info(f"🎯 [CORRECCIÓN BURST] Corrección aplicada para mostrar parábola natural")
+        logger.info(f"[INFO] [CORRECCIÓN BURST] Tiempo original del burst: {burst_start_time_corrected:.6f}s")
+        logger.info(f"[INFO] [CORRECCIÓN BURST] Tiempo observado: {slice_start_abs:.6f}s")
+        logger.info(f"[INFO] [CORRECCIÓN BURST] Corrección aplicada para mostrar parábola natural")
 
-    # Create figure and gridspec - IDÉNTICO al composite
+                                                        
     fig = plt.figure(figsize=(8, 10))
     gs_waterfall_nested = gridspec.GridSpec(2, 1, height_ratios=[1, 4], hspace=0.05)
     
-    # Panel 1: SNR Profile - IDÉNTICO al composite
+                                                  
     ax_prof_wf = fig.add_subplot(gs_waterfall_nested[0, 0])
     
     if wf_block is not None and wf_block.size > 0:
@@ -183,7 +189,7 @@ def create_waterfall_dispersed_plot(
         peak_snr_wf, peak_time_wf, peak_idx_wf = find_snr_peak(snr_wf)
         width_ms_wf = float(best_w[int(peak_idx_wf)]) * time_reso_ds * 1000.0 if len(best_w) == len(snr_wf) else None
         
-        # Usar el tiempo corregido para el eje temporal
+                                                       
         time_axis_wf = np.linspace(burst_start_time_corrected, 
                                   burst_start_time_corrected + real_samples * time_reso_ds, 
                                   len(snr_wf))
@@ -233,15 +239,22 @@ def create_waterfall_dispersed_plot(
         ax_prof_wf.set_xticks([])
         ax_prof_wf.set_title("No Raw Waterfall Data", fontsize=9, fontweight="bold")
 
-    # Raw waterfall image - IDÉNTICO al composite
+                                                 
     ax_wf = fig.add_subplot(gs_waterfall_nested[1, 0])
     
     if wf_block is not None and wf_block.size > 0:
-        # Usar el tiempo corregido para el extent del waterfall
+                                                               
         waterfall_end_time = burst_start_time_corrected + real_samples * time_reso_ds
         
+                                                               
+        if config.DEBUG_FREQUENCY_ORDER:
+            print(f"[DEBUG PLOT] wf_block shape: {wf_block.shape}")
+            print(f"[DEBUG PLOT] freq_ds range: {freq_ds.min():.2f} - {freq_ds.max():.2f} MHz")
+            print(f"[DEBUG PLOT] freq_ds[0]: {freq_ds[0]:.2f} MHz (debería ser la más baja)")
+            print(f"[DEBUG PLOT] freq_ds[-1]: {freq_ds[-1]:.2f} MHz (debería ser la más alta)")
+        
         im_wf = ax_wf.imshow(
-            wf_block.T,
+            wf_block.T,                                                  
             origin="lower",
             cmap="mako",
             aspect="auto",
@@ -267,7 +280,7 @@ def create_waterfall_dispersed_plot(
             ax_wf.axvline(x=time_axis_wf[peak_idx_wf], color=config.SNR_HIGHLIGHT_COLOR, 
                          linestyle='-', alpha=0.8, linewidth=2)
         
-        # Agregar información sobre la corrección de dispersión si se aplicó
+                                                                            
         if dm_value is not None and dm_value > 0:
             correction_info = f"DM={dm_value:.1f} pc cm⁻³ | Tiempo corregido para parábola natural"
             ax_wf.text(0.02, 0.98, correction_info, transform=ax_wf.transAxes, 
@@ -283,13 +296,13 @@ def create_waterfall_dispersed_plot(
         ax_wf.set_xlabel("Time (s)", fontsize=9)
         ax_wf.set_ylabel("Frequency (MHz)", fontsize=9)
 
-    # Set main title - IDÉNTICO al composite
+                                            
     idx_start_ds = int(round(slice_start_abs / (config.TIME_RESO * config.DOWN_TIME_RATE)))
     idx_end_ds = idx_start_ds + real_samples - 1
     start_center = slice_start_abs
     end_center = slice_end_abs
     
-    # Agregar información sobre la corrección en el título
+                                                          
     correction_suffix = ""
     if dm_value is not None and dm_value > 0:
         correction_suffix = f" | DM={dm_value:.1f} pc cm⁻³ (parábola natural)"
@@ -309,7 +322,7 @@ def create_waterfall_dispersed_plot(
 
     fig.suptitle(title, fontsize=14, fontweight="bold", y=0.97)
     
-    # Add temporal information - IDÉNTICO al composite
+                                                      
     try:
         dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
         global_start_sample = int(round(slice_start_abs / dt_ds))
@@ -321,7 +334,7 @@ def create_waterfall_dispersed_plot(
             f"Time span (centers): {start_center:.6f}s → {end_center:.6f}s (Δ={(real_samples - 1) * dt_ds:.6f}s)",
         ]
         
-        # Agregar información sobre la corrección de dispersión
+                                                               
         if dm_value is not None and dm_value > 0:
             info_lines.append(f"Burst start (corregido): {burst_start_time_corrected:.6f}s")
             info_lines.append(f"Corrección DM: {dm_value:.1f} pc cm⁻³ → parábola natural visible")
@@ -341,6 +354,7 @@ def create_waterfall_dispersed_plot(
     return fig
 
 
+# This function saves waterfall dispersed plot.
 def save_waterfall_dispersed_plot(
     waterfall_block: np.ndarray,
     out_path: Path,
@@ -357,11 +371,11 @@ def save_waterfall_dispersed_plot(
     absolute_start_time: Optional[float] = None, 
     chunk_idx: Optional[int] = None,  
     slice_samples: Optional[int] = None,
-    dm_value: Optional[float] = None,  # Nuevo parámetro para DM
+    dm_value: Optional[float] = None,                           
 ) -> None:
     """Save waterfall dispersed plot by creating the figure and saving it to file."""
     
-    # Create the waterfall dispersed figure
+                                           
     fig = create_waterfall_dispersed_plot(
         waterfall_block=waterfall_block,
         slice_idx=slice_idx,
@@ -377,13 +391,13 @@ def save_waterfall_dispersed_plot(
         absolute_start_time=absolute_start_time,
         chunk_idx=chunk_idx,
         slice_samples=slice_samples,
-        dm_value=dm_value,  # Pasar el valor de DM
+        dm_value=dm_value,                        
     )
     
-    # Ensure output directory exists
+                                    
     out_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Save the figure
+                     
     plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close(fig)
 

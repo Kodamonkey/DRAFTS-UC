@@ -1,3 +1,5 @@
+# This module manages chunk-level data flow operations.
+
 """Gestor del flujo de datos: chunks, slices y planificación del procesamiento."""
 from __future__ import annotations
 
@@ -19,10 +21,11 @@ from .pipeline_parameters import (
     calculate_width_total,
 )
 
-# Setup logger
+              
 logger = logging.getLogger(__name__)
 
 
+# This function downsamples chunk.
 def downsample_chunk(block: np.ndarray) -> tuple[np.ndarray, float]:
     """Aplica downsampling temporal (suma) y frecuencial (promedio) al chunk completo.
 
@@ -40,6 +43,7 @@ def downsample_chunk(block: np.ndarray) -> tuple[np.ndarray, float]:
     return block_ds, dt_ds
 
 
+# This function builds DM time cube.
 def build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max: float) -> np.ndarray:
     """Construye el cubo DM–tiempo para el bloque decimado completo.
     
@@ -57,6 +61,7 @@ def build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max:
     return d_dm_time_g(block_ds, height=height, width=width, dm_min=dm_min, dm_max=dm_max)
 
 
+# This function trims valid window.
 def trim_valid_window(
     block_ds: np.ndarray, 
     dm_time_full: np.ndarray, 
@@ -75,7 +80,7 @@ def trim_valid_window(
         tuple[np.ndarray, np.ndarray, int, int]: (block_valid, dm_time, valid_start_ds, valid_end_ds)
     """
     valid_start_ds = max(0, overlap_left_ds)
-    # Conservar el lado derecho completo para continuidad
+                                                         
     valid_end_ds = block_ds.shape[0]
     if valid_end_ds <= valid_start_ds:
         valid_start_ds, valid_end_ds = 0, block_ds.shape[0]
@@ -85,6 +90,7 @@ def trim_valid_window(
     return block_valid, dm_time, valid_start_ds, valid_end_ds
 
 
+# This function plans slices.
 def plan_slices(block_valid: np.ndarray, slice_len: int, chunk_idx: int) -> list[tuple[int, int, int]]:
     """Genera (j, start_idx, end_idx) por slice para el bloque válido.
     
@@ -119,6 +125,7 @@ def plan_slices(block_valid: np.ndarray, slice_len: int, chunk_idx: int) -> list
 
 
 
+# This function validates slice indices.
 def validate_slice_indices(
     start_idx: int, 
     end_idx: int, 
@@ -140,15 +147,15 @@ def validate_slice_indices(
     Returns:
         tuple[bool, int, int, str]: (es_valido, start_idx_ajustado, end_idx_ajustado, razon)
     """
-    # Verificar que no excedemos los límites del bloque
+                                                       
     if start_idx >= block_shape:
         return False, start_idx, end_idx, "Slice fuera de límites - no hay datos que procesar"
     
     if end_idx > block_shape:
-        # Ajustar el índice de fin al tamaño del bloque
+                                                       
         end_idx_ajustado = block_shape
         
-        # Si el slice es muy pequeño después del ajuste, saltarlo
+                                                                 
         if end_idx_ajustado - start_idx < slice_len // 2:
             return False, start_idx, end_idx_ajustado, "Slice demasiado pequeño para procesamiento efectivo"
         
@@ -157,6 +164,7 @@ def validate_slice_indices(
     return True, start_idx, end_idx, "Slice válido"
 
 
+# This function creates chunk directories.
 def create_chunk_directories(
     save_dir: Path, 
     fits_path: Path, 
@@ -182,6 +190,7 @@ def create_chunk_directories(
     return composite_dir, detections_dir, patches_dir
 
 
+# This function gets chunk processing parameters.
 def get_chunk_processing_parameters(metadata: dict) -> dict:
     """Obtiene todos los parámetros necesarios para procesar un chunk.
     
@@ -191,14 +200,15 @@ def get_chunk_processing_parameters(metadata: dict) -> dict:
     Returns:
         dict: Parámetros del chunk
     """
-    # Calcular parámetros básicos
+                                 
+    chunk_samples = int(metadata.get("actual_chunk_size", config.FILE_LENG))
     freq_down = calculate_frequency_downsampled()
     height = calculate_dm_height()
-    width_total = calculate_width_total()
+    width_total = calculate_width_total(chunk_samples)
     slice_len, real_duration_ms = calculate_slice_parameters()
     time_slice = calculate_time_slice(width_total, slice_len)
     
-    # Calcular solapamiento decimado
+                                    
     _ol_raw = int(metadata.get("overlap_left", 0))
     _or_raw = int(metadata.get("overlap_right", 0))
     overlap_left_ds, overlap_right_ds = calculate_overlap_decimated(_ol_raw, _or_raw)

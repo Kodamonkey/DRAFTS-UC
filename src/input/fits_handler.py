@@ -8,6 +8,7 @@ from typing import Generator, Tuple, Dict
 
 import numpy as np
 from astropy.io import fits
+import logging
 
                               
 try:
@@ -30,6 +31,9 @@ from ..logging import (
     log_stream_fits_summary
 )
 from .utils import safe_float, safe_int, auto_config_downsampling, print_debug_frequencies, save_file_debug_info
+
+
+logger = logging.getLogger(__name__)
 
 
 def _unpack_1bit(data: np.ndarray) -> np.ndarray:
@@ -197,10 +201,12 @@ def load_fits_file(file_name: str) -> np.ndarray:
                     tbl = subint.data
                 except (TypeError, ValueError, OSError) as e:
                     if "buffer is too small" in str(e) or "truncated" in str(e).lower():
-                        print(f"[WARN] Archivo truncado detectado: {file_name}")
-                        print(f"[WARN] Error: {e}")
-                        print(f"[WARN] Saltando archivo truncado")
-                        raise ValueError(f"Archivo FITS truncado: {file_name}") from e
+                        logger.warning(
+                            "Truncated FITS file detected (%s): %s. Skipping.",
+                            file_name,
+                            e,
+                        )
+                        raise ValueError(f"Truncated FITS file: {file_name}") from e
                     else:
                         raise
                 nsubint = safe_int(hdr.get("NAXIS2", 0))
@@ -359,7 +365,7 @@ def load_fits_file(file_name: str) -> np.ndarray:
         else:
             raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → {str(e)}\n  → El archivo no puede ser leído correctamente\n  → Recomendación: Verificar que el archivo no esté dañado") from e
     except Exception as e:
-        print(f"[Error cargando FITS con fitsio/astropy] {e}")
+        logger.error("Error loading FITS with fitsio/astropy: %s", e)
         try:
                                                          
             with fits.open(file_name, memmap=False) as f:
@@ -419,31 +425,31 @@ def load_fits_file(file_name: str) -> np.ndarray:
                     else:
                         raise ValueError("No hay datos válidos en el HDU\n  → El archivo FITS no contiene datos procesables\n  → Verificar que el archivo no esté vacío o corrupto")
                 except (TypeError, ValueError) as e_data:
-                    print(f"Error accediendo a datos del HDU: {e_data}")
+                    logger.debug(f"Error accediendo a datos del HDU: {e_data}")
                     raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → Error al acceder a los datos del archivo: {e_data}\n  → El archivo puede estar dañado o tener un formato no reconocido")
         except Exception as e_astropy:
-            print(f"Fallo final al cargar con astropy: {e_astropy}")
+            logger.debug(f"Fallo final al cargar con astropy: {e_astropy}")
             raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → Fallo en el método de respaldo con astropy: {e_astropy}\n  → El archivo no puede ser leído por ningún método disponible\n  → Recomendación: Verificar la integridad del archivo o usar un archivo diferente") from e_astropy
             
     if data_array is None:
         raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → No se pudieron cargar datos válidos del archivo\n  → El archivo puede estar vacío, corrupto o tener un formato no compatible\n  → Recomendación: Verificar la integridad del archivo o usar un archivo diferente")
 
     if global_vars.DATA_NEEDS_REVERSAL:
-        print(f">> Invirtiendo eje de frecuencia de los datos cargados para {file_name}")
+        logger.debug(f">> Invirtiendo eje de frecuencia de los datos cargados para {file_name}")
         data_array = np.ascontiguousarray(data_array[:, :, ::-1])
     
                                               
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"[DEBUG DATOS CARGADOS] Archivo: {file_name}")
-        print(f"[DEBUG DATOS CARGADOS] Shape de datos: {data_array.shape}")
-        print(f"[DEBUG DATOS CARGADOS] Dimensiones: (tiempo={data_array.shape[0]}, pol={data_array.shape[1]}, freq={data_array.shape[2]})")
-        print(f"[DEBUG DATOS CARGADOS] Tipo de datos: {data_array.dtype}")
-        print(f"[DEBUG DATOS CARGADOS] Tamaño en memoria: {data_array.nbytes / (1024**3):.2f} GB")
-        print(f"[DEBUG DATOS CARGADOS] Reversión aplicada: {global_vars.DATA_NEEDS_REVERSAL}")
-        print(f"[DEBUG DATOS CARGADOS] Rango de valores: [{data_array.min():.3f}, {data_array.max():.3f}]")
-        print(f"[DEBUG DATOS CARGADOS] Valor medio: {data_array.mean():.3f}")
-        print(f"[DEBUG DATOS CARGADOS] Desviación estándar: {data_array.std():.3f}")
-        print("[DEBUG DATOS CARGADOS] " + "="*50)
+        logger.debug(f" DATOS CARGADOS] Archivo: {file_name}")
+        logger.debug(f" DATOS CARGADOS] Shape de datos: {data_array.shape}")
+        logger.debug(f" DATOS CARGADOS] Dimensiones: (tiempo={data_array.shape[0]}, pol={data_array.shape[1]}, freq={data_array.shape[2]})")
+        logger.debug(f" DATOS CARGADOS] Tipo de datos: {data_array.dtype}")
+        logger.debug(f" DATOS CARGADOS] Tamaño en memoria: {data_array.nbytes / (1024**3):.2f} GB")
+        logger.debug(f" DATOS CARGADOS] Reversión aplicada: {global_vars.DATA_NEEDS_REVERSAL}")
+        logger.debug(f" DATOS CARGADOS] Rango de valores: [{data_array.min():.3f}, {data_array.max():.3f}]")
+        logger.debug(f" DATOS CARGADOS] Valor medio: {data_array.mean():.3f}")
+        logger.debug(f" DATOS CARGADOS] Desviación estándar: {data_array.std():.3f}")
+        logger.debug(" DATOS CARGADOS] " + "="*50)
     
     return data_array
 
@@ -453,15 +459,15 @@ def get_obparams(file_name: str) -> None:
     
                                                
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"[DEBUG HEADER] Iniciando extracción de parámetros de: {file_name}")
-        print(f"[DEBUG HEADER] " + "="*60)
+        logger.debug(f" HEADER] Iniciando extracción de parámetros de: {file_name}")
+        logger.debug(f" HEADER] " + "="*60)
     
     with fits.open(file_name, memmap=True) as f:
         freq_axis_inverted = False
         
                                             
         if config.DEBUG_FREQUENCY_ORDER:
-            print(f"[DEBUG HEADER] Estructura del archivo FITS:")
+            logger.debug(f" HEADER] Estructura del archivo FITS:")
             for i, hdu in enumerate(f):
                 hdu_type = type(hdu).__name__
                 if hasattr(hdu, 'header') and hdu.header:
@@ -469,16 +475,16 @@ def get_obparams(file_name: str) -> None:
                         ext_name = hdu.header['EXTNAME']
                     else:
                         ext_name = 'PRIMARY' if i == 0 else f'HDU_{i}'
-                    print(f"[DEBUG HEADER]   HDU {i}: {hdu_type} - {ext_name}")
+                    logger.debug(f" HEADER]   HDU {i}: {hdu_type} - {ext_name}")
                     if hasattr(hdu, 'columns') and hdu.columns:
-                        print(f"[DEBUG HEADER]     Columnas: {[col.name for col in hdu.columns]}")
+                        logger.debug(f" HEADER]     Columnas: {[col.name for col in hdu.columns]}")
                 else:
-                    print(f"[DEBUG HEADER]   HDU {i}: {hdu_type} - Sin header")
+                    logger.debug(f" HEADER]   HDU {i}: {hdu_type} - Sin header")
         
         if "SUBINT" in [hdu.name for hdu in f] and "TBIN" in f["SUBINT"].header:
                                                
             if config.DEBUG_FREQUENCY_ORDER:
-                print(f"[DEBUG HEADER] Formato detectado: PSRFITS (SUBINT)")
+                logger.debug(f" HEADER] Formato detectado: PSRFITS (SUBINT)")
             
             hdr = f["SUBINT"].header
             primary = f["PRIMARY"].header if "PRIMARY" in [h.name for h in f] else {}
@@ -487,10 +493,12 @@ def get_obparams(file_name: str) -> None:
                 sub_data = f["SUBINT"].data
             except (TypeError, ValueError, OSError) as e:
                 if "buffer is too small" in str(e) or "truncated" in str(e).lower():
-                    print(f"[WARN] Archivo truncado detectado en get_obparams: {file_name}")
-                    print(f"[WARN] Error: {e}")
-                    print(f"[WARN] Saltando archivo truncado")
-                    raise ValueError(f"Archivo FITS truncado: {file_name}") from e
+                    logger.warning(
+                        "Truncated FITS file detected in get_obparams (%s): %s. Skipping.",
+                        file_name,
+                        e,
+                    )
+                    raise ValueError(f"Truncated FITS file: {file_name}") from e
                 else:
                     raise
                                                                                    
@@ -561,26 +569,26 @@ def get_obparams(file_name: str) -> None:
                 freq_temp = sub_data["DAT_FREQ"][0].astype(np.float64)
             except Exception as e:
                 if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"[DEBUG HEADER] Error convirtiendo DAT_FREQ: {e}")
-                    print("[DEBUG HEADER] Usando rango de frecuencias por defecto")
+                    logger.debug(f" HEADER] Error convirtiendo DAT_FREQ: {e}")
+                    logger.debug(" HEADER] Usando rango de frecuencias por defecto")
                 nchan = safe_int(hdr.get("NCHAN", 512), 512)
                 freq_temp = np.linspace(1000, 1500, nchan)
             
                                                 
             if config.DEBUG_FREQUENCY_ORDER:
-                print(f"[DEBUG HEADER] Headers PSRFITS extraídos:")
-                print(
+                logger.debug(f" HEADER] Headers PSRFITS extraídos:")
+                logger.debug(
                     f"[DEBUG HEADER]   TBIN (resolución temporal): {safe_float(hdr.get('TBIN')):.2e} s"
                 )
-                print(f"[DEBUG HEADER]   NCHAN (canales): {hdr['NCHAN']}")
-                print(f"[DEBUG HEADER]   NSBLK (muestras por subint): {hdr['NSBLK']}")
-                print(f"[DEBUG HEADER]   NAXIS2 (número de subints): {hdr['NAXIS2']}")
-                print(f"[DEBUG HEADER]   NPOL (polarizaciones): {hdr.get('NPOL', 'N/A')}")
-                print(f"[DEBUG HEADER]   Total de muestras: {config.FILE_LENG}")
+                logger.debug(f" HEADER]   NCHAN (canales): {hdr['NCHAN']}")
+                logger.debug(f" HEADER]   NSBLK (muestras por subint): {hdr['NSBLK']}")
+                logger.debug(f" HEADER]   NAXIS2 (número de subints): {hdr['NAXIS2']}")
+                logger.debug(f" HEADER]   NPOL (polarizaciones): {hdr.get('NPOL', 'N/A')}")
+                logger.debug(f" HEADER]   Total de muestras: {config.FILE_LENG}")
                 if 'OBS_MODE' in hdr:
-                    print(f"[DEBUG HEADER]   Modo de observación: {hdr['OBS_MODE']}")
+                    logger.debug(f" HEADER]   Modo de observación: {hdr['OBS_MODE']}")
                 if 'SRC_NAME' in hdr:
-                    print(f"[DEBUG HEADER]   Fuente: {hdr['SRC_NAME']}")
+                    logger.debug(f" HEADER]   Fuente: {hdr['SRC_NAME']}")
             
                                                                                           
             if len(freq_temp) > 1:
@@ -588,17 +596,17 @@ def get_obparams(file_name: str) -> None:
                 if df < 0:
                     freq_axis_inverted = True
                     if config.DEBUG_FREQUENCY_ORDER:
-                        print(f"[DEBUG HEADER] DAT_FREQ descendente → invertir banda (estilo PRESTO)")
+                        logger.debug(f" HEADER] DAT_FREQ descendente → invertir banda (estilo PRESTO)")
                 else:
                                                                                                                     
                                                                          
                     freq_axis_inverted = True
                     if config.DEBUG_FREQUENCY_ORDER:
-                        print(f"[DEBUG HEADER] DAT_FREQ ascendente → invertir banda (estilo radioastronomía)")
+                        logger.debug(f" HEADER] DAT_FREQ ascendente → invertir banda (estilo radioastronomía)")
         else:
                                                      
             if config.DEBUG_FREQUENCY_ORDER:
-                print(f"[DEBUG HEADER] Formato detectado: FITS estándar (no PSRFITS)")
+                logger.debug(f" HEADER] Formato detectado: FITS estándar (no PSRFITS)")
             
             try:
                 data_hdu_index = 0
@@ -619,31 +627,31 @@ def get_obparams(file_name: str) -> None:
                 
                                          
                 if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"[DEBUG HEADER] HDU seleccionado para datos: {data_hdu_index}")
+                    logger.debug(f" HEADER] HDU seleccionado para datos: {data_hdu_index}")
                 
                 hdr = f[data_hdu_index].header
                 
                                               
                 if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"[DEBUG HEADER] Headers FITS estándar del HDU {data_hdu_index}:")
+                    logger.debug(f" HEADER] Headers FITS estándar del HDU {data_hdu_index}:")
                     relevant_keys = ['TBIN', 'NCHAN', 'NAXIS2', 'NSBLK', 'NPOL', 'CRVAL1', 'CRVAL2', 'CRVAL3', 
                                    'CDELT1', 'CDELT2', 'CDELT3', 'CTYPE1', 'CTYPE2', 'CTYPE3']
                     for key in relevant_keys:
                         if key in hdr:
-                            print(f"[DEBUG HEADER]   {key}: {hdr[key]}")
+                            logger.debug(f" HEADER]   {key}: {hdr[key]}")
                 
                 if "DAT_FREQ" in f[data_hdu_index].columns.names:
                     try:
                         freq_temp = f[data_hdu_index].data["DAT_FREQ"][0].astype(np.float64)
                     except Exception as e:
                         if config.DEBUG_FREQUENCY_ORDER:
-                            print(f"[DEBUG HEADER] Error convirtiendo DAT_FREQ: {e}")
-                            print("[DEBUG HEADER] Usando rango de frecuencias por defecto")
+                            logger.debug(f" HEADER] Error convirtiendo DAT_FREQ: {e}")
+                            logger.debug(" HEADER] Usando rango de frecuencias por defecto")
                         nchan = safe_int(hdr.get("NCHAN", 512), 512)
                         freq_temp = np.linspace(1000, 1500, nchan)
                     else:
                         if config.DEBUG_FREQUENCY_ORDER:
-                            print(f"[DEBUG HEADER] Frecuencias extraídas de columna DAT_FREQ")
+                            logger.debug(f" HEADER] Frecuencias extraídas de columna DAT_FREQ")
                 else:
                     freq_axis_num = ''
                     for i in range(1, hdr.get('NAXIS', 0) + 1):
@@ -652,8 +660,8 @@ def get_obparams(file_name: str) -> None:
                             break
                     
                     if config.DEBUG_FREQUENCY_ORDER:
-                        print(f"[DEBUG HEADER] Buscando eje de frecuencias en headers WCS...")
-                        print(f"[DEBUG HEADER] Eje de frecuencias detectado: CTYPE{freq_axis_num}" if freq_axis_num else "[DEBUG HEADER] No se encontró eje de frecuencias")
+                        logger.debug(f" HEADER] Buscando eje de frecuencias en headers WCS...")
+                        logger.debug(f" HEADER] Eje de frecuencias detectado: CTYPE{freq_axis_num}" if freq_axis_num else "[DEBUG HEADER] No se encontró eje de frecuencias")
                     
                     if freq_axis_num:
                         crval = hdr.get(f'CRVAL{freq_axis_num}', 0)
@@ -673,24 +681,24 @@ def get_obparams(file_name: str) -> None:
                         freq_temp = crval + (np.arange(naxis) - (crpix - 1)) * cdelt
                         
                         if config.DEBUG_FREQUENCY_ORDER:
-                            print(f"[DEBUG HEADER] Parámetros WCS frecuencia:")
-                            print(f"[DEBUG HEADER]   CRVAL{freq_axis_num}: {crval} (valor de referencia)")
-                            print(f"[DEBUG HEADER]   CDELT{freq_axis_num}: {cdelt} (incremento por canal)")
-                            print(f"[DEBUG HEADER]   CRPIX{freq_axis_num}: {crpix} (pixel de referencia)")
-                            print(f"[DEBUG HEADER]   NAXIS{freq_axis_num}: {naxis} (número de canales)")
+                            logger.debug(f" HEADER] Parámetros WCS frecuencia:")
+                            logger.debug(f" HEADER]   CRVAL{freq_axis_num}: {crval} (valor de referencia)")
+                            logger.debug(f" HEADER]   CDELT{freq_axis_num}: {cdelt} (incremento por canal)")
+                            logger.debug(f" HEADER]   CRPIX{freq_axis_num}: {crpix} (pixel de referencia)")
+                            logger.debug(f" HEADER]   NAXIS{freq_axis_num}: {naxis} (número de canales)")
                         
                         if cdelt < 0:
                             freq_axis_inverted = True
                             if config.DEBUG_FREQUENCY_ORDER:
-                                print(f"[DEBUG HEADER]   [WARNING] CDELT negativo - frecuencias invertidas!")
+                                logger.debug(f" HEADER]   [WARNING] CDELT negativo - frecuencias invertidas!")
                         else:
                                                                                                                             
                             freq_axis_inverted = True
                             if config.DEBUG_FREQUENCY_ORDER:
-                                print(f"[DEBUG HEADER]   [WARNING] CDELT positivo - invirtiendo para estándar radioastronomía!")
+                                logger.debug(f" HEADER]   [WARNING] CDELT positivo - invirtiendo para estándar radioastronomía!")
                     else:
                         if config.DEBUG_FREQUENCY_ORDER:
-                            print(f"[DEBUG HEADER] [WARNING] Usando frecuencias por defecto: 1000-1500 MHz")
+                            logger.debug(f" HEADER] [WARNING] Usando frecuencias por defecto: 1000-1500 MHz")
                         freq_temp = np.linspace(1000, 1500, hdr.get('NCHAN', 512))
                 
                                                                                 
@@ -700,16 +708,16 @@ def get_obparams(file_name: str) -> None:
                 
                                                      
                 if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"[DEBUG HEADER] Parámetros finales FITS estándar:")
-                    print(f"[DEBUG HEADER]   TIME_RESO: {config.TIME_RESO:.2e} s")
-                    print(f"[DEBUG HEADER]   FREQ_RESO: {config.FREQ_RESO}")
-                    print(f"[DEBUG HEADER]   FILE_LENG: {config.FILE_LENG}")
+                    logger.debug(f" HEADER] Parámetros finales FITS estándar:")
+                    logger.debug(f" HEADER]   TIME_RESO: {config.TIME_RESO:.2e} s")
+                    logger.debug(f" HEADER]   FREQ_RESO: {config.FREQ_RESO}")
+                    logger.debug(f" HEADER]   FILE_LENG: {config.FILE_LENG}")
                     
             except Exception as e_std:
                 if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"[DEBUG HEADER] [WARNING] Error procesando FITS estándar: {e_std}")
-                    print(f"[DEBUG HEADER] Usando valores por defecto...")
-                print(f"Error procesando FITS estándar: {e_std}")
+                    logger.debug(f" HEADER] [WARNING] Error procesando FITS estándar: {e_std}")
+                    logger.debug(f" HEADER] Usando valores por defecto...")
+                logger.debug(f"Error procesando FITS estándar: {e_std}")
                 config.TIME_RESO = 5.12e-5
                 config.FREQ_RESO = 512
                 config.FILE_LENG = 100000
@@ -736,68 +744,68 @@ def get_obparams(file_name: str) -> None:
 
                                              
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"[DEBUG ARCHIVO] Información completa del archivo: {file_name}")
-        print(f"[DEBUG ARCHIVO] " + "="*60)
-        print(f"[DEBUG ARCHIVO] DIMENSIONES Y RESOLUCIÓN:")
-        print(f"[DEBUG ARCHIVO]   - Resolución temporal: {config.TIME_RESO:.2e} segundos/muestra")
-        print(f"[DEBUG ARCHIVO]   - Resolución de frecuencia: {config.FREQ_RESO} canales")
-        print(f"[DEBUG ARCHIVO]   - Longitud del archivo: {config.FILE_LENG:,} muestras")
+        logger.debug(f" ARCHIVO] Información completa del archivo: {file_name}")
+        logger.debug(f" ARCHIVO] " + "="*60)
+        logger.debug(f" ARCHIVO] DIMENSIONES Y RESOLUCIÓN:")
+        logger.debug(f" ARCHIVO]   - Resolución temporal: {config.TIME_RESO:.2e} segundos/muestra")
+        logger.debug(f" ARCHIVO]   - Resolución de frecuencia: {config.FREQ_RESO} canales")
+        logger.debug(f" ARCHIVO]   - Longitud del archivo: {config.FILE_LENG:,} muestras")
         
                                  
         duracion_total_seg = config.FILE_LENG * config.TIME_RESO
         duracion_min = duracion_total_seg / 60
         duracion_horas = duracion_min / 60
-        print(f"[DEBUG ARCHIVO]   - Duración total: {duracion_total_seg:.2f} seg ({duracion_min:.2f} min, {duracion_horas:.2f} h)")
+        logger.debug(f" ARCHIVO]   - Duración total: {duracion_total_seg:.2f} seg ({duracion_min:.2f} min, {duracion_horas:.2f} h)")
         
-        print(f"[DEBUG ARCHIVO] FRECUENCIAS:")
-        print(f"[DEBUG ARCHIVO]   - Rango total: {config.FREQ.min():.2f} - {config.FREQ.max():.2f} MHz")
-        print(f"[DEBUG ARCHIVO]   - Ancho de banda: {abs(config.FREQ.max() - config.FREQ.min()):.2f} MHz")
-        print(f"[DEBUG ARCHIVO]   - Resolución por canal: {abs(config.FREQ[1] - config.FREQ[0]):.4f} MHz/canal")
-        print(f"[DEBUG ARCHIVO]   - Orden original: {'DESCENDENTE' if freq_axis_inverted else 'ASCENDENTE'}")
-        print(f"[DEBUG ARCHIVO]   - Orden final (post-corrección): {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
+        logger.debug(f" ARCHIVO] FRECUENCIAS:")
+        logger.debug(f" ARCHIVO]   - Rango total: {config.FREQ.min():.2f} - {config.FREQ.max():.2f} MHz")
+        logger.debug(f" ARCHIVO]   - Ancho de banda: {abs(config.FREQ.max() - config.FREQ.min()):.2f} MHz")
+        logger.debug(f" ARCHIVO]   - Resolución por canal: {abs(config.FREQ[1] - config.FREQ[0]):.4f} MHz/canal")
+        logger.debug(f" ARCHIVO]   - Orden original: {'DESCENDENTE' if freq_axis_inverted else 'ASCENDENTE'}")
+        logger.debug(f" ARCHIVO]   - Orden final (post-corrección): {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
         
-        print(f"[DEBUG ARCHIVO] DECIMACIÓN:")
-        print(f"[DEBUG ARCHIVO]   - Factor reducción frecuencia: {config.DOWN_FREQ_RATE}x")
-        print(f"[DEBUG ARCHIVO]   - Factor reducción tiempo: {config.DOWN_TIME_RATE}x")
-        print(f"[DEBUG ARCHIVO]   - Canales después de decimación: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
-        print(f"[DEBUG ARCHIVO]   - Resolución temporal después: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} seg/muestra")
+        logger.debug(f" ARCHIVO] DECIMACIÓN:")
+        logger.debug(f" ARCHIVO]   - Factor reducción frecuencia: {config.DOWN_FREQ_RATE}x")
+        logger.debug(f" ARCHIVO]   - Factor reducción tiempo: {config.DOWN_TIME_RATE}x")
+        logger.debug(f" ARCHIVO]   - Canales después de decimación: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
+        logger.debug(f" ARCHIVO]   - Resolución temporal después: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} seg/muestra")
         
                                              
         size_original_gb = (config.FILE_LENG * config.FREQ_RESO * 4) / (1024**3)                       
         size_decimated_gb = size_original_gb / (config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE)
-        print(f"[DEBUG ARCHIVO] TAMAÑO ESTIMADO:")
-        print(f"[DEBUG ARCHIVO]   - Datos originales: ~{size_original_gb:.2f} GB")
-        print(f"[DEBUG ARCHIVO]   - Datos después decimación: ~{size_decimated_gb:.2f} GB")
+        logger.debug(f" ARCHIVO] TAMAÑO ESTIMADO:")
+        logger.debug(f" ARCHIVO]   - Datos originales: ~{size_original_gb:.2f} GB")
+        logger.debug(f" ARCHIVO]   - Datos después decimación: ~{size_decimated_gb:.2f} GB")
         
         
-        print(f"[DEBUG ARCHIVO] CONFIGURACIÓN DE SLICE:")
-        print(f"[DEBUG ARCHIVO]   - SLICE_DURATION_MS configurado: {config.SLICE_DURATION_MS} ms")
+        logger.debug(f" ARCHIVO] CONFIGURACIÓN DE SLICE:")
+        logger.debug(f" ARCHIVO]   - SLICE_DURATION_MS configurado: {config.SLICE_DURATION_MS} ms")
         expected_slice_len = round(config.SLICE_DURATION_MS / (config.TIME_RESO * config.DOWN_TIME_RATE * 1000))
-        print(f"[DEBUG ARCHIVO]   - SLICE_LEN calculado: {expected_slice_len} muestras")
-        print(f"[DEBUG ARCHIVO]   - SLICE_LEN límites: [{config.SLICE_LEN_MIN}, {config.SLICE_LEN_MAX}]")
+        logger.debug(f" ARCHIVO]   - SLICE_LEN calculado: {expected_slice_len} muestras")
+        logger.debug(f" ARCHIVO]   - SLICE_LEN límites: [{config.SLICE_LEN_MIN}, {config.SLICE_LEN_MAX}]")
         
-        print(f"[DEBUG ARCHIVO] PROCESAMIENTO:")
-        print(f"[DEBUG ARCHIVO]   - Multi-banda habilitado: {'SÍ' if config.USE_MULTI_BAND else 'NO'}")
-        print(f"[DEBUG ARCHIVO]   - DM rango: {config.DM_min} - {config.DM_max} pc cm⁻³")
-        print(f"[DEBUG ARCHIVO]   - Umbrales: DET_PROB={config.DET_PROB}, CLASS_PROB={config.CLASS_PROB}, SNR_THRESH={config.SNR_THRESH}")
-        print(f"[DEBUG ARCHIVO] " + "="*60)
+        logger.debug(f" ARCHIVO] PROCESAMIENTO:")
+        logger.debug(f" ARCHIVO]   - Multi-banda habilitado: {'SÍ' if config.USE_MULTI_BAND else 'NO'}")
+        logger.debug(f" ARCHIVO]   - DM rango: {config.DM_min} - {config.DM_max} pc cm⁻³")
+        logger.debug(f" ARCHIVO]   - Umbrales: DET_PROB={config.DET_PROB}, CLASS_PROB={config.CLASS_PROB}, SNR_THRESH={config.SNR_THRESH}")
+        logger.debug(f" ARCHIVO] " + "="*60)
 
                                                                                     
     auto_config_downsampling()
 
                                               
     if config.DEBUG_FREQUENCY_ORDER:
-        print(f"[DEBUG CONFIG FINAL] Configuración final después de get_obparams:")
-        print(f"[DEBUG CONFIG FINAL] " + "="*60)
-        print(f"[DEBUG CONFIG FINAL] DOWN_FREQ_RATE calculado: {config.DOWN_FREQ_RATE}x")
-        print(f"[DEBUG CONFIG FINAL] DOWN_TIME_RATE calculado: {config.DOWN_TIME_RATE}x")
-        print(f"[DEBUG CONFIG FINAL] Datos después de decimación:")
-        print(f"[DEBUG CONFIG FINAL]   - Canales: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
-        print(f"[DEBUG CONFIG FINAL]   - Resolución temporal: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} s/muestra")
-        print(f"[DEBUG CONFIG FINAL]   - Reducción total de datos: {config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE}x")
-        print(f"[DEBUG CONFIG FINAL] DATA_NEEDS_REVERSAL final: {config.DATA_NEEDS_REVERSAL}")
-        print(f"[DEBUG CONFIG FINAL] Orden de frecuencias final: {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
-        print(f"[DEBUG CONFIG FINAL] " + "="*60)
+        logger.debug(f" CONFIG FINAL] Configuración final después de get_obparams:")
+        logger.debug(f" CONFIG FINAL] " + "="*60)
+        logger.debug(f" CONFIG FINAL] DOWN_FREQ_RATE calculado: {config.DOWN_FREQ_RATE}x")
+        logger.debug(f" CONFIG FINAL] DOWN_TIME_RATE calculado: {config.DOWN_TIME_RATE}x")
+        logger.debug(f" CONFIG FINAL] Datos después de decimación:")
+        logger.debug(f" CONFIG FINAL]   - Canales: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
+        logger.debug(f" CONFIG FINAL]   - Resolución temporal: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} s/muestra")
+        logger.debug(f" CONFIG FINAL]   - Reducción total de datos: {config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE}x")
+        logger.debug(f" CONFIG FINAL] DATA_NEEDS_REVERSAL final: {config.DATA_NEEDS_REVERSAL}")
+        logger.debug(f" CONFIG FINAL] Orden de frecuencias final: {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
+        logger.debug(f" CONFIG FINAL] " + "="*60)
 
                                                                
     if config.DEBUG_FREQUENCY_ORDER:
@@ -906,7 +914,7 @@ def stream_fits(
         return sel
     
     try:
-        print(f"[INFO] Streaming datos FITS: chunk_size={chunk_samples}, overlap={overlap_samples}")
+        logger.info("Streaming FITS data: chunk_size=%d, overlap=%d", chunk_samples, overlap_samples)
         
                                                                                        
         try:
@@ -917,7 +925,13 @@ def stream_fits(
                 nchan = int(pf.nchans)
                 tsamp = float(pf.native_tsamp())            
                                                                                           
-                print(f"[INFO] Streaming PSRFITS (your): nspec={nspec}, npol={npol}, nchan={nchan}, tsamp={tsamp}")
+                logger.info(
+                    "Streaming PSRFITS ('your'): nspec=%d, npol=%d, nchan=%d, tsamp=%s",
+                    nspec,
+                    npol,
+                    nchan,
+                    tsamp,
+                )
                 total_samples = nspec
                 log_stream_fits_parameters(total_samples, chunk_samples, overlap_samples, None, nchan, npol, None)
                 chunk_counter = 0
@@ -994,10 +1008,12 @@ def stream_fits(
                         tbl = subint.data
                     except (TypeError, ValueError, OSError) as e:
                         if "buffer is too small" in str(e) or "truncated" in str(e).lower():
-                            print(f"[WARN] Archivo truncado detectado: {file_name}")
-                            print(f"[WARN] Error: {e}")
-                            print(f"[WARN] Saltando archivo truncado")
-                            raise ValueError(f"Archivo FITS truncado: {file_name}") from e
+                            logger.warning(
+                                "Truncated FITS file detected (%s): %s. Skipping.",
+                                file_name,
+                                e,
+                            )
+                            raise ValueError(f"Truncated FITS file: {file_name}") from e
                         else:
                             raise
                     nsubint = safe_int(hdr.get("NAXIS2", 0))
@@ -1027,7 +1043,12 @@ def stream_fits(
                             pass
                                             
                     total_samples = nsubint * nsblk
-                    print(f"[INFO] Datos FITS detectados: {total_samples} muestras, {npol} pols, {nchan} canales")
+                    logger.info(
+                        "FITS data detected: samples=%d, polarisations=%d, channels=%d",
+                        total_samples,
+                        npol,
+                        nchan,
+                    )
                     log_stream_fits_parameters(total_samples, chunk_samples, overlap_samples, nsubint, nchan, npol, nsblk)
 
                                                         
@@ -1175,7 +1196,12 @@ def stream_fits(
                 nsamples = safe_int(h.get("NAXIS2", 1)) * safe_int(h.get("NSBLK", 1))
                 npols = safe_int(h.get("NPOL", 2))
                 nchans = safe_int(h.get("NCHAN", 512))
-                print(f"[INFO] Datos FITS detectados: {nsamples} muestras, {npols} pols, {nchans} canales")
+                logger.info(
+                    "FITS data detected: samples=%d, polarisations=%d, channels=%d",
+                    nsamples,
+                    npols,
+                    nchans,
+                )
                 log_stream_fits_parameters(nsamples, chunk_samples, overlap_samples, None, nchans, npols, None)
                 data_array = load_fits_file(file_name)
                 use_memmap = False
@@ -1221,23 +1247,23 @@ def stream_fits(
                     yield block, metadata
                 log_stream_fits_summary(chunk_counter)
         except Exception as e:
-            print(f"[WARN] Error con 'your' PSRFITS, usando fallback de astropy: {e}")
-                                                                              
-            
-                                                                                             
+            logger.warning("Error with 'your' PSRFITS implementation (%s); falling back to astropy", e)
+
             with fits.open(file_name, memmap=True) as hdul:
                 if "SUBINT" in [hdu.name for hdu in hdul] and "DATA" in hdul["SUBINT"].columns.names:
                     subint = hdul["SUBINT"]
                     hdr = subint.header
-                                                                                             
+
                     try:
                         tbl = subint.data
                     except (TypeError, ValueError, OSError) as e:
                         if "buffer is too small" in str(e) or "truncated" in str(e).lower():
-                            print(f"[WARN] Archivo truncado detectado: {file_name}")
-                            print(f"[WARN] Error: {e}")
-                            print(f"[WARN] Saltando archivo truncado")
-                            raise ValueError(f"Archivo FITS truncado: {file_name}") from e
+                            logger.warning(
+                                "Truncated FITS file detected (%s): %s. Skipping.",
+                                file_name,
+                                e,
+                            )
+                            raise ValueError(f"Truncated FITS file: {file_name}") from e
                         else:
                             raise
                     nsubint = safe_int(hdr.get("NAXIS2", 0))
@@ -1254,7 +1280,13 @@ def stream_fits(
                     tstart_mjd = safe_float(primary.get("TSTART", 0.0))
                     nsuboffs = safe_int(primary.get("NSUBOFFS", 0))
                     
-                    print(f"[INFO] Streaming PSRFITS (astropy fallback): nsubint={nsubint}, nchan={nchan}, npol={npol}, tbin={tbin}")
+                    logger.info(
+                        "Streaming PSRFITS (astropy fallback): nsubint=%d, nchan=%d, npol=%d, tbin=%s",
+                        nsubint,
+                        nchan,
+                        npol,
+                        tbin,
+                    )
                     
                                                                         
                     pol_type = str(hdr.get("POL_TYPE", "")).upper() if hdr.get("POL_TYPE") is not None else ""
@@ -1397,5 +1429,5 @@ def stream_fits(
                     raise ValueError(f"Archivo FITS no tiene estructura SUBINT válida: {file_name}")
         
     except Exception as e:
-        print(f"[ERROR] Error en stream_fits: {e}")
+        logger.error("Error in stream_fits: %s", e)
         raise ValueError(f"No se pudo leer el archivo FITS {file_name}") from e

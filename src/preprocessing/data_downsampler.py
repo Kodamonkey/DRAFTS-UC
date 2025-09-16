@@ -1,13 +1,16 @@
+# This module performs temporal and spectral downsampling.
+
 """Data downsampler for FRB pipeline - reduces temporal and frequency resolution."""
 from __future__ import annotations
 
-# Third-party imports
+                     
 import numpy as np
 
-# Local imports
+               
 from ..config import config
 
 
+# This function downsamples data.
 def downsample_data(data: np.ndarray) -> np.ndarray:
     """Down-sample time-frequency data usando las tasas de :mod:`config`.
 
@@ -26,10 +29,10 @@ def downsample_data(data: np.ndarray) -> np.ndarray:
         n_freq // config.DOWN_FREQ_RATE,
         config.DOWN_FREQ_RATE,
     )
-    # Sumar en tiempo (como Spectra.downsample de PRESTO), luego promediar pol y grupo de freq
-    # Shape tras reshape: (T_ds, Tgrp, P, F_ds, Fgrp)
-    data = data.sum(axis=1)          # (T_ds, P, F_ds, Fgrp)
-    data = data.mean(axis=1)         # (T_ds, F_ds, Fgrp)
-    data = data.mean(axis=2)         # (T_ds, F_ds)
+                                                                                              
+                                                     
+    data = data.sum(axis=1)                                 
+    data = data.mean(axis=1)                             
+    data = data.mean(axis=2)                       
     data = data.astype(np.float32)
     return data

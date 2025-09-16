@@ -1,3 +1,5 @@
+# This module tests slice alignment across data sources.
+
 """Prueba de alineación de slicing en PSRFITS y Filterbank.
 
 Uso:
@@ -23,13 +25,15 @@ from src.input.filterbank_handler import get_obparams_fil, stream_fil
 from src.config import config
 
 
+# This function asserts approximate equality.
 def _assert_close(a: float, b: float, tol: float, what: str) -> None:
     if not (abs(a - b) <= tol):
         raise AssertionError(f"{what}: esperado {b}, obtenido {a}, tol={tol}")
 
 
+# This function tests PSRFITS slicing.
 def test_psrfits_slicing(fits_path: str, slice_sec: float) -> None:
-    # Cargar parámetros del archivo
+                                   
     get_obparams(fits_path)
     tbin = float(config.TIME_RESO)
     nsamples = int(config.FILE_LENG)
@@ -43,7 +47,7 @@ def test_psrfits_slicing(fits_path: str, slice_sec: float) -> None:
 
     print(f"[PSRFITS] tbin={tbin:.9f} s, nsamples={nsamples}, slice={slice_sec}s, chunk_samples={chunk_samples}")
 
-    # Determinar TSTART corregido si está disponible
+                                                    
     tstart_mjd = getattr(config, "TSTART_MJD_CORR", None)
     if tstart_mjd is None:
         tstart_mjd = getattr(config, "TSTART_MJD", None)
@@ -54,27 +58,27 @@ def test_psrfits_slicing(fits_path: str, slice_sec: float) -> None:
     last_end = None
     expected_start = 0
     expected_delta_t_mjd = slice_sec / 86400.0
-    tol_time = max(tbin / 86400.0, 1e-12)  # tolerancia temporal
+    tol_time = max(tbin / 86400.0, 1e-12)                       
 
     num_chunks = 0
     total_emitted = 0
 
     for block, meta in stream_fits(fits_path, chunk_samples=chunk_samples, overlap_samples=0):
-        start_sample = int(meta["start_sample"])  # inicio válido (sin solape)
-        end_sample = int(meta["end_sample"])      # fin válido (sin solape)
-        # Comprobar contigüidad
+        start_sample = int(meta["start_sample"])                              
+        end_sample = int(meta["end_sample"])                               
+                               
         if last_end is None:
             _assert_close(start_sample, 0, 0, "start_sample inicial")
         else:
             _assert_close(start_sample, expected_start, 0, "start_sample no contiguo")
 
-        # Comprobar tamaño esperado salvo último chunk
+                                                      
         expected_len = min(chunk_samples, nsamples - start_sample)
         actual_len = end_sample - start_sample
         if start_sample + expected_len < nsamples:
             _assert_close(actual_len, expected_len, 0, "chunk size inesperado")
 
-        # Comprobar incremento temporal exacto
+                                              
         if last_start is not None:
             tprev = tstart_mjd + (last_start * tbin) / 86400.0
             tcurr = tstart_mjd + (start_sample * tbin) / 86400.0
@@ -86,13 +90,14 @@ def test_psrfits_slicing(fits_path: str, slice_sec: float) -> None:
         last_end = end_sample
         expected_start += chunk_samples
 
-    # No exceder la duración total
+                                  
     if total_emitted > nsamples:
         raise AssertionError(f"Se emitieron más muestras de las existentes: {total_emitted}>{nsamples}")
 
     print(f"[PSRFITS] OK: {num_chunks} chunks, total_emitted={total_emitted}/{nsamples}")
 
 
+# This function tests filterbank slicing.
 def test_filterbank_slicing(fil_path: str, slice_sec: float) -> None:
     get_obparams_fil(fil_path)
     tsamp = float(config.TIME_RESO)
@@ -114,9 +119,9 @@ def test_filterbank_slicing(fil_path: str, slice_sec: float) -> None:
     total_emitted = 0
 
     for block, meta in stream_fil(fil_path, chunk_samples=chunk_samples, overlap_samples=0):
-        start_sample = int(meta["start_sample"])  # inicio válido (sin solape)
-        end_sample = int(meta["end_sample"])      # fin válido (sin solape)
-        # Contigüidad
+        start_sample = int(meta["start_sample"])                              
+        end_sample = int(meta["end_sample"])                               
+                     
         if last_end is None:
             _assert_close(start_sample, 0, 0, "start_sample inicial")
         else:
@@ -139,6 +144,7 @@ def test_filterbank_slicing(fil_path: str, slice_sec: float) -> None:
     print(f"[FIL] OK: {num_chunks} chunks, total_emitted={total_emitted}/{nsamples}")
 
 
+# This function runs the slicing alignment test harness.
 def main() -> None:
     parser = argparse.ArgumentParser(description="Test de slicing para PSRFITS y Filterbank")
     parser.add_argument("--fits", type=str, default=None, help="Ruta a archivo .fits (PSRFITS)")

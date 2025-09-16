@@ -1,6 +1,8 @@
+# This module provides compatibility data loading helpers.
+
 from __future__ import annotations
 
-# Standard library imports
+                          
 import csv
 import gc
 import logging
@@ -10,17 +12,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Generator, List, Tuple, Type
 
-# Third-party imports
+                     
 import numpy as np
 from astropy.io import fits
 
-# Optional third-party imports
+                              
 try:
     import fitsio
 except ImportError:
     fitsio = None
 
-# Local imports
+               
 from ..config import config
 from ..logging import (
     log_stream_fil_block_generation,
@@ -34,7 +36,7 @@ from ..logging import (
 from ..output.summary_manager import _update_summary_with_file_debug
 from ..preprocessing.data_downsampler import downsample_data
 
-# Importar funciones de los módulos especializados
+                                                  
 from .utils import (
     safe_float,
     safe_int,
@@ -58,44 +60,49 @@ from .filterbank_handler import (
     stream_fil
 )
 
-# Importar las nuevas funciones inteligentes
+                                            
 from .file_detector import detect_file_type, validate_file_compatibility
 from .streaming_orchestrator import get_streaming_function
 
-# Setup logger
+              
 logger = logging.getLogger(__name__)
 
-# =============================================================================
-# FUNCIONES DE COMPATIBILIDAD - MANTENER INTERFAZ EXISTENTE
-# =============================================================================
+                                                                               
+                                                           
+                                                                               
 
+# This function returns a safe float value.
 def _safe_float(value, default=0.0):
     """Return ``value`` as ``float`` or ``default`` if conversion fails."""
     return safe_float(value, default)
 
 
+# This function returns a safe integer value.
 def _safe_int(value, default=0):
     """Return ``value`` as ``int`` or ``default`` if conversion fails."""
     return safe_int(value, default)
 
 
+# This function auto-configures downsampling parameters.
 def _auto_config_downsampling() -> None:
     """Configura DOWN_FREQ_RATE y DOWN_TIME_RATE si no fueron fijados por el usuario."""
     auto_config_downsampling()
 
 
+# This function prints debug frequencies.
 def _print_debug_frequencies(prefix: str, file_name: str, freq_axis_inverted: bool) -> None:
     """Imprime bloque estándar de depuración de frecuencias con un prefijo dado."""
     print_debug_frequencies(prefix, file_name, freq_axis_inverted)
 
 
+# This function saves file debug info.
 def _save_file_debug_info(file_name: str, debug_info: dict) -> None:
     """Guarda debug info (FITS o FIL) en summary.json inmediatamente (unificado)."""
     save_file_debug_info(file_name, debug_info)
 
-# =============================================================================
-# DOCUMENTACIÓN DE COMPATIBILIDAD
-# =============================================================================
+                                                                               
+                                 
+                                                                               
 """
 ESTRUCTURA REFACTORIZADA:
 

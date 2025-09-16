@@ -1,3 +1,5 @@
+# This module calculates derived parameters for pipeline execution.
+
 """Parámetros centralizados del pipeline para evitar duplicación de lógica."""
 from __future__ import annotations
 
@@ -6,6 +8,7 @@ from ..config import config
 from ..preprocessing.slice_len_calculator import update_slice_len_dynamic
 
 
+# This function calculates the downsampled frequency array.
 def calculate_frequency_downsampled() -> np.ndarray:
     """Calcula las frecuencias decimadas del pipeline."""
 
@@ -25,6 +28,7 @@ def calculate_frequency_downsampled() -> np.ndarray:
     return trimmed.reshape(-1, down_rate).mean(axis=1)
 
 
+# This function calculates DM height.
 def calculate_dm_height() -> int:
     """Calcula la altura del cubo DM-tiempo."""
 
@@ -33,6 +37,7 @@ def calculate_dm_height() -> int:
     return max(0, dm_max - dm_min + 1)
 
 
+# This function calculates the total decimated width.
 def calculate_width_total(total_samples: int | None = None) -> int:
     """Calcula el ancho total decimado del archivo."""
 
@@ -43,6 +48,7 @@ def calculate_width_total(total_samples: int | None = None) -> int:
     return samples // down_rate
 
 
+# This function calculates slice parameters.
 def calculate_slice_parameters() -> tuple[int, float]:
     """Calcula los parámetros de slicing dinámicamente.
     
@@ -52,6 +58,7 @@ def calculate_slice_parameters() -> tuple[int, float]:
     return update_slice_len_dynamic()
 
 
+# This function calculates time slice.
 def calculate_time_slice(width_total: int, slice_len: int) -> int:
     """Calcula el número de slices para un ancho dado.
     
@@ -65,6 +72,7 @@ def calculate_time_slice(width_total: int, slice_len: int) -> int:
     return (width_total + slice_len - 1) // slice_len
 
 
+# This function calculates slice duration.
 def calculate_slice_duration(slice_len: int) -> float:
     """Calcula la duración de un slice en segundos."""
 
@@ -75,6 +83,7 @@ def calculate_slice_duration(slice_len: int) -> float:
     return slice_len * time_reso * max(down_rate, 1)
 
 
+# This function gets pipeline parameters.
 def get_pipeline_parameters() -> dict:
     """Obtiene todos los parámetros del pipeline en un solo lugar.
     
@@ -99,6 +108,7 @@ def get_pipeline_parameters() -> dict:
     }
 
 
+# This function calculates overlap decimated.
 def calculate_overlap_decimated(overlap_left_raw: int, overlap_right_raw: int) -> tuple[int, int]:
     """Calcula el solapamiento en muestras decimadas.
     
@@ -115,6 +125,7 @@ def calculate_overlap_decimated(overlap_left_raw: int, overlap_right_raw: int) -
     return overlap_left_ds, overlap_right_ds
 
 
+# This function calculates absolute slice time.
 def calculate_absolute_slice_time(chunk_start_time_sec: float, start_idx: int, dt_ds: float) -> float:
     """Calcula el tiempo absoluto de inicio de un slice.
     

@@ -1,3 +1,5 @@
+# This module implements training routines for CenterNet detection.
+
 import os, re, cv2, json, sys
 import numpy as np
 import pandas as pd
@@ -16,21 +18,22 @@ from centernet_utils import get_res, denormalize
 from sklearn.model_selection import train_test_split
 
 
+# This function loads train cat.
 def load_train_cat(train_path):
 
     data              = pd.read_csv(train_path)
     data              = data.loc[data.save_name!='-1'].reset_index(drop=True)
     data['image_id']  = data.save_name.str.replace('.npy', '', regex=False) + '__' + data.freq_slice.astype(str) + '.npy'
 
-    ## 标记时标记的是时间和色散，中心点C与左下点L，L的时间小于C，L的色散大于C
+                                             
     data[['x', 'y']]  = data.loc[:, ['time_center', 'dm_center']]
-    ## 计算宽度，乘2
+              
     data['w']         = np.min([data.time_center - data.time_left, 8192 - data.time_center - 1], axis=0) * 2
     data['h']         = np.min([data.dm_left - data.dm_center, data.dm_center - 1.05], axis=0) * 2
     data              = data.loc[:, ['image_id', 'x', 'y', 'w', 'h']]
-    ## 将原本没有标记的数据设为-1
+                     
     data.loc[(data.x<=0)&(data.y<=0), ['x', 'y', 'w', 'h']] = [-1, -1, -1, -1]
-    # data = data.loc[data.x!=-1].reset_index(drop=True)
+                                                        
 
     image_ids         = data['image_id'].unique()
     train_id, test_id = train_test_split(image_ids, test_size=0.2)
@@ -47,7 +50,7 @@ if __name__ == '__main__':
     patience     = 100
     data_path    = './Data/'
 
-    # backbone     = 'resnet18'
+                               
     backbone     = sys.argv[1]
     log_dir      = './logs_{}/'.format(backbone)
 
@@ -58,13 +61,13 @@ if __name__ == '__main__':
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True)
     val_loader   = torch.utils.data.DataLoader(val_data,   batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True)
 
-    # 展示
-    # img, hm, regr = train_data[0]
-    # plt.imshow(img.transpose([1, 2, 0]))
-    # plt.show()
-    # img.std()
-    # plt.imshow(hm)
-    # plt.show()
+        
+                                   
+                                          
+                
+               
+                    
+                
 
     if True:
         if os.path.exists(log_dir + 'best_model.pth'):
@@ -136,7 +139,7 @@ if __name__ == '__main__':
                 if counter >= patience:
                     break
 
-            # save logs
+                       
             log_epoch = {
                 'epoch': epoch + 1,
                 'lr': optimizer.state_dict()['param_groups'][0]['lr'],
@@ -159,7 +162,7 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(log_dir + 'best_model.pth'))
         model.eval()
 
-        # 展示
+            
         for id in range(15, 30):
             img, targ = val_data[id]
             hm_gt, wh_gt, reg_gt, reg_mask = targ[0][np.newaxis, np.newaxis], targ[1:3][np.newaxis], targ[3:5][np.  newaxis], targ[5][np.newaxis, np.newaxis]
@@ -176,14 +179,14 @@ if __name__ == '__main__':
             img  = denormalize(img)
             img  = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-            # print ground truth boxes
+                                      
             _, top_boxes_gt = get_res(torch.tensor(hm_gt).to(device), torch.tensor(wh_gt).to(device), torch.tensor  (reg_gt). to(device), 0.2)
             if top_boxes_gt is not None:
                 for box in top_boxes_gt:
                     left_x, left_y, right_x, right_y = box.astype(np.int64)
                     cv2.rectangle(img, (left_x, left_y), (right_x, right_y), (0, 0, 220), 1)
 
-            # print predicted boxes
+                                   
             if top_boxes is not None:
                 for box in top_boxes:
                     left_x, left_y, right_x, right_y = box.astype(np.int64)

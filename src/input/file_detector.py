@@ -1,3 +1,5 @@
+# This module determines file types and validates compatibility.
+
 """Detector y clasificador de tipos de archivos astronómicos.
 
 Este módulo se encarga de:
@@ -12,10 +14,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Tipos de archivo soportados
+                             
 SUPPORTED_EXTENSIONS = {'.fits', '.fil'}
 SUPPORTED_FORMATS = {'fits', 'filterbank'}
 
+# This function detects file type.
 def detect_file_type(file_path: Path) -> str:
     """
     Detecta automáticamente el tipo de archivo basado en su extensión.
@@ -42,6 +45,7 @@ def detect_file_type(file_path: Path) -> str:
             f"Extensiones soportadas: {', '.join(SUPPORTED_EXTENSIONS)}"
         )
 
+# This function validates file compatibility.
 def validate_file_compatibility(file_path: Path) -> Dict[str, Any]:
     """
     Valida que el archivo sea compatible con el pipeline.
@@ -66,17 +70,17 @@ def validate_file_compatibility(file_path: Path) -> Dict[str, Any]:
     }
     
     try:
-        # Verificar que el archivo existe
+                                         
         if not file_path.exists():
             validation_result['validation_errors'].append(f"Archivo no encontrado: {file_path}")
             return validation_result
         
-        # Verificar que es un archivo (no directorio)
+                                                     
         if not file_path.is_file():
             validation_result['validation_errors'].append(f"Path no es un archivo: {file_path}")
             return validation_result
         
-        # Obtener extensión y tipo
+                                  
         extension = file_path.suffix.lower()
         validation_result['extension'] = extension
         
@@ -87,7 +91,7 @@ def validate_file_compatibility(file_path: Path) -> Dict[str, Any]:
             validation_result['validation_errors'].append(str(e))
             return validation_result
         
-        # Verificar tamaño del archivo
+                                      
         try:
             size_bytes = file_path.stat().st_size
             validation_result['size_bytes'] = size_bytes
@@ -96,7 +100,7 @@ def validate_file_compatibility(file_path: Path) -> Dict[str, Any]:
                 validation_result['validation_errors'].append("Archivo vacío (0 bytes)")
                 return validation_result
                 
-            # Advertencia para archivos muy grandes (> 10GB)
+                                                            
             if size_bytes > 10 * 1024**3:
                 logger.warning(f"Archivo muy grande detectado: {size_bytes / (1024**3):.1f} GB")
                 
@@ -104,7 +108,7 @@ def validate_file_compatibility(file_path: Path) -> Dict[str, Any]:
             validation_result['validation_errors'].append(f"Error accediendo al archivo: {e}")
             return validation_result
         
-        # Si llegamos aquí, el archivo es compatible
+                                                    
         validation_result['is_compatible'] = True
         
     except Exception as e:

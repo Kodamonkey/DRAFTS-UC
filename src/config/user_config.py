@@ -6,16 +6,11 @@ from pathlib import Path
 
 # Directorios de entrada y salida
 DATA_DIR = Path("./Data/raw")                        # Directorio con archivos de entrada (.fits, .fil)
-RESULTS_DIR = Path("./Results")                      # Directorio para guardar resultados
+RESULTS_DIR = Path("./Results-test-refactor")                      # Directorio para guardar resultados
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-   "2017-04-03-08_16_13_142_0006_t10.882_t25.829",
-   "2017-04-03-08_55_22_153_0006_t23.444",
-   "2017-04-03-08-16-13_142_0003_t39.977",
-   "2017-04-03-12_56_05_230_0002_t2.3_t17.395",
-   "2017-04-03-12_56_05_230_0003_t36.548",
-   "2017-04-03-13_38_31_242_0005_t44.169"
+   "3096_0001_00_8bit"
 ]
 
 # =============================================================================
@@ -23,7 +18,7 @@ FRB_TARGETS = [
 # =============================================================================
 
 # Duración de cada slice temporal (milisegundos)
-SLICE_DURATION_MS: float = 300.0
+SLICE_DURATION_MS: float = 500.0
 
 # =============================================================================
 # CONFIGURACIÓN DE DOWNSAMPLING
@@ -31,7 +26,8 @@ SLICE_DURATION_MS: float = 300.0
 
 # Factores de reducción para optimizar el procesamiento
 DOWN_FREQ_RATE: int = 1                      # Factor de reducción en frecuencia (1 = sin reducción)
-DOWN_TIME_RATE: int = 32                      # Factor de reducción en tiempo (1 = sin reducción)
+DOWN_TIME_RATE: int = 12                     # Factor de reducción en tiempo (1 = sin reducción)
+
 
 # =============================================================================
 # CONFIGURACIÓN DE DISPERSIÓN (DM)
@@ -46,7 +42,8 @@ DM_max: int = 3000                          # DM máximo en pc cm⁻³
 # =============================================================================
 
 # Probabilidades mínimas para detección y clasificación
-DET_PROB: float = 0.2                       # Probabilidad mínima para considerar una detección válida
+DET_PROB: float = 0.3                       # Probabilidad mínima para considerar una detección válida
+
 CLASS_PROB: float = 0.5                     # Probabilidad mínima para clasificar como burst
 
 # Umbral de SNR para resaltar en visualizaciones
@@ -60,6 +57,7 @@ SNR_THRESH: float = 4.0                     # Umbral de SNR para resaltar en vis
 USE_MULTI_BAND: bool = False                # True = usar análisis multi-banda, False = solo banda completa
 
 # =============================================================================
+
 # CONFIGURACIÓN DEL PIPELINE DE ALTA FRECUENCIA
 # =============================================================================
 
@@ -87,7 +85,7 @@ POLARIZATION_INDEX: int = 0
 # =============================================================================
 
 # Debug de frecuencias y archivos
-DEBUG_FREQUENCY_ORDER: bool = False        # True = mostrar información detallada de frecuencias y archivos
+DEBUG_FREQUENCY_ORDER: bool = True        # True = mostrar información detallada de frecuencias y archivos
                                            # False = modo silencioso (recomendado para procesamiento en lote)
 
 # Forzar generación de plots incluso sin candidatos (modo debug)
@@ -99,3 +97,4 @@ FORCE_PLOTS: bool = False                  # True = siempre generar plots para i
 
 # Solo guardar y mostrar candidatos clasificados como BURST
 SAVE_ONLY_BURST: bool = True             # True = solo guardar candidatos BURST, False = guardar todos los candidatos
+

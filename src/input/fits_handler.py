@@ -1,3 +1,5 @@
+# This module handles FITS and PSRFITS data ingestion.
+
 """Manejo de archivos FITS y PSRFITS para el pipeline de detección de FRBs."""
 from __future__ import annotations
 
@@ -7,19 +9,19 @@ from typing import Generator, Tuple, Dict
 import numpy as np
 from astropy.io import fits
 
-# Optional third-party imports
+                              
 try:
     import fitsio
 except ImportError:
     fitsio = None
 
-# Optional 'your' PSRFITS reader (homólogo a plot_waterfall.py)
+                                                               
 try:
     from your.formats import psrfits as your_psrfits
 except Exception:
     your_psrfits = None
 
-# Local imports
+               
 from ..config import config
 from ..logging import (
     log_stream_fits_block_generation,
@@ -30,6 +32,7 @@ from ..logging import (
 from .utils import safe_float, safe_int, auto_config_downsampling, print_debug_frequencies, save_file_debug_info
 
 
+# This function unpacks 1 bit data.
 def _unpack_1bit(data: np.ndarray) -> np.ndarray:
     """Desempaqueta datos de 1 bit contenidos en bytes a uint8."""
     b0 = (data >> 0x07) & 0x01
@@ -43,6 +46,7 @@ def _unpack_1bit(data: np.ndarray) -> np.ndarray:
     return np.dstack([b0, b1, b2, b3, b4, b5, b6, b7]).flatten()
 
 
+# This function unpacks 2 bit data.
 def _unpack_2bit(data: np.ndarray) -> np.ndarray:
     """Desempaqueta datos de 2 bits contenidos en bytes a uint8."""
     p0 = (data >> 0x06) & 0x03
@@ -52,6 +56,7 @@ def _unpack_2bit(data: np.ndarray) -> np.ndarray:
     return np.dstack([p0, p1, p2, p3]).flatten()
 
 
+# This function unpacks 4 bit data.
 def _unpack_4bit(data: np.ndarray) -> np.ndarray:
     """Desempaqueta datos de 4 bits contenidos en bytes a uint8."""
     p0 = (data >> 0x04) & 0x0F
@@ -59,6 +64,7 @@ def _unpack_4bit(data: np.ndarray) -> np.ndarray:
     return np.dstack([p0, p1]).flatten()
 
 
+# This function applies calibration.
 def _apply_calibration(
     data: np.ndarray,
     dat_wts: np.ndarray | None,
@@ -78,7 +84,7 @@ def _apply_calibration(
     if zero_off:
         data -= np.float32(zero_off)
     if dat_scl is not None:
-        # Expandir a (npol, nchan)
+                                  
         npol = data.shape[1]
         nchan = data.shape[2]
         scl = dat_scl.reshape(npol, nchan).astype(np.float32, copy=False)
@@ -94,6 +100,7 @@ def _apply_calibration(
     return data
 
 
+# This function selects polarization.
 def _select_polarization(
     data: np.ndarray,
     pol_type: str,
@@ -113,12 +120,12 @@ def _select_polarization(
     mode_l = (mode or "").strip().lower()
     pol_type_u = (pol_type or "").strip().upper()
 
-    # Preferencias específicas con IQUV
+                                       
     if pol_type_u == "IQUV" and npol >= 4:
         if mode_l in ("intensity", "i", "stokes_i", "intensidad"):
             return data[:, 0:1, :]
         if mode_l in ("linear", "l", "lineal"):
-            # L = sqrt(Q^2 + U^2) = sqrt(data[:,1]^2 + data[:,2]^2)
+                                                                   
             q = data[:, 1, :]
             u = data[:, 2, :]
             l = np.sqrt(np.maximum(0.0, q * q + u * u)).astype(data.dtype, copy=False)
@@ -133,10 +140,10 @@ def _select_polarization(
                 idx = default_index
             idx = max(0, min(npol - 1, idx))
             return data[:, idx:idx + 1, :]
-        # Por defecto en IQUV: I
+                                
         return data[:, 0:1, :]
 
-    # No IQUV: seleccionar índice
+                                 
     if mode_l.startswith("pol"):
         try:
             idx = int(mode_l.replace("pol", ""))
@@ -145,30 +152,31 @@ def _select_polarization(
         idx = max(0, min(npol - 1, idx))
         return data[:, idx:idx + 1, :]
 
-    # Fallback por defecto
+                          
     return data[:, default_index:default_index + 1, :]
 
 
+# This function loads FITS file.
 def load_fits_file(file_name: str) -> np.ndarray:
     """Load a FITS file and return the data array in shape (time, pol, channel)."""
     global_vars = config
     data_array = None
     try:
-        # Preferir lector 'your' si está disponible (alineado a plot_waterfall)
+                                                                               
         if your_psrfits is not None:
             try:
                 pf = your_psrfits.PsrfitsFile([file_name])
                 nspec = int(pf.nspectra())
                 npol = int(pf.npol)
                 nchan = int(pf.nchans)
-                # Leer todo de una vez si no es enorme
-                data = pf.get_data(0, nspec, npoln=npol)  # shape esperada: (nspec, npol, nchan)
+                                                      
+                data = pf.get_data(0, nspec, npoln=npol)                                        
                 if data.ndim != 3:
                     raise ValueError("Forma inesperada en 'your' get_data")
-                # Selección de polarización según config
+                                                        
                 pol_type = getattr(pf, 'pol_type', 'IQUV') if hasattr(pf, 'pol_type') else 'IQUV'
                 data = _select_polarization(data, pol_type, getattr(config, 'POLARIZATION_MODE', 'intensity'), getattr(config, 'POLARIZATION_INDEX', 0))
-                # Ajustar flip si foff > 0 (orden ascendente) para mantener convención interna
+                                                                                              
                 try:
                     if getattr(pf, 'foff', 0.0) > 0:
                         data = data[:, :, ::-1]
@@ -178,37 +186,47 @@ def load_fits_file(file_name: str) -> np.ndarray:
                     data = data.astype(np.float32)
                 return data
             except Exception:
-                # Si falla 'your', continuar con astropy
+                                                        
                 pass
         with fits.open(file_name, memmap=True) as hdul:
             if "SUBINT" in [hdu.name for hdu in hdul] and "DATA" in hdul["SUBINT"].columns.names:
                 subint = hdul["SUBINT"]
                 hdr = subint.header
-                tbl = subint.data
+                                                                                         
+                try:
+                    tbl = subint.data
+                except (TypeError, ValueError, OSError) as e:
+                    if "buffer is too small" in str(e) or "truncated" in str(e).lower():
+                        print(f"[WARN] Archivo truncado detectado: {file_name}")
+                        print(f"[WARN] Error: {e}")
+                        print(f"[WARN] Saltando archivo truncado")
+                        raise ValueError(f"Archivo FITS truncado: {file_name}") from e
+                    else:
+                        raise
                 nsubint = safe_int(hdr.get("NAXIS2", 0))
                 nchan = safe_int(hdr.get("NCHAN", 0))
                 npol = safe_int(hdr.get("NPOL", 0))
                 nsblk = safe_int(hdr.get("NSBLK", 1))
                 nbits = safe_int(hdr.get("NBITS", 8))
                 zero_off = safe_float(hdr.get("ZERO_OFF", 0.0))
-                # Validar dimensiones antes de procesar
+                                                       
                 if any(x <= 0 for x in [nsubint, nchan, npol, nsblk]):
                     raise ValueError(
                         f"Dimensiones inválidas en header FITS: NAXIS2={nsubint}, NCHAN={nchan}, NPOL={npol}, NSBLK={nsblk} (no pueden ser <= 0)"
                     )
 
-                # Preparar salida (siempre float32 calibrado)
+                                                             
                 out = np.empty((nsubint * nsblk, 1, nchan), dtype=np.float32)
 
-                # Selección de polarización: índice 0 por defecto (Stokes I si IQUV)
+                                                                                    
                 use_pol_idx = 0
                 pol_type = str(hdr.get("POL_TYPE", "")).upper() if hdr.get("POL_TYPE") is not None else ""
-                # Iterar por filas SUBINT para desempaquetar y calibrar
+                                                                       
                 write_ptr = 0
                 for isub in range(nsubint):
                     row = tbl[isub]
                     raw = row["DATA"]
-                    # Desempaquetado según NBITS
+                                                
                     if nbits < 8:
                         if nbits == 4:
                             unpacked = _unpack_4bit(raw)
@@ -218,18 +236,18 @@ def load_fits_file(file_name: str) -> np.ndarray:
                             unpacked = _unpack_1bit(raw)
                         else:
                             raise ValueError(f"NBITS={nbits} no soportado")
-                        # Convertir a float y reordenar a (nsblk, npol, nchan)
-                        # raw layout esperado: (nsblk * npol * nchan)
+                                                                              
+                                                                     
                         try:
                             tmp = unpacked.reshape(nsblk, npol, nchan)
                         except Exception:
-                            # Algunas implementaciones escriben (nsblk, nchan, npol)
+                                                                                    
                             tmp = unpacked.reshape(nsblk, nchan, npol).swapaxes(1, 2)
                         tmp = tmp.astype(np.float32, copy=False)
                     else:
-                        # NBITS >= 8: bytes ya representan muestras
+                                                                   
                         arr = np.asarray(raw)
-                        # Intentar (nsblk, npol, nchan); fallback a (nsblk, nchan, npol)
+                                                                                        
                         try:
                             tmp = arr.reshape(nsblk, npol, nchan)
                         except Exception:
@@ -237,7 +255,7 @@ def load_fits_file(file_name: str) -> np.ndarray:
                         if tmp.dtype != np.float32:
                             tmp = tmp.astype(np.float32, copy=False)
 
-                    # Leer calibraciones de la fila
+                                                   
                     dat_wts = None
                     if "DAT_WTS" in subint.columns.names:
                         dat_wts = row["DAT_WTS"].astype(np.float32, copy=False)
@@ -248,11 +266,11 @@ def load_fits_file(file_name: str) -> np.ndarray:
                     if "DAT_OFFS" in subint.columns.names:
                         dat_offs = row["DAT_OFFS"].astype(np.float32, copy=False)
 
-                    # Aplicar calibración y seleccionar polarización
+                                                                    
                     tmp = _apply_calibration(tmp, dat_wts, dat_scl, dat_offs, zero_off)
 
                     if npol >= 1:
-                        # Stokes I si IQUV, si no, primera pol/IF
+                                                                 
                         out_block = tmp[:, use_pol_idx:use_pol_idx + 1, :]
                     else:
                         out_block = tmp.reshape(tmp.shape[0], 1, tmp.shape[-1])
@@ -270,7 +288,7 @@ def load_fits_file(file_name: str) -> np.ndarray:
                     num_pols = safe_int(h.get("NPOL", 2))
                     num_chans = safe_int(h.get("NCHAN", 512))
                     if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
-                        # Mensaje detallado explicando el problema
+                                                                  
                         error_details = []
                         if total_samples <= 0:
                             error_details.append(f"total_samples={total_samples} (NAXIS2={h.get('NAXIS2', 1)} × NSBLK={h.get('NSBLK', 1)})")
@@ -291,7 +309,7 @@ def load_fits_file(file_name: str) -> np.ndarray:
                         raise ValueError(error_msg)
                     try:
                         data_array = temp_data["DATA"].reshape(total_samples, num_pols, num_chans)
-                        # Selección de polarización al estilo PRESTO
+                                                                    
                         pol_type = str(h.get("POL_TYPE", "")).upper() if h.get("POL_TYPE") is not None else ""
                         if num_pols >= 1:
                             if "IQUV" in pol_type:
@@ -307,7 +325,7 @@ def load_fits_file(file_name: str) -> np.ndarray:
                     num_pols = safe_int(h.get("NPOL", 2))
                     num_chans = safe_int(h.get("NCHAN", 512))
                     if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
-                        # Mensaje detallado explicando el problema
+                                                                  
                         error_details = []
                         if total_samples <= 0:
                             error_details.append(f"total_samples={total_samples} (NAXIS2={h.get('NAXIS2', 1)} × NSBLK={h.get('NSBLK', 1)})")
@@ -328,12 +346,12 @@ def load_fits_file(file_name: str) -> np.ndarray:
                         raise ValueError(error_msg)
                     try:
                         data_array = temp_data.reshape(total_samples, num_pols, num_chans)
-                        # Selección de polarización al estilo PRESTO (sin POL_TYPE disponible aquí)
+                                                                                                   
                         data_array = data_array[:, 0:1, :]
                     except Exception as e:
                         raise ValueError(f"Error al hacer reshape de los datos (fitsio): {e}\n  → Los datos no pueden reorganizarse en el formato esperado (tiempo={total_samples}, pol={num_pols}, canal={num_chans})")
     except (ValueError, fits.verify.VerifyError) as e:
-        # Re-lanzar errores específicos de archivos corruptos con información adicional
+                                                                                       
         if "NSBLK" in str(e) and "0" in str(e):
             raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → El archivo tiene NSBLK=0 en el header, lo que indica que está mal formateado o corrupto\n  → NSBLK debe ser > 0 para definir el número de muestras por bloque temporal\n  → Recomendación: Verificar el origen del archivo o obtener una versión correcta") from e
         elif "Dimensiones inválidas" in str(e):
@@ -343,7 +361,7 @@ def load_fits_file(file_name: str) -> np.ndarray:
     except Exception as e:
         print(f"[Error cargando FITS con fitsio/astropy] {e}")
         try:
-            # Intentar sin memmap para archivos corruptos
+                                                         
             with fits.open(file_name, memmap=False) as f:
                 data_hdu = None
                 for hdu_item in f:
@@ -367,7 +385,7 @@ def load_fits_file(file_name: str) -> np.ndarray:
                         num_pols = safe_int(h.get("NPOL", 2))
                         num_chans = safe_int(h.get("NCHAN", raw_data.shape[-1]))
                         if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
-                            # Mensaje detallado para el fallback también
+                                                                        
                             error_details = []
                             if total_samples <= 0:
                                 error_details.append(f"total_samples={total_samples} (NAXIS2={h.get('NAXIS2', 1)} × NSBLK={h.get('NSBLK', 1)})")
@@ -414,7 +432,7 @@ def load_fits_file(file_name: str) -> np.ndarray:
         print(f">> Invirtiendo eje de frecuencia de los datos cargados para {file_name}")
         data_array = np.ascontiguousarray(data_array[:, :, ::-1])
     
-    # DEBUG: Información de los datos cargados
+                                              
     if config.DEBUG_FREQUENCY_ORDER:
         print(f"[DEBUG DATOS CARGADOS] Archivo: {file_name}")
         print(f"[DEBUG DATOS CARGADOS] Shape de datos: {data_array.shape}")
@@ -430,10 +448,11 @@ def load_fits_file(file_name: str) -> np.ndarray:
     return data_array
 
 
+# This function gets obparams.
 def get_obparams(file_name: str) -> None:
     """Extract observation parameters and populate :mod:`config`."""
     
-    # DEBUG: Información de entrada del archivo
+                                               
     if config.DEBUG_FREQUENCY_ORDER:
         print(f"[DEBUG HEADER] Iniciando extracción de parámetros de: {file_name}")
         print(f"[DEBUG HEADER] " + "="*60)
@@ -441,7 +460,7 @@ def get_obparams(file_name: str) -> None:
     with fits.open(file_name, memmap=True) as f:
         freq_axis_inverted = False
         
-        # DEBUG: Estructura del archivo FITS
+                                            
         if config.DEBUG_FREQUENCY_ORDER:
             print(f"[DEBUG HEADER] Estructura del archivo FITS:")
             for i, hdu in enumerate(f):
@@ -458,16 +477,26 @@ def get_obparams(file_name: str) -> None:
                     print(f"[DEBUG HEADER]   HDU {i}: {hdu_type} - Sin header")
         
         if "SUBINT" in [hdu.name for hdu in f] and "TBIN" in f["SUBINT"].header:
-            # DEBUG: Procesando formato PSRFITS
+                                               
             if config.DEBUG_FREQUENCY_ORDER:
                 print(f"[DEBUG HEADER] Formato detectado: PSRFITS (SUBINT)")
             
             hdr = f["SUBINT"].header
             primary = f["PRIMARY"].header if "PRIMARY" in [h.name for h in f] else {}
-            sub_data = f["SUBINT"].data
-            # Convertir a tipos numéricos explícitamente por si vengan como strings
+                                                                                     
+            try:
+                sub_data = f["SUBINT"].data
+            except (TypeError, ValueError, OSError) as e:
+                if "buffer is too small" in str(e) or "truncated" in str(e).lower():
+                    print(f"[WARN] Archivo truncado detectado en get_obparams: {file_name}")
+                    print(f"[WARN] Error: {e}")
+                    print(f"[WARN] Saltando archivo truncado")
+                    raise ValueError(f"Archivo FITS truncado: {file_name}") from e
+                else:
+                    raise
+                                                                                   
             config.TIME_RESO = safe_float(hdr.get("TBIN"))
-            # Tiempo por subint: TSUBINT o NSBLK*TBIN
+                                                     
             try:
                 tsubint = safe_float(hdr.get("TSUBINT"))
             except Exception:
@@ -480,7 +509,7 @@ def get_obparams(file_name: str) -> None:
             config.FILE_LENG = (
                 safe_int(hdr.get("NSBLK")) * safe_int(hdr.get("NAXIS2"))
             )
-            # Guardar parámetros PSRFITS relevantes al estilo PRESTO
+                                                                    
             try:
                 config.NBITS = safe_int(hdr.get("NBITS", 8))
             except Exception:
@@ -493,7 +522,7 @@ def get_obparams(file_name: str) -> None:
                 config.POL_TYPE = str(hdr.get("POL_TYPE", "")).upper()
             except Exception:
                 config.POL_TYPE = ""
-            # Tiempo absoluto de inicio (MJD) como PRESTO, con corrección por NSUBOFFS/OFFS_SUB
+                                                                                               
             try:
                 imjd = safe_int(primary.get("STT_IMJD", 0))
                 smjd = safe_float(primary.get("STT_SMJD", 0.0))
@@ -501,17 +530,17 @@ def get_obparams(file_name: str) -> None:
                 tstart_mjd = float(imjd) + (float(smjd) + float(offs)) / 86400.0
             except Exception:
                 tstart_mjd = None
-            # Desplazamiento de subintegraciones iniciales
-            # Desplazamiento de subintegraciones iniciales
+                                                          
+                                                          
             try:
                 nsuboffs = safe_int(hdr.get("NSUBOFFS", 0))
             except Exception:
                 nsuboffs = 0
-            # Si existe OFFS_SUB, ajustar NSUBOFFS efectivo como hace PRESTO
+                                                                            
             try:
                 if "OFFS_SUB" in f["SUBINT"].columns.names:
-                    offs_sub_first = safe_float(sub_data[0]["OFFS_SUB"])  # seg desde inicio hasta centro del subint
-                    # numrows ~ (offs_sub - 0.5*TSUBINT) / TSUBINT
+                    offs_sub_first = safe_float(sub_data[0]["OFFS_SUB"])                                            
+                                                                  
                     numrows = int((offs_sub_first - 0.5 * tsubint) / tsubint + 1e-7)
                     if numrows >= 0:
                         nsuboffs = numrows
@@ -521,7 +550,7 @@ def get_obparams(file_name: str) -> None:
                 config.NSUBOFFS = nsuboffs
             except Exception:
                 pass
-            # Aplicar corrección a TSTART_MJD si la base está disponible
+                                                                        
             if tstart_mjd is not None:
                 try:
                     config.TSTART_MJD = tstart_mjd
@@ -538,7 +567,7 @@ def get_obparams(file_name: str) -> None:
                 nchan = safe_int(hdr.get("NCHAN", 512), 512)
                 freq_temp = np.linspace(1000, 1500, nchan)
             
-            # DEBUG: Headers PSRFITS específicos
+                                                
             if config.DEBUG_FREQUENCY_ORDER:
                 print(f"[DEBUG HEADER] Headers PSRFITS extraídos:")
                 print(
@@ -554,15 +583,21 @@ def get_obparams(file_name: str) -> None:
                 if 'SRC_NAME' in hdr:
                     print(f"[DEBUG HEADER]   Fuente: {hdr['SRC_NAME']}")
             
-            # Decidir orientación como PRESTO: usar el signo de df=DAT_FREQ[1]-DAT_FREQ[0]
+                                                                                          
             if len(freq_temp) > 1:
                 df = float(freq_temp[1] - freq_temp[0])
                 if df < 0:
                     freq_axis_inverted = True
                     if config.DEBUG_FREQUENCY_ORDER:
                         print(f"[DEBUG HEADER] DAT_FREQ descendente → invertir banda (estilo PRESTO)")
+                else:
+                                                                                                                    
+                                                                         
+                    freq_axis_inverted = True
+                    if config.DEBUG_FREQUENCY_ORDER:
+                        print(f"[DEBUG HEADER] DAT_FREQ ascendente → invertir banda (estilo radioastronomía)")
         else:
-            # DEBUG: Procesando formato FITS estándar
+                                                     
             if config.DEBUG_FREQUENCY_ORDER:
                 print(f"[DEBUG HEADER] Formato detectado: FITS estándar (no PSRFITS)")
             
@@ -583,13 +618,13 @@ def get_obparams(file_name: str) -> None:
                 if data_hdu_index == 0 and len(f) > 1:
                     data_hdu_index = 1
                 
-                # DEBUG: HDU seleccionado
+                                         
                 if config.DEBUG_FREQUENCY_ORDER:
                     print(f"[DEBUG HEADER] HDU seleccionado para datos: {data_hdu_index}")
                 
                 hdr = f[data_hdu_index].header
                 
-                # DEBUG: Headers FITS estándar
+                                              
                 if config.DEBUG_FREQUENCY_ORDER:
                     print(f"[DEBUG HEADER] Headers FITS estándar del HDU {data_hdu_index}:")
                     relevant_keys = ['TBIN', 'NCHAN', 'NAXIS2', 'NSBLK', 'NPOL', 'CRVAL1', 'CRVAL2', 'CRVAL3', 
@@ -619,7 +654,7 @@ def get_obparams(file_name: str) -> None:
                     
                     if config.DEBUG_FREQUENCY_ORDER:
                         print(f"[DEBUG HEADER] Buscando eje de frecuencias en headers WCS...")
-                        print(f"[DEBUG HEADER] Eje de frecuencias detectado: CTYPE{freq_axis_num}" if freq_axis_num else "📋 [DEBUG HEADER] ⚠️ No se encontró eje de frecuencias")
+                        print(f"[DEBUG HEADER] Eje de frecuencias detectado: CTYPE{freq_axis_num}" if freq_axis_num else "[DEBUG HEADER] No se encontró eje de frecuencias")
                     
                     if freq_axis_num:
                         crval = hdr.get(f'CRVAL{freq_axis_num}', 0)
@@ -648,18 +683,23 @@ def get_obparams(file_name: str) -> None:
                         if cdelt < 0:
                             freq_axis_inverted = True
                             if config.DEBUG_FREQUENCY_ORDER:
-                                print(f"[DEBUG HEADER]   ⚠️ CDELT negativo - frecuencias invertidas!")
+                                print(f"[DEBUG HEADER]   [WARNING] CDELT negativo - frecuencias invertidas!")
+                        else:
+                                                                                                                            
+                            freq_axis_inverted = True
+                            if config.DEBUG_FREQUENCY_ORDER:
+                                print(f"[DEBUG HEADER]   [WARNING] CDELT positivo - invirtiendo para estándar radioastronomía!")
                     else:
                         if config.DEBUG_FREQUENCY_ORDER:
-                            print(f"[DEBUG HEADER] ⚠️ Usando frecuencias por defecto: 1000-1500 MHz")
+                            print(f"[DEBUG HEADER] [WARNING] Usando frecuencias por defecto: 1000-1500 MHz")
                         freq_temp = np.linspace(1000, 1500, hdr.get('NCHAN', 512))
                 
-                # Convertir a tipos numéricos para evitar errores de comparación
+                                                                                
                 config.TIME_RESO = safe_float(hdr.get("TBIN"))
                 config.FREQ_RESO = safe_int(hdr.get("NCHAN", len(freq_temp)))
                 config.FILE_LENG = safe_int(hdr.get("NAXIS2", 0)) * safe_int(hdr.get("NSBLK", 1))
                 
-                # DEBUG: Parámetros finales extraídos
+                                                     
                 if config.DEBUG_FREQUENCY_ORDER:
                     print(f"[DEBUG HEADER] Parámetros finales FITS estándar:")
                     print(f"[DEBUG HEADER]   TIME_RESO: {config.TIME_RESO:.2e} s")
@@ -668,7 +708,7 @@ def get_obparams(file_name: str) -> None:
                     
             except Exception as e_std:
                 if config.DEBUG_FREQUENCY_ORDER:
-                    print(f"[DEBUG HEADER] ⚠️ Error procesando FITS estándar: {e_std}")
+                    print(f"[DEBUG HEADER] [WARNING] Error procesando FITS estándar: {e_std}")
                     print(f"[DEBUG HEADER] Usando valores por defecto...")
                 print(f"Error procesando FITS estándar: {e_std}")
                 config.TIME_RESO = 5.12e-5
@@ -676,7 +716,7 @@ def get_obparams(file_name: str) -> None:
                 config.FILE_LENG = 100000
                 freq_temp = np.linspace(1000, 1500, config.FREQ_RESO)
         if freq_axis_inverted:
-            # PRESTO marcaría need_flipband, aquí invertimos para mantener orden ascendente interno
+                                                                                                   
             config.FREQ = freq_temp[::-1]
             config.DATA_NEEDS_REVERSAL = True
             try:
@@ -691,11 +731,11 @@ def get_obparams(file_name: str) -> None:
             except Exception:
                 pass
 
-    # DEBUG: Orden de frecuencias
+                                 
     if config.DEBUG_FREQUENCY_ORDER:
         print_debug_frequencies("[DEBUG FRECUENCIAS]", file_name, freq_axis_inverted)
 
-    # DEBUG: Información completa del archivo
+                                             
     if config.DEBUG_FREQUENCY_ORDER:
         print(f"[DEBUG ARCHIVO] Información completa del archivo: {file_name}")
         print(f"[DEBUG ARCHIVO] " + "="*60)
@@ -704,7 +744,7 @@ def get_obparams(file_name: str) -> None:
         print(f"[DEBUG ARCHIVO]   - Resolución de frecuencia: {config.FREQ_RESO} canales")
         print(f"[DEBUG ARCHIVO]   - Longitud del archivo: {config.FILE_LENG:,} muestras")
         
-        # Calcular duración total
+                                 
         duracion_total_seg = config.FILE_LENG * config.TIME_RESO
         duracion_min = duracion_total_seg / 60
         duracion_horas = duracion_min / 60
@@ -723,8 +763,8 @@ def get_obparams(file_name: str) -> None:
         print(f"[DEBUG ARCHIVO]   - Canales después de decimación: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
         print(f"[DEBUG ARCHIVO]   - Resolución temporal después: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} seg/muestra")
         
-        # Calcular tamaño aproximado de datos
-        size_original_gb = (config.FILE_LENG * config.FREQ_RESO * 4) / (1024**3)  # 4 bytes por float32
+                                             
+        size_original_gb = (config.FILE_LENG * config.FREQ_RESO * 4) / (1024**3)                       
         size_decimated_gb = size_original_gb / (config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE)
         print(f"[DEBUG ARCHIVO] TAMAÑO ESTIMADO:")
         print(f"[DEBUG ARCHIVO]   - Datos originales: ~{size_original_gb:.2f} GB")
@@ -743,10 +783,10 @@ def get_obparams(file_name: str) -> None:
         print(f"[DEBUG ARCHIVO]   - Umbrales: DET_PROB={config.DET_PROB}, CLASS_PROB={config.CLASS_PROB}, SNR_THRESH={config.SNR_THRESH}")
         print(f"[DEBUG ARCHIVO] " + "="*60)
 
-    # RESPETAR CONFIGURACIONES DEL USUARIO - calcular automáticamente si corresponde
+                                                                                    
     auto_config_downsampling()
 
-    # DEBUG: Configuración final de decimación
+                                              
     if config.DEBUG_FREQUENCY_ORDER:
         print(f"[DEBUG CONFIG FINAL] Configuración final después de get_obparams:")
         print(f"[DEBUG CONFIG FINAL] " + "="*60)
@@ -760,7 +800,7 @@ def get_obparams(file_name: str) -> None:
         print(f"[DEBUG CONFIG FINAL] Orden de frecuencias final: {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
         print(f"[DEBUG CONFIG FINAL] " + "="*60)
 
-    # *** GUARDAR DEBUG INFO EN SUMMARY.JSON INMEDIATAMENTE ***
+                                                               
     if config.DEBUG_FREQUENCY_ORDER:
         save_file_debug_info(file_name, {
             "file_type": "fits",
@@ -814,6 +854,7 @@ def get_obparams(file_name: str) -> None:
         })
 
 
+# This function streams FITS.
 def stream_fits(
     file_name: str,
     chunk_samples: int = 2_097_152,
@@ -831,35 +872,71 @@ def stream_fits(
         Tuple[data_block, metadata]: Bloque de datos (time, pol, chan) y metadatos
     """
     
+                                                                                        
+    # This function converts a SUBINT row into a data block.
+    def _row_to_block(row_data: np.ndarray, row: np.ndarray, subint, nbits: int, nsblk: int, npol: int, nchan: int, zero_off: float, pol_type: str) -> np.ndarray:
+                                                        
+        if nbits < 8:
+            if nbits == 4:
+                unpacked = _unpack_4bit(row_data)
+            elif nbits == 2:
+                unpacked = _unpack_2bit(row_data)
+            elif nbits == 1:
+                unpacked = _unpack_1bit(row_data)
+            else:
+                raise ValueError(f"NBITS={nbits} no soportado")
+            try:
+                tmpb = unpacked.reshape(nsblk, npol, nchan)
+            except Exception:
+                tmpb = unpacked.reshape(nsblk, nchan, npol).swapaxes(1, 2)
+            tmpb = tmpb.astype(np.float32, copy=False)
+        else:
+            arrb = np.asarray(row_data)
+            try:
+                tmpb = arrb.reshape(nsblk, npol, nchan)
+            except Exception:
+                tmpb = arrb.reshape(nsblk, nchan, npol).swapaxes(1, 2)
+            if tmpb.dtype != np.float32:
+                tmpb = tmpb.astype(np.float32, copy=False)
+
+                              
+        dat_wts_b = row["DAT_WTS"].astype(np.float32, copy=False) if "DAT_WTS" in subint.columns.names else None
+        dat_scl_b = row["DAT_SCL"].astype(np.float32, copy=False) if "DAT_SCL" in subint.columns.names else None
+        dat_offs_b = row["DAT_OFFS"].astype(np.float32, copy=False) if "DAT_OFFS" in subint.columns.names else None
+        tmpb = _apply_calibration(tmpb, dat_wts_b, dat_scl_b, dat_offs_b, zero_off)
+                                               
+        sel = _select_polarization(tmpb, pol_type, getattr(config, 'POLARIZATION_MODE', 'intensity'), getattr(config, 'POLARIZATION_INDEX', 0))
+        return sel
+    
     try:
         print(f"[INFO] Streaming datos FITS: chunk_size={chunk_samples}, overlap={overlap_samples}")
         
-        # Intentar primero con 'your' si está disponible (homólogo a plot_waterfall.py)
+                                                                                       
         try:
             if your_psrfits is not None:
                 pf = your_psrfits.PsrfitsFile([file_name])
                 nspec = int(pf.nspectra())
                 npol = int(pf.npol)
                 nchan = int(pf.nchans)
-                tsamp = float(pf.native_tsamp())  # segundos
-                # Emitir por chunks, leyendo bloques de datos crudos y seleccionando pol 0
+                tsamp = float(pf.native_tsamp())            
+                                                                                          
                 print(f"[INFO] Streaming PSRFITS (your): nspec={nspec}, npol={npol}, nchan={nchan}, tsamp={tsamp}")
                 total_samples = nspec
                 log_stream_fits_parameters(total_samples, chunk_samples, overlap_samples, None, nchan, npol, None)
                 chunk_counter = 0
                 emitted = 0
-                # Usar solapes simétricos si se solicita
+                                                        
                 step = chunk_samples
                 while emitted < nspec:
                     start = emitted
-                    # Leer con solape a ambos lados si cabe
+                                                           
                     read_start = max(0, start - overlap_samples)
                     read_end = min(nspec, start + step + overlap_samples)
                     count = read_end - read_start
-                    arr = pf.get_data(read_start, count, npoln=npol)  # (count, npol, nchan)
+                    arr = pf.get_data(read_start, count, npoln=npol)                        
                     if arr.ndim != 3:
                         raise ValueError("Forma inesperada en 'your' get_data")
-                    # Seleccionar pol 0 y flip si foff > 0 para convención interna
+                                                                                  
                     block = _select_polarization(arr, getattr(pf, 'pol_type', 'IQUV'), getattr(config, 'POLARIZATION_MODE', 'intensity'), getattr(config, 'POLARIZATION_INDEX', 0))
                     try:
                         if getattr(pf, 'foff', 0.0) > 0:
@@ -899,7 +976,7 @@ def stream_fits(
                         "dtype": str(block.dtype),
                         "shape": block.shape,
                         "file_type": "fits",
-                        # Tiempos relativos en segundos (homólogo a plot_waterfall)
+                                                                                   
                         "tbin_sec": tsamp,
                         "t_rel_start_sec": valid_start * tsamp,
                         "t_rel_end_sec": valid_end * tsamp,
@@ -910,12 +987,22 @@ def stream_fits(
                 log_stream_fits_summary(chunk_counter)
                 return
 
-            # Streaming específico PSRFITS leyendo filas SUBINT (manejo de gaps por OFFS_SUB)
+                                                                                             
             with fits.open(file_name, memmap=True) as hdul:
                 if "SUBINT" in [hdu.name for hdu in hdul] and "DATA" in hdul["SUBINT"].columns.names:
                     subint = hdul["SUBINT"]
                     hdr = subint.header
-                    tbl = subint.data
+                                                                                             
+                    try:
+                        tbl = subint.data
+                    except (TypeError, ValueError, OSError) as e:
+                        if "buffer is too small" in str(e) or "truncated" in str(e).lower():
+                            print(f"[WARN] Archivo truncado detectado: {file_name}")
+                            print(f"[WARN] Error: {e}")
+                            print(f"[WARN] Saltando archivo truncado")
+                            raise ValueError(f"Archivo FITS truncado: {file_name}") from e
+                        else:
+                            raise
                     nsubint = safe_int(hdr.get("NAXIS2", 0))
                     nchan = safe_int(hdr.get("NCHAN", 0))
                     npol = safe_int(hdr.get("NPOL", 0))
@@ -923,105 +1010,73 @@ def stream_fits(
                     nbits = safe_int(hdr.get("NBITS", 8))
                     zero_off = safe_float(hdr.get("ZERO_OFF", 0.0))
                     tbin = safe_float(hdr.get("TBIN"))
-                    # TSUBINT preferente, si no: nsblk * tbin
+                                                             
                     tsub = safe_float(hdr.get("TSUBINT", nsblk * tbin))
-                    # TSTART_MJD y su corrección (para trazabilidad absoluta)
+                                                                             
                     primary = hdul["PRIMARY"].header if "PRIMARY" in [h.name for h in hdul] else {}
                     imjd = safe_int(primary.get("STT_IMJD", 0))
                     smjd = safe_float(primary.get("STT_SMJD", 0.0))
                     offs = safe_float(primary.get("STT_OFFS", 0.0))
                     tstart_mjd = float(imjd) + (float(smjd) + float(offs)) / 86400.0
-                    # NSUBOFFS + ajuste con OFFS_SUB de la primera fila
+                                                                       
                     nsuboffs = safe_int(hdr.get("NSUBOFFS", 0))
                     if "OFFS_SUB" in subint.columns.names:
                         try:
-                            offs_sub_first = safe_float(tbl[0]["OFFS_SUB"])  # s
+                            offs_sub_first = safe_float(tbl[0]["OFFS_SUB"])     
                             numrows = int((offs_sub_first - 0.5 * tsub) / tsub + 1e-7)
                             if numrows >= 0:
                                 nsuboffs = numrows
                         except Exception:
                             pass
-                    # Inicializar contadores
+                                            
                     total_samples = nsubint * nsblk
                     print(f"[INFO] Datos FITS detectados: {total_samples} muestras, {npol} pols, {nchan} canales")
                     log_stream_fits_parameters(total_samples, chunk_samples, overlap_samples, nsubint, nchan, npol, nsblk)
 
-                    # Buffer temporal del chunk a emitir
+                                                        
                     out_buf = np.empty((0, 1, nchan), dtype=np.float32)
-                    emitted = 0  # muestras emitidas
+                    emitted = 0                     
 
-                    # Funciones auxiliares
-                    def _row_to_block(row_data: np.ndarray) -> np.ndarray:
-                        # Desempaquetar y reshape a (nsblk, npol, nchan)
-                        if nbits < 8:
-                            if nbits == 4:
-                                unpacked = _unpack_4bit(row_data)
-                            elif nbits == 2:
-                                unpacked = _unpack_2bit(row_data)
-                            elif nbits == 1:
-                                unpacked = _unpack_1bit(row_data)
-                            else:
-                                raise ValueError(f"NBITS={nbits} no soportado")
-                            try:
-                                tmpb = unpacked.reshape(nsblk, npol, nchan)
-                            except Exception:
-                                tmpb = unpacked.reshape(nsblk, nchan, npol).swapaxes(1, 2)
-                            tmpb = tmpb.astype(np.float32, copy=False)
-                        else:
-                            arrb = np.asarray(row_data)
-                            try:
-                                tmpb = arrb.reshape(nsblk, npol, nchan)
-                            except Exception:
-                                tmpb = arrb.reshape(nsblk, nchan, npol).swapaxes(1, 2)
-                            if tmpb.dtype != np.float32:
-                                tmpb = tmpb.astype(np.float32, copy=False)
+                                                                                
 
-                        # Calibración por fila
-                        dat_wts_b = row["DAT_WTS"].astype(np.float32, copy=False) if "DAT_WTS" in subint.columns.names else None
-                        dat_scl_b = row["DAT_SCL"].astype(np.float32, copy=False) if "DAT_SCL" in subint.columns.names else None
-                        dat_offs_b = row["DAT_OFFS"].astype(np.float32, copy=False) if "DAT_OFFS" in subint.columns.names else None
-                        tmpb = _apply_calibration(tmpb, dat_wts_b, dat_scl_b, dat_offs_b, zero_off)
-                        # Seleccionar polarización según config
-                        sel = _select_polarization(tmpb, pol_type, getattr(config, 'POLARIZATION_MODE', 'intensity'), getattr(config, 'POLARIZATION_INDEX', 0))
-                        return sel
-
-                    # Para control de gaps: función que da el sample index esperado del inicio de subint
+                                                                                                        
+                    # This function estimates the expected start sample.
                     def _expected_start_sample(offs_sub_seconds: float, sub_index: int) -> int:
                         if offs_sub_seconds is not None:
-                            # Inicio del subint = centro - TSUBINT/2
+                                                                    
                             start_sec = float(offs_sub_seconds) - 0.5 * tsub
                             return int(round(start_sec / tbin))
-                        # Si no hay OFFS_SUB, usar NSUBOFFS y el índice
+                                                                       
                         return (nsuboffs + sub_index) * nsblk
 
-                    # Iteración por filas SUBINT
+                                                
                     chunk_counter = 0
-                    # POL_TYPE del header
+                                         
                     pol_type = str(hdr.get("POL_TYPE", "")).upper() if hdr.get("POL_TYPE") is not None else ""
                     for isub in range(nsubint):
                         row = tbl[isub]
                         offs_sub_val = None
                         if "OFFS_SUB" in subint.columns.names:
                             try:
-                                offs_sub_val = safe_float(row["OFFS_SUB"])  # s
+                                offs_sub_val = safe_float(row["OFFS_SUB"])     
                             except Exception:
                                 offs_sub_val = None
 
                         expected_start = _expected_start_sample(offs_sub_val, isub)
-                        # Insertar padding si hay gap
+                                                     
                         if emitted < expected_start:
                             gap = expected_start - emitted
                             pad = np.zeros((gap, 1, nchan), dtype=np.float32)
-                            # Añadir pad al buffer
+                                                  
                             out_buf = np.concatenate([out_buf, pad], axis=0)
                             emitted += gap
 
-                        # Convertir fila a bloque calibrado
-                        block = _row_to_block(row["DATA"])
+                                                           
+                        block = _row_to_block(row["DATA"], row, subint, nbits, nsblk, npol, nchan, zero_off, pol_type)
                         out_buf = np.concatenate([out_buf, block], axis=0)
                         emitted += block.shape[0]
 
-                        # Emitir chunks cuando haya suficientes muestras
+                                                                        
                         while out_buf.shape[0] >= (chunk_samples + overlap_samples * 2):
                             chunk_counter += 1
                             start_with_overlap = 0
@@ -1029,10 +1084,10 @@ def stream_fits(
                             valid_start = overlap_samples
                             valid_end = valid_start + chunk_samples
                             block_out = out_buf[start_with_overlap:end_with_overlap].copy()
-                            # Metadatos de tiempo
+                                                 
                             start_sample_idx = emitted - out_buf.shape[0] + valid_start
                             end_sample_idx = start_sample_idx + chunk_samples
-                            # Log y yield
+                                         
                             log_stream_fits_block_generation(
                                 chunk_counter,
                                 block_out.shape,
@@ -1058,23 +1113,23 @@ def stream_fits(
                                 "dtype": str(block_out.dtype),
                                 "shape": block_out.shape,
                                 "file_type": "fits",
-                                # Tiempos relativos en segundos (homólogo a plot_waterfall)
+                                                                                           
                                 "tbin_sec": tbin,
                                 "t_rel_start_sec": start_sample_idx * tbin,
                                 "t_rel_end_sec": end_sample_idx * tbin,
-                                # Trazabilidad absoluta (MJD) si se requiere
+                                                                            
                                 "tstart_mjd": tstart_mjd,
                                 "tstart_mjd_corr": tstart_mjd + (nsuboffs * tsub) / 86400.0,
                                 "tsubint_sec": tsub,
                             }
                             yield block_out, metadata
-                            # Recortar buffer (dejar el solape al frente)
+                                                                         
                             out_buf = out_buf[chunk_samples:]
 
-                    # Emitir resto si existe
+                                            
                     if out_buf.shape[0] > 0:
                         chunk_counter += 1
-                        # No podemos garantizar los solapes al final; emitir tal cual
+                                                                                     
                         valid_start = 0
                         valid_end = out_buf.shape[0]
                         block_out = out_buf.copy()
@@ -1103,11 +1158,11 @@ def stream_fits(
                             "dtype": str(block_out.dtype),
                             "shape": block_out.shape,
                             "file_type": "fits",
-                            # Tiempos relativos en segundos (homólogo a plot_waterfall)
+                                                                                       
                             "tbin_sec": tbin,
                             "t_rel_start_sec": (emitted - out_buf.shape[0] + valid_start) * tbin,
                             "t_rel_end_sec": emitted * tbin,
-                            # Trazabilidad absoluta (MJD) si se requiere
+                                                                        
                             "tstart_mjd": tstart_mjd,
                             "tstart_mjd_corr": tstart_mjd + (nsuboffs * tsub) / 86400.0,
                             "tsubint_sec": tsub,
@@ -1117,7 +1172,7 @@ def stream_fits(
                     log_stream_fits_summary(chunk_counter)
                     return
 
-                # No PSRFITS → fallback a carga y chunking como antes
+                                                                     
                 if fitsio is None:
                     raise ImportError("fitsio no está instalado. Instale con: pip install fitsio")
                 temp_data, h = fitsio.read(file_name, header=True)
@@ -1128,7 +1183,7 @@ def stream_fits(
                 log_stream_fits_parameters(nsamples, chunk_samples, overlap_samples, None, nchans, npols, None)
                 data_array = load_fits_file(file_name)
                 use_memmap = False
-                # Emisión por chunks sin lógica de OFFS_SUB
+                                                           
                 chunk_counter = 0
                 for chunk_start in range(0, nsamples, chunk_samples):
                     chunk_counter += 1
@@ -1162,7 +1217,7 @@ def stream_fits(
                         "dtype": str(block.dtype),
                         "shape": block.shape,
                         "file_type": "fits",
-                        # Tiempos relativos en segundos si es posible
+                                                                     
                         "tbin_sec": float(config.TIME_RESO) if hasattr(config, 'TIME_RESO') else None,
                         "t_rel_start_sec": (valid_start * float(config.TIME_RESO)) if hasattr(config, 'TIME_RESO') else None,
                         "t_rel_end_sec": (valid_end * float(config.TIME_RESO)) if hasattr(config, 'TIME_RESO') else None,
@@ -1170,8 +1225,180 @@ def stream_fits(
                     yield block, metadata
                 log_stream_fits_summary(chunk_counter)
         except Exception as e:
-            print(f"[ERROR] Error en stream_fits: {e}")
-            raise
+            print(f"[WARN] Error con 'your' PSRFITS, usando fallback de astropy: {e}")
+                                                                              
+            
+                                                                                             
+            with fits.open(file_name, memmap=True) as hdul:
+                if "SUBINT" in [hdu.name for hdu in hdul] and "DATA" in hdul["SUBINT"].columns.names:
+                    subint = hdul["SUBINT"]
+                    hdr = subint.header
+                                                                                             
+                    try:
+                        tbl = subint.data
+                    except (TypeError, ValueError, OSError) as e:
+                        if "buffer is too small" in str(e) or "truncated" in str(e).lower():
+                            print(f"[WARN] Archivo truncado detectado: {file_name}")
+                            print(f"[WARN] Error: {e}")
+                            print(f"[WARN] Saltando archivo truncado")
+                            raise ValueError(f"Archivo FITS truncado: {file_name}") from e
+                        else:
+                            raise
+                    nsubint = safe_int(hdr.get("NAXIS2", 0))
+                    nchan = safe_int(hdr.get("NCHAN", 0))
+                    npol = safe_int(hdr.get("NPOL", 0))
+                    nsblk = safe_int(hdr.get("NSBLK", 1))
+                    nbits = safe_int(hdr.get("NBITS", 8))
+                    zero_off = safe_float(hdr.get("ZERO_OFF", 0.0))
+                    tbin = safe_float(hdr.get("TBIN"))
+                                                             
+                    tsub = safe_float(hdr.get("TSUBINT", nsblk * tbin))
+                                                                             
+                    primary = hdul["PRIMARY"].header if "PRIMARY" in [h.name for h in hdul] else {}
+                    tstart_mjd = safe_float(primary.get("TSTART", 0.0))
+                    nsuboffs = safe_int(primary.get("NSUBOFFS", 0))
+                    
+                    print(f"[INFO] Streaming PSRFITS (astropy fallback): nsubint={nsubint}, nchan={nchan}, npol={npol}, tbin={tbin}")
+                    
+                                                                        
+                    pol_type = str(hdr.get("POL_TYPE", "")).upper() if hdr.get("POL_TYPE") is not None else ""
+                    
+                                                      
+                    total_samples = nsubint * nsblk
+                    log_stream_fits_parameters(total_samples, chunk_samples, overlap_samples, None, nchan, npol, None)
+                    
+                                                           
+                    out_buf = np.zeros((0, 1, nchan), dtype=np.float32)
+                    emitted = 0
+                    chunk_counter = 0
+                    
+                                               
+                    for i, row in enumerate(tbl):
+                                                             
+                        expected_start = i * nsblk
+                        
+                                                 
+                        if expected_start > emitted:
+                            gap = expected_start - emitted
+                            pad = np.zeros((gap, 1, nchan), dtype=np.float32)
+                                                  
+                            out_buf = np.concatenate([out_buf, pad], axis=0)
+                            emitted += gap
+                        
+                                                           
+                        block = _row_to_block(row["DATA"], row, subint, nbits, nsblk, npol, nchan, zero_off, pol_type)
+                        out_buf = np.concatenate([out_buf, block], axis=0)
+                        emitted += block.shape[0]
+                        
+                                                                        
+                        while out_buf.shape[0] >= (chunk_samples + overlap_samples * 2):
+                            chunk_counter += 1
+                            start_with_overlap = 0
+                            end_with_overlap = chunk_samples + overlap_samples * 2
+                            valid_start = overlap_samples
+                            valid_end = valid_start + chunk_samples
+                            block_out = out_buf[start_with_overlap:end_with_overlap].copy()
+                            
+                                                                         
+                            if config.DATA_NEEDS_REVERSAL:
+                                block_out = block_out[:, :, ::-1]
+                            
+                                                                                                                 
+                                                                           
+                            start_sample_idx = emitted - out_buf.shape[0]
+                            end_sample_idx = start_sample_idx + chunk_samples
+                            
+                                         
+                            log_stream_fits_block_generation(
+                                chunk_counter,
+                                block_out.shape,
+                                str(block_out.dtype),
+                                start_sample_idx,
+                                end_sample_idx,
+                                start_with_overlap,
+                                end_with_overlap,
+                                chunk_samples,
+                            )
+                            metadata = {
+                                "chunk_idx": start_sample_idx // chunk_samples,
+                                "start_sample": start_sample_idx,
+                                "end_sample": end_sample_idx,
+                                "actual_chunk_size": chunk_samples,
+                                "block_start_sample": emitted - out_buf.shape[0],
+                                "block_end_sample": emitted - out_buf.shape[0] + end_with_overlap,
+                                "overlap_left": overlap_samples,
+                                "overlap_right": overlap_samples,
+                                "total_samples": total_samples,
+                                "nchans": nchan,
+                                "nifs": 1,
+                                "dtype": str(block_out.dtype),
+                                "shape": block_out.shape,
+                                "file_type": "fits",
+                                                                                           
+                                "tbin_sec": tbin,
+                                "t_rel_start_sec": start_sample_idx * tbin,
+                                "t_rel_end_sec": end_sample_idx * tbin,
+                                                                            
+                                "tstart_mjd": tstart_mjd,
+                                "tstart_mjd_corr": tstart_mjd + (nsuboffs * tsub) / 86400.0,
+                                "tsubint_sec": tsub,
+                            }
+                            yield block_out, metadata
+                                                                         
+                            out_buf = out_buf[chunk_samples:]
+                    
+                                            
+                    if out_buf.shape[0] > 0:
+                        chunk_counter += 1
+                                                                                     
+                        valid_start = 0
+                        valid_end = out_buf.shape[0]
+                        block_out = out_buf.copy()
+                        
+                                                                     
+                        if config.DATA_NEEDS_REVERSAL:
+                            block_out = block_out[:, :, ::-1]
+                        
+                        log_stream_fits_block_generation(
+                            chunk_counter,
+                            block_out.shape,
+                            str(block_out.dtype),
+                            emitted - out_buf.shape[0],                                     
+                            emitted,                                   
+                            valid_start,
+                            valid_end,
+                            valid_end - valid_start,
+                        )
+                        metadata = {
+                            "chunk_idx": (emitted - out_buf.shape[0]) // max(1, chunk_samples),
+                            "start_sample": emitted - out_buf.shape[0],                                     
+                            "end_sample": emitted,
+                            "actual_chunk_size": valid_end - valid_start,
+                            "block_start_sample": emitted - out_buf.shape[0],
+                            "block_end_sample": emitted,
+                            "overlap_left": 0,
+                            "overlap_right": 0,
+                            "total_samples": total_samples,
+                            "nchans": nchan,
+                            "nifs": 1,
+                            "dtype": str(block_out.dtype),
+                            "shape": block_out.shape,
+                            "file_type": "fits",
+                                                                                       
+                            "tbin_sec": tbin,
+                            "t_rel_start_sec": (emitted - out_buf.shape[0]) * tbin,
+                            "t_rel_end_sec": emitted * tbin,
+                                                                        
+                            "tstart_mjd": tstart_mjd,
+                            "tstart_mjd_corr": tstart_mjd + (nsuboffs * tsub) / 86400.0,
+                            "tsubint_sec": tsub,
+                        }
+                        yield block_out, metadata
+                    
+                    log_stream_fits_summary(chunk_counter)
+                    return
+                else:
+                    raise ValueError(f"Archivo FITS no tiene estructura SUBINT válida: {file_name}")
         
     except Exception as e:
         print(f"[ERROR] Error en stream_fits: {e}")

@@ -1,25 +1,28 @@
+# This module plots dedispersed waterfall visualizations.
+
 """Waterfall dedispersed plot generation module for FRB pipeline - identical to the center panel in composite plot."""
 from __future__ import annotations
 
-# Standard library imports
+                          
 import logging
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
-# Third-party imports
+                     
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import gridspec
 
-# Local imports
+               
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..config import config
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
 
-# Setup logger
+              
 logger = logging.getLogger(__name__)
 
 
+# This function gets band frequency range.
 def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
     """Get the frequency range (min, max) for a specific band."""
     freq_ds = np.mean(
@@ -27,12 +30,12 @@ def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
         axis=1,
     )
     
-    if band_idx == 0:  # Full Band
+    if band_idx == 0:             
         return freq_ds.min(), freq_ds.max()
-    elif band_idx == 1:  # Low Band 
+    elif band_idx == 1:             
         mid_channel = len(freq_ds) // 2
         return freq_ds.min(), freq_ds[mid_channel]
-    elif band_idx == 2:  # High Band
+    elif band_idx == 2:             
         mid_channel = len(freq_ds) // 2  
         return freq_ds[mid_channel], freq_ds.max()
     else:
@@ -40,12 +43,14 @@ def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
         return freq_ds.min(), freq_ds.max()
 
 
+# This function gets band name with frequency range.
 def get_band_name_with_freq_range(band_idx: int, band_name: str) -> str:
     """Get band name with frequency range information."""
     freq_min, freq_max = get_band_frequency_range(band_idx)
     return f"{band_name} ({freq_min:.0f}-{freq_max:.0f} MHz)"
 
 
+# This function creates waterfall dedispersed plot.
 def create_waterfall_dedispersed_plot(
     dedispersed_block: np.ndarray,
     waterfall_block: np.ndarray,
@@ -67,7 +72,7 @@ def create_waterfall_dedispersed_plot(
 ) -> plt.Figure:
     """Create waterfall dedispersed plot identical to the center panel in composite plot."""
     
-    # Get band frequency range for display
+                                          
     band_name_with_freq = get_band_name_with_freq_range(band_idx, band_name)
     
     freq_ds = np.mean(
@@ -79,7 +84,7 @@ def create_waterfall_dedispersed_plot(
     )
     time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
 
-    # Check if dedispersed_block is valid
+                                         
     if dedispersed_block is not None and dedispersed_block.size > 0:
         dw_block = dedispersed_block.copy()
     else:
@@ -94,7 +99,7 @@ def create_waterfall_dedispersed_plot(
             dw_block -= dw_block.min()
             dw_block /= dw_block.max() - dw_block.min()
 
-    # Calculate absolute time ranges - IDÉNTICO al composite
+                                                            
     if absolute_start_time is not None:
         slice_start_abs = absolute_start_time
     else:
@@ -103,14 +108,14 @@ def create_waterfall_dedispersed_plot(
     real_samples = slice_samples if slice_samples is not None else slice_len
     slice_end_abs = slice_start_abs + real_samples * config.TIME_RESO * config.DOWN_TIME_RATE
 
-    # Create figure and gridspec - IDÉNTICO al composite
+                                                        
     fig = plt.figure(figsize=(8, 10))
     gs_dedisp_nested = gridspec.GridSpec(2, 1, height_ratios=[1, 4], hspace=0.05)
     
-    # Panel 1: SNR Profile - IDÉNTICO al composite
+                                                  
     ax_prof_dw = fig.add_subplot(gs_dedisp_nested[0, 0])
     
-    # Calculate consistent DM value - IDÉNTICO al composite
+                                                           
     if top_boxes is not None and len(top_boxes) > 0:
         best_candidate_idx = np.argmax(top_conf)
         best_box = top_boxes[best_candidate_idx]
@@ -125,7 +130,7 @@ def create_waterfall_dedispersed_plot(
         else:
             snr_val_candidate = 0.0
     else:
-        dm_val_consistent = 0.0  # Default value if no boxes
+        dm_val_consistent = 0.0                             
         snr_val_candidate = 0.0
     
     if dw_block is not None and dw_block.size > 0:
@@ -205,12 +210,19 @@ def create_waterfall_dedispersed_plot(
         ax_prof_dw.set_xticks([])
         ax_prof_dw.set_title("No Dedispersed Data", fontsize=9, fontweight="bold")
 
-    # Dedispersed waterfall image - IDÉNTICO al composite
+                                                         
     ax_dw = fig.add_subplot(gs_dedisp_nested[1, 0])
     
     if dw_block is not None and dw_block.size > 0:
+                                                               
+        if config.DEBUG_FREQUENCY_ORDER:
+            print(f"[DEBUG PLOT DW] dw_block shape: {dw_block.shape}")
+            print(f"[DEBUG PLOT DW] freq_ds range: {freq_ds.min():.2f} - {freq_ds.max():.2f} MHz")
+            print(f"[DEBUG PLOT DW] freq_ds[0]: {freq_ds[0]:.2f} MHz (debería ser la más baja)")
+            print(f"[DEBUG PLOT DW] freq_ds[-1]: {freq_ds[-1]:.2f} MHz (debería ser la más alta)")
+        
         im_dw = ax_dw.imshow(
-            dw_block.T,
+            dw_block.T,                                                  
             origin="lower",
             cmap="mako",
             aspect="auto",
@@ -246,7 +258,7 @@ def create_waterfall_dedispersed_plot(
         ax_dw.set_xlabel("Time (s)", fontsize=9)
         ax_dw.set_ylabel("Frequency (MHz)", fontsize=9)
 
-    # Set main title - IDÉNTICO al composite
+                                            
     idx_start_ds = int(round(slice_start_abs / (config.TIME_RESO * config.DOWN_TIME_RATE)))
     idx_end_ds = idx_start_ds + real_samples - 1
     start_center = slice_start_abs
@@ -267,7 +279,7 @@ def create_waterfall_dedispersed_plot(
 
     fig.suptitle(title, fontsize=14, fontweight="bold", y=0.97)
     
-    # Add temporal information - IDÉNTICO al composite
+                                                      
     try:
         dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
         global_start_sample = int(round(slice_start_abs / dt_ds))
@@ -293,6 +305,7 @@ def create_waterfall_dedispersed_plot(
     return fig
 
 
+# This function saves waterfall dedispersed plot.
 def save_waterfall_dedispersed_plot(
     dedispersed_block: np.ndarray,
     waterfall_block: np.ndarray,
@@ -315,7 +328,7 @@ def save_waterfall_dedispersed_plot(
 ) -> None:
     """Save waterfall dedispersed plot by creating the figure and saving it to file."""
     
-    # Create the waterfall dedispersed figure
+                                             
     fig = create_waterfall_dedispersed_plot(
         dedispersed_block=dedispersed_block,
         waterfall_block=waterfall_block,
@@ -336,10 +349,10 @@ def save_waterfall_dedispersed_plot(
         slice_samples=slice_samples,
     )
     
-    # Ensure output directory exists
+                                    
     out_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Save the figure
+                     
     plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close(fig)
 

@@ -72,54 +72,6 @@ def log_processing_summary(actual_chunk_count: int, chunk_count: int,
     logger.logger.debug(f"🔍 DEBUG RESUMEN: archivo procesado completamente a través de streaming")
 
 
-def log_file_detection(file_path: str, suffix: str, full_path: str) -> None:
-    """
-    Registra la detección de tipo de archivo en el pipeline.
-    
-    Args:
-        file_path: Ruta del archivo
-        suffix: Extensión del archivo
-        full_path: Ruta completa del archivo
-    """
-    logger = get_global_logger()
-    logger.logger.debug(f"🔍 DEBUG DETECCIÓN: Analizando archivo: {file_path}")
-    logger.logger.debug(f"🔍 DEBUG DETECCIÓN: Extensión: {suffix}")
-    logger.logger.debug(f"🔍 DEBUG DETECCIÓN: Path completo: {full_path}")
-
-
-def log_fits_detected(file_path: str) -> None:
-    """
-    Registra que se detectó un archivo FITS.
-    
-    Args:
-        file_path: Ruta del archivo FITS
-    """
-    logger = get_global_logger()
-    logger.logger.debug(f"🔍 DEBUG DETECCIÓN: Archivo FITS detectado → usando stream_fits")
-
-
-def log_fil_detected(file_path: str) -> None:
-    """
-    Registra que se detectó un archivo FIL.
-    
-    Args:
-        file_path: Ruta del archivo FIL
-    """
-    logger = get_global_logger()
-    logger.logger.debug(f"🔍 DEBUG DETECCIÓN: Archivo FIL detectado → usando stream_fil")
-
-
-def log_unsupported_file_type(file_path: str) -> None:
-    """
-    Registra que se detectó un tipo de archivo no soportado.
-    
-    Args:
-        file_path: Ruta del archivo no soportado
-    """
-    logger = get_global_logger()
-    logger.logger.error(f"🔍 DEBUG DETECCIÓN: Tipo de archivo no soportado: {file_path}")
-
-
 def log_pipeline_file_processing(fits_path_name: str, file_suffix: str,
                                 total_samples: int, chunk_samples: int) -> None:
     """

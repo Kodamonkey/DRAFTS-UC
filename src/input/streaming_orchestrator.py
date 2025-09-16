@@ -7,7 +7,7 @@ Este módulo se encarga de:
 """
 
 from pathlib import Path
-from typing import Tuple, Callable, Generator, Dict, Any
+from typing import Tuple, Callable, Dict, Any
 import logging
 
 from .file_detector import detect_file_type, validate_file_compatibility
@@ -42,48 +42,6 @@ def get_streaming_function(file_path: Path) -> Tuple[Callable, str]:
         return stream_fits, "fits"
     else:
         return stream_fil, "filterbank"
-
-def stream_file_auto(
-    file_path: Path, 
-    chunk_samples: int, 
-    overlap_samples: int = 0,
-    **kwargs
-) -> Generator[Tuple[Any, Dict[str, Any]], None, None]:
-    """
-    Stream automático que detecta el tipo de archivo y usa la función apropiada.
-    
-    Args:
-        file_path: Path al archivo a procesar
-        chunk_samples: Número de muestras por bloque
-        overlap_samples: Número de muestras de solapamiento entre bloques
-        **kwargs: Argumentos adicionales para las funciones de streaming
-        
-    Yields:
-        Tuple[data_block, metadata]: Bloque de datos y metadatos
-        
-    Raises:
-        ValueError: Si el archivo no es compatible o hay errores durante el streaming
-    """
-    try:
-        # Obtener función de streaming apropiada
-        streaming_func, file_type = get_streaming_function(file_path)
-        
-        logger.info(f"Streaming automático iniciado para archivo {file_type.upper()}: {file_path.name}")
-        logger.info(f"  - Función de streaming: {streaming_func.__name__}")
-        logger.info(f"  - Tamaño de chunk: {chunk_samples:,} muestras")
-        logger.info(f"  - Solapamiento: {overlap_samples:,} muestras")
-        
-        # Ejecutar streaming con la función apropiada
-        for block, metadata in streaming_func(str(file_path), chunk_samples, overlap_samples, **kwargs):
-            # Agregar información del tipo de archivo a los metadatos
-            metadata['file_type'] = file_type
-            metadata['file_path'] = str(file_path)
-            
-            yield block, metadata
-            
-    except Exception as e:
-        logger.error(f"Error durante streaming automático de {file_path}: {e}")
-        raise
 
 def get_streaming_info(file_path: Path, chunk_samples: int, overlap_samples: int = 0) -> Dict[str, Any]:
     """
@@ -256,37 +214,3 @@ def validate_streaming_parameters(
         validation_result['is_valid'] = False
     
     return validation_result
-
-def log_streaming_start(file_path: Path, chunk_samples: int, overlap_samples: int = 0) -> None:
-    """
-    Registra información de inicio de streaming.
-    
-    Args:
-        file_path: Path al archivo
-        chunk_samples: Tamaño de chunk
-        overlap_samples: Solapamiento
-    """
-    try:
-        streaming_info = get_streaming_info(file_path, chunk_samples, overlap_samples)
-        validation = validate_streaming_parameters(file_path, chunk_samples, overlap_samples)
-        
-        if streaming_info['is_valid']:
-            config = streaming_info['streaming_config']
-            logger.info(f"Iniciando streaming de archivo {config['file_type'].upper()}: {config['file_name']}")
-            logger.info(f"  - Tamaño de chunk: {config['chunk_samples']:,} muestras")
-            logger.info(f"  - Solapamiento: {config['overlap_samples']:,} muestras")
-            logger.info(f"  - Chunks estimados: {config['estimated_chunks']}")
-            logger.info(f"  - Duración por chunk: {config['chunk_duration_sec']} s")
-            
-            if validation['warnings']:
-                for warning in validation['warnings']:
-                    logger.warning(f"  - ADVERTENCIA: {warning}")
-            
-            if validation['recommendations']:
-                for rec in validation['recommendations']:
-                    logger.info(f"  - RECOMENDACIÓN: {rec}")
-        else:
-            logger.error(f"Error en configuración de streaming: {', '.join(streaming_info['errors'])}")
-            
-    except Exception as e:
-        logger.error(f"Error registrando inicio de streaming: {e}")

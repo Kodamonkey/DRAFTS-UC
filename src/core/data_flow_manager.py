@@ -192,9 +192,10 @@ def get_chunk_processing_parameters(metadata: dict) -> dict:
         dict: Parámetros del chunk
     """
     # Calcular parámetros básicos
+    chunk_samples = int(metadata.get("actual_chunk_size", config.FILE_LENG))
     freq_down = calculate_frequency_downsampled()
     height = calculate_dm_height()
-    width_total = calculate_width_total()
+    width_total = calculate_width_total(chunk_samples)
     slice_len, real_duration_ms = calculate_slice_parameters()
     time_slice = calculate_time_slice(width_total, slice_len)
     

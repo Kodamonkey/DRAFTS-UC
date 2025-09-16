@@ -7,7 +7,6 @@ import torch.nn.functional as F
 
 class double_conv(nn.Module):
 
-    # This function initializes the double convolution block.
     def __init__(self, in_ch, out_ch):
         super(double_conv, self).__init__()
 
@@ -20,7 +19,6 @@ class double_conv(nn.Module):
             nn.ReLU(inplace=True)
         )
 
-    # This function applies the double convolution block.
     def forward(self, x):
         x = self.conv(x)
         return x
@@ -28,7 +26,6 @@ class double_conv(nn.Module):
 
 class up(nn.Module):
 
-    # This function initializes the upsampling block.
     def __init__(self, in_ch, out_ch, bilinear=True):
         super(up, self).__init__()
 
@@ -38,7 +35,6 @@ class up(nn.Module):
             self.up = nn.ConvTranspose2d(in_ch // 2, in_ch // 2, 2, stride=2)
         self.conv   = double_conv(in_ch, out_ch)
 
-    # This function upsamples and merges feature maps.
     def forward(self, x1, x2=None):
 
         x1        = self.up(x1)
@@ -56,7 +52,6 @@ class up(nn.Module):
 
 class centernet(nn.Module):
 
-    # This function initializes the CenterNet backbone.
     def __init__(self, n_classes=1, model_name='resnet18'):
         super(centernet, self).__init__()
 
@@ -77,7 +72,6 @@ class centernet(nn.Module):
         self.wh_head     = nn.Conv2d(256, 2, 1)
         self.offset_head = nn.Conv2d(256, 2, 1)
 
-    # This function runs a forward pass through the model.
     def forward(self, x):
 
         x      = self.base_model(x)
@@ -91,7 +85,6 @@ class centernet(nn.Module):
         return hm, wh, offset
 
 
-# This function computes the focal loss.
 def focal_loss(pred, target):
 
     pos_inds    = target.eq(1).float()
@@ -113,7 +106,6 @@ def focal_loss(pred, target):
     return loss
 
 
-# This function computes the L1 regression loss.
 def reg_l1_loss(pred, target, mask):
 
     pred = pred.permute(0, 2, 3, 1)
@@ -126,7 +118,6 @@ def reg_l1_loss(pred, target, mask):
     return loss
 
 
-# This function computes the CenterNet loss components.
 def centerloss(pred, targ):
 
     hm, wh, offset = pred[:, 0], pred[:, 1:3], pred[:, 3:]

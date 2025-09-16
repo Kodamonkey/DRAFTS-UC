@@ -119,7 +119,6 @@ PROCESSING_HEADERS = [
                                   
                                                                                
 
-# This function analyzes primary header.
 def analyze_primary_header(header: fits.Header) -> Dict[str, Any]:
     """
     Analiza el header primario del archivo FITS.
@@ -218,7 +217,6 @@ def analyze_primary_header(header: fits.Header) -> Dict[str, Any]:
 
     return analysis
 
-# This function analyzes extension headers.
 def analyze_extension_headers(hdul: fits.HDUList) -> List[Dict[str, Any]]:
     """
     Analiza los headers de todas las extensiones del archivo FITS.
@@ -263,7 +261,6 @@ def analyze_extension_headers(hdul: fits.HDUList) -> List[Dict[str, Any]]:
 
     return extensions_analysis
 
-# This function analyzes file structure.
 def analyze_file_structure(filepath: Path) -> Dict[str, Any]:
     """
     Analiza la estructura general del archivo FITS.
@@ -324,7 +321,6 @@ def analyze_file_structure(filepath: Path) -> Dict[str, Any]:
 
     return structure_info
 
-# This function analyzes observational metadata.
 def analyze_observational_metadata(header: fits.Header) -> Dict[str, Any]:
     """
     Analiza metadatos astronómicos y observacionales detalladamente.
@@ -408,7 +404,6 @@ def analyze_observational_metadata(header: fits.Header) -> Dict[str, Any]:
                       
                                                                                
 
-# This function calculates data size.
 def _calculate_data_size(hdu: fits.HDU) -> float:
     """Calcula el tamaño de los datos en MB."""
     if hdu.data is None:
@@ -426,7 +421,6 @@ def _calculate_data_size(hdu: fits.HDU) -> float:
     except:
         return 0.0
 
-# This function extracts extension specific headers.
 def _extract_extension_specific_headers(header: fits.Header, hdu: fits.HDU) -> Dict[str, Any]:
     """Extrae headers específicos según el tipo de extensión."""
     specific_headers = {}
@@ -457,7 +451,6 @@ def _extract_extension_specific_headers(header: fits.Header, hdu: fits.HDU) -> D
 
     return specific_headers
 
-# This function validates header integrity.
 def _validate_header_integrity(header: fits.Header) -> List[str]:
     """Valida la integridad del header y retorna warnings."""
     warnings = []
@@ -483,7 +476,6 @@ def _validate_header_integrity(header: fits.Header) -> List[str]:
 
     return warnings
 
-# This function checks header errors.
 def _check_header_errors(header: fits.Header) -> List[str]:
     """Verifica errores críticos en el header."""
     errors = []
@@ -496,7 +488,6 @@ def _check_header_errors(header: fits.Header) -> List[str]:
 
     return errors
 
-# This function validates extension integrity.
 def _validate_extension_integrity(hdu: fits.HDU) -> List[str]:
     """Valida la integridad de una extensión."""
     warnings = []
@@ -511,7 +502,6 @@ def _validate_extension_integrity(hdu: fits.HDU) -> List[str]:
 
     return warnings
 
-# This function checks extension errors.
 def _check_extension_errors(hdu: fits.HDU) -> List[str]:
     """Verifica errores en una extensión."""
     errors = []
@@ -523,7 +513,6 @@ def _check_extension_errors(hdu: fits.HDU) -> List[str]:
 
     return errors
 
-# This function calculates derived parameters.
 def _calculate_derived_parameters(header: fits.Header) -> Dict[str, Any]:
     """Calcula parámetros derivados de los headers."""
     derived = {}
@@ -565,7 +554,6 @@ def _calculate_derived_parameters(header: fits.Header) -> Dict[str, Any]:
                                      
                                                                                
 
-# This function prints analysis report.
 def print_analysis_report(filepath: Path, analysis: Dict[str, Any]) -> None:
     """
     Imprime un reporte completo del análisis del archivo FITS.
@@ -661,7 +649,6 @@ def print_analysis_report(filepath: Path, analysis: Dict[str, Any]) -> None:
         for error in analysis['primary']['errors']:
             print(f"  • {error}")
 
-# This function prints summary report.
 def print_summary_report(files_analyzed: List[Dict[str, Any]]) -> None:
     """
     Imprime un reporte resumen de todos los archivos analizados.
@@ -709,7 +696,6 @@ def print_summary_report(files_analyzed: List[Dict[str, Any]]) -> None:
                        
                                                                                
 
-# This function analyzes FITS file.
 def analyze_fits_file(filepath: Path) -> Dict[str, Any]:
     """
     Función principal para analizar un archivo FITS completo.
@@ -763,7 +749,6 @@ def analyze_fits_file(filepath: Path) -> Dict[str, Any]:
 
     return analysis
 
-# This function runs the FITS header analyzer CLI.
 def main():
     """Función principal del script."""
     parser = argparse.ArgumentParser(

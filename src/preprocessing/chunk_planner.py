@@ -20,7 +20,6 @@ class SlicePlan:
     duration_ms: float
 
 
-# This function plans slices for chunk.
 def plan_slices_for_chunk(
     num_samples_decimated: int,
     target_duration_ms: float,

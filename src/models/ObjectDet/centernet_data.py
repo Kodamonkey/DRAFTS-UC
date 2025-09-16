@@ -14,7 +14,6 @@ data_path   = './Data/'
 
 
 if False:
-    # This function draws gaussian.
     def draw_gaussian(heatmap, center, w_radius, h_radius, k=1):
 
         theta    = np.arctan2(h_radius, w_radius)
@@ -33,7 +32,6 @@ if False:
         return heatmap
 
 
-    # This function computes a 2D Gaussian kernel.
     def gaussian2D(shape, sx, theta):
 
                    
@@ -51,7 +49,6 @@ if False:
 
 
 if False:
-    # This function draws gaussian.
     def draw_gaussian(heatmap, center, w_radius, h_radius, k=1):
 
         radius   = np.min([w_radius, h_radius])
@@ -70,7 +67,6 @@ if False:
         return heatmap
 
 
-    # This function computes a 2D Gaussian kernel.
     def gaussian2D(shape, sigma=1):
 
         m, n = [(ss - 1.) / 2. for ss in shape]
@@ -83,7 +79,6 @@ if False:
 
 if True:
              
-    # This function draws gaussian.
     def draw_gaussian(heatmap, center, w_radius, h_radius):
 
         sigma    = np.clip(w_radius * h_radius // 2000, 2, 4)
@@ -111,7 +106,6 @@ if True:
         return heatmap
 
 
-# This function generates CenterNet training tensors.
 def make_data(target):
 
     output_shape = input_size // model_scale
@@ -143,13 +137,11 @@ def make_data(target):
 
 class Normalize(object):
 
-    # This function initializes normalization parameters.
     def __init__(self):
 
         self.mean = [0.485, 0.456, 0.406]
         self.std  = [0.229, 0.224, 0.225]
 
-    # This function normalizes an image tensor.
     def __call__(self, image):
 
         image  = image.astype(np.float32)
@@ -161,7 +153,6 @@ class Normalize(object):
 
 class BurstDataset(torch.utils.data.Dataset):
 
-    # This function initializes the burst dataset.
     def __init__(self, img_id, labels, val=False, transform=None):
 
         self.img_id = img_id
@@ -171,11 +162,9 @@ class BurstDataset(torch.utils.data.Dataset):
         self.normalize = Normalize()
         self.val = val
 
-    # This function returns the dataset length.
     def __len__(self):
         return len(self.img_id)
 
-    # This function retrieves a dataset sample.
     def __getitem__(self, idx):
 
         img, target = self.load_img(idx)       
@@ -185,7 +174,6 @@ class BurstDataset(torch.utils.data.Dataset):
 
         return img, targ_gt
 
-    # This function loads a processed image sample.
     def load_img(self, idx):
 
         if self.val:
@@ -197,7 +185,6 @@ class BurstDataset(torch.utils.data.Dataset):
 
         return img, target
 
-    # This function loads an image using the legacy pipeline.
     def load_img_old(self, idx):
 
         img, target      = self.load_raw_data(idx)
@@ -209,7 +196,6 @@ class BurstDataset(torch.utils.data.Dataset):
 
         return img, target
 
-    # This function loads raw data.
     def load_raw_data(self, idx):
 
         frb_path = self.img_id[idx].split('__')[0] + '.npy'
@@ -224,7 +210,6 @@ class BurstDataset(torch.utils.data.Dataset):
 
         return img, target
 
-    # This function downsamples image data and targets.
     def down_samp(self, img, target):
 
         img                  = np.mean(img.reshape(512, 2, 2048, 4), axis=(1, 3))
@@ -235,7 +220,6 @@ class BurstDataset(torch.utils.data.Dataset):
 
         return img, target
 
-    # This function randomly clips the data window.
     def random_clip(self, img, target):
 
                                    
@@ -263,7 +247,6 @@ class BurstDataset(torch.utils.data.Dataset):
         img                  = cv2.resize(img, (input_size, input_size))
         return img, target
 
-    # This function randomly combines multiple samples.
     def random_comb(self, idx):
 
         comb_num = np.random.randint(1, 6)
@@ -325,7 +308,6 @@ class BurstDataset(torch.utils.data.Dataset):
 
         return comb_data, targ_data
 
-    # This function renders a color image representation.
     def render_color(self, img):
 
         img = np.clip(img, *np.percentile(img, (0.1, 99.9)))

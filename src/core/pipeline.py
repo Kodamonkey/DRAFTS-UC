@@ -65,7 +65,6 @@ class DetectionStats:
     max_prob: float = 0.0
     snr_values: list[float] = field(default_factory=list)
 
-    # This function updates detection counters.
     def update(self, candidates: int, bursts: int, no_bursts: int, prob_max: float) -> None:
         """Update counters with the result of a slice or chunk."""
 
@@ -74,7 +73,6 @@ class DetectionStats:
         self.n_no_bursts += no_bursts
         self.max_prob = max(self.max_prob, float(prob_max))
 
-    # This function merges detection statistics.
     def merge(self, other: "DetectionStats") -> None:
         """Merge metrics coming from another :class:`DetectionStats` instance."""
 
@@ -82,11 +80,9 @@ class DetectionStats:
         if other.snr_values:
             self.snr_values.extend(other.snr_values)
 
-    # This function returns the mean SNR value.
     def mean_snr(self) -> float:
         return float(np.mean(self.snr_values)) if self.snr_values else 0.0
 
-    # This function computes effective candidate counts.
     def effective_counts(self, save_only_burst: bool) -> tuple[int, int, int]:
         """Return counts respecting the SAVE_ONLY_BURST flag."""
 
@@ -94,7 +90,6 @@ class DetectionStats:
             return self.n_bursts, self.n_bursts, 0
         return self.n_candidates, self.n_bursts, self.n_no_bursts
 
-# This function logs informational messages.
 def _trace_info(message: str, *args) -> None:
     try:
         from ..logging.logging_config import get_global_logger
@@ -103,17 +98,16 @@ def _trace_info(message: str, *args) -> None:
     except Exception:
         logger.info(message, *args)
 
-# This function optimizes memory.
 def _optimize_memory(aggressive: bool = False) -> None:
-    """Optimiza el uso de memoria del sistema.
-    
+    """Release cached resources to keep the pipeline within memory limits.
+
     Args:
-        aggressive: Si True, realiza limpieza más agresiva
+        aggressive: When ``True`` also clear GPU caches and pause briefly.
     """
-                               
+
     gc.collect()
-    
-                                                               
+
+
     if plt is not None:
         plt.close('all')                                          
     
@@ -133,7 +127,6 @@ def _optimize_memory(aggressive: bool = False) -> None:
         time.sleep(0.01)                             
 
 
-# This function loads detection model.
 def _load_detection_model() -> torch.nn.Module:
     """Load the CenterNet model configured in :mod:`config`."""
     if torch is None:
@@ -146,7 +139,6 @@ def _load_detection_model() -> torch.nn.Module:
     model.eval()
     return model
 
-# This function loads class model.
 def _load_class_model() -> torch.nn.Module:
     """Load the binary classification model configured in :mod:`config`."""
     if torch is None:
@@ -159,7 +151,6 @@ def _load_class_model() -> torch.nn.Module:
     model.eval()
     return model
 
-# This function processes block.
 def _process_block(
     det_model: torch.nn.Module,
     cls_model: torch.nn.Module,
@@ -170,7 +161,7 @@ def _process_block(
     chunk_idx: int,
     csv_file: Path,
 ) -> DetectionStats:
-    """Procesa un bloque de datos y retorna estadísticas consolidadas."""
+    """Process a data block and return aggregated detection statistics."""
 
     chunk_samples = int(metadata.get("actual_chunk_size", block.shape[0]))
     total_samples = int(metadata.get("total_samples", 0)) or chunk_samples
@@ -401,7 +392,6 @@ def _process_block(
     return chunk_stats
 
 
-# This function processes file chunked.
 def _process_file_chunked(
     det_model: torch.nn.Module,
     cls_model: torch.nn.Module,
@@ -409,7 +399,7 @@ def _process_file_chunked(
     save_dir: Path,
     chunk_samples: int,
 ) -> dict:
-    """Procesa un archivo en bloques usando stream_fil o stream_fits."""
+    """Process a file in streaming chunks using ``stream_fil`` or ``stream_fits``."""
     
                                                           
     logger.info(f"Analizando estructura del archivo: {fits_path.name}")
@@ -598,7 +588,6 @@ def _process_file_chunked(
             "error_details": str(e)
         }
 
-# This function runs pipeline.
 def run_pipeline(chunk_samples: int = 0) -> None:
     from ..logging.logging_config import setup_logging, set_global_logger
     

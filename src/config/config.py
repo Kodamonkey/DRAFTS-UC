@@ -184,7 +184,6 @@ SHADE_INVALID_TAIL: bool = True
                                       
                                                                                
 
-# This function gets band configs.
 def get_band_configs():
     """Retorna la configuración de bandas según USE_MULTI_BAND"""
     return [
@@ -198,7 +197,6 @@ def get_band_configs():
                                                        
                                                                                
 
-# This function validates configuration.
 def validate_configuration():
     """
     Valida la configuración del sistema y genera mensajes de error informativos.
@@ -301,7 +299,6 @@ def validate_configuration():
     return True
 
 
-# This function checks model files.
 def check_model_files():
     """
     Verifica que los archivos de modelo existan y sean accesibles.

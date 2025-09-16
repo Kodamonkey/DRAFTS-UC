@@ -1,13 +1,6 @@
 # This module runs detection, classification, and visualization logic.
 
-"""Motor de detección FRB - detecta candidatos, los clasifica y coordina visualizaciones.
-
-Este módulo contiene las funciones principales para:
-1. detect_and_classify_candidates_in_band(): Detección y clasificación en una banda específica
-2. process_slice_with_multiple_bands(): Coordinación de múltiples bandas y generación de visualizaciones
-
-Cada función tiene responsabilidades claras y nombres descriptivos que explican su propósito.
-"""
+"""Detection engine that scores candidates, classifies them, and generates plots."""
 from __future__ import annotations
 
                           
@@ -33,7 +26,6 @@ from ..visualization.visualization_unified import (
               
 logger = logging.getLogger(__name__)
 
-# This function detects and classifies candidates in band.
 def detect_and_classify_candidates_in_band(
     det_model,
     cls_model,
@@ -54,34 +46,11 @@ def detect_and_classify_candidates_in_band(
     band_idx=None,                  
     slice_start_idx: int | None = None,                                                  
 ):
-    """Detecta candidatos FRB en una banda de frecuencia, los clasifica y selecciona el mejor.
-    
-    Esta función realiza el flujo completo de detección y clasificación para una banda específica:
-    1. Detecta candidatos usando el modelo de detección
-    2. Clasifica cada candidato como BURST o NO BURST
-    3. Calcula SNR y parámetros de cada candidato
-    4. Selecciona el mejor candidato para visualización
-    5. Guarda todos los candidatos en CSV
-    
-    Args:
-        det_model: Modelo de detección de objetos
-        cls_model: Modelo de clasificación binaria
-        band_img: Imagen de la banda de frecuencia
-        slice_len: Longitud del slice en muestras
-        j: Índice del slice
-        fits_path: Path del archivo FITS
-        save_dir: Directorio de guardado
-        data: Datos del bloque completo
-        freq_down: Frecuencias decimadas
-        csv_file: Archivo CSV para guardar candidatos
-        time_reso_ds: Resolución temporal decimada
-        snr_list: Lista para acumular valores SNR
-        config: Configuración del pipeline
-        absolute_start_time: Tiempo absoluto de inicio del slice
-        patches_dir: Directorio para guardar patches
-        chunk_idx: ID del chunk donde se encuentra este slice
-        band_idx: ID de la banda (0=fullband, 1=lowband, 2=highband)
-        slice_start_idx: Inicio del slice en muestras decimadas
+    """Run detection and classification for a specific frequency band.
+
+    The function detects candidates, classifies them, computes SNR metrics,
+    selects the best example for visualisation, and persists metadata for
+    later aggregation.
     """
                                                          
     try:
@@ -145,9 +114,9 @@ def detect_and_classify_candidates_in_band(
         x1, y1, x2, y2 = map(int, box)
         candidate_region = band_img[y1:y2, x1:x2]
         if candidate_region.size > 0:
-            # Calcular SNR para consistencia con composite
+            # Compute SNR for consistency with the composite visualisation.
             snr_profile, _, _ = compute_snr_profile(candidate_region)
-            snr_val_raw = np.max(snr_profile)  # Tomar el pico del SNR
+            snr_val_raw = np.max(snr_profile)  # Use the peak SNR value.
         else:
             snr_val_raw = 0.0
         
@@ -166,7 +135,7 @@ def detect_and_classify_candidates_in_band(
         snr_val = 0.0                     
         peak_idx_patch = None
         if patch is not None and patch.size > 0:
-            # Medir SNR unificado sobre el patch dedispersado
+            # Measure SNR on the dedispersed patch using the unified routine.
             snr_profile_pre, _, best_w_vec = compute_snr_profile(patch)
             peak_idx_patch = int(np.argmax(snr_profile_pre)) if snr_profile_pre.size > 0 else None
             snr_val = float(np.max(snr_profile_pre)) if snr_profile_pre.size > 0 else 0.0
@@ -231,8 +200,7 @@ def detect_and_classify_candidates_in_band(
         
         candidate_times_abs.append(float(absolute_candidate_time))
         
-        # Crear candidato con información completa
-        # Calcular width_ms si obtuvimos vector de anchos
+        # Assemble a candidate record with optional width estimates.
         width_ms = None
         try:
             if peak_idx_patch is not None and 'best_w_vec' in locals() and best_w_vec.size > 0:
@@ -321,7 +289,6 @@ def detect_and_classify_candidates_in_band(
         "candidate_times_abs": candidate_times_abs,
     }
 
-# This function processes slice with multiple bands.
 def process_slice_with_multiple_bands(
     j,
     dm_time,
@@ -343,9 +310,10 @@ def process_slice_with_multiple_bands(
     patches_dir=None,
     chunk_idx=None,                 
     force_plots: bool = False,
-    slice_start_idx: int | None = None,                                                   
-    slice_end_idx: int | None = None,                                                
+    slice_start_idx: int | None = None,
+    slice_end_idx: int | None = None,
 ):
+    """Process a slice across all configured frequency bands and persist outputs."""
 
     try:
         global_logger = get_global_logger()

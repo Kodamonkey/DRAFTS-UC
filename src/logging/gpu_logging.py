@@ -18,13 +18,11 @@ logger = logging.getLogger(__name__)
                                         
 GPU_VERBOSE = False                                                  
 
-# This function sets GPU verbose.
 def set_gpu_verbose(verbose: bool = False):
     """Configura si mostrar mensajes detallados de GPU."""
     global GPU_VERBOSE
     GPU_VERBOSE = verbose
 
-# This function manages the GPU logging context.
 def gpu_context(operation: str, suppress_messages: bool = True):
     """
     Context manager para operaciones GPU que suprime mensajes innecesarios.
@@ -52,7 +50,6 @@ def gpu_context(operation: str, suppress_messages: bool = True):
     else:
         yield
 
-# This function logs GPU operation.
 def log_gpu_operation(operation: str, success: bool = True, details: Optional[str] = None):
     """
     Log de operaciones GPU de manera limpia.
@@ -79,7 +76,6 @@ def log_gpu_operation(operation: str, success: bool = True, details: Optional[st
         else:
             logger.error(f"{operation}")
 
-# This function logs GPU memory operation.
 def log_gpu_memory_operation(operation: str, bytes_allocated: int = 0):
     """
     Log de operaciones de memoria GPU de manera simplificada.
@@ -109,7 +105,6 @@ def log_gpu_memory_operation(operation: str, bytes_allocated: int = 0):
             logger.debug(f"{operation}")
 
                                                 
-# This function filters cuda messages.
 def filter_cuda_messages(message: str) -> bool:
     """
     Filtra mensajes CUDA para mostrar solo los relevantes.

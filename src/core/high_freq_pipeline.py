@@ -28,13 +28,7 @@ class PeakCandidateBox:
 
 
 def _find_snr_peaks(snr_profile: np.ndarray, threshold: float, min_distance: int = 16) -> list[int]:
-    """Devuelve índices de tiempo donde SNR supera umbral y es máximo local.
-
-    Args:
-        snr_profile: vector 1D SNR por tiempo
-        threshold: umbral mínimo
-        min_distance: separación mínima entre picos (muestras)
-    """
+    """Return time indices where the SNR exceeds the threshold and is a local maximum."""
     if snr_profile is None or snr_profile.size == 0:
         return []
     peaks: list[int] = []
@@ -47,15 +41,11 @@ def _find_snr_peaks(snr_profile: np.ndarray, threshold: float, min_distance: int
 
 
 def _dm_from_image_at_time(dm_time_band_img: np.ndarray, time_idx: int) -> float:
-    """Selecciona DM óptimo como el índice de fila con mayor intensidad en esa columna.
-
-    dm_time_band_img: imagen 2D (DM x tiempo) de la banda
-    time_idx: columna temporal (0..W-1)
-    """
+    """Map a time index to the DM row with the highest intensity."""
     h, w = dm_time_band_img.shape[:2]
     t = int(max(0, min(w - 1, time_idx)))
     row_idx = int(np.argmax(dm_time_band_img[:, t]))
-    # Mapear fila a valor de DM linealmente entre DM_min y DM_max
+    # Map the row index linearly between DM_min and DM_max.
     dm_min = float(config.DM_min)
     dm_max = float(config.DM_max)
     dm_val = dm_min + (row_idx / max(h - 1, 1)) * (dm_max - dm_min)
@@ -64,13 +54,13 @@ def _dm_from_image_at_time(dm_time_band_img: np.ndarray, time_idx: int) -> float
 
 def snr_detect_and_classify_candidates_in_band(
     cls_model,
-    band_img: np.ndarray,  # DM x tiempo (imagen para visualización)
-    waterfall_block: np.ndarray,  # time x freq (bloque del slice)
+    band_img: np.ndarray,  # DM x time image used for visualisation
+    waterfall_block: np.ndarray,  # time x frequency slice block
     slice_len: int,
     j: int,
     fits_path: Path,
     save_dir: Path,
-    data_block: np.ndarray,  # bloque decimado completo del chunk
+    data_block: np.ndarray,  # decimated chunk block
     freq_down: np.ndarray,
     csv_file: Path,
     time_reso_ds: float,
@@ -79,27 +69,24 @@ def snr_detect_and_classify_candidates_in_band(
     patches_dir: Path | None,
     chunk_idx: int | None,
     band_idx: int,
-    slice_start_idx: int,  # inicio real del slice en muestras (decimado)
+    slice_start_idx: int,  # actual slice start in decimated samples
 ) -> dict:
-    """Detecta candidatos a partir de picos SNR y los clasifica con la red binaria.
-
-    No usa el detector de objetos. Genera cajas sintéticas centradas en tiempos pico.
-    """
+    """Detect candidates from SNR peaks and classify them with the binary network."""
     try:
         global_logger = get_global_logger()
     except Exception:
         global_logger = None
 
-    # SNR sobre el waterfall del slice (time x freq)
+    # Compute the SNR profile on the waterfall (time × frequency).
     snr_profile, _, _ = compute_snr_profile(waterfall_block)
     peaks = _find_snr_peaks(snr_profile, float(config.SNR_THRESH))
-    # Forzar que el primer candidato sea EXACTAMENTE el pico usado en el panel inferior
+    # Ensure the first candidate corresponds to the main SNR peak used downstream.
     peak_snr_global, _, peak_idx_global = find_snr_peak(snr_profile)
     if peak_snr_global >= float(config.SNR_THRESH):
-        # Insertar al frente si no está, si está moverlo al frente
+        # Insert at the front if absent, otherwise move it to the front.
         peaks = [peak_idx_global] + [p for p in peaks if p != peak_idx_global]
     else:
-        # Si el pico global no supera umbral, mantener lista (puede quedar vacía)
+        # If the global peak is below threshold, keep a sorted list (possibly empty).
         peaks = sorted(peaks, key=lambda p: snr_profile[p], reverse=True)
 
     if global_logger:
@@ -107,17 +94,17 @@ def snr_detect_and_classify_candidates_in_band(
         band_name = band_names[band_idx] if band_idx < len(band_names) else f"Band {band_idx}"
         global_logger.band_candidates(band_name, len(peaks))
 
-    # Parámetros geométricos para crear cajas (en espacio original de band_img)
+    # Geometry parameters for synthetic boxes in the original band_img space.
     img_h, img_w = band_img.shape[:2]
     half_w = max(4, slice_len // 64)
     half_h = max(3, img_h // 32)
-    # Escalas a espacio de red (preprocess_img redimensiona a 512x512)
+    # Scale factors that match the 512x512 network input.
     target_w = 512
     target_h = 512
     scale_x = float(target_w) / float(max(1, img_w))
     scale_y = float(target_h) / float(max(1, img_h))
 
-    # Salidas acumuladas compatibles con el resto del pipeline
+    # Outputs accumulated for compatibility with the main pipeline.
     top_conf: list[float] = []
     top_boxes: list[tuple[int, int, int, int]] = []
     class_probs_list: list[float] = []
@@ -127,20 +114,20 @@ def snr_detect_and_classify_candidates_in_band(
     n_no_bursts = 0
     prob_max = 0.0
 
-    # Selección del mejor candidato para el composite
+    # Track the best candidate for the composite view.
     best_patch = None
     best_start = None
     best_dm = None
     best_is_burst = False
 
-    # Directorio de patches
+    # Patch directory for saving cut-outs.
     if patches_dir is not None:
         patch_path = patches_dir / f"patch_slice{j}_band{band_idx}.png"
     else:
         patch_path = (save_dir / "Patches" / fits_path.stem / f"patch_slice{j}_band{band_idx}.png")
 
     for peak_idx in peaks:
-        # Crear caja centrada en el pico
+        # Create a box centred on the peak.
         cx = int(max(0, min(img_w - 1, peak_idx)))
         dm_val = _dm_from_image_at_time(band_img, cx)
         cy_row = int(round((dm_val - float(config.DM_min)) / max(float(config.DM_max - config.DM_min), 1e-6) * (img_h - 1)))
@@ -148,18 +135,18 @@ def snr_detect_and_classify_candidates_in_band(
         x2_raw = min(img_w - 1, cx + half_w)
         y1_raw = max(0, cy_row - half_h)
         y2_raw = min(img_h - 1, cy_row + half_h)
-        # Transformar caja al espacio 512x512 para que coincida con img_rgb
+        # Transform the box to 512x512 coordinates to match img_rgb.
         x1 = int(round(x1_raw * scale_x))
         x2 = int(round(x2_raw * scale_x))
         y1 = int(round(y1_raw * scale_y))
         y2 = int(round(y2_raw * scale_y))
         box = (x1, y1, x2, y2)
 
-        # Confianza derivada de SNR (acotada)
+        # Confidence derived from the SNR value (clipped to a sensible range).
         snr_peak = float(snr_profile[peak_idx])
         conf = float(min(0.99, max(0.05, snr_peak / 10.0)))
 
-        # Dedispersar patch alrededor del tiempo global del pico
+        # Dedisperse a patch around the global peak time.
         global_sample = int(slice_start_idx) + int(peak_idx)
         patch, start_sample = dedisperse_patch(data_block, freq_down, dm_val, global_sample)
 
@@ -173,41 +160,29 @@ def snr_detect_and_classify_candidates_in_band(
         else:
             snr_val = snr_peak
 
-        # Clasificación binaria
+        # Binary classification.
         from ..detection.model_interface import classify_patch
         class_prob, proc_patch = classify_patch(cls_model, patch)
         is_burst = class_prob >= float(config.CLASS_PROB)
         
-        '''
-        # Tiempo absoluto del candidato (pico del patch si existe, si no, centro de la caja)
-        if peak_idx_patch is not None:
-            offset_samples = start_sample - int(slice_start_idx)
-            patch_start_abs = (absolute_start_time or 0.0) + offset_samples * time_reso_ds
-            absolute_candidate_time = patch_start_abs + peak_idx_patch * time_reso_ds
-        else:
-            absolute_candidate_time = (absolute_start_time or 0.0) + (peak_idx * time_reso_ds)
-        '''
-                
-
-        # Tiempo absoluto del candidato: FORZAR el centro exactamente al pico SNR del waterfall
+        # Force the candidate time to align with the waterfall SNR peak.
         absolute_candidate_time = (absolute_start_time or 0.0) + (peak_idx * time_reso_ds)
 
-        # Registrar
+        # Record outputs.
         snr_list.append(snr_peak)
         top_conf.append(conf)
         top_boxes.append(box)
         class_probs_list.append(class_prob)
         candidate_times_abs.append(float(absolute_candidate_time))
 
-        # Mantener mejor
+        # Keep track of the best candidate.
         if best_patch is None or (is_burst and not best_is_burst):
             best_patch = proc_patch
             best_start = absolute_candidate_time
             best_dm = dm_val
             best_is_burst = is_burst
 
-        # Construir fila CSV
-        # Calcular width_ms usando ancho óptimo en el pico
+        # Build the CSV row and estimate width_ms using the optimal width at the peak.
         width_ms = None
         try:
             if peak_idx_patch is not None and 'best_w_vec' in locals() and best_w_vec.size > 0:
@@ -246,7 +221,7 @@ def snr_detect_and_classify_candidates_in_band(
             except Exception:
                 pass
 
-    # Imagen RGB para visualización con el MISMO pipeline de color que el flujo estándar
+    # Generate an RGB image using the same colour pipeline as the standard flow.
     img_tensor = preprocess_img(band_img)
     img_rgb = postprocess_img(img_tensor)
 
@@ -290,7 +265,7 @@ def process_slice_with_multiple_bands_high_freq(
     slice_start_idx: int,
     slice_end_idx: int,
 ) -> tuple[int, int, int, float]:
-    """Versión de proceso por slice que usa picos SNR en lugar del detector NN."""
+    """Process a slice using SNR peaks instead of the object detector."""
     try:
         global_logger = get_global_logger()
     except Exception:
@@ -315,7 +290,7 @@ def process_slice_with_multiple_bands_high_freq(
     prob_max = 0.0
     slice_has_candidates = False
 
-    # Procesar bandas
+    # Process all configured bands.
     for band_idx, band_suffix, band_name in band_configs:
         band_img = slice_cube[band_idx]
         result = snr_detect_and_classify_candidates_in_band(
@@ -344,7 +319,7 @@ def process_slice_with_multiple_bands_high_freq(
         if len(result["top_conf"]) > 0:
             slice_has_candidates = True
 
-        # ¿Generar plots?
+        # Decide whether plots should be generated.
         should_generate_plots = (slice_has_candidates or config.FORCE_PLOTS)
         if config.SAVE_ONLY_BURST:
             should_generate_plots = (n_bursts > 0) or config.FORCE_PLOTS
@@ -384,7 +359,7 @@ def process_slice_with_multiple_bands_high_freq(
                 force_plots=config.FORCE_PLOTS,
             )
 
-    # Métricas efectivas
+    # Effective metrics after applying the SAVE_ONLY_BURST flag.
     if config.SAVE_ONLY_BURST:
         return n_bursts, n_bursts, 0, prob_max
     return cand_counter, n_bursts, n_no_bursts, prob_max
@@ -397,7 +372,7 @@ def _process_file_chunked_high_freq(
     chunk_samples: int,
     streaming_func,
 ) -> dict:
-    """Versión reducida de `_process_file_chunked` que usa el flujo SNR en cada slice."""
+    """Simplified version of ``_process_file_chunked`` using the SNR-driven flow."""
     from .data_flow_manager import (
         build_dm_time_cube,
         create_chunk_directories,
@@ -421,7 +396,7 @@ def _process_file_chunked_high_freq(
     snr_list_total: list[float] = []
     actual_chunk_count = 0
 
-    # Parámetros de streaming (reutilizar los usados por pipeline principal)
+    # Streaming parameters reused from the main pipeline.
     total_samples = config.FILE_LENG
     freq_ds = np.mean(config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE), axis=1)
     nu_min = float(freq_ds.min())
@@ -434,7 +409,7 @@ def _process_file_chunked_high_freq(
         actual_chunk_count += 1
         log_block_processing(actual_chunk_count, block.shape, str(block.dtype), metadata)
 
-        # Downsample + ventana válida
+        # Downsample and extract the valid window.
         block_ds, dt_ds = downsample_chunk(block)
         chunk_params = get_chunk_processing_parameters(metadata)
         freq_down = chunk_params['freq_down']
@@ -446,11 +421,11 @@ def _process_file_chunked_high_freq(
         dm_time_full = build_dm_time_cube(block_ds, height=chunk_params['height'], dm_min=config.DM_min, dm_max=config.DM_max)
         block_ds, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(block_ds, dm_time_full, overlap_left_ds, overlap_right_ds)
 
-        # Slices
+        # Plan slices.
         slices_to_process = plan_slices(block_ds, slice_len, metadata['chunk_idx'])
         composite_dir, detections_dir, patches_dir = create_chunk_directories(save_dir, fits_path, metadata['chunk_idx'])
 
-        # Tiempo absoluto de inicio del chunk como en pipeline clásico
+        # Match the classic pipeline's chunk start time computation.
         chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO
 
         for j, start_idx, end_idx in slices_to_process:

@@ -25,7 +25,6 @@ except ImportError:
               
 logger = logging.getLogger(__name__)
 
-# This function runs the detection model.
 def detect(model, img_tensor: np.ndarray):
     """Run the detection model and return confidences and boxes."""
     if get_res is None:
@@ -60,7 +59,6 @@ def detect(model, img_tensor: np.ndarray):
         logger.error(f"Error en detect: {e}")
         return [], []
 
-# This function preps patch.
 def prep_patch(patch: np.ndarray) -> np.ndarray:
     """Normalize patch for classification."""
     patch = patch.copy()
@@ -71,7 +69,6 @@ def prep_patch(patch: np.ndarray) -> np.ndarray:
     patch = (patch - patch.min()) / (patch.max() - patch.min())
     return patch
 
-# This function classifies patch.
 def classify_patch(model, patch: np.ndarray):
     """Return probability from binary model for patch along with the processed patch."""
     proc = prep_patch(patch)

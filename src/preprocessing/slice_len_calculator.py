@@ -16,7 +16,6 @@ from ..config import config
 logger = logging.getLogger(__name__)
 
 
-# This function calculates slice length from duration.
 def calculate_slice_len_from_duration() -> Tuple[int, float]:
     """
     Calcula SLICE_LEN dinámicamente basado en SLICE_DURATION_MS y metadatos del archivo.
@@ -57,7 +56,6 @@ def calculate_slice_len_from_duration() -> Tuple[int, float]:
     return slice_len, real_duration_ms
 
 
-# This function calculates optimal chunk size.
 def calculate_optimal_chunk_size(slice_len: Optional[int] = None) -> int:
     """Determina cuántas muestras puede contener un chunk.
 
@@ -108,7 +106,6 @@ def calculate_optimal_chunk_size(slice_len: Optional[int] = None) -> int:
     return chunk_samples
 
 
-# This function gets processing parameters.
 def get_processing_parameters() -> dict:
     """Calcula automáticamente todos los parámetros de chunking y slicing.
 
@@ -273,7 +270,6 @@ def get_processing_parameters() -> dict:
     return parameters
 
 
-# This function updates slice length dynamic.
 def update_slice_len_dynamic():
     """
     Actualiza config.SLICE_LEN basado en SLICE_DURATION_MS.
@@ -297,7 +293,6 @@ def update_slice_len_dynamic():
     return slice_len, real_duration_ms
 
 
-# This function validates processing parameters.
 def validate_processing_parameters(parameters: dict) -> bool:
     """
     Valida que los parámetros calculados sean razonables.

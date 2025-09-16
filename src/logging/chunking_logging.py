@@ -15,7 +15,6 @@ from typing import Any, Dict
 from .logging_config import get_global_logger
 
 
-# This function displays detailed chunking info.
 def display_detailed_chunking_info(parameters: Dict[str, Any]) -> None:
     """
     Muestra información detallada del sistema de chunking en consola.
@@ -106,7 +105,6 @@ def display_detailed_chunking_info(parameters: Dict[str, Any]) -> None:
     logger.logger.info("=" * 80)
 
 
-# This function logs chunk processing start.
 def log_chunk_processing_start(chunk_idx: int, chunk_info: Dict[str, Any]) -> None:
     """
     Registra el inicio del procesamiento de un chunk.
@@ -121,7 +119,6 @@ def log_chunk_processing_start(chunk_idx: int, chunk_info: Dict[str, Any]) -> No
     logger.logger.info(f"   • Slices en chunk: {chunk_info.get('slices_per_chunk', 0)}")
 
 
-# This function logs chunk processing end.
 def log_chunk_processing_end(chunk_idx: int, results: Dict[str, Any]) -> None:
     """
     Registra el fin del procesamiento de un chunk.
@@ -136,7 +133,6 @@ def log_chunk_processing_end(chunk_idx: int, results: Dict[str, Any]) -> None:
     logger.logger.info(f"   • Tiempo de procesamiento: {results.get('processing_time', 0):.2f} s")
 
 
-# This function logs file processing summary.
 def log_file_processing_summary(file_info: Dict[str, Any]) -> None:
     """
     Registra un resumen del procesamiento del archivo.
@@ -153,7 +149,6 @@ def log_file_processing_summary(file_info: Dict[str, Any]) -> None:
     logger.logger.info(f"   • Tiempo total: {file_info.get('total_time', 0):.2f} s")
 
 
-# This function logs memory optimization.
 def log_memory_optimization(optimization_info: Dict[str, Any]) -> None:
     """
     Registra información sobre optimizaciones de memoria.
@@ -168,7 +163,6 @@ def log_memory_optimization(optimization_info: Dict[str, Any]) -> None:
     logger.logger.info(f"   • Eficiencia: {optimization_info.get('efficiency_percent', 0):.1f}%")
 
 
-# This function logs slice configuration.
 def log_slice_configuration(slice_config: Dict[str, Any]) -> None:
     """
     Registra la configuración de slices.
@@ -184,7 +178,6 @@ def log_slice_configuration(slice_config: Dict[str, Any]) -> None:
     logger.logger.info(f"   • Precisión: {slice_config.get('precision_percent', 0):.1f}%")
 
 
-# This function logs chunk budget.
 def log_chunk_budget(budget: Dict[str, Any]) -> None:
     """
     Registra el presupuesto de memoria y cálculo de tamaño de chunk cuando el planificador está activo.
@@ -213,7 +206,6 @@ def log_chunk_budget(budget: Dict[str, Any]) -> None:
     logger.logger.info(f"   • Downsampling: tiempo={budget.get('down_time_rate', 1)}x, freq={budget.get('down_freq_rate', 1)}x")
 
 
-# This function logs slice plan summary.
 def log_slice_plan_summary(chunk_idx: int, plan: Dict[str, Any]) -> None:
     """Registra un resumen del plan de slices para un chunk.
 

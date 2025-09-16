@@ -1,3 +1,5 @@
+# This module provides utility conversions for input processing.
+
 """Utilidades comunes para el manejo de archivos astronómicos (FITS, filterbank)."""
 from __future__ import annotations
 
@@ -5,11 +7,12 @@ import os
 from pathlib import Path
 from typing import Dict
 
-# Local imports
+               
 from ..config import config
 from ..output.summary_manager import _update_summary_with_file_debug
 
 
+# This function returns a safe float value.
 def safe_float(value, default=0.0) -> float:
     """Return ``value`` as ``float`` or ``default`` if conversion fails."""
     try:
@@ -22,6 +25,7 @@ def safe_float(value, default=0.0) -> float:
             return default
 
 
+# This function returns a safe integer value.
 def safe_int(value, default=0) -> int:
     """Return ``value`` as ``int`` or ``default`` if conversion fails."""
     try:
@@ -34,6 +38,7 @@ def safe_int(value, default=0) -> int:
             return default
 
 
+# This function auto-configures downsampling parameters.
 def auto_config_downsampling() -> None:
     """Configura DOWN_FREQ_RATE y DOWN_TIME_RATE si no fueron fijados por el usuario."""
     user_configured_freq = getattr(config, 'DOWN_FREQ_RATE', None)
@@ -52,6 +57,7 @@ def auto_config_downsampling() -> None:
             config.DOWN_TIME_RATE = 15
 
 
+# This function prints debug frequencies.
 def print_debug_frequencies(prefix: str, file_name: str, freq_axis_inverted: bool) -> None:
     """Imprime bloque estándar de depuración de frecuencias con un prefijo dado."""
     print(f"{prefix} Archivo: {file_name}")
@@ -71,6 +77,7 @@ def print_debug_frequencies(prefix: str, file_name: str, freq_axis_inverted: boo
     print(f"{prefix} " + "="*50)
 
 
+# This function saves file debug info.
 def save_file_debug_info(file_name: str, debug_info: Dict) -> None:
     """Guarda debug info (FITS o FIL) en summary.json inmediatamente (unificado)."""
     try:

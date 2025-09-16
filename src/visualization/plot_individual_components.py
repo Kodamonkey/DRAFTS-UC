@@ -1,21 +1,24 @@
+# This module generates individual diagnostic plots.
+
 """Individual plot components generator for FRB pipeline - creates separate plots for each composite component."""
 from __future__ import annotations
 
-# Standard library imports
+                          
 import logging
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
-# Local imports
+               
 from .plot_dm_time import save_dm_time_plot
 from .plot_waterfall_dispersed import save_waterfall_dispersed_plot
 from .plot_waterfall_dedispersed import save_waterfall_dedispersed_plot
 from .plot_patches import save_patches_plot
 
-# Setup logger
+              
 logger = logging.getLogger(__name__)
 
 
+# This function generates individual plots.
 def generate_individual_plots(
     waterfall_block,
     dedispersed_block,
@@ -54,7 +57,7 @@ def generate_individual_plots(
     All plots are IDENTICAL to their corresponding panels in the composite plot.
     """
     
-    # Create output directory for individual plots
+                                                  
     if chunk_idx is not None:
         individual_dir = base_out_path.parent / output_dir / f"chunk_{chunk_idx:03d}" / f"slice_{slice_idx:03d}"
     else:
@@ -62,7 +65,7 @@ def generate_individual_plots(
     
     individual_dir.mkdir(parents=True, exist_ok=True)
     
-    # Generate base filename
+                            
     base_filename = f"{fits_stem}_slice_{slice_idx:03d}"
     if chunk_idx is not None:
         base_filename = f"{fits_stem}_chunk_{chunk_idx:03d}_slice_{slice_idx:03d}"
@@ -70,7 +73,7 @@ def generate_individual_plots(
     logger.info(f"Generating individual plots in: {individual_dir}")
     
     try:
-        # 1. DM-Time Plot (detections) - IDÉNTICO al panel superior del composite
+                                                                                 
         dm_time_path = individual_dir / f"{base_filename}_dm_time.png"
         save_dm_time_plot(
             img_rgb=img_rgb,
@@ -92,7 +95,7 @@ def generate_individual_plots(
         )
         logger.info(f"✓ DM-Time plot saved: {dm_time_path}")
         
-        # 2. Waterfall Dispersed Plot - IDÉNTICO al panel izquierdo del composite
+                                                                                 
         waterfall_dispersed_path = individual_dir / f"{base_filename}_waterfall_dispersed.png"
         save_waterfall_dispersed_plot(
             waterfall_block=waterfall_block,
@@ -110,11 +113,11 @@ def generate_individual_plots(
             absolute_start_time=absolute_start_time,
             chunk_idx=chunk_idx,
             slice_samples=slice_samples,
-            dm_value=dm_val,  # Agregar DM para corrección de dispersión
+            dm_value=dm_val,                                            
         )
         logger.info(f"✓ Waterfall dispersed plot saved: {waterfall_dispersed_path}")
         
-        # 3. Waterfall Dedispersed Plot - IDÉNTICO al panel central del composite
+                                                                                 
         waterfall_dedispersed_path = individual_dir / f"{base_filename}_waterfall_dedispersed.png"
         save_waterfall_dedispersed_plot(
             dedispersed_block=dedispersed_block,
@@ -138,7 +141,7 @@ def generate_individual_plots(
         )
         logger.info(f"✓ Waterfall dedispersed plot saved: {waterfall_dedispersed_path}")
         
-        # 4. Patches Plot (candidate centered) - IDÉNTICO al panel derecho del composite
+                                                                                        
         patches_path = individual_dir / f"{base_filename}_patches.png"
         save_patches_plot(
             patch_img=patch_img,
@@ -167,6 +170,7 @@ def generate_individual_plots(
         raise
 
 
+# This function generates individual plots from composite params.
 def generate_individual_plots_from_composite_params(
     composite_params: dict,
     base_out_path: Path,
@@ -178,19 +182,19 @@ def generate_individual_plots_from_composite_params(
     and calls generate_individual_plots.
     """
     
-    # Extract required parameters
+                                 
     required_params = [
         'waterfall_block', 'dedispersed_block', 'img_rgb', 'patch_img',
         'patch_start', 'dm_val', 'top_conf', 'top_boxes', 'class_probs',
         'slice_idx', 'time_slice', 'band_name', 'band_suffix', 'fits_stem', 'slice_len'
     ]
     
-    # Check if all required parameters are present
+                                                  
     missing_params = [param for param in required_params if param not in composite_params]
     if missing_params:
         raise ValueError(f"Missing required parameters: {missing_params}")
     
-    # Extract optional parameters with defaults
+                                               
     normalize = composite_params.get('normalize', False)
     off_regions = composite_params.get('off_regions', None)
     thresh_snr = composite_params.get('thresh_snr', None)
@@ -200,7 +204,7 @@ def generate_individual_plots_from_composite_params(
     slice_samples = composite_params.get('slice_samples', None)
     candidate_times_abs = composite_params.get('candidate_times_abs', None)
     
-    # Call the main function
+                            
     generate_individual_plots(
         waterfall_block=composite_params['waterfall_block'],
         dedispersed_block=composite_params['dedispersed_block'],

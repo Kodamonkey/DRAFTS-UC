@@ -1,28 +1,31 @@
+# This module bridges the detection and classification models.
+
 """Model interface for FRB detection and classification - handles neural network inference."""
-# Standard library imports
+                          
 import logging
 
-# Third-party imports
+                     
 import numpy as np
 
-# Local imports
+               
 from ..config import config
 
-# Model imports
+               
 try:
     from ..models.ObjectDet.centernet_utils import get_res
 except ImportError:
     get_res = None
 
-# Optional third-party imports
+                              
 try:
     import torch
 except ImportError:
     torch = None
 
-# Setup logger
+              
 logger = logging.getLogger(__name__)
 
+# This function runs the detection model.
 def detect(model, img_tensor: np.ndarray):
     """Run the detection model and return confidences and boxes."""
     if get_res is None:
@@ -38,7 +41,7 @@ def detect(model, img_tensor: np.ndarray):
                 .unsqueeze(0)
             )
         top_conf, top_boxes = get_res(hm, wh, offset, confidence=config.DET_PROB)
-        # Normalizar salidas a listas Python siempre
+                                                    
         if top_boxes is None:
             return [], []
         try:
@@ -57,6 +60,7 @@ def detect(model, img_tensor: np.ndarray):
         logger.error(f"Error en detect: {e}")
         return [], []
 
+# This function preps patch.
 def prep_patch(patch: np.ndarray) -> np.ndarray:
     """Normalize patch for classification."""
     patch = patch.copy()
@@ -67,6 +71,7 @@ def prep_patch(patch: np.ndarray) -> np.ndarray:
     patch = (patch - patch.min()) / (patch.max() - patch.min())
     return patch
 
+# This function classifies patch.
 def classify_patch(model, patch: np.ndarray):
     """Return probability from binary model for patch along with the processed patch."""
     proc = prep_patch(patch)

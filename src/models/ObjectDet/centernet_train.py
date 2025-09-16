@@ -18,7 +18,6 @@ from centernet_utils import get_res, denormalize
 from sklearn.model_selection import train_test_split
 
 
-# This function loads train cat.
 def load_train_cat(train_path):
 
     data              = pd.read_csv(train_path)

@@ -16,7 +16,6 @@ from typing import Any, Callable, Dict, Optional
 from .logging_config import get_global_logger
 
 
-# This function logs streaming parameters.
 def log_streaming_parameters(effective_chunk_samples: int, overlap_raw: int,
                             total_samples: int, chunk_samples: int,
                             streaming_func: Callable, file_type: str) -> None:
@@ -37,7 +36,6 @@ def log_streaming_parameters(effective_chunk_samples: int, overlap_raw: int,
     logger.logger.debug(f"[DEBUG] DEBUG STREAMING: streaming_func={getattr(streaming_func, '__name__', str(streaming_func))}, file_type={file_type}")
 
 
-# This function logs block processing.
 def log_block_processing(actual_chunk_count: int, block_shape: tuple, block_dtype: str,
                          metadata: Dict[str, Any]) -> None:
     """
@@ -61,7 +59,6 @@ def log_block_processing(actual_chunk_count: int, block_shape: tuple, block_dtyp
     logger.logger.debug(f"[DEBUG] DEBUG BLOQUE {actual_chunk_count}: overlap_right={metadata.get('overlap_right', 'N/A')}")
 
 
-# This function logs processing summary.
 def log_processing_summary(actual_chunk_count: int, chunk_count: int,
                           cand_counter_total: int, n_bursts_total: int) -> None:
     """
@@ -79,7 +76,6 @@ def log_processing_summary(actual_chunk_count: int, chunk_count: int,
     logger.logger.debug(f"[DEBUG] DEBUG RESUMEN: archivo procesado completamente a través de streaming")
 
 
-# This function logs pipeline file processing.
 def log_pipeline_file_processing(fits_path_name: str, file_suffix: str,
                                 total_samples: int, chunk_samples: int) -> None:
     """
@@ -99,7 +95,6 @@ def log_pipeline_file_processing(fits_path_name: str, file_suffix: str,
     logger.logger.debug(f"[DEBUG] DEBUG PIPELINE: SIEMPRE llamando a _process_file_chunked (nunca a _process_file)")
 
 
-# This function logs pipeline file completion.
 def log_pipeline_file_completion(fits_path_name: str, results: Dict[str, Any]) -> None:
     """
     Registra la finalización del procesamiento de un archivo en el pipeline.

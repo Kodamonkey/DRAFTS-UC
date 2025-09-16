@@ -16,7 +16,6 @@ from typing import Any, Dict, Optional
 from .logging_config import get_global_logger
 
 
-# This function logs stream filterbank parameters.
 def log_stream_fil_parameters(nsamples: int, chunk_samples: int, overlap_samples: int, 
                              nchans: int, nifs: int, nbits: int, dtype: str) -> None:
     """
@@ -36,7 +35,6 @@ def log_stream_fil_parameters(nsamples: int, chunk_samples: int, overlap_samples
     logger.logger.debug(f"[DEBUG] STREAM_FIL: nchans={nchans}, nifs={nifs}, nbits={nbits}, dtype={dtype}")
 
 
-# This function logs stream filterbank block generation.
 def log_stream_fil_block_generation(chunk_counter: int, block_shape: tuple, block_dtype: str,
                                    valid_start: int, valid_end: int, 
                                    start_with_overlap: int, end_with_overlap: int,
@@ -61,7 +59,6 @@ def log_stream_fil_block_generation(chunk_counter: int, block_shape: tuple, bloc
     logger.logger.debug(f"[DEBUG] STREAM_FIL BLOQUE {chunk_counter}: actual_chunk_size={actual_chunk_size:,}")
 
 
-# This function logs the filterbank streaming summary.
 def log_stream_fil_summary(chunk_counter: int) -> None:
     """
     Registra el resumen de streaming FIL.
@@ -74,7 +71,6 @@ def log_stream_fil_summary(chunk_counter: int) -> None:
     logger.logger.debug(f"[DEBUG] STREAM_FIL RESUMEN: archivo procesado completamente a través de streaming")
 
 
-# This function logs stream FITS parameters.
 def log_stream_fits_parameters(nsamples: int, chunk_samples: int, overlap_samples: int,
                               nsubint: Optional[int], nchan: Optional[int], 
                               npol: Optional[int], nsblk: Optional[int]) -> None:
@@ -96,7 +92,6 @@ def log_stream_fits_parameters(nsamples: int, chunk_samples: int, overlap_sample
     logger.logger.debug(f"[DEBUG] STREAM_FITS: npol={npol if npol is not None else 'N/A'}, nsblk={nsblk if nsblk is not None else 'N/A'}")
 
 
-# This function logs stream FITS load strategy.
 def log_stream_fits_load_strategy(use_memmap: bool, data_shape: tuple, data_dtype: str) -> None:
     """
     Registra la estrategia de carga para archivos FITS.
@@ -111,7 +106,6 @@ def log_stream_fits_load_strategy(use_memmap: bool, data_shape: tuple, data_dtyp
     logger.logger.debug(f"[DEBUG] STREAM_FITS CARGA: data_array.dtype={data_dtype}")
 
 
-# This function logs stream FITS block generation.
 def log_stream_fits_block_generation(chunk_counter: int, block_shape: tuple, block_dtype: str,
                                     valid_start: int, valid_end: int,
                                     start_with_overlap: int, end_with_overlap: int,
@@ -136,7 +130,6 @@ def log_stream_fits_block_generation(chunk_counter: int, block_shape: tuple, blo
     logger.logger.debug(f"[DEBUG] STREAM_FITS BLOQUE {chunk_counter}: actual_chunk_size={actual_chunk_size:,}")
 
 
-# This function logs stream FITS summary.
 def log_stream_fits_summary(chunk_counter: int) -> None:
     """
     Registra el resumen de streaming FITS.

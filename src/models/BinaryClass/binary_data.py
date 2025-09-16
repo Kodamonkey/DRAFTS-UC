@@ -14,7 +14,6 @@ from torch.utils.data import Dataset
 
 class BurstDataset(Dataset):
 
-    # This function initializes the burst dataset.
     def __init__(self, data, val=False):
         self.image = data.file_name.values
         self.label = data.label.values
@@ -26,11 +25,9 @@ class BurstDataset(Dataset):
             transforms.RandomHorizontalFlip(p=0.5)
         ])
 
-    # This function returns the dataset length.
     def __len__(self):
         return len(self.image)
 
-    # This function retrieves a dataset sample.
     def __getitem__(self, idx):
         X, y       = self.random_comb_data(idx)                   
         X          = torch.from_numpy(X[None, :, :].astype(np.float32))
@@ -39,7 +36,6 @@ class BurstDataset(Dataset):
             X      = self.trans(X)
         return X, y
 
-    # This function preprocesses data.
     def preprocess_data(self, data, mean_norm=True, exp_cut=5):
         data       = data.copy()
         if np.random.rand() > 0.5:
@@ -52,7 +48,6 @@ class BurstDataset(Dataset):
         data       = (data - np.min(data)) / (np.max(data) - np.min(data))
         return data
 
-    # This function loads a single data sample.
     def load_single_data(self, idx):
         data, label = np.load(self.image[idx]), self.label[idx]
         if np.abs(data.max() - data.min() - 1) < 1:
@@ -62,7 +57,6 @@ class BurstDataset(Dataset):
         data = self.preprocess_data(data, mean_norm=mean_norm, exp_cut=exp_cut)
         return data, label
 
-    # This function randomly combines training data.
     def random_comb_data(self, idx):
         comb_num = np.random.randint(1, 6)
         comb_idx = np.append([idx], np.random.choice(len(self.image), comb_num - 1, replace=False))
@@ -89,7 +83,6 @@ class BurstDataset(Dataset):
         labels = 1 if np.any(np.array([self.label[j] for j in comb_idx]) == 1) else 0
         return comb_data, labels
 
-    # This function adds noise.
     def add_noise(self, data):
         data_max, data_min   = data.max(), data.min()
             
@@ -175,7 +168,6 @@ class BurstDataset(Dataset):
         return data
 
 
-# This function prepares training and validation splits.
 def get_train_val(root_path='./Data/'):
 
     positive_path = root_path + 'True/'

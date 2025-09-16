@@ -21,7 +21,6 @@ from .visualization_ranges import get_dynamic_dm_range_for_candidate
 logger = logging.getLogger(__name__)
 
 
-# This function calculates dynamic DM range.
 def _calculate_dynamic_dm_range(
     top_boxes: Iterable | None,
     slice_len: int,
@@ -73,7 +72,6 @@ def _calculate_dynamic_dm_range(
         return float(dm_min), float(dm_max)
 
 
-# This function gets band frequency range.
 def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
     """Get the frequency range (min, max) for a specific band."""
     freq_ds = np.mean(
@@ -94,14 +92,12 @@ def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
         return freq_ds.min(), freq_ds.max()
 
 
-# This function gets band name with frequency range.
 def get_band_name_with_freq_range(band_idx: int, band_name: str) -> str:
     """Get band name with frequency range information."""
     freq_min, freq_max = get_band_frequency_range(band_idx)
     return f"{band_name} ({freq_min:.0f}-{freq_max:.0f} MHz)"
 
 
-# This function creates DM time plot.
 def create_dm_time_plot(
     img_rgb: np.ndarray,
     top_conf: Iterable,
@@ -286,7 +282,6 @@ def create_dm_time_plot(
     return fig
 
 
-# This function saves DM time plot.
 def save_dm_time_plot(
     img_rgb: np.ndarray,
     top_conf: Iterable,

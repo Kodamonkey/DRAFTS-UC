@@ -10,7 +10,6 @@ import numpy as np
 from ..config import config
 
 
-# This function downsamples data.
 def downsample_data(data: np.ndarray) -> np.ndarray:
     """Down-sample time-frequency data usando las tasas de :mod:`config`.
 

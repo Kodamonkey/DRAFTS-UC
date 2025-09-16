@@ -32,9 +32,8 @@ from ..logging import (
 from .utils import safe_float, safe_int, auto_config_downsampling, print_debug_frequencies, save_file_debug_info
 
 
-# This function unpacks 1 bit data.
 def _unpack_1bit(data: np.ndarray) -> np.ndarray:
-    """Desempaqueta datos de 1 bit contenidos en bytes a uint8."""
+    """Unpack 1-bit samples stored in bytes into ``uint8`` values."""
     b0 = (data >> 0x07) & 0x01
     b1 = (data >> 0x06) & 0x01
     b2 = (data >> 0x05) & 0x01
@@ -46,9 +45,8 @@ def _unpack_1bit(data: np.ndarray) -> np.ndarray:
     return np.dstack([b0, b1, b2, b3, b4, b5, b6, b7]).flatten()
 
 
-# This function unpacks 2 bit data.
 def _unpack_2bit(data: np.ndarray) -> np.ndarray:
-    """Desempaqueta datos de 2 bits contenidos en bytes a uint8."""
+    """Unpack 2-bit samples stored in bytes into ``uint8`` values."""
     p0 = (data >> 0x06) & 0x03
     p1 = (data >> 0x04) & 0x03
     p2 = (data >> 0x02) & 0x03
@@ -56,15 +54,13 @@ def _unpack_2bit(data: np.ndarray) -> np.ndarray:
     return np.dstack([p0, p1, p2, p3]).flatten()
 
 
-# This function unpacks 4 bit data.
 def _unpack_4bit(data: np.ndarray) -> np.ndarray:
-    """Desempaqueta datos de 4 bits contenidos en bytes a uint8."""
+    """Unpack 4-bit samples stored in bytes into ``uint8`` values."""
     p0 = (data >> 0x04) & 0x0F
     p1 = data & 0x0F
     return np.dstack([p0, p1]).flatten()
 
 
-# This function applies calibration.
 def _apply_calibration(
     data: np.ndarray,
     dat_wts: np.ndarray | None,
@@ -72,12 +68,18 @@ def _apply_calibration(
     dat_offs: np.ndarray | None,
     zero_off: float,
 ) -> np.ndarray:
-    """Aplica correcciones PSRFITS al bloque de datos.
+    """Apply PSRFITS calibration to a data block.
 
-    Espera `data` como float32 con shape (nsblk, npol, nchan).
-    - dat_wts: (nchan,)
-    - dat_scl: (npol*nchan,)
-    - dat_offs: (npol*nchan,)
+    Parameters
+    ----------
+    data : np.ndarray
+        Float32 array with shape ``(nsblk, npol, nchan)``.
+    dat_wts : np.ndarray | None
+        Channel weights ``(nchan,)``.
+    dat_scl : np.ndarray | None
+        Scale factors ``(npol * nchan,)``.
+    dat_offs : np.ndarray | None
+        Offsets ``(npol * nchan,)``.
     """
     if data.dtype != np.float32:
         data = data.astype(np.float32, copy=False)
@@ -100,7 +102,6 @@ def _apply_calibration(
     return data
 
 
-# This function selects polarization.
 def _select_polarization(
     data: np.ndarray,
     pol_type: str,
@@ -156,7 +157,6 @@ def _select_polarization(
     return data[:, default_index:default_index + 1, :]
 
 
-# This function loads FITS file.
 def load_fits_file(file_name: str) -> np.ndarray:
     """Load a FITS file and return the data array in shape (time, pol, channel)."""
     global_vars = config
@@ -448,7 +448,6 @@ def load_fits_file(file_name: str) -> np.ndarray:
     return data_array
 
 
-# This function gets obparams.
 def get_obparams(file_name: str) -> None:
     """Extract observation parameters and populate :mod:`config`."""
     
@@ -854,7 +853,6 @@ def get_obparams(file_name: str) -> None:
         })
 
 
-# This function streams FITS.
 def stream_fits(
     file_name: str,
     chunk_samples: int = 2_097_152,
@@ -873,7 +871,6 @@ def stream_fits(
     """
     
                                                                                         
-    # This function converts a SUBINT row into a data block.
     def _row_to_block(row_data: np.ndarray, row: np.ndarray, subint, nbits: int, nsblk: int, npol: int, nchan: int, zero_off: float, pol_type: str) -> np.ndarray:
                                                         
         if nbits < 8:
@@ -1040,7 +1037,6 @@ def stream_fits(
                                                                                 
 
                                                                                                         
-                    # This function estimates the expected start sample.
                     def _expected_start_sample(offs_sub_seconds: float, sub_index: int) -> int:
                         if offs_sub_seconds is not None:
                                                                     

@@ -34,7 +34,7 @@ def log_streaming_parameters(effective_chunk_samples: int, overlap_raw: int,
     logger = get_global_logger()
     logger.logger.debug(f"[DEBUG] DEBUG STREAMING: effective_chunk_samples={effective_chunk_samples:,}, overlap_raw={overlap_raw}")
     logger.logger.debug(f"[DEBUG] DEBUG STREAMING: total_samples={total_samples:,}, chunk_samples={chunk_samples:,}")
-    logger.logger.debug(f"[DEBUG] DEBUG STREAMING: streaming_func={streaming_func.__name__}, file_type={file_type}")
+    logger.logger.debug(f"[DEBUG] DEBUG STREAMING: streaming_func={getattr(streaming_func, '__name__', str(streaming_func))}, file_type={file_type}")
 
 
 # This function logs block processing.
@@ -51,7 +51,9 @@ def log_block_processing(actual_chunk_count: int, block_shape: tuple, block_dtyp
     """
     logger = get_global_logger()
     logger.logger.debug(f"[DEBUG] DEBUG BLOQUE {actual_chunk_count}: shape={block_shape}, dtype={block_dtype}")
-    logger.logger.debug(f"[DEBUG] DEBUG BLOQUE {actual_chunk_count}: metadata={metadata}")
+    # Evitar problemas de serialización JSON con metadatos complejos
+    metadata_str = str(metadata) if metadata else "None"
+    logger.logger.debug(f"[DEBUG] DEBUG BLOQUE {actual_chunk_count}: metadata={metadata_str}")
     logger.logger.debug(f"[DEBUG] DEBUG BLOQUE {actual_chunk_count}: chunk_idx={metadata.get('chunk_idx', 'N/A')}")
     logger.logger.debug(f"[DEBUG] DEBUG BLOQUE {actual_chunk_count}: start_sample={metadata.get('start_sample', 'N/A'):,}")
     logger.logger.debug(f"[DEBUG] DEBUG BLOQUE {actual_chunk_count}: end_sample={metadata.get('end_sample', 'N/A'):,}")

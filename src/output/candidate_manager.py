@@ -35,7 +35,6 @@ CANDIDATE_HEADER = [
 ]
 
 
-# This function ensures CSV header.
 def ensure_csv_header(csv_path: Path) -> None:
     """Create csv_path with the standard candidate header if needed."""
     csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -50,7 +49,6 @@ def ensure_csv_header(csv_path: Path) -> None:
         raise
 
 
-# This function appends candidate.
 def append_candidate(csv_path: Path, candidate_row: list) -> None:
     """Append a candidate row to the CSV file."""
     with csv_path.open("a", newline="") as f_csv:
@@ -76,7 +74,6 @@ class Candidate:
     patch_file: str | None = None
     width_ms: float | None = None
 
-    # This function converts a candidate to a CSV row.
     def to_row(self) -> List:
         """Convert candidate to CSV row format."""
         row = [

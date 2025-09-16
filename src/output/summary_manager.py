@@ -14,7 +14,6 @@ from ..config import config
               
 logger = logging.getLogger(__name__)
 
-# This function writes summary with timestamp.
 def _write_summary_with_timestamp(summary: dict, save_path: Path, preserve_history: bool = True) -> None:
     """
     Write summary with timestamp and optionally preserve historical summaries.
@@ -97,7 +96,6 @@ def _write_summary_with_timestamp(summary: dict, save_path: Path, preserve_histo
         logger.info("Resumen con timestamp escrito en %s", timestamped_path)
 
 
-# This function loads or creates summary.
 def _load_or_create_summary(save_path: Path) -> dict:
     """Load existing summary.json or create a new one."""
     summary_path = save_path / "summary.json"
@@ -141,7 +139,6 @@ def _load_or_create_summary(save_path: Path) -> dict:
     }
 
 
-# This function loads or creates master summary.
 def _load_or_create_master_summary(master_path: Path) -> dict:
     """Load existing master summary or create a new one."""
     if master_path.exists():
@@ -166,7 +163,6 @@ def _load_or_create_master_summary(master_path: Path) -> dict:
     }
 
 
-# This function updates summary with file debug.
 def _update_summary_with_file_debug(
     save_path: Path, filename: str, debug_info: dict
 ) -> None:
@@ -191,7 +187,6 @@ def _update_summary_with_file_debug(
         logger.info(f"Debug info guardada para {filename} en {summary_path}")
 
 
-# This function updates summary with results.
 def _update_summary_with_results(
     save_path: Path, filename: str, results_info: dict
 ) -> None:

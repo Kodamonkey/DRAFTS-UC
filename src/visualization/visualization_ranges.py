@@ -11,11 +11,9 @@ logger = logging.getLogger(__name__)
 class DynamicDMRangeCalculator:
     """Calculadora de rangos DM dinámicos para visualización óptima."""
     
-    # This function initializes the range calculator.
     def __init__(self):
         self.dm_ranges_cache = {}
         
-    # This function calculates optimal DM range.
     def calculate_optimal_dm_range(
         self,
         dm_optimal: float,
@@ -104,7 +102,6 @@ class DynamicDMRangeCalculator:
         
         return dm_plot_min, dm_plot_max, calculation_details
     
-    # This function analyzes dispersion for range.
     def _analyze_dispersion_for_range(
         self, 
         dm_min: float, 
@@ -133,7 +130,6 @@ class DynamicDMRangeCalculator:
             'temporal_resolution_factor': disp_samples_range / 512                      
         }
     
-    # This function calculates the DM range for multiple candidates.
     def calculate_multiple_candidates_range(
         self,
         dm_candidates: List[float],
@@ -201,7 +197,6 @@ class DynamicDMRangeCalculator:
         
         return dm_plot_min, dm_plot_max, calculation_details
     
-    # This function calculates adaptive DM range.
     def calculate_adaptive_dm_range(
         self,
         dm_optimal: float,
@@ -253,7 +248,6 @@ class DynamicDMRangeCalculator:
         
         return dm_plot_min, dm_plot_max, details
     
-    # This function gets DM range for visualization.
     def get_dm_range_for_visualization(
         self,
         visualization_type: str,
@@ -332,7 +326,6 @@ class DynamicDMRangeCalculator:
                                  
 dm_range_calculator = DynamicDMRangeCalculator()
 
-# This function gets dynamic DM range for candidate.
 def get_dynamic_dm_range_for_candidate(
     dm_optimal: float,
     config_module,
@@ -389,7 +382,6 @@ def get_dynamic_dm_range_for_candidate(
     
     return dm_plot_min, dm_plot_max
 
-# This function calculates the DM range for multiple candidates.
 def get_dynamic_dm_range_for_multiple_candidates(
     dm_candidates: List[float],
     config_module,

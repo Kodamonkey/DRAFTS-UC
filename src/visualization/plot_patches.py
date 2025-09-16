@@ -21,7 +21,6 @@ from ..config import config
 logger = logging.getLogger(__name__)
 
 
-# This function gets band frequency range.
 def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
     """Get the frequency range (min, max) for a specific band."""
     freq_ds = np.mean(
@@ -42,14 +41,12 @@ def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
         return freq_ds.min(), freq_ds.max()
 
 
-# This function gets band name with frequency range.
 def get_band_name_with_freq_range(band_idx: int, band_name: str) -> str:
     """Get band name with frequency range information."""
     freq_min, freq_max = get_band_frequency_range(band_idx)
     return f"{band_name} ({freq_min:.0f}-{freq_max:.0f} MHz)"
 
 
-# This function creates patches plot.
 def create_patches_plot(
     patch_img: np.ndarray,
     patch_start: float,
@@ -236,7 +233,6 @@ def create_patches_plot(
     return fig
 
 
-# This function saves patches plot.
 def save_patches_plot(
     patch_img: np.ndarray,
     patch_start: float,

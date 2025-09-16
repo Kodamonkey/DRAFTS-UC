@@ -18,7 +18,6 @@ from .plot_patches import save_patches_plot
 logger = logging.getLogger(__name__)
 
 
-# This function generates individual plots.
 def generate_individual_plots(
     waterfall_block,
     dedispersed_block,
@@ -170,7 +169,6 @@ def generate_individual_plots(
         raise
 
 
-# This function generates individual plots from composite params.
 def generate_individual_plots_from_composite_params(
     composite_params: dict,
     base_out_path: Path,

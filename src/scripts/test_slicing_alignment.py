@@ -25,13 +25,11 @@ from src.input.filterbank_handler import get_obparams_fil, stream_fil
 from src.config import config
 
 
-# This function asserts approximate equality.
 def _assert_close(a: float, b: float, tol: float, what: str) -> None:
     if not (abs(a - b) <= tol):
         raise AssertionError(f"{what}: esperado {b}, obtenido {a}, tol={tol}")
 
 
-# This function tests PSRFITS slicing.
 def test_psrfits_slicing(fits_path: str, slice_sec: float) -> None:
                                    
     get_obparams(fits_path)
@@ -97,7 +95,6 @@ def test_psrfits_slicing(fits_path: str, slice_sec: float) -> None:
     print(f"[PSRFITS] OK: {num_chunks} chunks, total_emitted={total_emitted}/{nsamples}")
 
 
-# This function tests filterbank slicing.
 def test_filterbank_slicing(fil_path: str, slice_sec: float) -> None:
     get_obparams_fil(fil_path)
     tsamp = float(config.TIME_RESO)
@@ -144,7 +141,6 @@ def test_filterbank_slicing(fil_path: str, slice_sec: float) -> None:
     print(f"[FIL] OK: {num_chunks} chunks, total_emitted={total_emitted}/{nsamples}")
 
 
-# This function runs the slicing alignment test harness.
 def main() -> None:
     parser = argparse.ArgumentParser(description="Test de slicing para PSRFITS y Filterbank")
     parser.add_argument("--fits", type=str, default=None, help="Ruta a archivo .fits (PSRFITS)")

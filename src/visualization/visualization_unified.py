@@ -33,7 +33,6 @@ if "mako" not in plt.colormaps():
         cmap=ListedColormap(sns.color_palette("mako", as_cmap=True)(np.linspace(0, 1, 256)))
     )
 
-# This function calculates dynamic DM range.
 def _calculate_dynamic_dm_range(
     top_boxes: Iterable | None,
     slice_len: int,
@@ -85,7 +84,6 @@ def _calculate_dynamic_dm_range(
         return float(dm_min), float(dm_max)
 
 
-# This function preprocesses img.
 def preprocess_img(img: np.ndarray) -> np.ndarray:
     img = (img - img.min()) / np.ptp(img)
     img = (img - img.mean()) / img.std()
@@ -98,7 +96,6 @@ def preprocess_img(img: np.ndarray) -> np.ndarray:
     return img.transpose(2, 0, 1)
 
 
-# This function postprocesses img.
 def postprocess_img(img_tensor: np.ndarray) -> np.ndarray:
     img = img_tensor.transpose(1, 2, 0)
     img *= [0.229, 0.224, 0.225]
@@ -106,7 +103,6 @@ def postprocess_img(img_tensor: np.ndarray) -> np.ndarray:
     img = (img * 255).astype(np.uint8)
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-# This function saves all plots.
 def save_all_plots(
     waterfall_block,
     dedisp_block,
@@ -176,7 +172,6 @@ def save_all_plots(
         logger.info(f"Plot composite generado en: {comp_path}")
         logger.info(f"Plots individuales generados automáticamente en: {comp_path.parent}/individual_plots/")
 
-# This function gets band frequency range.
 def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
     freq_ds = np.mean(
         config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
@@ -196,12 +191,10 @@ def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
         return freq_ds.min(), freq_ds.max()
 
 
-# This function gets band name with frequency range.
 def get_band_name_with_freq_range(band_idx: int, band_name: str) -> str:
     freq_min, freq_max = get_band_frequency_range(band_idx)
     return f"{band_name} ({freq_min:.0f}-{freq_max:.0f} MHz)"
 
-# This function saves slice summary.
 def save_slice_summary(
     waterfall_block: np.ndarray,
     dedispersed_block: np.ndarray,

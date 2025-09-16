@@ -1,13 +1,6 @@
 # This module locates input data files for processing.
 
-"""Buscador y filtrador de archivos astronómicos.
-
-Este módulo se encarga de:
-1. Buscar archivos FITS y filterbank en directorios
-2. Filtrar archivos por criterios específicos (nombre, tipo, tamaño)
-3. Validar que los archivos encontrados sean compatibles
-4. Proporcionar información sobre los archivos encontrados
-"""
+"""Locate and filter FITS or filterbank files relevant to a target."""
 
 from pathlib import Path
 from typing import List, Optional
@@ -18,31 +11,18 @@ from ..config import config
 
 logger = logging.getLogger(__name__)
 
-# This function finds data files.
 def find_data_files(frb_target: str, data_dir: Optional[Path] = None) -> List[Path]:
-    """
-    Busca archivos FITS o filterbank que coincidan con el target FRB.
-    
-    Args:
-        frb_target: Target FRB a buscar en los nombres de archivo
-        data_dir: Directorio de datos (usa config.DATA_DIR si no se especifica)
-        
-    Returns:
-        Lista ordenada de archivos compatibles encontrados
-        
-    Raises:
-        ValueError: Si el directorio no existe o no hay archivos compatibles
-    """
+    """Return FITS or filterbank files whose names contain ``frb_target``."""
     if data_dir is None:
         data_dir = config.DATA_DIR
     
     if not data_dir.exists():
-        raise ValueError(f"Directorio de datos no existe: {data_dir}")
-    
+        raise ValueError(f"Data directory does not exist: {data_dir}")
+
     if not data_dir.is_dir():
-        raise ValueError(f"Path no es un directorio: {data_dir}")
-    
-    logger.info(f"Buscando archivos para target '{frb_target}' en: {data_dir}")
+        raise ValueError(f"Path is not a directory: {data_dir}")
+
+    logger.info(f"Searching files for target '{frb_target}' in: {data_dir}")
     
                                    
     fits_files = list(data_dir.glob("*.fits"))
@@ -51,22 +31,22 @@ def find_data_files(frb_target: str, data_dir: Optional[Path] = None) -> List[Pa
     all_files = fits_files + fil_files
     
     if not all_files:
-        logger.warning(f"No se encontraron archivos .fits o .fil en: {data_dir}")
+        logger.warning(f"No .fits or .fil files found in: {data_dir}")
         return []
-    
-    logger.info(f"Archivos encontrados: {len(fits_files)} .fits, {len(fil_files)} .fil")
+
+    logger.info(f"Files found: {len(fits_files)} .fits, {len(fil_files)} .fil")
     
                             
     matching_files = [f for f in all_files if frb_target.lower() in f.name.lower()]
     
     if not matching_files:
-        logger.warning(f"No se encontraron archivos que coincidan con target '{frb_target}'")
+        logger.warning(f"No files match target '{frb_target}'")
         return []
     
                         
     matching_files.sort(key=lambda x: x.name)
     
-    logger.info(f"Archivos coincidentes encontrados: {len(matching_files)}")
+    logger.info(f"Matching files found: {len(matching_files)}")
     for file in matching_files:
         logger.debug(f"  - {file.name}")
     

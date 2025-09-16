@@ -1,3 +1,5 @@
+# This module extracts observational parameters from input files.
+
 """Extractor de parámetros de observación para archivos astronómicos.
 
 Este módulo se encarga de:
@@ -17,6 +19,7 @@ from .utils import auto_config_downsampling
 
 logger = logging.getLogger(__name__)
 
+# This function extracts parameters auto.
 def extract_parameters_auto(file_path: Path) -> Dict[str, Any]:
     """
     Extrae parámetros automáticamente según el tipo de archivo detectado.
@@ -43,19 +46,19 @@ def extract_parameters_auto(file_path: Path) -> Dict[str, Any]:
     }
     
     try:
-        # Validar compatibilidad del archivo
+                                            
         validation = validate_file_compatibility(file_path)
         if not validation['is_compatible']:
             extraction_result['errors'].extend(validation['validation_errors'])
             raise ValueError(f"Archivo no compatible: {', '.join(validation['validation_errors'])}")
         
-        # Detectar tipo de archivo
+                                  
         file_type = detect_file_type(file_path)
         extraction_result['file_type'] = file_type
         
         logger.info(f"Extrayendo parámetros de archivo {file_type.upper()}: {file_path.name}")
         
-        # Extraer parámetros según el tipo
+                                          
         if file_type == "fits":
             get_obparams(str(file_path))
             extraction_result['parameters_extracted'] = [
@@ -68,11 +71,11 @@ def extract_parameters_auto(file_path: Path) -> Dict[str, Any]:
                 'TIME_RESO', 'FREQ_RESO', 'FILE_LENG', 'FREQ'
             ]
         
-        # Aplicar configuraciones automáticas de decimación
+                                                           
         logger.info("Aplicando configuraciones automáticas de decimación...")
         auto_config_downsampling()
         
-        # Verificar que los parámetros críticos se extrajeron correctamente
+                                                                           
         from ..config import config
         
         critical_params = ['TIME_RESO', 'FREQ_RESO', 'FILE_LENG']
@@ -88,7 +91,7 @@ def extract_parameters_auto(file_path: Path) -> Dict[str, Any]:
         extraction_result['success'] = True
         logger.info(f"Parámetros extraídos exitosamente de {file_path.name}")
         
-        # Log de parámetros extraídos
+                                     
         logger.info(f"Parámetros extraídos:")
         logger.info(f"  - Resolución temporal: {config.TIME_RESO:.2e} s")
         logger.info(f"  - Canales de frecuencia: {config.FREQ_RESO}")
@@ -104,6 +107,7 @@ def extract_parameters_auto(file_path: Path) -> Dict[str, Any]:
     
     return extraction_result
 
+# This function gets parameters function.
 def get_parameters_function(file_path: Path):
     """
     Retorna la función apropiada para extraer parámetros según el tipo de archivo.
@@ -121,6 +125,7 @@ def get_parameters_function(file_path: Path):
     else:
         return get_obparams_fil
 
+# This function extracts parameters for target.
 def extract_parameters_for_target(file_list: list[Path]) -> Dict[str, Any]:
     """
     Extrae parámetros del primer archivo de una lista para configurar el pipeline.
@@ -137,7 +142,7 @@ def extract_parameters_for_target(file_list: list[Path]) -> Dict[str, Any]:
     if not file_list:
         raise ValueError("Lista de archivos vacía")
     
-    # Usar el primer archivo para extraer parámetros
+                                                    
     first_file = file_list[0]
     logger.info(f"Extrayendo parámetros desde: {first_file.name}")
     
@@ -150,6 +155,7 @@ def extract_parameters_for_target(file_list: list[Path]) -> Dict[str, Any]:
         logger.error(f"Error obteniendo parámetros: {e}")
         raise
 
+# This function validates extracted parameters.
 def validate_extracted_parameters() -> Dict[str, Any]:
     """
     Valida que los parámetros extraídos sean coherentes y válidos.
@@ -167,7 +173,7 @@ def validate_extracted_parameters() -> Dict[str, Any]:
     }
     
     try:
-        # Verificar parámetros críticos
+                                       
         critical_params = {
             'TIME_RESO': config.TIME_RESO,
             'FREQ_RESO': config.FREQ_RESO,
@@ -182,7 +188,7 @@ def validate_extracted_parameters() -> Dict[str, Any]:
                 validation_result['errors'].append(f"Parámetro {param_name} debe ser > 0, actual: {param_value}")
                 validation_result['is_valid'] = False
         
-        # Verificar coherencia de frecuencias
+                                             
         if hasattr(config, 'FREQ') and config.FREQ is not None:
             if len(config.FREQ) != config.FREQ_RESO:
                 validation_result['warnings'].append(
@@ -194,7 +200,7 @@ def validate_extracted_parameters() -> Dict[str, Any]:
                 if freq_range <= 0:
                     validation_result['warnings'].append("Rango de frecuencias inválido o muy pequeño")
         
-        # Verificar parámetros de decimación
+                                            
         down_freq = getattr(config, 'DOWN_FREQ_RATE', 1)
         down_time = getattr(config, 'DOWN_TIME_RATE', 1)
         
@@ -202,7 +208,7 @@ def validate_extracted_parameters() -> Dict[str, Any]:
             validation_result['errors'].append("Factores de decimación deben ser > 0")
             validation_result['is_valid'] = False
         
-        # Crear resumen de parámetros
+                                     
         validation_result['parameter_summary'] = {
             'time_resolution_sec': getattr(config, 'TIME_RESO', 'N/A'),
             'frequency_channels': getattr(config, 'FREQ_RESO', 'N/A'),

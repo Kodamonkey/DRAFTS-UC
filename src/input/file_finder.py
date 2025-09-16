@@ -1,3 +1,5 @@
+# This module locates input data files for processing.
+
 """Buscador y filtrador de archivos astronómicos.
 
 Este módulo se encarga de:
@@ -16,6 +18,7 @@ from ..config import config
 
 logger = logging.getLogger(__name__)
 
+# This function finds data files.
 def find_data_files(frb_target: str, data_dir: Optional[Path] = None) -> List[Path]:
     """
     Busca archivos FITS o filterbank que coincidan con el target FRB.
@@ -41,7 +44,7 @@ def find_data_files(frb_target: str, data_dir: Optional[Path] = None) -> List[Pa
     
     logger.info(f"Buscando archivos para target '{frb_target}' en: {data_dir}")
     
-    # Buscar archivos por extensión
+                                   
     fits_files = list(data_dir.glob("*.fits"))
     fil_files = list(data_dir.glob("*.fil"))
     
@@ -53,14 +56,14 @@ def find_data_files(frb_target: str, data_dir: Optional[Path] = None) -> List[Pa
     
     logger.info(f"Archivos encontrados: {len(fits_files)} .fits, {len(fil_files)} .fil")
     
-    # Filtrar por target FRB
+                            
     matching_files = [f for f in all_files if frb_target.lower() in f.name.lower()]
     
     if not matching_files:
         logger.warning(f"No se encontraron archivos que coincidan con target '{frb_target}'")
         return []
     
-    # Ordenar por nombre
+                        
     matching_files.sort(key=lambda x: x.name)
     
     logger.info(f"Archivos coincidentes encontrados: {len(matching_files)}")

@@ -6,20 +6,19 @@ from pathlib import Path
 
 # Directorios de entrada y salida
 DATA_DIR = Path("./Data/raw")                        # Directorio con archivos de entrada (.fits, .fil)
-RESULTS_DIR = Path("./results-test-refactor/DRAFTS++")                      # Directorio para guardar resultados
+RESULTS_DIR = Path("./Results")                      # Directorio para guardar resultados
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-   "3096_0001_00_8bit",
+   "3096_0001_00_8bit"
 ]
-
 
 # =============================================================================
 # CONFIGURACIÓN DE ANÁLISIS TEMPORAL
 # =============================================================================
 
 # Duración de cada slice temporal (milisegundos)
-SLICE_DURATION_MS: float = 300.0
+SLICE_DURATION_MS: float = 500.0
 
 # =============================================================================
 # CONFIGURACIÓN DE DOWNSAMPLING
@@ -27,7 +26,7 @@ SLICE_DURATION_MS: float = 300.0
 
 # Factores de reducción para optimizar el procesamiento
 DOWN_FREQ_RATE: int = 1                      # Factor de reducción en frecuencia (1 = sin reducción)
-DOWN_TIME_RATE: int = 8                     # Factor de reducción en tiempo (1 = sin reducción)
+DOWN_TIME_RATE: int = 12                     # Factor de reducción en tiempo (1 = sin reducción)
 
 # =============================================================================
 # CONFIGURACIÓN DE DISPERSIÓN (DM)
@@ -56,23 +55,11 @@ SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en vis
 USE_MULTI_BAND: bool = False                # True = usar análisis multi-banda, False = solo banda completa
 
 # =============================================================================
-# CONFIGURACIÓN DE POLARIZACIÓN (ENTRADA PSRFITS)
-# =============================================================================
-
-# Modo de polarización para PSRFITS con POL_TYPE=IQUV y npol>=4
-# Opciones: "intensity" (I), "linear" (sqrt(Q^2+U^2)), "circular" (abs(V)),
-#           "pol0", "pol1", "pol2", "pol3" para seleccionar un índice específico
-POLARIZATION_MODE: str = "linear"
-
-# Índice por defecto si no hay IQUV (e.g., AABB, dos pols)
-POLARIZATION_INDEX: int = 0
-
-# =============================================================================
 # CONFIGURACIÓN DE LOGGING Y DEBUG
 # =============================================================================
 
 # Debug de frecuencias y archivos
-DEBUG_FREQUENCY_ORDER: bool = True         # True = mostrar información detallada de frecuencias y archivos
+DEBUG_FREQUENCY_ORDER: bool = False        # True = mostrar información detallada de frecuencias y archivos
                                            # False = modo silencioso (recomendado para procesamiento en lote)
 
 # Forzar generación de plots incluso sin candidatos (modo debug)

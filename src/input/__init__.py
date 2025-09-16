@@ -1,21 +1,23 @@
+# This module aggregates input handling utilities.
+
 """Módulo de entrada de datos para archivos astronómicos.
 
 Este módulo proporciona funcionalidades para cargar y procesar archivos FITS, PSRFITS y filterbank.
 """
 
-# Importar funciones principales para facilitar el acceso
+                                                         
 from .data_loader import (
-    # Funciones FITS
+                    
     load_fits_file,
     get_obparams,
     stream_fits,
     
-    # Funciones Filterbank
+                          
     load_fil_file,
     get_obparams_fil,
     stream_fil,
     
-    # Funciones de utilidad (compatibilidad)
+                                            
     _safe_float,
     _safe_int,
     _auto_config_downsampling,
@@ -23,7 +25,7 @@ from .data_loader import (
     _save_file_debug_info
 )
 
-# Importar funciones de utilidad directamente
+                                             
 from .utils import (
     safe_float,
     safe_int,
@@ -32,7 +34,7 @@ from .utils import (
     save_file_debug_info
 )
 
-# Importar funciones específicas de cada handler
+                                                
 from .fits_handler import (
     load_fits_file as load_fits,
     get_obparams,
@@ -45,7 +47,7 @@ from .filterbank_handler import (
     stream_fil
 )
 
-# Importar las nuevas funciones inteligentes del sistema refactorizado
+                                                                      
 from .file_detector import (
     detect_file_type,
     validate_file_compatibility,
@@ -66,7 +68,7 @@ from .file_finder import (
 )
 
 __all__ = [
-    # Funciones principales del data_loader (compatibilidad)
+                                                            
     'load_fits_file',
     'get_obparams',
     'stream_fits',
@@ -74,7 +76,7 @@ __all__ = [
     'get_obparams_fil',
     'stream_fil',
     
-    # Nuevas funciones inteligentes del sistema refactorizado
+                                                             
     'detect_file_type',
     'validate_file_compatibility',
     'extract_parameters_auto',
@@ -83,14 +85,14 @@ __all__ = [
     'validate_streaming_parameters',
     'find_data_files',
     
-    # Funciones de utilidad
+                           
     'safe_float',
     'safe_int',
     'auto_config_downsampling',
     'print_debug_frequencies',
     'save_file_debug_info',
     
-    # Funciones de compatibilidad
+                                 
     '_safe_float',
     '_safe_int',
     '_auto_config_downsampling',

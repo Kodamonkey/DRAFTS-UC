@@ -1,14 +1,16 @@
+# This module generates absolute segment diagnostic plots.
+
 """Script for generating absolute segment plots from FRB data files."""
 from __future__ import annotations
 
-# Standard library imports
+                          
 import argparse
 from pathlib import Path
 
-# Third-party imports
+                     
 import numpy as np
 
-# Local imports
+               
 from ..config import config
 from ..input.data_loader import (
     get_obparams,
@@ -21,6 +23,7 @@ from ..visualization.plot_waterfall_dispersed import save_waterfall_dispersed_pl
 from ..visualization.plot_waterfall_dedispersed import save_waterfall_dedispersed_plot
 
 
+# This function infers file type.
 def _infer_file_type(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix == ".fits":
@@ -30,10 +33,12 @@ def _infer_file_type(path: Path) -> str:
     raise ValueError(f"Tipo de archivo no soportado: {suffix}")
 
 
+# This function ensures that the output directory exists.
 def _ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
 
+# This function computes indices.
 def _compute_indices(start_sec: float, duration_sec: float) -> tuple[int, int, float]:
     """Convierte tiempo absoluto a índices en dominio decimado del pipeline.
 
@@ -46,6 +51,7 @@ def _compute_indices(start_sec: float, duration_sec: float) -> tuple[int, int, f
     return start_idx, end_idx, dt_ds
 
 
+# This function computes the downsampled frequency grid.
 def _compute_freq_down() -> np.ndarray:
     """Devuelve el eje de frecuencias decimado exactamente como el pipeline (promedio por grupos)."""
     freq = np.asarray(config.FREQ).reshape(-1)
@@ -60,6 +66,7 @@ def _compute_freq_down() -> np.ndarray:
     return freq_ds
 
 
+# This function runs single segment.
 def run_single_segment(
     filename: Path,
     start: float,
@@ -68,51 +75,51 @@ def run_single_segment(
     out_dir: Path,
     normalize: bool = True,
 ) -> None:
-    # 1) Cargar headers → configura config.TIME_RESO, FREQ, FILE_LENG, DOWN_* si aplica
+                                                                                       
     ftype = _infer_file_type(filename)
     if ftype == "fits":
         get_obparams(str(filename))
     else:
         get_obparams_fil(str(filename))
 
-    # 2) Cargar datos RAW (sin downsampling) y construir un bloque alineado a 'start'
+                                                                                     
     if ftype == "fits":
         data_raw = load_fits_file(str(filename))
     else:
         data_raw = load_fil_file(str(filename))
-    # (time, pol, chan) → asegurar forma
+                                        
     if data_raw.ndim != 3:
         raise ValueError("Datos inesperados: se espera (time, pol, chan)")
-    # Seleccionar Stokes I ya aplicado por loader → tomar pol 0
+                                                               
     data_raw = data_raw[:, 0:1, :]
-    # Mapear tiempo absoluto → índices RAW y extraer bloque exacto
+                                                                  
     tsamp = float(config.TIME_RESO)
     R = int(config.DOWN_TIME_RATE)
     start_raw = int(round(start / tsamp))
     n_raw = int(round(duration / tsamp))
-    # Asegurar longitud múltiplo de R para decimar después
+                                                          
     pad = (R - (n_raw % R)) % R
     end_raw = min(data_raw.shape[0], start_raw + max(1, n_raw + pad))
     start_raw = max(0, min(start_raw, data_raw.shape[0] - 1))
-    raw_block = data_raw[start_raw:end_raw]  # (T_raw, 1, F)
+    raw_block = data_raw[start_raw:end_raw]                 
 
-    # 3) Downsampling al estilo PRESTO anclado en 'start' (decimar este bloque)
+                                                                               
     from ..preprocessing.data_downsampler import downsample_data
     block_ds = downsample_data(raw_block)
-    block = block_ds[:, :]  # (T_ds, F_ds)
+    block = block_ds[:, :]                
     time_len, nchan = block.shape
-    # Tiempo efectivo y dt tras decimar
+                                       
     _, _, dt_ds = _compute_indices(0.0, 1.0)
-    dt_ds = dt_ds  # claridad
+    dt_ds = dt_ds            
 
-    # 4) Directorios de salida y nombres
+                                        
     file_stem = filename.stem
     seg_dir = out_dir / file_stem / f"start{start:.3f}_dur{duration:.3f}"
     _ensure_dir(seg_dir)
 
-    # 5) Waterfall dispersado (segmento crudo decimado) con eje absoluto
-    # NOTA: plot_waterfall_block ha sido reemplazado por save_waterfall_dispersed_plot
-    # que genera plots idénticos al composite
+                                                                        
+                                                                                      
+                                             
     waterfall_dispersed_path = seg_dir / f"{file_stem}_disp_waterfall_dispersed.png"
     save_waterfall_dispersed_plot(
         waterfall_block=block,
@@ -127,10 +134,10 @@ def run_single_segment(
         band_idx=0,
         absolute_start_time=start,
         slice_samples=block.shape[0],
-        dm_value=float(dm),  # Agregar DM para corrección de dispersión
+        dm_value=float(dm),                                            
     )
 
-    # 6) Waterfall dedispersado en la misma ventana (estilo PRESTO)
+                                                                   
     try:
         dedisp = dedisperse_block(
             data=block,
@@ -140,19 +147,19 @@ def run_single_segment(
             block_len=block.shape[0],
         )
         if dedisp is None or dedisp.size == 0:
-            # fallback: usar el bloque crudo si no hay dedispersado
+                                                                   
             dedisp = block
     except Exception:
         dedisp = block
 
-    # NOTA: plot_waterfall_block ha sido reemplazado por save_waterfall_dedispersed_plot
-    # que genera plots idénticos al composite
+                                                                                        
+                                             
     waterfall_dedispersed_path = seg_dir / f"{file_stem}_dedisp_dm{int(round(dm))}_waterfall_dedispersed.png"
     save_waterfall_dedispersed_plot(
         dedispersed_block=dedisp,
-        waterfall_block=block,  # Usar el bloque original como referencia
-        top_conf=[],  # No hay detecciones en este script
-        top_boxes=[],  # No hay detecciones en este script
+        waterfall_block=block,                                           
+        top_conf=[],                                     
+        top_boxes=[],                                     
         out_path=waterfall_dedispersed_path,
         slice_idx=0,
         time_slice=1,
@@ -167,6 +174,7 @@ def run_single_segment(
     )
 
 
+# This function runs the absolute segment plotting script.
 def main():
     parser = argparse.ArgumentParser(
         description=(

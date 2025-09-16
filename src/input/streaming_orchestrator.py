@@ -1,3 +1,5 @@
+# This module selects streaming strategies for input files.
+
 """Orquestador de streaming para archivos astronómicos.
 
 Este módulo se encarga de:
@@ -16,6 +18,7 @@ from .filterbank_handler import stream_fil
 
 logger = logging.getLogger(__name__)
 
+# This function gets streaming function.
 def get_streaming_function(file_path: Path) -> Tuple[Callable, str]:
     """
     Retorna la función de streaming apropiada y el tipo de archivo.
@@ -29,20 +32,21 @@ def get_streaming_function(file_path: Path) -> Tuple[Callable, str]:
     Raises:
         ValueError: Si el archivo no es compatible
     """
-    # Validar compatibilidad del archivo
+                                        
     validation = validate_file_compatibility(file_path)
     if not validation['is_compatible']:
         raise ValueError(f"Archivo no compatible: {', '.join(validation['validation_errors'])}")
     
-    # Detectar tipo de archivo
+                              
     file_type = detect_file_type(file_path)
     
-    # Seleccionar función de streaming apropiada
+                                                
     if file_type == "fits":
         return stream_fits, "fits"
     else:
         return stream_fil, "filterbank"
 
+# This function gets streaming info.
 def get_streaming_info(file_path: Path, chunk_samples: int, overlap_samples: int = 0) -> Dict[str, Any]:
     """
     Obtiene información sobre la configuración de streaming para un archivo.
@@ -56,7 +60,7 @@ def get_streaming_info(file_path: Path, chunk_samples: int, overlap_samples: int
         Dict con información de streaming
     """
     try:
-        # Validar archivo
+                         
         validation = validate_file_compatibility(file_path)
         if not validation['is_compatible']:
             return {
@@ -65,10 +69,10 @@ def get_streaming_info(file_path: Path, chunk_samples: int, overlap_samples: int
                 'streaming_config': None
             }
         
-        # Obtener tipo de archivo
+                                 
         file_type = detect_file_type(file_path)
         
-        # Obtener información del archivo
+                                         
         from ..config import config
         
         streaming_config = {
@@ -85,22 +89,22 @@ def get_streaming_info(file_path: Path, chunk_samples: int, overlap_samples: int
             'overlap_duration_sec': 'N/A'
         }
         
-        # Calcular información adicional si está disponible
+                                                           
         if hasattr(config, 'FILE_LENG') and config.FILE_LENG is not None:
             total_samples = config.FILE_LENG
             streaming_config['total_samples'] = total_samples
             
-            # Calcular número estimado de chunks
+                                                
             if chunk_samples > 0:
                 estimated_chunks = (total_samples + chunk_samples - 1) // chunk_samples
                 streaming_config['estimated_chunks'] = estimated_chunks
                 
-                # Calcular duración del chunk
+                                             
                 if hasattr(config, 'TIME_RESO') and config.TIME_RESO is not None:
                     chunk_duration = chunk_samples * config.TIME_RESO
                     streaming_config['chunk_duration_sec'] = chunk_duration
                     
-                    # Calcular duración del solapamiento
+                                                        
                     overlap_duration = overlap_samples * config.TIME_RESO
                     streaming_config['overlap_duration_sec'] = overlap_duration
         
@@ -117,6 +121,7 @@ def get_streaming_info(file_path: Path, chunk_samples: int, overlap_samples: int
             'streaming_config': None
         }
 
+# This function validates streaming parameters.
 def validate_streaming_parameters(
     file_path: Path, 
     chunk_samples: int, 
@@ -141,14 +146,14 @@ def validate_streaming_parameters(
     }
     
     try:
-        # Validar archivo
+                         
         file_validation = validate_file_compatibility(file_path)
         if not file_validation['is_compatible']:
             validation_result['errors'].extend(file_validation['validation_errors'])
             validation_result['is_valid'] = False
             return validation_result
         
-        # Validar parámetros de chunking
+                                        
         if chunk_samples <= 0:
             validation_result['errors'].append("chunk_samples debe ser > 0")
             validation_result['is_valid'] = False
@@ -160,13 +165,13 @@ def validate_streaming_parameters(
         if overlap_samples >= chunk_samples:
             validation_result['warnings'].append("overlap_samples es >= chunk_samples, esto puede causar problemas")
         
-        # Obtener información del archivo para validaciones adicionales
+                                                                       
         from ..config import config
         
         if hasattr(config, 'FILE_LENG') and config.FILE_LENG is not None:
             total_samples = config.FILE_LENG
             
-            # Validar que chunk_samples no sea mayor que el archivo completo
+                                                                            
             if chunk_samples > total_samples:
                 validation_result['warnings'].append(
                     f"chunk_samples ({chunk_samples:,}) es mayor que el archivo completo ({total_samples:,})"
@@ -175,36 +180,36 @@ def validate_streaming_parameters(
                     f"Considerar usar chunk_samples = {total_samples:,} para archivos pequeños"
                 )
             
-            # Validar que el solapamiento no sea excesivo
+                                                         
             if overlap_samples > total_samples // 2:
                 validation_result['warnings'].append(
                     f"overlap_samples ({overlap_samples:,}) es muy grande comparado con el archivo ({total_samples:,})"
                 )
         
-        # Validaciones específicas por tipo de archivo
+                                                      
         file_type = detect_file_type(file_path)
         
         if file_type == "fits":
-            # Validaciones específicas para FITS
-            if chunk_samples > 10_000_000:  # 10M muestras
+                                                
+            if chunk_samples > 10_000_000:                
                 validation_result['warnings'].append(
                     "chunk_samples muy grande para archivos FITS, puede causar problemas de memoria"
                 )
         
         elif file_type == "filterbank":
-            # Validaciones específicas para filterbank
-            if chunk_samples > 50_000_000:  # 50M muestras
+                                                      
+            if chunk_samples > 50_000_000:                
                 validation_result['warnings'].append(
                     "chunk_samples muy grande para archivos filterbank, puede causar problemas de memoria"
                 )
         
-        # Recomendaciones generales
-        if chunk_samples < 1_000_000:  # < 1M muestras
+                                   
+        if chunk_samples < 1_000_000:                 
             validation_result['recommendations'].append(
                 "chunk_samples pequeño puede resultar en muchos chunks y overhead de procesamiento"
             )
         
-        if chunk_samples > 100_000_000:  # > 100M muestras
+        if chunk_samples > 100_000_000:                   
             validation_result['recommendations'].append(
                 "chunk_samples muy grande puede causar problemas de memoria, considerar valores entre 1M-50M"
             )

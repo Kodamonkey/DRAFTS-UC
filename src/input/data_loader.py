@@ -60,8 +60,7 @@ from .filterbank_handler import (
 
 # Importar las nuevas funciones inteligentes
 from .file_detector import detect_file_type, validate_file_compatibility
-from .parameter_extractor import extract_parameters_auto, get_parameters_function
-from .streaming_orchestrator import get_streaming_function, stream_file_auto
+from .streaming_orchestrator import get_streaming_function
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -93,46 +92,6 @@ def _print_debug_frequencies(prefix: str, file_name: str, freq_axis_inverted: bo
 def _save_file_debug_info(file_name: str, debug_info: dict) -> None:
     """Guarda debug info (FITS o FIL) en summary.json inmediatamente (unificado)."""
     save_file_debug_info(file_name, debug_info)
-
-# =============================================================================
-# FUNCIONES INTELIGENTES NUEVAS - INTERFAZ UNIFICADA
-# =============================================================================
-
-def detect_file_type_auto(file_path: Path) -> str:
-    """
-    Detecta automáticamente el tipo de archivo (compatibilidad con pipeline).
-    
-    Args:
-        file_path: Path al archivo
-        
-    Returns:
-        Tipo de archivo detectado ('fits' o 'filterbank')
-    """
-    return detect_file_type(file_path)
-
-def get_streaming_function_auto(file_path: Path):
-    """
-    Retorna la función de streaming apropiada (compatibilidad con pipeline).
-    
-    Args:
-        file_path: Path al archivo
-        
-    Returns:
-        Tuple[streaming_function, file_type]
-    """
-    return get_streaming_function(file_path)
-
-def extract_parameters_auto(file_path: Path):
-    """
-    Extrae parámetros automáticamente (compatibilidad con pipeline).
-    
-    Args:
-        file_path: Path al archivo
-        
-    Returns:
-        Resultado de la extracción
-    """
-    return extract_parameters_auto(file_path)
 
 # =============================================================================
 # DOCUMENTACIÓN DE COMPATIBILIDAD

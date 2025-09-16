@@ -1,0 +1,2 @@
+file,chunk_id,slice_id,band_id,detection_prob,dm_pc_cm-3,t_sec,t_sample,x1,y1,x2,y2,snr,width_ms,class_prob,is_burst,patch_file
+3096_0001_00_8bit.fil,8,36,0,0.790,563.46,114.060165,510,343,249,411,313,11.02,2.621,1.000,burst,patch_slice36_band1025.png

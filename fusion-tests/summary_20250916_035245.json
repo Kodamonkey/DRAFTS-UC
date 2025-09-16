@@ -1,0 +1,11 @@
+{
+  "2017-04-03-08-16-13_142_0003_t39.977.fits": {
+    "n_candidates": 11,
+    "n_bursts": 11,
+    "n_no_bursts": 0,
+    "runtime_s": 59.46142554283142,
+    "max_prob": 0.9504861831665039,
+    "mean_snr": 5.044384774707613,
+    "status": "SUCCESS_CHUNKED_HIGH_FREQ"
+  }
+}

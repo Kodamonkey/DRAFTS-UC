@@ -1,2 +1,0 @@
-file,chunk_id,slice_id,band_id,detection_prob,dm_pc_cm-3,t_sec,t_sample,x1,y1,x2,y2,snr,width_ms,class_prob,is_burst,patch_file
-FRB20201124_0009.fits,0,15,0,0.669,413.92,4.724883,494,163,173,496,239,29.25,5.505,1.000,burst,patch_slice15_band1025.png

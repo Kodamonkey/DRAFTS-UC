@@ -1,3 +1,5 @@
+# This module collects logging utilities for the pipeline.
+
 """
 Paquete de Logging para DRAFTS
 =============================

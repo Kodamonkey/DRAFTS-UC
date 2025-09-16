@@ -1,15 +1,18 @@
+# This module provides signal-to-noise ratio analysis helpers.
+
 """Utilities for SNR calculation and analysis in FRB detection."""
 from __future__ import annotations
 
-# Standard library imports
+                          
 from typing import List, Optional, Tuple
 
-# Third-party imports
+                     
 import numpy as np
 
-# Nota: este módulo no requiere configuración global del pipeline
+                                                                 
 
 
+# This function computes SNR profile.
 def compute_snr_profile(
     waterfall: np.ndarray, 
     off_regions: Optional[List[Tuple[int, int]]] = None
@@ -32,24 +35,24 @@ def compute_snr_profile(
     sigma : float
         Estimated noise standard deviation
     """
-    # Verificación básica para arrays válidos
+                                             
     if waterfall is None or waterfall.size == 0:
         raise ValueError("waterfall is None or empty in compute_snr_profile")
     if waterfall.ndim < 2:
         raise ValueError(f"waterfall must be 2D, got {waterfall.ndim}D array")
     
-    # Integrate over frequency axis
+                                   
     profile = np.mean(waterfall, axis=1)
     
     if off_regions is None:
-        # Use IQR method for robust noise estimation
+                                                    
         sigma = estimate_sigma_iqr(profile)
         mean_level = np.median(profile)
     else:
-        # Use specified off-pulse regions
+                                         
         off_data = []
         for start, end in off_regions:
-            # Handle negative indices and bounds
+                                                
             start_idx = max(0, start if start >= 0 else len(profile) + start)
             end_idx = min(len(profile), end if end >= 0 else len(profile) + end)
             if start_idx < end_idx:
@@ -60,16 +63,17 @@ def compute_snr_profile(
             sigma = np.std(off_data, ddof=1)
             mean_level = np.mean(off_data)
         else:
-            # Fallback to IQR if no valid off regions
+                                                     
             sigma = estimate_sigma_iqr(profile)
             mean_level = np.median(profile)
     
-    # Calculate SNR
-    snr = (profile - mean_level) / (sigma + 1e-10)  # Add small epsilon to avoid division by zero
+                   
+    snr = (profile - mean_level) / (sigma + 1e-10)                                               
     
     return snr, sigma
 
 
+# This function estimates sigma iqr.
 def estimate_sigma_iqr(data: np.ndarray) -> float:
     """
     Estimate noise standard deviation using the Interquartile Range method.
@@ -88,10 +92,11 @@ def estimate_sigma_iqr(data: np.ndarray) -> float:
     """
     q25, q75 = np.percentile(data, [25, 75])
     iqr = q75 - q25
-    # For Gaussian distribution: sigma ≈ IQR / 1.349
+                                                    
     return iqr / 1.349
 
 
+# This function finds SNR peak.
 def find_snr_peak(snr: np.ndarray, time_axis: Optional[np.ndarray] = None) -> Tuple[float, float, int]:
     """
     Find the peak SNR value and its location.
@@ -119,6 +124,7 @@ def find_snr_peak(snr: np.ndarray, time_axis: Optional[np.ndarray] = None) -> Tu
     return peak_snr, peak_time, peak_idx
 
 
+# This function detrends and normalizes a time series.
 def _detrend_normalize_timeseries(timeseries: np.ndarray) -> np.ndarray:
     """Approximate PRESTO-style detrend and normalize to RMS≈1.
 
@@ -140,12 +146,13 @@ def _detrend_normalize_timeseries(timeseries: np.ndarray) -> np.ndarray:
         sigma = float(np.std(ts))
     else:
         sigma = float(np.sqrt((central.astype(np.float64) ** 2.0).sum() / (0.95 * n)))
-        sigma *= 1.148  # corrección por recorte 5%
+        sigma *= 1.148                             
     if sigma <= 0:
         sigma = 1.0
     return ts / sigma
 
 
+# This function computes presto matched SNR.
 def compute_presto_matched_snr(
     waterfall: np.ndarray,
     dt_seconds: float,
@@ -167,18 +174,18 @@ def compute_presto_matched_snr(
     if waterfall is None or waterfall.size == 0:
         raise ValueError("waterfall vacío en compute_presto_matched_snr")
 
-    # Integrar en frecuencia → serie temporal
+                                             
     if waterfall.ndim != 2:
         raise ValueError("waterfall debe ser 2D (tiempo, freq)")
     timeseries = np.mean(waterfall, axis=1).astype(np.float32)
 
-    # Detrend + normalización aproximando PRESTO
+                                                
     ts = _detrend_normalize_timeseries(timeseries)
 
-    # Conjunto de anchos por defecto alineado con PRESTO
-    # PRESTO usa: [1 (implícito), 2, 3, 4, 6, 9, 14, 20, 30, 45, 70, 100, 150, 220, 300]
-    # En su búsqueda primero umbraliza sin suavizar (equiv. a 1) y luego aplica boxcars.
-    # Aquí incluimos directamente el set completo y lo recortamos por max_downfact.
+                                                        
+                                                                                        
+                                                                                        
+                                                                                   
     if widths is None:
         widths = [2, 3, 4, 6, 9, 14, 20, 30, 45, 70, 100, 150, 220, 300]
     widths = [w for w in widths if w <= max_downfact and w >= 1]
@@ -186,23 +193,24 @@ def compute_presto_matched_snr(
     snr_max = np.full(n, -np.inf, dtype=np.float32)
     best_width = np.zeros(n, dtype=np.int32)
 
-    # Convolución con kernel normalizado por sqrt(width)
+                                                        
     for w in widths:
         kernel = np.ones(w, dtype=np.float32) / np.sqrt(float(w))
         conv = np.convolve(ts, kernel, mode="same").astype(np.float32)
-        # actualizar máximo y ancho
+                                   
         mask = conv > snr_max
         snr_max[mask] = conv[mask]
         best_width[mask] = w
 
-    # Asegurar finitos
+                      
     snr_max = np.nan_to_num(snr_max, nan=-np.inf, posinf=np.max(snr_max[np.isfinite(snr_max)]) if np.isfinite(snr_max).any() else 0.0)
     return snr_max, best_width
 
 
-## Nota: se eliminaron utilidades de regiones off-pulse no utilizadas por el pipeline
+                                                                                     
 
 
+# This function injects synthetic FRB.
 def inject_synthetic_frb(
     waterfall: np.ndarray,
     peak_time_idx: int,
@@ -237,12 +245,12 @@ def inject_synthetic_frb(
     waterfall_with_pulse = waterfall.copy()
     n_time, n_freq = waterfall.shape
     
-    # Create 2D Gaussian pulse
+                              
     t_indices = np.arange(n_time)
     f_indices = np.arange(n_freq)
     t_grid, f_grid = np.meshgrid(t_indices, f_indices, indexing='ij')
     
-    # Gaussian profile in time and frequency
+                                            
     pulse = amplitude * np.exp(
         -0.5 * ((t_grid - peak_time_idx) / width_time) ** 2
         -0.5 * ((f_grid - peak_freq_idx) / width_freq) ** 2
@@ -252,6 +260,7 @@ def inject_synthetic_frb(
     return waterfall_with_pulse
 
 
+# This function computes detection significance.
 def compute_detection_significance(
     snr_peak: float, 
     n_samples: int, 
@@ -274,11 +283,11 @@ def compute_detection_significance(
     float
         Significance level (number of sigma)
     """
-    # Bonferroni correction for multiple testing
+                                                
     effective_trials = n_samples * n_trials
     
-    # For Gaussian statistics, convert to significance
-    # This is a simplified calculation
+                                                      
+                                      
     significance = snr_peak - np.sqrt(2 * np.log(effective_trials))
     
     return max(0, significance)

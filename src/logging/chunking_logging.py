@@ -1,3 +1,5 @@
+# This module logs chunk planning and slice configuration details.
+
 """
 Manejo de Logging para el Sistema de Chunking en DRAFTS
 ======================================================
@@ -6,13 +8,14 @@ Este módulo proporciona funciones especializadas para mostrar información
 detallada del sistema de chunking de manera organizada y profesional.
 """
 
-# Standard library imports
+                          
 from typing import Any, Dict
 
-# Local imports
+               
 from .logging_config import get_global_logger
 
 
+# This function displays detailed chunking info.
 def display_detailed_chunking_info(parameters: Dict[str, Any]) -> None:
     """
     Muestra información detallada del sistema de chunking en consola.
@@ -26,34 +29,34 @@ def display_detailed_chunking_info(parameters: Dict[str, Any]) -> None:
     logger.logger.info("SISTEMA DE CHUNKING DETALLADO")
     logger.logger.info("=" * 80)
     
-    # =============================================================================
-    # PARÁMETROS DEL USUARIO
-    # =============================================================================
+                                                                                   
+                            
+                                                                                   
     logger.logger.info("PARÁMETROS DEL USUARIO:")
     logger.logger.info(f"   • Duración deseada de slice: {parameters['slice_duration_ms_target']:.1f} ms")
     logger.logger.info(f"   • Factor de downsampling temporal: {parameters['down_time_rate']}x")
     logger.logger.info(f"   • Factor de downsampling frecuencial: {parameters['down_freq_rate']}x")
     
-    # =============================================================================
-    # PARÁMETROS DEL ARCHIVO ORIGINAL
-    # =============================================================================
+                                                                                   
+                                     
+                                                                                   
     logger.logger.info("PARÁMETROS DEL ARCHIVO ORIGINAL:")
     logger.logger.info(f"   • Muestras totales: {parameters['total_samples_original']:,}")
     logger.logger.info(f"   • Canales totales: {parameters['total_channels_original']:,}")
     logger.logger.info(f"   • Resolución temporal: {parameters['time_reso_original']:.2e} s")
     logger.logger.info(f"   • Duración total: {parameters['total_duration_min']:.1f} min ({parameters['total_duration_sec']:.1f} s)")
     
-    # =============================================================================
-    # PARÁMETROS DESPUÉS DEL DOWNSAMPLING
-    # =============================================================================
+                                                                                   
+                                         
+                                                                                   
     logger.logger.info("PARÁMETROS DESPUÉS DEL DOWNSAMPLING:")
     logger.logger.info(f"   • Muestras con downsampling: {parameters['total_samples_downsampled']:,}")
     logger.logger.info(f"   • Canales con downsampling: {parameters['total_channels_downsampled']:,}")
     logger.logger.info(f"   • Resolución temporal: {parameters['time_reso_downsampled']:.2e} s")
     
-    # =============================================================================
-    # PARÁMETROS CALCULADOS
-    # =============================================================================
+                                                                                   
+                           
+                                                                                   
     logger.logger.info("PARÁMETROS CALCULADOS (previos y alineados a streaming):")
     logger.logger.info(f"   • Muestras por slice (decimado): {parameters['samples_per_slice']:,}")
     logger.logger.info(f"   • Muestras por chunk (decimado teórico): {parameters['chunk_samples']:,}")
@@ -67,16 +70,16 @@ def display_detailed_chunking_info(parameters: Dict[str, Any]) -> None:
     logger.logger.info(f"   • Total de slices (global): {parameters['total_slices']:,}")
     logger.logger.info("Nota: El planificador por chunk imprimirá el número real por chunk en ejecución.")
     
-    # =============================================================================
-    # DURACIONES
-    # =============================================================================
+                                                                                   
+                
+                                                                                   
     logger.logger.info("DURACIONES:")
     logger.logger.info(f"   • Duración real de slice: {parameters['slice_duration_ms_real']:.1f} ms")
     logger.logger.info(f"   • Duración de chunk: {parameters['chunk_duration_sec']:.1f} s")
     
-    # =============================================================================
-    # INFORMACIÓN DE MEMORIA
-    # =============================================================================
+                                                                                   
+                            
+                                                                                   
     logger.logger.info("INFORMACIÓN DE MEMORIA:")
     logger.logger.info(f"   • Tamaño del archivo: {parameters['total_file_size_gb']:.2f} GB")
     logger.logger.info(f"   • Tamaño por chunk: {parameters['chunk_size_gb']:.2f} GB")
@@ -84,15 +87,15 @@ def display_detailed_chunking_info(parameters: Dict[str, Any]) -> None:
     logger.logger.info(f"   • Memoria total: {parameters['total_memory_gb']:.1f} GB")
     logger.logger.info(f"   • ¿Puede cargar archivo completo?: {'✅ Sí' if parameters['can_load_full_file'] else '❌ No'}")
     
-    # =============================================================================
-    # ESTADO DEL SISTEMA
-    # =============================================================================
+                                                                                   
+                        
+                                                                                   
     logger.logger.info("ESTADO DEL SISTEMA:")
     logger.logger.info(f"   • Modo optimizado de memoria: {'✅ Activado' if parameters['memory_optimized'] else '❌ Desactivado'}")
     
-    # =============================================================================
-    # MUESTRAS RESIDUALES
-    # =============================================================================
+                                                                                   
+                         
+                                                                                   
     if parameters['has_leftover_samples']:
         leftover_time_ms = parameters['leftover_samples'] * parameters['time_reso_downsampled'] * 1000
         logger.logger.warning("ADVERTENCIA - MUESTRAS RESIDUALES:")
@@ -103,6 +106,7 @@ def display_detailed_chunking_info(parameters: Dict[str, Any]) -> None:
     logger.logger.info("=" * 80)
 
 
+# This function logs chunk processing start.
 def log_chunk_processing_start(chunk_idx: int, chunk_info: Dict[str, Any]) -> None:
     """
     Registra el inicio del procesamiento de un chunk.
@@ -117,6 +121,7 @@ def log_chunk_processing_start(chunk_idx: int, chunk_info: Dict[str, Any]) -> No
     logger.logger.info(f"   • Slices en chunk: {chunk_info.get('slices_per_chunk', 0)}")
 
 
+# This function logs chunk processing end.
 def log_chunk_processing_end(chunk_idx: int, results: Dict[str, Any]) -> None:
     """
     Registra el fin del procesamiento de un chunk.
@@ -131,6 +136,7 @@ def log_chunk_processing_end(chunk_idx: int, results: Dict[str, Any]) -> None:
     logger.logger.info(f"   • Tiempo de procesamiento: {results.get('processing_time', 0):.2f} s")
 
 
+# This function logs file processing summary.
 def log_file_processing_summary(file_info: Dict[str, Any]) -> None:
     """
     Registra un resumen del procesamiento del archivo.
@@ -147,6 +153,7 @@ def log_file_processing_summary(file_info: Dict[str, Any]) -> None:
     logger.logger.info(f"   • Tiempo total: {file_info.get('total_time', 0):.2f} s")
 
 
+# This function logs memory optimization.
 def log_memory_optimization(optimization_info: Dict[str, Any]) -> None:
     """
     Registra información sobre optimizaciones de memoria.
@@ -161,6 +168,7 @@ def log_memory_optimization(optimization_info: Dict[str, Any]) -> None:
     logger.logger.info(f"   • Eficiencia: {optimization_info.get('efficiency_percent', 0):.1f}%")
 
 
+# This function logs slice configuration.
 def log_slice_configuration(slice_config: Dict[str, Any]) -> None:
     """
     Registra la configuración de slices.
@@ -176,6 +184,7 @@ def log_slice_configuration(slice_config: Dict[str, Any]) -> None:
     logger.logger.info(f"   • Precisión: {slice_config.get('precision_percent', 0):.1f}%")
 
 
+# This function logs chunk budget.
 def log_chunk_budget(budget: Dict[str, Any]) -> None:
     """
     Registra el presupuesto de memoria y cálculo de tamaño de chunk cuando el planificador está activo.
@@ -204,6 +213,7 @@ def log_chunk_budget(budget: Dict[str, Any]) -> None:
     logger.logger.info(f"   • Downsampling: tiempo={budget.get('down_time_rate', 1)}x, freq={budget.get('down_freq_rate', 1)}x")
 
 
+# This function logs slice plan summary.
 def log_slice_plan_summary(chunk_idx: int, plan: Dict[str, Any]) -> None:
     """Registra un resumen del plan de slices para un chunk.
 
@@ -220,7 +230,7 @@ def log_slice_plan_summary(chunk_idx: int, plan: Dict[str, Any]) -> None:
     if slices:
         lengths = [sl.length for sl in slices]
         logger.logger.info(f"   • tamaño de slice (muestras): min={min(lengths)}, max={max(lengths)}, mediana={sorted(lengths)[len(lengths)//2]}")
-        # Mostrar primeros 2 y último para trazabilidad
+                                                       
         preview = []
         for idx in [0, 1, len(slices) - 1]:
             if 0 <= idx < len(slices):

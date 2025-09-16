@@ -194,17 +194,7 @@ def load_fits_file(file_name: str) -> np.ndarray:
                 hdr = subint.header
                                                                                          
                 try:
-                                                                                             
-                    try:
-                        tbl = subint.data
-                    except (TypeError, ValueError, OSError) as e:
-                        if "buffer is too small" in str(e) or "truncated" in str(e).lower():
-                            print(f"[WARN] Archivo truncado detectado: {file_name}")
-                            print(f"[WARN] Error: {e}")
-                            print(f"[WARN] Saltando archivo truncado")
-                            raise ValueError(f"Archivo FITS truncado: {file_name}") from e
-                        else:
-                            raise
+                    tbl = subint.data
                 except (TypeError, ValueError, OSError) as e:
                     if "buffer is too small" in str(e) or "truncated" in str(e).lower():
                         print(f"[WARN] Archivo truncado detectado: {file_name}")

@@ -10,7 +10,7 @@ RESULTS_DIR = Path("./fusion-tests")                      # Directorio para guar
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-   "FRB20180301_0001"
+   "2017-04-03-12_56_05_230_0002_t2.3_t17.395"
 ]
 
 # =============================================================================
@@ -62,7 +62,7 @@ USE_MULTI_BAND: bool = False                # True = usar análisis multi-banda,
 
 # Controla si el pipeline de alta frecuencia se activa automáticamente
 # según la frecuencia central del archivo (por defecto, ≥ 8000 MHz)
-AUTO_HIGH_FREQ_PIPELINE: bool = True
+AUTO_HIGH_FREQ_PIPELINE: bool = False
 
 # Umbral de frecuencia central (en MHz) para considerar "alta frecuencia"
 HIGH_FREQ_THRESHOLD_MHZ: float = 8000.0

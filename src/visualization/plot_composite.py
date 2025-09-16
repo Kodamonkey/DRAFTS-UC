@@ -293,7 +293,7 @@ def create_composite_plot(
     ax_prof_wf = fig.add_subplot(gs_waterfall_nested[0, 0])
     
     if wf_block is not None and wf_block.size > 0:
-        snr_wf, sigma_wf = compute_snr_profile(wf_block, off_regions)
+        snr_wf, sigma_wf, best_w_wf = compute_snr_profile(wf_block, off_regions)
         peak_snr_wf, peak_time_wf, peak_idx_wf = find_snr_peak(snr_wf)
         
         time_axis_wf = np.linspace(slice_start_abs, slice_end_abs, len(snr_wf))
@@ -317,13 +317,23 @@ def create_composite_plot(
         ax_prof_wf.grid(True, alpha=0.3)
         ax_prof_wf.set_xticks([])
         
+        width_ms_wf = float(best_w_wf[int(peak_idx_wf)]) * time_reso_ds * 1000.0 if len(best_w_wf) == len(snr_wf) else None
         if peak_time_wf_abs is not None:
-            ax_prof_wf.set_title(
-                f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ -> {peak_time_wf_abs:.6f}s",
-                fontsize=9, fontweight="bold",
-            )
+            if width_ms_wf is not None:
+                ax_prof_wf.set_title(
+                    f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ (w≈{width_ms_wf:.3f} ms) -> {peak_time_wf_abs:.6f}s",
+                    fontsize=9, fontweight="bold",
+                )
+            else:
+                ax_prof_wf.set_title(
+                    f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ -> {peak_time_wf_abs:.6f}s",
+                    fontsize=9, fontweight="bold",
+                )
         else:
-            ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ", fontsize=9, fontweight="bold")
+            if width_ms_wf is not None:
+                ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ (w≈{width_ms_wf:.3f} ms)", fontsize=9, fontweight="bold")
+            else:
+                ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ", fontsize=9, fontweight="bold")
     else:
         ax_prof_wf.text(0.5, 0.5, 'No waterfall data\navailable', 
                        transform=ax_prof_wf.transAxes, 
@@ -390,7 +400,7 @@ def create_composite_plot(
         x1, y1, x2, y2 = map(int, best_box)
         candidate_region = waterfall_block[:, y1:y2] if waterfall_block is not None else None
         if candidate_region is not None and candidate_region.size > 0:
-            snr_profile_candidate, _ = compute_snr_profile(candidate_region)
+            snr_profile_candidate, _, _ = compute_snr_profile(candidate_region)
             snr_val_candidate = np.max(snr_profile_candidate)
         else:
             snr_val_candidate = 0.0
@@ -399,8 +409,9 @@ def create_composite_plot(
         snr_val_candidate = 0.0
     
     if dw_block is not None and dw_block.size > 0:
-        snr_dw, sigma_dw = compute_snr_profile(dw_block, off_regions)
+        snr_dw, sigma_dw, best_w_dw = compute_snr_profile(dw_block, off_regions)
         peak_snr_dw, peak_time_dw, peak_idx_dw = find_snr_peak(snr_dw)
+        width_ms_dw = float(best_w_dw[int(peak_idx_dw)]) * time_reso_ds * 1000.0 if len(best_w_dw) == len(snr_dw) else None
         
         time_axis_dw = np.linspace(slice_start_abs, slice_end_abs, len(snr_dw))
         peak_time_dw_abs = float(time_axis_dw[peak_idx_dw]) if len(snr_dw) > 0 else None
@@ -425,23 +436,44 @@ def create_composite_plot(
         
         if snr_val_candidate > 0:
             if peak_time_dw_abs is not None:
-                title_text = (
-                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                    f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s (block) / {snr_val_candidate:.1f}σ (candidate)"
-                )
+                if width_ms_dw is not None:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ (w≈{width_ms_dw:.3f} ms) -> {peak_time_dw_abs:.6f}s (block) / {snr_val_candidate:.1f}σ (candidate)"
+                    )
+                else:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s (block) / {snr_val_candidate:.1f}σ (candidate)"
+                    )
             else:
-                title_text = (
-                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                    f"Peak={peak_snr_dw:.1f}σ (block) / {snr_val_candidate:.1f}σ (candidate)"
-                )
+                if width_ms_dw is not None:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ (w≈{width_ms_dw:.3f} ms) (block) / {snr_val_candidate:.1f}σ (candidate)"
+                    )
+                else:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ (block) / {snr_val_candidate:.1f}σ (candidate)"
+                    )
         else:
             if peak_time_dw_abs is not None:
-                title_text = (
-                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                    f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s"
-                )
+                if width_ms_dw is not None:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ (w≈{width_ms_dw:.3f} ms) -> {peak_time_dw_abs:.6f}s"
+                    )
+                else:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s"
+                    )
             else:
-                title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ"
+                if width_ms_dw is not None:
+                    title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ (w≈{width_ms_dw:.3f} ms)"
+                else:
+                    title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ"
         ax_prof_dw.set_title(title_text, fontsize=9, fontweight="bold")
     else:
         ax_prof_dw.text(0.5, 0.5, 'No dedispersed\ndata available', 
@@ -496,8 +528,9 @@ def create_composite_plot(
     ax_patch_prof = fig.add_subplot(gs_patch_nested[0, 0])
     
     if patch_img is not None and patch_img.size > 0:
-        snr_patch, sigma_patch = compute_snr_profile(patch_img, off_regions)
+        snr_patch, sigma_patch, best_w_patch = compute_snr_profile(patch_img, off_regions)
         peak_snr_patch, peak_time_patch, peak_idx_patch = find_snr_peak(snr_patch)
+        width_ms_patch = float(best_w_patch[int(peak_idx_patch)]) * time_reso_ds * 1000.0 if len(best_w_patch) == len(snr_patch) else None
         
         if absolute_start_time is not None:
             patch_start_abs = absolute_start_time + (patch_start - (slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE))
@@ -523,7 +556,10 @@ def create_composite_plot(
         ax_patch_prof.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
         ax_patch_prof.grid(True, alpha=0.3)
         ax_patch_prof.set_xticks([])
-        ax_patch_prof.set_title(f"Candidate Patch SNR\nPeak={peak_snr_patch:.1f}σ", fontsize=9, fontweight="bold")
+        if width_ms_patch is not None:
+            ax_patch_prof.set_title(f"Candidate Patch SNR\nPeak={peak_snr_patch:.1f}σ (w≈{width_ms_patch:.3f} ms)", fontsize=9, fontweight="bold")
+        else:
+            ax_patch_prof.set_title(f"Candidate Patch SNR\nPeak={peak_snr_patch:.1f}σ", fontsize=9, fontweight="bold")
     else:
         ax_patch_prof.text(0.5, 0.5, 'No candidate patch\navailable', 
                           transform=ax_patch_prof.transAxes, 

@@ -32,7 +32,9 @@ try:
         SLICE_DURATION_MS,
         SNR_THRESH,
         USE_MULTI_BAND,
-        SAVE_ONLY_BURST
+        SAVE_ONLY_BURST,
+        AUTO_HIGH_FREQ_PIPELINE,
+        HIGH_FREQ_THRESHOLD_MHZ,
     )
 except ImportError:
                                              
@@ -51,7 +53,9 @@ except ImportError:
         SLICE_DURATION_MS,
         SNR_THRESH,
         USE_MULTI_BAND,
-        SAVE_ONLY_BURST
+        SAVE_ONLY_BURST,
+        AUTO_HIGH_FREQ_PIPELINE,
+        HIGH_FREQ_THRESHOLD_MHZ,
     )
 
                           

@@ -185,8 +185,9 @@ def create_waterfall_dispersed_plot(
     ax_prof_wf = fig.add_subplot(gs_waterfall_nested[0, 0])
     
     if wf_block is not None and wf_block.size > 0:
-        snr_wf, sigma_wf = compute_snr_profile(wf_block, off_regions)
+        snr_wf, sigma_wf, best_w = compute_snr_profile(wf_block, off_regions)
         peak_snr_wf, peak_time_wf, peak_idx_wf = find_snr_peak(snr_wf)
+        width_ms_wf = float(best_w[int(peak_idx_wf)]) * time_reso_ds * 1000.0 if len(best_w) == len(snr_wf) else None
         
                                                        
         time_axis_wf = np.linspace(burst_start_time_corrected, 
@@ -213,12 +214,21 @@ def create_waterfall_dispersed_plot(
         ax_prof_wf.set_xticks([])
         
         if peak_time_wf_abs is not None:
-            ax_prof_wf.set_title(
-                f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ -> {peak_time_wf_abs:.6f}s",
-                fontsize=9, fontweight="bold",
-            )
+            if width_ms_wf is not None:
+                ax_prof_wf.set_title(
+                    f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ (w≈{width_ms_wf:.3f} ms) -> {peak_time_wf_abs:.6f}s",
+                    fontsize=9, fontweight="bold",
+                )
+            else:
+                ax_prof_wf.set_title(
+                    f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ -> {peak_time_wf_abs:.6f}s",
+                    fontsize=9, fontweight="bold",
+                )
         else:
-            ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ", fontsize=9, fontweight="bold")
+            if width_ms_wf is not None:
+                ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ (w≈{width_ms_wf:.3f} ms)", fontsize=9, fontweight="bold")
+            else:
+                ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ", fontsize=9, fontweight="bold")
     else:
         ax_prof_wf.text(0.5, 0.5, 'No waterfall data\navailable', 
                        transform=ax_prof_wf.transAxes, 

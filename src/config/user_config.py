@@ -62,7 +62,7 @@ USE_MULTI_BAND: bool = False                # True = enable multi-band analysis,
 
 # Controls whether the high-frequency pipeline is triggered automatically
 # based on the file's central frequency (default ≥ 8000 MHz)
-AUTO_HIGH_FREQ_PIPELINE: bool = False
+AUTO_HIGH_FREQ_PIPELINE: bool = True
 
 # Central frequency threshold (MHz) to consider "high frequency"
 HIGH_FREQ_THRESHOLD_MHZ: float = 8000.0

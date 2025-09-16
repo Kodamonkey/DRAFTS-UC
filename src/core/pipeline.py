@@ -134,7 +134,7 @@ def _load_detection_model() -> torch.nn.Module:
 
     from ..models.ObjectDet.centernet_model import centernet
     model = centernet(model_name=config.MODEL_NAME).to(config.DEVICE)
-    state = torch.load(config.MODEL_PATH, map_location=config.DEVICE)
+    state = torch.load(config.MODEL_PATH, map_location=config.DEVICE, weights_only=True)
     model.load_state_dict(state)
     model.eval()
     return model
@@ -146,7 +146,7 @@ def _load_class_model() -> torch.nn.Module:
 
     from ..models.BinaryClass.binary_model import BinaryNet
     model = BinaryNet(config.CLASS_MODEL_NAME, num_classes=2).to(config.DEVICE)
-    state = torch.load(config.CLASS_MODEL_PATH, map_location=config.DEVICE)
+    state = torch.load(config.CLASS_MODEL_PATH, map_location=config.DEVICE, weights_only=True)
     model.load_state_dict(state)
     model.eval()
     return model

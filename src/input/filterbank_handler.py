@@ -208,16 +208,16 @@ def load_fil_file(file_name: str) -> np.ndarray:
     
                                               
     if config.DEBUG_FREQUENCY_ORDER:
-        logger.debug(f" DATOS FIL] Archivo: {file_name}")
-        logger.debug(f" DATOS FIL] Shape de datos: {data_array.shape}")
-        logger.debug(f" DATOS FIL] Dimensiones: (tiempo={data_array.shape[0]}, pol={data_array.shape[1]}, freq={data_array.shape[2]})")
-        logger.debug(f" DATOS FIL] Tipo de datos: {data_array.dtype}")
-        logger.debug(f" DATOS FIL] Tamaño en memoria: {data_array.nbytes / (1024**3):.2f} GB")
-        logger.debug(f" DATOS FIL] Reversión aplicada: {global_vars.DATA_NEEDS_REVERSAL}")
-        logger.debug(f" DATOS FIL] Rango de valores: [{data_array.min():.3f}, {data_array.max():.3f}]")
-        logger.debug(f" DATOS FIL] Valor medio: {data_array.mean():.3f}")
-        logger.debug(f" DATOS FIL] Desviación estándar: {data_array.std():.3f}")
-        logger.debug(" DATOS FIL] " + "="*50)
+        logger.debug(f"[DEBUG DATOS FIL] Archivo: {file_name}")
+        logger.debug(f"[DEBUG DATOS FIL] Shape de datos: {data_array.shape}")
+        logger.debug(f"[DEBUG DATOS FIL] Dimensiones: (tiempo={data_array.shape[0]}, pol={data_array.shape[1]}, freq={data_array.shape[2]})")
+        logger.debug(f"[DEBUG DATOS FIL] Tipo de datos: {data_array.dtype}")
+        logger.debug(f"[DEBUG DATOS FIL] Tamaño en memoria: {data_array.nbytes / (1024**3):.2f} GB")
+        logger.debug(f"[DEBUG DATOS FIL] Reversión aplicada: {global_vars.DATA_NEEDS_REVERSAL}")
+        logger.debug(f"[DEBUG DATOS FIL] Rango de valores: [{data_array.min():.3f}, {data_array.max():.3f}]")
+        logger.debug(f"[DEBUG DATOS FIL] Valor medio: {data_array.mean():.3f}")
+        logger.debug(f"[DEBUG DATOS FIL] Desviación estándar: {data_array.std():.3f}")
+        logger.debug("[DEBUG DATOS FIL] " + "="*50)
     
     return data_array
 
@@ -227,8 +227,8 @@ def get_obparams_fil(file_name: str) -> None:
     
                                                
     if config.DEBUG_FREQUENCY_ORDER:
-        logger.debug(f" FILTERBANK] Iniciando extracción de parámetros de: {file_name}")
-        logger.debug(f" FILTERBANK] " + "="*60)
+        logger.debug(f"[DEBUG FILTERBANK] Iniciando extracción de parámetros de: {file_name}")
+        logger.debug(f"[DEBUG FILTERBANK] " + "="*60)
     
     with open(file_name, "rb") as f:
         freq_axis_inverted = False
@@ -244,12 +244,12 @@ def get_obparams_fil(file_name: str) -> None:
 
                                                   
         if config.DEBUG_FREQUENCY_ORDER:
-            logger.debug(f" FILTERBANK] Estructura del archivo Filterbank:")
-            logger.debug(f" FILTERBANK]   Formato: SIGPROC Filterbank (.fil)")
-            logger.debug(f" FILTERBANK]   Tamaño del header: {hdr_len} bytes")
-            logger.debug(f" FILTERBANK] Headers extraídos del archivo .fil:")
+            logger.debug(f"[DEBUG FILTERBANK] Estructura del archivo Filterbank:")
+            logger.debug(f"[DEBUG FILTERBANK]   Formato: SIGPROC Filterbank (.fil)")
+            logger.debug(f"[DEBUG FILTERBANK]   Tamaño del header: {hdr_len} bytes")
+            logger.debug(f"[DEBUG FILTERBANK] Headers extraídos del archivo .fil:")
             for key, value in header.items():
-                logger.debug(f" FILTERBANK]   {key}: {value}")
+                logger.debug(f"[DEBUG FILTERBANK]   {key}: {value}")
 
         nchans = header.get("nchans", 512)
         tsamp = header.get("tsamp", 8.192e-5)
@@ -264,43 +264,43 @@ def get_obparams_fil(file_name: str) -> None:
             
             if config.DEBUG_FREQUENCY_ORDER:
                 logger.debug(f" FILTERBANK] nsamples no en header, calculando:")
-                logger.debug(f" FILTERBANK]   Tamaño archivo: {file_size} bytes")
-                logger.debug(f" FILTERBANK]   Bytes por muestra: {bytes_per_sample}")
-                logger.debug(f" FILTERBANK]   Muestras calculadas: {nsamples}")
+                logger.debug(f"[DEBUG FILTERBANK]   Tamaño archivo: {file_size} bytes")
+                logger.debug(f"[DEBUG FILTERBANK]   Bytes por muestra: {bytes_per_sample}")
+                logger.debug(f"[DEBUG FILTERBANK]   Muestras calculadas: {nsamples}")
 
                                                          
         if config.DEBUG_FREQUENCY_ORDER:
-            logger.debug(f" FILTERBANK]   tsamp (resolución temporal): {tsamp:.2e} s")
-            logger.debug(f" FILTERBANK]   nchans (canales): {nchans}")
-            logger.debug(f" FILTERBANK]   nifs (polarizaciones): {nifs}")
-            logger.debug(f" FILTERBANK]   nbits (bits por muestra): {nbits}")
+            logger.debug(f"[DEBUG FILTERBANK]   tsamp (resolución temporal): {tsamp:.2e} s")
+            logger.debug(f"[DEBUG FILTERBANK]   nchans (canales): {nchans}")
+            logger.debug(f"[DEBUG FILTERBANK]   nifs (polarizaciones): {nifs}")
+            logger.debug(f"[DEBUG FILTERBANK]   nbits (bits por muestra): {nbits}")
             if 'telescope_id' in header:
-                logger.debug(f" FILTERBANK]   telescope_id: {header['telescope_id']}")
+                logger.debug(f"[DEBUG FILTERBANK]   telescope_id: {header['telescope_id']}")
             if 'source_name' in header:
-                logger.debug(f" FILTERBANK]   Fuente: {header['source_name']}")
-            logger.debug(f" FILTERBANK]   Total de muestras: {nsamples}")
+                logger.debug(f"[DEBUG FILTERBANK]   Fuente: {header['source_name']}")
+            logger.debug(f"[DEBUG FILTERBANK]   Total de muestras: {nsamples}")
             
-            logger.debug(f" FILTERBANK] Análisis de frecuencias:")
-            logger.debug(f" FILTERBANK]   fch1 (freq inicial): {fch1} MHz")
-            logger.debug(f" FILTERBANK]   foff (ancho canal): {foff} MHz")
-            logger.debug(f" FILTERBANK]   Primeras 5 freq calculadas: {freq_temp[:5]}")
-            logger.debug(f" FILTERBANK]   Últimas 5 freq calculadas: {freq_temp[-5:]}")
+            logger.debug(f"[DEBUG FILTERBANK] Análisis de frecuencias:")
+            logger.debug(f"[DEBUG FILTERBANK]   fch1 (freq inicial): {fch1} MHz")
+            logger.debug(f"[DEBUG FILTERBANK]   foff (ancho canal): {foff} MHz")
+            logger.debug(f"[DEBUG FILTERBANK]   Primeras 5 freq calculadas: {freq_temp[:5]}")
+            logger.debug(f"[DEBUG FILTERBANK]   Últimas 5 freq calculadas: {freq_temp[-5:]}")
         
                                                               
         if foff < 0:
             freq_axis_inverted = True
             if config.DEBUG_FREQUENCY_ORDER:
-                logger.debug(f" FILTERBANK] foff negativo - frecuencias invertidas!")
+                logger.debug(f"[DEBUG FILTERBANK] foff negativo - frecuencias invertidas!")
         elif len(freq_temp) > 1 and freq_temp[0] > freq_temp[-1]:
             freq_axis_inverted = True
             if config.DEBUG_FREQUENCY_ORDER:
-                logger.debug(f" FILTERBANK] Frecuencias detectadas en orden descendente!")
+                logger.debug(f"[DEBUG FILTERBANK] Frecuencias detectadas en orden descendente!")
         else:
                                                                                                             
                                                                  
             freq_axis_inverted = True
             if config.DEBUG_FREQUENCY_ORDER:
-                logger.debug(f" FILTERBANK] foff positivo - invirtiendo para estándar radioastronomía!")
+                logger.debug(f"[DEBUG FILTERBANK] foff positivo - invirtiendo para estándar radioastronomía!")
         
                                                         
         if freq_axis_inverted:
@@ -324,61 +324,61 @@ def get_obparams_fil(file_name: str) -> None:
 
                                              
     if config.DEBUG_FREQUENCY_ORDER:
-        logger.debug(f" ARCHIVO FIL] Información completa del archivo: {file_name}")
-        logger.debug(f" ARCHIVO FIL] " + "="*60)
-        logger.debug(f" ARCHIVO FIL] DIMENSIONES Y RESOLUCIÓN:")
-        logger.debug(f" ARCHIVO FIL]   - Resolución temporal: {config.TIME_RESO:.2e} segundos/muestra")
-        logger.debug(f" ARCHIVO FIL]   - Resolución de frecuencia: {config.FREQ_RESO} canales")
-        logger.debug(f" ARCHIVO FIL]   - Longitud del archivo: {config.FILE_LENG:,} muestras")
-        logger.debug(f" ARCHIVO FIL]   - Bits por muestra: {nbits}")
-        logger.debug(f" ARCHIVO FIL]   - Polarizaciones: {nifs}")
+        logger.debug(f"[DEBUG ARCHIVO FIL] Información completa del archivo: {file_name}")
+        logger.debug(f"[DEBUG ARCHIVO FIL] " + "="*60)
+        logger.debug(f"[DEBUG ARCHIVO FIL] DIMENSIONES Y RESOLUCIÓN:")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Resolución temporal: {config.TIME_RESO:.2e} segundos/muestra")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Resolución de frecuencia: {config.FREQ_RESO} canales")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Longitud del archivo: {config.FILE_LENG:,} muestras")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Bits por muestra: {nbits}")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Polarizaciones: {nifs}")
         
                                  
         duracion_total_seg = config.FILE_LENG * config.TIME_RESO
         duracion_min = duracion_total_seg / 60
         duracion_horas = duracion_min / 60
-        logger.debug(f" ARCHIVO FIL]   - Duración total: {duracion_total_seg:.2f} seg ({duracion_min:.2f} min, {duracion_horas:.2f} h)")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Duración total: {duracion_total_seg:.2f} seg ({duracion_min:.2f} min, {duracion_horas:.2f} h)")
         
-        logger.debug(f" ARCHIVO FIL] FRECUENCIAS:")
-        logger.debug(f" ARCHIVO FIL]   - Rango total: {config.FREQ.min():.2f} - {config.FREQ.max():.2f} MHz")
-        logger.debug(f" ARCHIVO FIL]   - Ancho de banda: {abs(config.FREQ.max() - config.FREQ.min()):.2f} MHz")
-        logger.debug(f" ARCHIVO FIL]   - Resolución por canal: {abs(foff):.4f} MHz/canal")
-        logger.debug(f" ARCHIVO FIL]   - Orden original: {'DESCENDENTE (foff<0)' if foff < 0 else 'ASCENDENTE (foff>0)'}")
-        logger.debug(f" ARCHIVO FIL]   - Orden final (post-corrección): {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
+        logger.debug(f"[DEBUG ARCHIVO FIL] FRECUENCIAS:")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Rango total: {config.FREQ.min():.2f} - {config.FREQ.max():.2f} MHz")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Ancho de banda: {abs(config.FREQ.max() - config.FREQ.min()):.2f} MHz")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Resolución por canal: {abs(foff):.4f} MHz/canal")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Orden original: {'DESCENDENTE (foff<0)' if foff < 0 else 'ASCENDENTE (foff>0)'}")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Orden final (post-corrección): {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
         
-        logger.debug(f" ARCHIVO FIL] DECIMACIÓN:")
-        logger.debug(f" ARCHIVO FIL]   - Factor reducción frecuencia: {config.DOWN_FREQ_RATE}x")
-        logger.debug(f" ARCHIVO FIL]   - Factor reducción tiempo: {config.DOWN_TIME_RATE}x")
-        logger.debug(f" ARCHIVO FIL]   - Canales después de decimación: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
-        logger.debug(f" ARCHIVO FIL]   - Resolución temporal después: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} seg/muestra")
+        logger.debug(f"[DEBUG ARCHIVO FIL] DECIMACIÓN:")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Factor reducción frecuencia: {config.DOWN_FREQ_RATE}x")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Factor reducción tiempo: {config.DOWN_TIME_RATE}x")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Canales después de decimación: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Resolución temporal después: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} seg/muestra")
         
                                              
         size_original_gb = (config.FILE_LENG * config.FREQ_RESO * (nbits/8)) / (1024**3)
         size_decimated_gb = size_original_gb / (config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE)
-        logger.debug(f" ARCHIVO FIL] TAMAÑO ESTIMADO:")
-        logger.debug(f" ARCHIVO FIL]   - Datos originales: ~{size_original_gb:.2f} GB")
-        logger.debug(f" ARCHIVO FIL]   - Datos después decimación: ~{size_decimated_gb:.2f} GB")
+        logger.debug(f"[DEBUG ARCHIVO FIL] TAMAÑO ESTIMADO:")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Datos originales: ~{size_original_gb:.2f} GB")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Datos después decimación: ~{size_decimated_gb:.2f} GB")
         
         
-        logger.debug(f" ARCHIVO FIL] PROCESAMIENTO:")
-        logger.debug(f" ARCHIVO FIL]   - Multi-banda habilitado: {'SÍ' if config.USE_MULTI_BAND else 'NO'}")
-        logger.debug(f" ARCHIVO FIL]   - DM rango: {config.DM_min} - {config.DM_max} pc cm⁻³")
-        logger.debug(f" ARCHIVO FIL]   - Umbrales: DET_PROB={config.DET_PROB}, CLASS_PROB={config.CLASS_PROB}, SNR_THRESH={config.SNR_THRESH}")
-        logger.debug(f" ARCHIVO FIL] " + "="*60)
+        logger.debug(f"[DEBUG ARCHIVO FIL] PROCESAMIENTO:")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Multi-banda habilitado: {'SÍ' if config.USE_MULTI_BAND else 'NO'}")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - DM rango: {config.DM_min} - {config.DM_max} pc cm⁻³")
+        logger.debug(f"[DEBUG ARCHIVO FIL]   - Umbrales: DET_PROB={config.DET_PROB}, CLASS_PROB={config.CLASS_PROB}, SNR_THRESH={config.SNR_THRESH}")
+        logger.debug(f"[DEBUG ARCHIVO FIL] " + "="*60)
 
                                               
     if config.DEBUG_FREQUENCY_ORDER:
-        logger.debug(f" CONFIG FINAL FIL] Configuración final después de get_obparams_fil:")
-        logger.debug(f" CONFIG FINAL FIL] " + "="*60)
-        logger.debug(f" CONFIG FINAL FIL] DOWN_FREQ_RATE calculado: {config.DOWN_FREQ_RATE}x")
-        logger.debug(f" CONFIG FINAL FIL] DOWN_TIME_RATE calculado: {config.DOWN_TIME_RATE}x")
-        logger.debug(f" CONFIG FINAL FIL] Datos después de decimación:")
-        logger.debug(f" CONFIG FINAL FIL]   - Canales: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
-        logger.debug(f" CONFIG FINAL FIL]   - Resolución temporal: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} s/muestra")
-        logger.debug(f" CONFIG FINAL FIL]   - Reducción total de datos: {config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE}x")
-        logger.debug(f" CONFIG FINAL FIL] DATA_NEEDS_REVERSAL final: {config.DATA_NEEDS_REVERSAL}")
-        logger.debug(f" CONFIG FINAL FIL] Orden de frecuencias final: {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
-        logger.debug(f" CONFIG FINAL FIL] " + "="*60)
+        logger.debug(f"[DEBUG CONFIG FINAL FIL] Configuración final después de get_obparams_fil:")
+        logger.debug(f"[DEBUG CONFIG FINAL FIL] " + "="*60)
+        logger.debug(f"[DEBUG CONFIG FINAL FIL] DOWN_FREQ_RATE calculado: {config.DOWN_FREQ_RATE}x")
+        logger.debug(f"[DEBUG CONFIG FINAL FIL] DOWN_TIME_RATE calculado: {config.DOWN_TIME_RATE}x")
+        logger.debug(f"[DEBUG CONFIG FINAL FIL] Datos después de decimación:")
+        logger.debug(f"[DEBUG CONFIG FINAL FIL]   - Canales: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
+        logger.debug(f"[DEBUG CONFIG FINAL FIL]   - Resolución temporal: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} s/muestra")
+        logger.debug(f"[DEBUG CONFIG FINAL FIL]   - Reducción total de datos: {config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE}x")
+        logger.debug(f"[DEBUG CONFIG FINAL FIL] DATA_NEEDS_REVERSAL final: {config.DATA_NEEDS_REVERSAL}")
+        logger.debug(f"[DEBUG CONFIG FINAL FIL] Orden de frecuencias final: {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
+        logger.debug(f"[DEBUG CONFIG FINAL FIL] " + "="*60)
 
     logger.info("Filterbank parameters loaded successfully:")
     logger.debug("  - Channels: %d", nchans)
@@ -576,5 +576,5 @@ def stream_fil(
         del data_mmap
         
     except Exception as e:
-        logger.debug(f"[ERROR] Error en stream_fil: {e}")
+        logger.debug(f"[DEBUG ERROR] Error en stream_fil: {e}")
         raise ValueError(f"No se pudo leer el archivo {file_name}") from e

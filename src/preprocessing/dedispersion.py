@@ -351,21 +351,21 @@ def dedisperse_block(
 
                                    
     if config.DEBUG_FREQUENCY_ORDER:
-        logger.debug(f" [DEBUG DEDISPERSIÓN] DM: {dm:.2f} pc cm⁻³")
-        logger.debug(f" [DEBUG DEDISPERSIÓN] freq_down shape: {freq_down.shape}")
-        logger.debug(f" [DEBUG DEDISPERSIÓN] Primeras 3 freq_down: {freq_down[:3]}")
-        logger.debug(f" [DEBUG DEDISPERSIÓN] Últimas 3 freq_down: {freq_down[-3:]}")
-        logger.debug(f" [DEBUG DEDISPERSIÓN] freq_down.max(): {freq_down.max():.2f} MHz")
-        logger.debug(f" [DEBUG DEDISPERSIÓN] Primeros 3 delays: {delays[:3]} muestras")
-        logger.debug(f" [DEBUG DEDISPERSIÓN] Últimos 3 delays: {delays[-3:]} muestras")
-        logger.debug(f" [DEBUG DEDISPERSIÓN] max_delay: {delays.max()} muestras")
-        logger.debug(f" [DEBUG DEDISPERSIÓN] Dedispersión esperada: freq ALTAS llegan primero (delay=0), freq BAJAS llegan después (delay>0)")
+        logger.debug(f"[DEBUG DEDISPERSIÓN] DM: {dm:.2f} pc cm⁻³")
+        logger.debug(f"[DEBUG DEDISPERSIÓN] freq_down shape: {freq_down.shape}")
+        logger.debug(f"[DEBUG DEDISPERSIÓN] Primeras 3 freq_down: {freq_down[:3]}")
+        logger.debug(f"[DEBUG DEDISPERSIÓN] Últimas 3 freq_down: {freq_down[-3:]}")
+        logger.debug(f"[DEBUG DEDISPERSIÓN] freq_down.max(): {freq_down.max():.2f} MHz")
+        logger.debug(f"[DEBUG DEDISPERSIÓN] Primeros 3 delays: {delays[:3]} muestras")
+        logger.debug(f"[DEBUG DEDISPERSIÓN] Últimos 3 delays: {delays[-3:]} muestras")
+        logger.debug(f"[DEBUG DEDISPERSIÓN] max_delay: {delays.max()} muestras")
+        logger.debug(f"[DEBUG DEDISPERSIÓN] Dedispersión esperada: freq ALTAS llegan primero (delay=0), freq BAJAS llegan después (delay>0)")
         if freq_down[0] < freq_down[-1]:              
             expected_delay_pattern = "delays DECRECIENTES (de max a 0)"
         else:               
             expected_delay_pattern = "delays CRECIENTES (de 0 a max)"
-        logger.debug(f" [DEBUG DEDISPERSIÓN] Patrón esperado de delays: {expected_delay_pattern}")
-        logger.debug(" [DEBUG DEDISPERSIÓN] " + "="*60)
+        logger.debug(f"[DEBUG DEDISPERSIÓN] Patrón esperado de delays: {expected_delay_pattern}")
+        logger.debug("[DEBUG DEDISPERSIÓN] " + "="*60)
 
     max_delay = int(delays.max())
     if start + block_len + max_delay > data.shape[0]:

@@ -197,27 +197,27 @@ def load_fil_file(file_name: str) -> np.ndarray:
                                         
             data_array = np.random.rand(1000, 1, 512).astype(np.float32)
         except Exception:
-            raise ValueError(f"No se pudieron cargar los datos de {file_name}")
+            raise ValueError(f"Could not load data from {file_name}")
             
     if data_array is None:
         raise ValueError(f"No se pudieron cargar los datos de {file_name}")
 
     if global_vars.DATA_NEEDS_REVERSAL:
-        logger.debug(f">> Invirtiendo eje de frecuencia de los datos cargados para {file_name}")
+        logger.debug(f">> Reversing frequency axis of loaded data for {file_name}")
         data_array = np.ascontiguousarray(data_array[:, :, ::-1])
     
                                               
     if config.DEBUG_FREQUENCY_ORDER:
-        logger.debug(f"[DEBUG DATOS FIL] Archivo: {file_name}")
-        logger.debug(f"[DEBUG DATOS FIL] Shape de datos: {data_array.shape}")
-        logger.debug(f"[DEBUG DATOS FIL] Dimensiones: (tiempo={data_array.shape[0]}, pol={data_array.shape[1]}, freq={data_array.shape[2]})")
-        logger.debug(f"[DEBUG DATOS FIL] Tipo de datos: {data_array.dtype}")
-        logger.debug(f"[DEBUG DATOS FIL] Tamaño en memoria: {data_array.nbytes / (1024**3):.2f} GB")
-        logger.debug(f"[DEBUG DATOS FIL] Reversión aplicada: {global_vars.DATA_NEEDS_REVERSAL}")
-        logger.debug(f"[DEBUG DATOS FIL] Rango de valores: [{data_array.min():.3f}, {data_array.max():.3f}]")
-        logger.debug(f"[DEBUG DATOS FIL] Valor medio: {data_array.mean():.3f}")
-        logger.debug(f"[DEBUG DATOS FIL] Desviación estándar: {data_array.std():.3f}")
-        logger.debug("[DEBUG DATOS FIL] " + "="*50)
+        logger.debug(f"[DEBUG FIL DATA] File: {file_name}")
+        logger.debug(f"[DEBUG FIL DATA] Data shape: {data_array.shape}")
+        logger.debug(f"[DEBUG FIL DATA] Dimensions: (time={data_array.shape[0]}, pol={data_array.shape[1]}, freq={data_array.shape[2]})")
+        logger.debug(f"[DEBUG FIL DATA] Data type: {data_array.dtype}")
+        logger.debug(f"[DEBUG FIL DATA] Memory size: {data_array.nbytes / (1024**3):.2f} GB")
+        logger.debug(f"[DEBUG FIL DATA] Reversal applied: {global_vars.DATA_NEEDS_REVERSAL}")
+        logger.debug(f"[DEBUG FIL DATA] Value range: [{data_array.min():.3f}, {data_array.max():.3f}]")
+        logger.debug(f"[DEBUG FIL DATA] Mean value: {data_array.mean():.3f}")
+        logger.debug(f"[DEBUG FIL DATA] Standard deviation: {data_array.std():.3f}")
+        logger.debug("[DEBUG FIL DATA] " + "="*50)
     
     return data_array
 
@@ -227,7 +227,7 @@ def get_obparams_fil(file_name: str) -> None:
     
                                                
     if config.DEBUG_FREQUENCY_ORDER:
-        logger.debug(f"[DEBUG FILTERBANK] Iniciando extracción de parámetros de: {file_name}")
+        logger.debug(f"[DEBUG FILTERBANK] Starting parameter extraction from: {file_name}")
         logger.debug(f"[DEBUG FILTERBANK] " + "="*60)
     
     with open(file_name, "rb") as f:
@@ -239,15 +239,15 @@ def get_obparams_fil(file_name: str) -> None:
         fch1   = header.get("fch1", None)                   
         foff   = header.get("foff", None)                   
         if fch1 is None or foff is None:                     
-            raise ValueError(f"Header inválido: faltan fch1={fch1} o foff={foff}") 
+            raise ValueError(f"Invalid header: missing fch1={fch1} or foff={foff}") 
         freq_temp = fch1 + foff * np.arange(nchans)        
 
                                                   
         if config.DEBUG_FREQUENCY_ORDER:
-            logger.debug(f"[DEBUG FILTERBANK] Estructura del archivo Filterbank:")
+            logger.debug(f"[DEBUG FILTERBANK] Filterbank file structure:")
             logger.debug(f"[DEBUG FILTERBANK]   Formato: SIGPROC Filterbank (.fil)")
-            logger.debug(f"[DEBUG FILTERBANK]   Tamaño del header: {hdr_len} bytes")
-            logger.debug(f"[DEBUG FILTERBANK] Headers extraídos del archivo .fil:")
+            logger.debug(f"[DEBUG FILTERBANK]   Header size: {hdr_len} bytes")
+            logger.debug(f"[DEBUG FILTERBANK] Headers extracted from .fil file:")
             for key, value in header.items():
                 logger.debug(f"[DEBUG FILTERBANK]   {key}: {value}")
 
@@ -263,44 +263,44 @@ def get_obparams_fil(file_name: str) -> None:
             nsamples = file_size // bytes_per_sample if bytes_per_sample > 0 else 1000
             
             if config.DEBUG_FREQUENCY_ORDER:
-                logger.debug(f" FILTERBANK] nsamples no en header, calculando:")
-                logger.debug(f"[DEBUG FILTERBANK]   Tamaño archivo: {file_size} bytes")
-                logger.debug(f"[DEBUG FILTERBANK]   Bytes por muestra: {bytes_per_sample}")
-                logger.debug(f"[DEBUG FILTERBANK]   Muestras calculadas: {nsamples}")
+                logger.debug(f"[DEBUG FILTERBANK] nsamples not in header, calculating:")
+                logger.debug(f"[DEBUG FILTERBANK]   File size: {file_size} bytes")
+                logger.debug(f"[DEBUG FILTERBANK]   Bytes per sample: {bytes_per_sample}")
+                logger.debug(f"[DEBUG FILTERBANK]   Calculated samples: {nsamples}")
 
                                                          
         if config.DEBUG_FREQUENCY_ORDER:
-            logger.debug(f"[DEBUG FILTERBANK]   tsamp (resolución temporal): {tsamp:.2e} s")
-            logger.debug(f"[DEBUG FILTERBANK]   nchans (canales): {nchans}")
-            logger.debug(f"[DEBUG FILTERBANK]   nifs (polarizaciones): {nifs}")
-            logger.debug(f"[DEBUG FILTERBANK]   nbits (bits por muestra): {nbits}")
+            logger.debug(f"[DEBUG FILTERBANK]   tsamp (temporal resolution): {tsamp:.2e} s")
+            logger.debug(f"[DEBUG FILTERBANK]   nchans (channels): {nchans}")
+            logger.debug(f"[DEBUG FILTERBANK]   nifs (polarizations): {nifs}")
+            logger.debug(f"[DEBUG FILTERBANK]   nbits (bits per sample): {nbits}")
             if 'telescope_id' in header:
                 logger.debug(f"[DEBUG FILTERBANK]   telescope_id: {header['telescope_id']}")
             if 'source_name' in header:
-                logger.debug(f"[DEBUG FILTERBANK]   Fuente: {header['source_name']}")
-            logger.debug(f"[DEBUG FILTERBANK]   Total de muestras: {nsamples}")
+                logger.debug(f"[DEBUG FILTERBANK]   Source: {header['source_name']}")
+            logger.debug(f"[DEBUG FILTERBANK]   Total samples: {nsamples}")
             
-            logger.debug(f"[DEBUG FILTERBANK] Análisis de frecuencias:")
-            logger.debug(f"[DEBUG FILTERBANK]   fch1 (freq inicial): {fch1} MHz")
-            logger.debug(f"[DEBUG FILTERBANK]   foff (ancho canal): {foff} MHz")
-            logger.debug(f"[DEBUG FILTERBANK]   Primeras 5 freq calculadas: {freq_temp[:5]}")
-            logger.debug(f"[DEBUG FILTERBANK]   Últimas 5 freq calculadas: {freq_temp[-5:]}")
+            logger.debug(f"[DEBUG FILTERBANK] Frequency analysis:")
+            logger.debug(f"[DEBUG FILTERBANK]   fch1 (initial freq): {fch1} MHz")
+            logger.debug(f"[DEBUG FILTERBANK]   foff (channel width): {foff} MHz")
+            logger.debug(f"[DEBUG FILTERBANK]   First 5 calculated freq: {freq_temp[:5]}")
+            logger.debug(f"[DEBUG FILTERBANK]   Last 5 calculated freq: {freq_temp[-5:]}")
         
                                                               
         if foff < 0:
             freq_axis_inverted = True
             if config.DEBUG_FREQUENCY_ORDER:
-                logger.debug(f"[DEBUG FILTERBANK] foff negativo - frecuencias invertidas!")
+                logger.debug(f"[DEBUG FILTERBANK] Negative foff - frequencies inverted!")
         elif len(freq_temp) > 1 and freq_temp[0] > freq_temp[-1]:
             freq_axis_inverted = True
             if config.DEBUG_FREQUENCY_ORDER:
-                logger.debug(f"[DEBUG FILTERBANK] Frecuencias detectadas en orden descendente!")
+                logger.debug(f"[DEBUG FILTERBANK] Frequencies detected in descending order!")
         else:
                                                                                                             
                                                                  
             freq_axis_inverted = True
             if config.DEBUG_FREQUENCY_ORDER:
-                logger.debug(f"[DEBUG FILTERBANK] foff positivo - invirtiendo para estándar radioastronomía!")
+                logger.debug(f"[DEBUG FILTERBANK] Positive foff - inverting for radioastronomy standard!")
         
                                                         
         if freq_axis_inverted:

@@ -1,6 +1,6 @@
 # This module handles FITS and PSRFITS data ingestion.
 
-"""Manejo de archivos FITS y PSRFITS para el pipeline de detección de FRBs."""
+"""FITS and PSRFITS file handling for FRB detection pipeline."""
 from __future__ import annotations
 
 import os
@@ -218,7 +218,7 @@ def load_fits_file(file_name: str) -> np.ndarray:
                                                        
                 if any(x <= 0 for x in [nsubint, nchan, npol, nsblk]):
                     raise ValueError(
-                        f"Dimensiones inválidas en header FITS: NAXIS2={nsubint}, NCHAN={nchan}, NPOL={npol}, NSBLK={nsblk} (no pueden ser <= 0)"
+                        f"Invalid dimensions in FITS header: NAXIS2={nsubint}, NCHAN={nchan}, NPOL={npol}, NSBLK={nsblk} (cannot be <= 0)"
                     )
 
                                                              
@@ -241,7 +241,7 @@ def load_fits_file(file_name: str) -> np.ndarray:
                         elif nbits == 1:
                             unpacked = _unpack_1bit(raw)
                         else:
-                            raise ValueError(f"NBITS={nbits} no soportado")
+                            raise ValueError(f"NBITS={nbits} not supported")
                                                                               
                                                                      
                         try:
@@ -287,7 +287,7 @@ def load_fits_file(file_name: str) -> np.ndarray:
                 data_array = out
             else:
                 if fitsio is None:
-                    raise ImportError("fitsio no está instalado. Instale con: pip install fitsio")
+                    raise ImportError("fitsio is not installed. Install with: pip install fitsio")
                 temp_data, h = fitsio.read(file_name, header=True)
                 if "DATA" in temp_data.dtype.names:
                     total_samples = safe_int(h.get("NAXIS2", 1)) * safe_int(h.get("NSBLK", 1))
@@ -303,14 +303,14 @@ def load_fits_file(file_name: str) -> np.ndarray:
                         if num_chans <= 0:
                             error_details.append(f"num_chans={num_chans}")
                         
-                        error_msg = f"Dimensiones inválidas en header FITS: {', '.join(error_details)}"
+                        error_msg = f"Invalid dimensions in FITS header: {', '.join(error_details)}"
                         if total_samples <= 0:
-                            error_msg += f"\n  → NSBLK={h.get('NSBLK', 1)} es 0 o negativo, lo que hace imposible calcular el número de muestras temporales"
-                            error_msg += f"\n  → El pipeline necesita datos en formato (tiempo, polarización, canal) pero no puede determinar la dimensión temporal"
+                            error_msg += f"\n  → NSBLK={h.get('NSBLK', 1)} is 0 or negative, making it impossible to calculate the number of temporal samples"
+                            error_msg += f"\n  → The pipeline needs data in (time, polarization, channel) format but cannot determine the temporal dimension"
                         if num_pols <= 0:
-                            error_msg += f"\n  → NPOL={num_pols} es 0 o negativo, lo que hace imposible procesar las polarizaciones"
+                            error_msg += f"\n  → NPOL={num_pols} is 0 or negative, making it impossible to process polarizations"
                         if num_chans <= 0:
-                            error_msg += f"\n  → NCHAN={num_chans} es 0 o negativo, lo que hace imposible procesar los canales de frecuencia"
+                            error_msg += f"\n  → NCHAN={num_chans} is 0 or negative, making it impossible to process frequency channels"
                         
                         raise ValueError(error_msg)
                     try:
@@ -325,7 +325,7 @@ def load_fits_file(file_name: str) -> np.ndarray:
                         else:
                             data_array = data_array.reshape(data_array.shape[0], 1, data_array.shape[-1])
                     except Exception as e:
-                        raise ValueError(f"Error al hacer reshape de los datos (fitsio): {e}\n  → Los datos no pueden reorganizarse en el formato esperado (tiempo={total_samples}, pol={num_pols}, canal={num_chans})")
+                        raise ValueError(f"Error reshaping data (fitsio): {e}\n  → Data cannot be reorganized into expected format (time={total_samples}, pol={num_pols}, channel={num_chans})")
                 else:
                     total_samples = safe_int(h.get("NAXIS2", 1)) * safe_int(h.get("NSBLK", 1))
                     num_pols = safe_int(h.get("NPOL", 2))
@@ -340,14 +340,14 @@ def load_fits_file(file_name: str) -> np.ndarray:
                         if num_chans <= 0:
                             error_details.append(f"num_chans={num_chans}")
                         
-                        error_msg = f"Dimensiones inválidas en header FITS: {', '.join(error_details)}"
+                        error_msg = f"Invalid dimensions in FITS header: {', '.join(error_details)}"
                         if total_samples <= 0:
-                            error_msg += f"\n  → NSBLK={h.get('NSBLK', 1)} es 0 o negativo, lo que hace imposible calcular el número de muestras temporales"
-                            error_msg += f"\n  → El pipeline necesita datos en formato (tiempo, polarización, canal) pero no puede determinar la dimensión temporal"
+                            error_msg += f"\n  → NSBLK={h.get('NSBLK', 1)} is 0 or negative, making it impossible to calculate the number of temporal samples"
+                            error_msg += f"\n  → The pipeline needs data in (time, polarization, channel) format but cannot determine the temporal dimension"
                         if num_pols <= 0:
-                            error_msg += f"\n  → NPOL={num_pols} es 0 o negativo, lo que hace imposible procesar las polarizaciones"
+                            error_msg += f"\n  → NPOL={num_pols} is 0 or negative, making it impossible to process polarizations"
                         if num_chans <= 0:
-                            error_msg += f"\n  → NCHAN={num_chans} es 0 o negativo, lo que hace imposible procesar los canales de frecuencia"
+                            error_msg += f"\n  → NCHAN={num_chans} is 0 or negative, making it impossible to process frequency channels"
                         
                         raise ValueError(error_msg)
                     try:
@@ -355,7 +355,7 @@ def load_fits_file(file_name: str) -> np.ndarray:
                                                                                                    
                         data_array = data_array[:, 0:1, :]
                     except Exception as e:
-                        raise ValueError(f"Error al hacer reshape de los datos (fitsio): {e}\n  → Los datos no pueden reorganizarse en el formato esperado (tiempo={total_samples}, pol={num_pols}, canal={num_chans})")
+                        raise ValueError(f"Error reshaping data (fitsio): {e}\n  → Data cannot be reorganized into expected format (time={total_samples}, pol={num_pols}, channel={num_chans})")
     except (ValueError, fits.verify.VerifyError) as e:
                                                                                        
         if "NSBLK" in str(e) and "0" in str(e):
@@ -400,14 +400,14 @@ def load_fits_file(file_name: str) -> np.ndarray:
                             if num_chans <= 0:
                                 error_details.append(f"num_chans={num_chans}")
                             
-                            error_msg = f"Dimensiones inválidas en header fallback: {', '.join(error_details)}"
+                            error_msg = f"Invalid dimensions in fallback header: {', '.join(error_details)}"
                             if total_samples <= 0:
-                                error_msg += f"\n  → NSBLK={h.get('NSBLK', 1)} es 0 o negativo, lo que hace imposible calcular el número de muestras temporales"
-                                error_msg += f"\n  → El pipeline necesita datos en formato (tiempo, polarización, canal) pero no puede determinar la dimensión temporal"
+                                error_msg += f"\n  → NSBLK={h.get('NSBLK', 1)} is 0 or negative, making it impossible to calculate the number of temporal samples"
+                                error_msg += f"\n  → The pipeline needs data in (time, polarization, channel) format but cannot determine the temporal dimension"
                             if num_pols <= 0:
-                                error_msg += f"\n  → NPOL={num_pols} es 0 o negativo, lo que hace imposible procesar las polarizaciones"
+                                error_msg += f"\n  → NPOL={num_pols} is 0 or negative, making it impossible to process polarizations"
                             if num_chans <= 0:
-                                error_msg += f"\n  → NCHAN={num_chans} es 0 o negativo, lo que hace imposible procesar los canales de frecuencia"
+                                error_msg += f"\n  → NCHAN={num_chans} is 0 or negative, making it impossible to process frequency channels"
                             
                             raise ValueError(error_msg)
                         try:
@@ -421,35 +421,35 @@ def load_fits_file(file_name: str) -> np.ndarray:
                             else:
                                 data_array = data_array.reshape(data_array.shape[0], 1, data_array.shape[-1])
                         except Exception as e:
-                            raise ValueError(f"Error al hacer reshape de los datos (fallback): {e}\n  → Los datos no pueden reorganizarse en el formato esperado (tiempo={total_samples}, pol={num_pols}, canal={num_chans})\n  → El archivo puede estar corrupto o tener un formato no compatible")
+                            raise ValueError(f"Error reshaping data (fallback): {e}\n  → Data cannot be reorganized into expected format (time={total_samples}, pol={num_pols}, channel={num_chans})\n  → File may be corrupted or have incompatible format")
                     else:
-                        raise ValueError("No hay datos válidos en el HDU\n  → El archivo FITS no contiene datos procesables\n  → Verificar que el archivo no esté vacío o corrupto")
+                        raise ValueError("No valid data in HDU\n  → FITS file does not contain processable data\n  → Verify that the file is not empty or corrupted")
                 except (TypeError, ValueError) as e_data:
-                    logger.debug(f"Error accediendo a datos del HDU: {e_data}")
-                    raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → Error al acceder a los datos del archivo: {e_data}\n  → El archivo puede estar dañado o tener un formato no reconocido")
+                    logger.debug(f"Error accessing HDU data: {e_data}")
+                    raise ValueError(f"Corrupted FITS file: {file_name}\n  → Error accessing file data: {e_data}\n  → File may be damaged or have unrecognized format")
         except Exception as e_astropy:
-            logger.debug(f"Fallo final al cargar con astropy: {e_astropy}")
-            raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → Fallo en el método de respaldo con astropy: {e_astropy}\n  → El archivo no puede ser leído por ningún método disponible\n  → Recomendación: Verificar la integridad del archivo o usar un archivo diferente") from e_astropy
+            logger.debug(f"Final failure loading with astropy: {e_astropy}")
+            raise ValueError(f"Corrupted FITS file: {file_name}\n  → Failure in astropy fallback method: {e_astropy}\n  → File cannot be read by any available method\n  → Recommendation: Verify file integrity or use a different file") from e_astropy
             
     if data_array is None:
-        raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → No se pudieron cargar datos válidos del archivo\n  → El archivo puede estar vacío, corrupto o tener un formato no compatible\n  → Recomendación: Verificar la integridad del archivo o usar un archivo diferente")
+        raise ValueError(f"Corrupted FITS file: {file_name}\n  → Could not load valid data from file\n  → File may be empty, corrupted or have incompatible format\n  → Recommendation: Verify file integrity or use a different file")
 
     if global_vars.DATA_NEEDS_REVERSAL:
-        logger.debug(f">> Invirtiendo eje de frecuencia de los datos cargados para {file_name}")
+        logger.debug(f">> Reversing frequency axis of loaded data for {file_name}")
         data_array = np.ascontiguousarray(data_array[:, :, ::-1])
     
                                               
     if config.DEBUG_FREQUENCY_ORDER:
-        logger.debug(f"[DEBUG DATOS CARGADOS] Archivo: {file_name}")
-        logger.debug(f"[DEBUG DATOS CARGADOS] Shape de datos: {data_array.shape}")
-        logger.debug(f"[DEBUG DATOS CARGADOS] Dimensiones: (tiempo={data_array.shape[0]}, pol={data_array.shape[1]}, freq={data_array.shape[2]})")
-        logger.debug(f"[DEBUG DATOS CARGADOS] Tipo de datos: {data_array.dtype}")
-        logger.debug(f"[DEBUG DATOS CARGADOS] Tamaño en memoria: {data_array.nbytes / (1024**3):.2f} GB")
-        logger.debug(f"[DEBUG DATOS CARGADOS] Reversión aplicada: {global_vars.DATA_NEEDS_REVERSAL}")
-        logger.debug(f"[DEBUG DATOS CARGADOS] Rango de valores: [{data_array.min():.3f}, {data_array.max():.3f}]")
-        logger.debug(f"[DEBUG DATOS CARGADOS] Valor medio: {data_array.mean():.3f}")
-        logger.debug(f"[DEBUG DATOS CARGADOS] Desviación estándar: {data_array.std():.3f}")
-        logger.debug("[DEBUG DATOS CARGADOS] " + "="*50)
+        logger.debug(f"[DEBUG LOADED DATA] File: {file_name}")
+        logger.debug(f"[DEBUG LOADED DATA] Data shape: {data_array.shape}")
+        logger.debug(f"[DEBUG LOADED DATA] Dimensions: (time={data_array.shape[0]}, pol={data_array.shape[1]}, freq={data_array.shape[2]})")
+        logger.debug(f"[DEBUG LOADED DATA] Data type: {data_array.dtype}")
+        logger.debug(f"[DEBUG LOADED DATA] Memory size: {data_array.nbytes / (1024**3):.2f} GB")
+        logger.debug(f"[DEBUG LOADED DATA] Reversal applied: {global_vars.DATA_NEEDS_REVERSAL}")
+        logger.debug(f"[DEBUG LOADED DATA] Value range: [{data_array.min():.3f}, {data_array.max():.3f}]")
+        logger.debug(f"[DEBUG LOADED DATA] Mean value: {data_array.mean():.3f}")
+        logger.debug(f"[DEBUG LOADED DATA] Standard deviation: {data_array.std():.3f}")
+        logger.debug("[DEBUG LOADED DATA] " + "="*50)
     
     return data_array
 
@@ -459,7 +459,7 @@ def get_obparams(file_name: str) -> None:
     
                                                
     if config.DEBUG_FREQUENCY_ORDER:
-        logger.debug(f"[DEBUG HEADER] Iniciando extracción de parámetros de: {file_name}")
+        logger.debug(f"[DEBUG HEADER] Starting parameter extraction from: {file_name}")
         logger.debug(f"[DEBUG HEADER] " + "="*60)
     
     with fits.open(file_name, memmap=True) as f:
@@ -569,24 +569,24 @@ def get_obparams(file_name: str) -> None:
                 freq_temp = sub_data["DAT_FREQ"][0].astype(np.float64)
             except Exception as e:
                 if config.DEBUG_FREQUENCY_ORDER:
-                    logger.debug(f"[DEBUG HEADER] Error convirtiendo DAT_FREQ: {e}")
-                    logger.debug("[DEBUG HEADER] Usando rango de frecuencias por defecto")
+                    logger.debug(f"[DEBUG HEADER] Error converting DAT_FREQ: {e}")
+                    logger.debug("[DEBUG HEADER] Using default frequency range")
                 nchan = safe_int(hdr.get("NCHAN", 512), 512)
                 freq_temp = np.linspace(1000, 1500, nchan)
             
                                                 
             if config.DEBUG_FREQUENCY_ORDER:
-                logger.debug(f"[DEBUG HEADER] Headers PSRFITS extraídos:")
+                logger.debug(f"[DEBUG HEADER] Extracted PSRFITS headers:")
                 logger.debug(
-                    f"[DEBUG HEADER]   TBIN (resolución temporal): {safe_float(hdr.get('TBIN')):.2e} s"
+                    f"[DEBUG HEADER]   TBIN (temporal resolution): {safe_float(hdr.get('TBIN')):.2e} s"
                 )
-                logger.debug(f"[DEBUG HEADER]   NCHAN (canales): {hdr['NCHAN']}")
-                logger.debug(f"[DEBUG HEADER]   NSBLK (muestras por subint): {hdr['NSBLK']}")
-                logger.debug(f"[DEBUG HEADER]   NAXIS2 (número de subints): {hdr['NAXIS2']}")
-                logger.debug(f"[DEBUG HEADER]   NPOL (polarizaciones): {hdr.get('NPOL', 'N/A')}")
-                logger.debug(f"[DEBUG HEADER]   Total de muestras: {config.FILE_LENG}")
+                logger.debug(f"[DEBUG HEADER]   NCHAN (channels): {hdr['NCHAN']}")
+                logger.debug(f"[DEBUG HEADER]   NSBLK (samples per subint): {hdr['NSBLK']}")
+                logger.debug(f"[DEBUG HEADER]   NAXIS2 (number of subints): {hdr['NAXIS2']}")
+                logger.debug(f"[DEBUG HEADER]   NPOL (polarizations): {hdr.get('NPOL', 'N/A')}")
+                logger.debug(f"[DEBUG HEADER]   Total samples: {config.FILE_LENG}")
                 if 'OBS_MODE' in hdr:
-                    logger.debug(f"[DEBUG HEADER]   Modo de observación: {hdr['OBS_MODE']}")
+                    logger.debug(f"[DEBUG HEADER]   Observation mode: {hdr['OBS_MODE']}")
                 if 'SRC_NAME' in hdr:
                     logger.debug(f"[DEBUG HEADER]   Fuente: {hdr['SRC_NAME']}")
             
@@ -602,11 +602,11 @@ def get_obparams(file_name: str) -> None:
                                                                          
                     freq_axis_inverted = True
                     if config.DEBUG_FREQUENCY_ORDER:
-                        logger.debug(f"[DEBUG HEADER] DAT_FREQ ascendente → invertir banda (estilo radioastronomía)")
+                        logger.debug(f"[DEBUG HEADER] DAT_FREQ ascending → invert band (radioastronomy style)")
         else:
                                                      
             if config.DEBUG_FREQUENCY_ORDER:
-                logger.debug(f"[DEBUG HEADER] Formato detectado: FITS estándar (no PSRFITS)")
+                logger.debug(f"[DEBUG HEADER] Detected format: standard FITS (not PSRFITS)")
             
             try:
                 data_hdu_index = 0
@@ -627,13 +627,13 @@ def get_obparams(file_name: str) -> None:
                 
                                          
                 if config.DEBUG_FREQUENCY_ORDER:
-                    logger.debug(f"[DEBUG HEADER] HDU seleccionado para datos: {data_hdu_index}")
+                    logger.debug(f"[DEBUG HEADER] HDU selected for data: {data_hdu_index}")
                 
                 hdr = f[data_hdu_index].header
                 
                                               
                 if config.DEBUG_FREQUENCY_ORDER:
-                    logger.debug(f"[DEBUG HEADER] Headers FITS estándar del HDU {data_hdu_index}:")
+                    logger.debug(f"[DEBUG HEADER] Standard FITS headers from HDU {data_hdu_index}:")
                     relevant_keys = ['TBIN', 'NCHAN', 'NAXIS2', 'NSBLK', 'NPOL', 'CRVAL1', 'CRVAL2', 'CRVAL3', 
                                    'CDELT1', 'CDELT2', 'CDELT3', 'CTYPE1', 'CTYPE2', 'CTYPE3']
                     for key in relevant_keys:
@@ -645,13 +645,13 @@ def get_obparams(file_name: str) -> None:
                         freq_temp = f[data_hdu_index].data["DAT_FREQ"][0].astype(np.float64)
                     except Exception as e:
                         if config.DEBUG_FREQUENCY_ORDER:
-                            logger.debug(f"[DEBUG HEADER] Error convirtiendo DAT_FREQ: {e}")
-                            logger.debug("[DEBUG HEADER] Usando rango de frecuencias por defecto")
+                            logger.debug(f"[DEBUG HEADER] Error converting DAT_FREQ: {e}")
+                            logger.debug("[DEBUG HEADER] Using default frequency range")
                         nchan = safe_int(hdr.get("NCHAN", 512), 512)
                         freq_temp = np.linspace(1000, 1500, nchan)
                     else:
                         if config.DEBUG_FREQUENCY_ORDER:
-                            logger.debug(f"[DEBUG HEADER] Frecuencias extraídas de columna DAT_FREQ")
+                            logger.debug(f"[DEBUG HEADER] Frequencies extracted from DAT_FREQ column")
                 else:
                     freq_axis_num = ''
                     for i in range(1, hdr.get('NAXIS', 0) + 1):
@@ -660,8 +660,8 @@ def get_obparams(file_name: str) -> None:
                             break
                     
                     if config.DEBUG_FREQUENCY_ORDER:
-                        logger.debug(f"[DEBUG HEADER] Buscando eje de frecuencias en headers WCS...")
-                        logger.debug(f"[DEBUG HEADER] Eje de frecuencias detectado: CTYPE{freq_axis_num}" if freq_axis_num else "[DEBUG HEADER] No se encontró eje de frecuencias")
+                        logger.debug(f"[DEBUG HEADER] Searching for frequency axis in WCS headers...")
+                        logger.debug(f"[DEBUG HEADER] Frequency axis detected: CTYPE{freq_axis_num}" if freq_axis_num else "[DEBUG HEADER] No frequency axis found")
                     
                     if freq_axis_num:
                         crval = hdr.get(f'CRVAL{freq_axis_num}', 0)
@@ -681,24 +681,24 @@ def get_obparams(file_name: str) -> None:
                         freq_temp = crval + (np.arange(naxis) - (crpix - 1)) * cdelt
                         
                         if config.DEBUG_FREQUENCY_ORDER:
-                            logger.debug(f"[DEBUG HEADER] Parámetros WCS frecuencia:")
-                            logger.debug(f"[DEBUG HEADER]   CRVAL{freq_axis_num}: {crval} (valor de referencia)")
-                            logger.debug(f"[DEBUG HEADER]   CDELT{freq_axis_num}: {cdelt} (incremento por canal)")
-                            logger.debug(f"[DEBUG HEADER]   CRPIX{freq_axis_num}: {crpix} (pixel de referencia)")
-                            logger.debug(f"[DEBUG HEADER]   NAXIS{freq_axis_num}: {naxis} (número de canales)")
+                            logger.debug(f"[DEBUG HEADER] WCS frequency parameters:")
+                            logger.debug(f"[DEBUG HEADER]   CRVAL{freq_axis_num}: {crval} (reference value)")
+                            logger.debug(f"[DEBUG HEADER]   CDELT{freq_axis_num}: {cdelt} (increment per channel)")
+                            logger.debug(f"[DEBUG HEADER]   CRPIX{freq_axis_num}: {crpix} (reference pixel)")
+                            logger.debug(f"[DEBUG HEADER]   NAXIS{freq_axis_num}: {naxis} (number of channels)")
                         
                         if cdelt < 0:
                             freq_axis_inverted = True
                             if config.DEBUG_FREQUENCY_ORDER:
-                                logger.debug(f"[DEBUG HEADER]   [WARNING] CDELT negativo - frecuencias invertidas!")
+                                logger.debug(f"[DEBUG HEADER]   [WARNING] Negative CDELT - frequencies inverted!")
                         else:
                                                                                                                             
                             freq_axis_inverted = True
                             if config.DEBUG_FREQUENCY_ORDER:
-                                logger.debug(f"[DEBUG HEADER]   [WARNING] CDELT positivo - invirtiendo para estándar radioastronomía!")
+                                logger.debug(f"[DEBUG HEADER]   [WARNING] Positive CDELT - inverting for radioastronomy standard!")
                     else:
                         if config.DEBUG_FREQUENCY_ORDER:
-                            logger.debug(f"[DEBUG HEADER] [WARNING] Usando frecuencias por defecto: 1000-1500 MHz")
+                            logger.debug(f"[DEBUG HEADER] [WARNING] Using default frequencies: 1000-1500 MHz")
                         freq_temp = np.linspace(1000, 1500, hdr.get('NCHAN', 512))
                 
                                                                                 
@@ -708,16 +708,16 @@ def get_obparams(file_name: str) -> None:
                 
                                                      
                 if config.DEBUG_FREQUENCY_ORDER:
-                    logger.debug(f"[DEBUG HEADER] Parámetros finales FITS estándar:")
+                    logger.debug(f"[DEBUG HEADER] Final standard FITS parameters:")
                     logger.debug(f"[DEBUG HEADER]   TIME_RESO: {config.TIME_RESO:.2e} s")
                     logger.debug(f"[DEBUG HEADER]   FREQ_RESO: {config.FREQ_RESO}")
                     logger.debug(f"[DEBUG HEADER]   FILE_LENG: {config.FILE_LENG}")
                     
             except Exception as e_std:
                 if config.DEBUG_FREQUENCY_ORDER:
-                    logger.debug(f"[DEBUG HEADER] [WARNING] Error procesando FITS estándar: {e_std}")
-                    logger.debug(f"[DEBUG HEADER] Usando valores por defecto...")
-                logger.debug(f"Error procesando FITS estándar: {e_std}")
+                    logger.debug(f"[DEBUG HEADER] [WARNING] Error processing standard FITS: {e_std}")
+                    logger.debug(f"[DEBUG HEADER] Using default values...")
+                logger.debug(f"Error processing standard FITS: {e_std}")
                 config.TIME_RESO = 5.12e-5
                 config.FREQ_RESO = 512
                 config.FILE_LENG = 100000
@@ -740,54 +740,54 @@ def get_obparams(file_name: str) -> None:
 
                                  
     if config.DEBUG_FREQUENCY_ORDER:
-        print_debug_frequencies("[DEBUG FRECUENCIAS]", file_name, freq_axis_inverted)
+        print_debug_frequencies("[DEBUG FREQUENCIES]", file_name, freq_axis_inverted)
 
                                              
     if config.DEBUG_FREQUENCY_ORDER:
-        logger.debug(f"[DEBUG ARCHIVO] Información completa del archivo: {file_name}")
+        logger.debug(f"[DEBUG FILE] Complete file information: {file_name}")
         logger.debug(f"[DEBUG ARCHIVO] " + "="*60)
-        logger.debug(f"[DEBUG ARCHIVO] DIMENSIONES Y RESOLUCIÓN:")
-        logger.debug(f"[DEBUG ARCHIVO]   - Resolución temporal: {config.TIME_RESO:.2e} segundos/muestra")
-        logger.debug(f"[DEBUG ARCHIVO]   - Resolución de frecuencia: {config.FREQ_RESO} canales")
-        logger.debug(f"[DEBUG ARCHIVO]   - Longitud del archivo: {config.FILE_LENG:,} muestras")
+        logger.debug(f"[DEBUG FILE] DIMENSIONS AND RESOLUTION:")
+        logger.debug(f"[DEBUG FILE]   - Temporal resolution: {config.TIME_RESO:.2e} seconds/sample")
+        logger.debug(f"[DEBUG FILE]   - Frequency resolution: {config.FREQ_RESO} channels")
+        logger.debug(f"[DEBUG FILE]   - File length: {config.FILE_LENG:,} samples")
         
                                  
         duracion_total_seg = config.FILE_LENG * config.TIME_RESO
         duracion_min = duracion_total_seg / 60
         duracion_horas = duracion_min / 60
-        logger.debug(f"[DEBUG ARCHIVO]   - Duración total: {duracion_total_seg:.2f} seg ({duracion_min:.2f} min, {duracion_horas:.2f} h)")
+        logger.debug(f"[DEBUG FILE]   - Total duration: {duracion_total_seg:.2f} sec ({duracion_min:.2f} min, {duracion_horas:.2f} h)")
         
-        logger.debug(f"[DEBUG ARCHIVO] FRECUENCIAS:")
-        logger.debug(f"[DEBUG ARCHIVO]   - Rango total: {config.FREQ.min():.2f} - {config.FREQ.max():.2f} MHz")
-        logger.debug(f"[DEBUG ARCHIVO]   - Ancho de banda: {abs(config.FREQ.max() - config.FREQ.min()):.2f} MHz")
-        logger.debug(f"[DEBUG ARCHIVO]   - Resolución por canal: {abs(config.FREQ[1] - config.FREQ[0]):.4f} MHz/canal")
-        logger.debug(f"[DEBUG ARCHIVO]   - Orden original: {'DESCENDENTE' if freq_axis_inverted else 'ASCENDENTE'}")
-        logger.debug(f"[DEBUG ARCHIVO]   - Orden final (post-corrección): {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
+        logger.debug(f"[DEBUG FILE] FREQUENCIES:")
+        logger.debug(f"[DEBUG FILE]   - Total range: {config.FREQ.min():.2f} - {config.FREQ.max():.2f} MHz")
+        logger.debug(f"[DEBUG FILE]   - Bandwidth: {abs(config.FREQ.max() - config.FREQ.min()):.2f} MHz")
+        logger.debug(f"[DEBUG FILE]   - Resolution per channel: {abs(config.FREQ[1] - config.FREQ[0]):.4f} MHz/channel")
+        logger.debug(f"[DEBUG FILE]   - Original order: {'DESCENDING' if freq_axis_inverted else 'ASCENDING'}")
+        logger.debug(f"[DEBUG FILE]   - Final order (post-correction): {'ASCENDING' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDING'}")
         
-        logger.debug(f"[DEBUG ARCHIVO] DECIMACIÓN:")
-        logger.debug(f"[DEBUG ARCHIVO]   - Factor reducción frecuencia: {config.DOWN_FREQ_RATE}x")
-        logger.debug(f"[DEBUG ARCHIVO]   - Factor reducción tiempo: {config.DOWN_TIME_RATE}x")
-        logger.debug(f"[DEBUG ARCHIVO]   - Canales después de decimación: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
-        logger.debug(f"[DEBUG ARCHIVO]   - Resolución temporal después: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} seg/muestra")
+        logger.debug(f"[DEBUG FILE] DECIMATION:")
+        logger.debug(f"[DEBUG FILE]   - Frequency reduction factor: {config.DOWN_FREQ_RATE}x")
+        logger.debug(f"[DEBUG FILE]   - Time reduction factor: {config.DOWN_TIME_RATE}x")
+        logger.debug(f"[DEBUG FILE]   - Channels after decimation: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
+        logger.debug(f"[DEBUG FILE]   - Temporal resolution after: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} sec/sample")
         
                                              
         size_original_gb = (config.FILE_LENG * config.FREQ_RESO * 4) / (1024**3)                       
         size_decimated_gb = size_original_gb / (config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE)
-        logger.debug(f"[DEBUG ARCHIVO] TAMAÑO ESTIMADO:")
-        logger.debug(f"[DEBUG ARCHIVO]   - Datos originales: ~{size_original_gb:.2f} GB")
-        logger.debug(f"[DEBUG ARCHIVO]   - Datos después decimación: ~{size_decimated_gb:.2f} GB")
+        logger.debug(f"[DEBUG FILE] ESTIMATED SIZE:")
+        logger.debug(f"[DEBUG FILE]   - Original data: ~{size_original_gb:.2f} GB")
+        logger.debug(f"[DEBUG FILE]   - Data after decimation: ~{size_decimated_gb:.2f} GB")
         
         
-        logger.debug(f"[DEBUG ARCHIVO] CONFIGURACIÓN DE SLICE:")
-        logger.debug(f"[DEBUG ARCHIVO]   - SLICE_DURATION_MS configurado: {config.SLICE_DURATION_MS} ms")
+        logger.debug(f"[DEBUG FILE] SLICE CONFIGURATION:")
+        logger.debug(f"[DEBUG FILE]   - SLICE_DURATION_MS configured: {config.SLICE_DURATION_MS} ms")
         expected_slice_len = round(config.SLICE_DURATION_MS / (config.TIME_RESO * config.DOWN_TIME_RATE * 1000))
-        logger.debug(f"[DEBUG ARCHIVO]   - SLICE_LEN calculado: {expected_slice_len} muestras")
-        logger.debug(f"[DEBUG ARCHIVO]   - SLICE_LEN límites: [{config.SLICE_LEN_MIN}, {config.SLICE_LEN_MAX}]")
+        logger.debug(f"[DEBUG FILE]   - SLICE_LEN calculated: {expected_slice_len} samples")
+        logger.debug(f"[DEBUG FILE]   - SLICE_LEN limits: [{config.SLICE_LEN_MIN}, {config.SLICE_LEN_MAX}]")
         
-        logger.debug(f"[DEBUG ARCHIVO] PROCESAMIENTO:")
-        logger.debug(f"[DEBUG ARCHIVO]   - Multi-banda habilitado: {'SÍ' if config.USE_MULTI_BAND else 'NO'}")
-        logger.debug(f"[DEBUG ARCHIVO]   - DM rango: {config.DM_min} - {config.DM_max} pc cm⁻³")
-        logger.debug(f"[DEBUG ARCHIVO]   - Umbrales: DET_PROB={config.DET_PROB}, CLASS_PROB={config.CLASS_PROB}, SNR_THRESH={config.SNR_THRESH}")
+        logger.debug(f"[DEBUG FILE] PROCESSING:")
+        logger.debug(f"[DEBUG FILE]   - Multi-band enabled: {'YES' if config.USE_MULTI_BAND else 'NO'}")
+        logger.debug(f"[DEBUG FILE]   - DM range: {config.DM_min} - {config.DM_max} pc cm⁻³")
+        logger.debug(f"[DEBUG FILE]   - Thresholds: DET_PROB={config.DET_PROB}, CLASS_PROB={config.CLASS_PROB}, SNR_THRESH={config.SNR_THRESH}")
         logger.debug(f"[DEBUG ARCHIVO] " + "="*60)
 
                                                                                     
@@ -795,16 +795,16 @@ def get_obparams(file_name: str) -> None:
 
                                               
     if config.DEBUG_FREQUENCY_ORDER:
-        logger.debug(f"[DEBUG CONFIG FINAL] Configuración final después de get_obparams:")
+        logger.debug(f"[DEBUG CONFIG FINAL] Final configuration after get_obparams:")
         logger.debug(f"[DEBUG CONFIG FINAL] " + "="*60)
-        logger.debug(f"[DEBUG CONFIG FINAL] DOWN_FREQ_RATE calculado: {config.DOWN_FREQ_RATE}x")
-        logger.debug(f"[DEBUG CONFIG FINAL] DOWN_TIME_RATE calculado: {config.DOWN_TIME_RATE}x")
-        logger.debug(f"[DEBUG CONFIG FINAL] Datos después de decimación:")
-        logger.debug(f"[DEBUG CONFIG FINAL]   - Canales: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
-        logger.debug(f"[DEBUG CONFIG FINAL]   - Resolución temporal: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} s/muestra")
-        logger.debug(f"[DEBUG CONFIG FINAL]   - Reducción total de datos: {config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE}x")
-        logger.debug(f"[DEBUG CONFIG FINAL] DATA_NEEDS_REVERSAL final: {config.DATA_NEEDS_REVERSAL}")
-        logger.debug(f"[DEBUG CONFIG FINAL] Orden de frecuencias final: {'ASCENDENTE' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDENTE'}")
+        logger.debug(f"[DEBUG CONFIG FINAL] DOWN_FREQ_RATE calculated: {config.DOWN_FREQ_RATE}x")
+        logger.debug(f"[DEBUG CONFIG FINAL] DOWN_TIME_RATE calculated: {config.DOWN_TIME_RATE}x")
+        logger.debug(f"[DEBUG CONFIG FINAL] Data after decimation:")
+        logger.debug(f"[DEBUG CONFIG FINAL]   - Channels: {config.FREQ_RESO // config.DOWN_FREQ_RATE}")
+        logger.debug(f"[DEBUG CONFIG FINAL]   - Temporal resolution: {config.TIME_RESO * config.DOWN_TIME_RATE:.2e} s/sample")
+        logger.debug(f"[DEBUG CONFIG FINAL]   - Total data reduction: {config.DOWN_FREQ_RATE * config.DOWN_TIME_RATE}x")
+        logger.debug(f"[DEBUG CONFIG FINAL] Final DATA_NEEDS_REVERSAL: {config.DATA_NEEDS_REVERSAL}")
+        logger.debug(f"[DEBUG CONFIG FINAL] Final frequency order: {'ASCENDING' if config.FREQ[0] < config.FREQ[-1] else 'DESCENDING'}")
         logger.debug(f"[DEBUG CONFIG FINAL] " + "="*60)
 
                                                                
@@ -819,8 +819,8 @@ def get_obparams(file_name: str) -> None:
                 "freq_max_mhz": float(config.FREQ.max()),
                 "bandwidth_mhz": abs(config.FREQ.max() - config.FREQ.min()),
                 "resolution_per_channel_mhz": abs(config.FREQ[1] - config.FREQ[0]) if len(config.FREQ) > 1 else 0,
-                "original_order": "DESCENDENTE" if freq_axis_inverted else "ASCENDENTE",
-                "final_order": "ASCENDENTE" if config.FREQ[0] < config.FREQ[-1] else "DESCENDENTE",
+                "original_order": "DESCENDING" if freq_axis_inverted else "ASCENDING",
+                "final_order": "ASCENDING" if config.FREQ[0] < config.FREQ[-1] else "DESCENDING",
                 "freq_axis_inverted": freq_axis_inverted,
                 "data_needs_reversal": config.DATA_NEEDS_REVERSAL
             },
@@ -870,12 +870,12 @@ def stream_fits(
     Generador que lee un archivo FITS en bloques sin cargar todo en RAM.
     
     Args:
-        file_name: Ruta al archivo .fits
-        chunk_samples: Número de muestras por bloque (default: 2M)
-        overlap_samples: Número de muestras de solapamiento entre bloques
+        file_name: Path to .fits file
+        chunk_samples: Number of samples per block (default: 2M)
+        overlap_samples: Number of overlap samples between blocks
     
     Yields:
-        Tuple[data_block, metadata]: Bloque de datos (time, pol, chan) y metadatos
+        Tuple[data_block, metadata]: Data block (time, pol, chan) and metadata
     """
     
                                                                                         
@@ -889,7 +889,7 @@ def stream_fits(
             elif nbits == 1:
                 unpacked = _unpack_1bit(row_data)
             else:
-                raise ValueError(f"NBITS={nbits} no soportado")
+                raise ValueError(f"NBITS={nbits} not supported")
             try:
                 tmpb = unpacked.reshape(nsblk, npol, nchan)
             except Exception:
@@ -946,7 +946,7 @@ def stream_fits(
                     count = read_end - read_start
                     arr = pf.get_data(read_start, count, npoln=npol)                        
                     if arr.ndim != 3:
-                        raise ValueError("Forma inesperada en 'your' get_data")
+                        raise ValueError("Unexpected shape in 'your' get_data")
                                                                                   
                     block = _select_polarization(arr, getattr(pf, 'pol_type', 'IQUV'), getattr(config, 'POLARIZATION_MODE', 'intensity'), getattr(config, 'POLARIZATION_INDEX', 0))
                     try:
@@ -1191,7 +1191,7 @@ def stream_fits(
 
                                                                      
                 if fitsio is None:
-                    raise ImportError("fitsio no está instalado. Instale con: pip install fitsio")
+                    raise ImportError("fitsio is not installed. Install with: pip install fitsio")
                 temp_data, h = fitsio.read(file_name, header=True)
                 nsamples = safe_int(h.get("NAXIS2", 1)) * safe_int(h.get("NSBLK", 1))
                 npols = safe_int(h.get("NPOL", 2))

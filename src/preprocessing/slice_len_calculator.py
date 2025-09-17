@@ -18,17 +18,17 @@ logger = logging.getLogger(__name__)
 
 def calculate_slice_len_from_duration() -> Tuple[int, float]:
     """
-    Calcula SLICE_LEN dinámicamente basado en SLICE_DURATION_MS y metadatos del archivo.
+    Calculates SLICE_LEN dynamically based on SLICE_DURATION_MS and file metadata.
     
-    Fórmula inversa (dominio decimado):
+    Inverse formula (decimated domain):
         dt_ds = TIME_RESO × DOWN_TIME_RATE
-        SLICE_LEN = floor( (SLICE_DURATION_MS/1000) / dt_ds + 0.5 )  # round half up estable
+        SLICE_LEN = floor( (SLICE_DURATION_MS/1000) / dt_ds + 0.5 )  # stable round half up
     
     Returns:
-        Tuple[int, float]: (slice_len_calculado, duracion_real_ms)
+        Tuple[int, float]: (calculated_slice_len, real_duration_ms)
     """
     if config.TIME_RESO <= 0 or config.DOWN_TIME_RATE < 1:
-        logger.warning("TIME_RESO no está configurado, usando SLICE_LEN_MIN")
+        logger.warning("TIME_RESO not configured, using SLICE_LEN_MIN")
         return config.SLICE_LEN_MIN, config.SLICE_DURATION_MS
     
                                                   
@@ -298,42 +298,42 @@ def validate_processing_parameters(parameters: dict) -> bool:
     Valida que los parámetros calculados sean razonables.
     
     Args:
-        parameters: Diccionario con parámetros de procesamiento
+        parameters: Dictionary with processing parameters
         
     Returns:
-        bool: True si los parámetros son válidos
+        bool: True if parameters are valid
     """
     errors = []
     
                        
     if parameters['slice_len'] < config.SLICE_LEN_MIN:
-        errors.append(f"slice_len ({parameters['slice_len']}) < mínimo ({config.SLICE_LEN_MIN})")
+        errors.append(f"slice_len ({parameters['slice_len']}) < minimum ({config.SLICE_LEN_MIN})")
     
     if parameters['slice_len'] > config.SLICE_LEN_MAX:
-        errors.append(f"slice_len ({parameters['slice_len']}) > máximo ({config.SLICE_LEN_MAX})")
+        errors.append(f"slice_len ({parameters['slice_len']}) > maximum ({config.SLICE_LEN_MAX})")
     
                            
     if parameters['chunk_samples'] < parameters['slice_len'] * 10:
-        errors.append(f"chunk_samples ({parameters['chunk_samples']}) muy pequeño para {parameters['slice_len']} slice_len")
+        errors.append(f"chunk_samples ({parameters['chunk_samples']}) too small for {parameters['slice_len']} slice_len")
     
     if parameters['chunk_samples'] > 50_000_000:                       
-        errors.append(f"chunk_samples ({parameters['chunk_samples']}) muy grande")
+        errors.append(f"chunk_samples ({parameters['chunk_samples']}) too large")
     
                               
     if parameters['slices_per_chunk'] < 5:
-        errors.append(f"slices_per_chunk ({parameters['slices_per_chunk']}) muy pequeño")
+        errors.append(f"slices_per_chunk ({parameters['slices_per_chunk']}) too small")
     
     if parameters['slices_per_chunk'] > 5000:                                            
-        errors.append(f"slices_per_chunk ({parameters['slices_per_chunk']}) muy grande")
+        errors.append(f"slices_per_chunk ({parameters['slices_per_chunk']}) too large")
 
     leftover = parameters.get('leftover_samples', 0)
     if leftover >= parameters['slice_len']:
         errors.append(
-            f"leftover_samples ({leftover}) debería ser menor que slice_len ({parameters['slice_len']})"
+            f"leftover_samples ({leftover}) should be less than slice_len ({parameters['slice_len']})"
         )
     
     if errors:
-        logger.error("Parámetros de procesamiento inválidos:")
+        logger.error("Invalid processing parameters:")
         for error in errors:
             logger.error(f"  - {error}")
         return False

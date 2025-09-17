@@ -22,61 +22,61 @@ def get_topo_MJD(mjd_files, times_s):
     return mjd_files + times_s / 86400.0
 
 def get_bary_MJD(topo_mjds, RA, DEC, DM, freq_MHz, location="Effelsberg", ephem="de432s"):
-    # 1) Sitio
+    # 1) Site
     loc = EarthLocation.of_site(location) if isinstance(location, str) else location
 
-    # 2) Tiempo con localización; trabajar en TDB explícitamente
+    # 2) Time with location; work explicitly in TDB
     times_utc = Time(topo_mjds, format="mjd", scale="utc", location=loc)
     times_tdb = times_utc.tdb
 
-    # 3) Efemérides JPL precisas
+    # 3) Precise JPL ephemerides
     solar_system_ephemeris.set(ephem)
 
-    # 4) Fuente y corrección baricéntrica (TDB seconds)
+    # 4) Source and barycentric correction (TDB seconds)
     src = SkyCoord(RA, DEC, unit=(u.hourangle, u.deg), frame="icrs")
     ltt_bary = times_tdb.light_travel_time(src)  # TimeDelta in TDB seconds
 
-    # 5) Corrección por dispersión a ν→∞
+    # 5) Dispersion correction to ν→∞
     dmcorr = TimeDelta(K_DM * DM / (freq_MHz**2), format="sec")
 
-    # 6) Resultado en MJD(TDB)
+    # 6) Result in MJD(TDB)
     bary_mjds = (times_tdb + ltt_bary - dmcorr).mjd
     return times_utc.mjd, bary_mjds
 
 def read_file_mjd_start(file_path: str) -> float:
     p = Path(file_path)
     if not p.exists():
-        raise FileNotFoundError(f"No existe el archivo de datos: {file_path}")
+        raise FileNotFoundError(f"Data file does not exist: {file_path}")
     if p.suffix.lower() == ".fil":
         if Waterfall is None:
-            raise ImportError("Falta dependencia 'blimpy' para leer .fil")
+            raise ImportError("Missing dependency 'blimpy' to read .fil")
         wf = Waterfall(str(p), load_data=False)
         return float(wf.header["tstart"])  # MJD(UTC)
     elif p.suffix.lower() == ".fits":
         if Your is None:
-            raise ImportError("Falta dependencia 'your' para leer .fits")
+            raise ImportError("Missing dependency 'your' to read .fits")
         f = Your(str(p))
-        imjd = float(f.header["STT_IMJD"])  # días MJD
-        smjd = float(f.header["STT_SMJD"])  # segundos del día
+        imjd = float(f.header["STT_IMJD"])  # MJD days
+        smjd = float(f.header["STT_SMJD"])  # seconds of the day
         offs = float(f.header.get("STT_OFFS", 0.0))
         return imjd + (smjd + offs) / 86400.0
     else:
-        raise ValueError("Extensión no soportada, use .fil o .fits")
+        raise ValueError("Unsupported extension, use .fil or .fits")
 
 def get_file_metadata(file_path: str) -> dict:
     p = Path(file_path)
     if not p.exists():
-        raise FileNotFoundError(f"No existe el archivo de datos: {file_path}")
+        raise FileNotFoundError(f"Data file does not exist: {file_path}")
     meta: dict = {"path": str(p)}
     if p.suffix.lower() == ".fil":
         if Waterfall is None:
-            raise ImportError("Falta dependencia 'blimpy' para leer .fil")
+            raise ImportError("Missing dependency 'blimpy' to read .fil")
         wf = Waterfall(str(p), load_data=False)
         h = wf.header
         meta["tstart_mjd"] = float(h["tstart"])  # MJD UTC
         meta["tsamp_s"] = float(h.get("tsamp", 0.0))  # s
         meta["nchans"] = int(h.get("nchans", 0))
-        # Filtro SIGPROC: fch1 (MHz) (primer canal), foff (MHz) paso por canal
+        # SIGPROC filter: fch1 (MHz) (first channel), foff (MHz) step per channel
         fch1 = h.get("fch1")
         foff = h.get("foff")
         if fch1 is not None and foff is not None and meta["nchans"]:
@@ -84,7 +84,7 @@ def get_file_metadata(file_path: str) -> dict:
             foff = float(foff)
             freqs = fch1 + np.arange(meta["nchans"]) * foff
             meta["chan_freqs_MHz"] = np.array(freqs, dtype=float)
-        # Intentar RA/DEC si están en header (formato SIGPROC: hhmmss.s / ddmmss.s)
+        # Try RA/DEC if available in header (SIGPROC format: hhmmss.s / ddmmss.s)
         src_raj = h.get("src_raj")
         src_dej = h.get("src_dej")
         def _fmt_sigproc_angle(val, is_ra=True):
@@ -104,10 +104,10 @@ def get_file_metadata(file_path: str) -> dict:
         return meta
     elif p.suffix.lower() == ".fits":
         if Your is None:
-            raise ImportError("Falta dependencia 'your' para leer .fits")
+            raise ImportError("Missing dependency 'your' to read .fits")
         f = Your(str(p))
-        imjd = float(f.header["STT_IMJD"])  # días MJD
-        smjd = float(f.header["STT_SMJD"])  # s dentro del día
+        imjd = float(f.header["STT_IMJD"])  # MJD days
+        smjd = float(f.header["STT_SMJD"])  # s within the day
         offs = float(f.header.get("STT_OFFS", 0.0))
         meta["tstart_mjd"] = imjd + (smjd + offs) / 86400.0
         meta["tsamp_s"] = float(f.native_tsamp())
@@ -116,7 +116,7 @@ def get_file_metadata(file_path: str) -> dict:
         foff = float(f.foff)
         freqs = fch1 + np.arange(meta["nchans"]) * foff
         meta["chan_freqs_MHz"] = np.array(freqs, dtype=float)
-        # RA/DEC si disponibles
+        # RA/DEC if available
         try:
             meta["ra_hms"] = f.ra_str
             meta["dec_dms"] = f.dec_str
@@ -124,7 +124,7 @@ def get_file_metadata(file_path: str) -> dict:
             pass
         return meta
     else:
-        raise ValueError("Extensión no soportada, use .fil o .fits")
+        raise ValueError("Unsupported extension, use .fil or .fits")
 
 def _compute_barycentric_columns(
     df: pd.DataFrame,
@@ -137,45 +137,45 @@ def _compute_barycentric_columns(
     ra_series: pd.Series | None = None,
     dec_series: pd.Series | None = None,
 ) -> pd.DataFrame:
-    # Preparar ubicación, fuente y tiempos
+    # Prepare location, source and times
     loc = EarthLocation.of_site(location) if isinstance(location, str) else location
     src = SkyCoord(ra, dec, unit=(u.hourangle, u.deg), frame="icrs")
     solar_system_ephemeris.set(ephem)
 
-    # RA/DEC por fila si se entregan, si no usar escalares
+    # RA/DEC per row if provided, otherwise use scalars
     if ra_series is not None and dec_series is not None:
         ra_vals = ra_series.to_numpy()
         dec_vals = dec_series.to_numpy()
         src = SkyCoord(ra_vals, dec_vals, unit=(u.hourangle, u.deg), frame="icrs")
-    # Tiempos topo en UTC y TDB
+    # Topocentric times in UTC and TDB
     times_utc = Time(df["mjd_utc"].to_numpy(), format="mjd", scale="utc", location=loc)
     times_tdb = times_utc.tdb
-    # Corrección baricéntrica (segundos TDB)
+    # Barycentric correction (TDB seconds)
     ltt_bary = times_tdb.light_travel_time(src)
     bary_tdb = (times_tdb + ltt_bary)
     df["mjd_bary_tdb"] = bary_tdb.mjd
-    # También en escala UTC
+    # Also in UTC scale
     bary_utc = bary_tdb.utc
     df["mjd_bary_utc"] = bary_utc.mjd
 
-    # Corrección de dispersión a frecuencia infinita
+    # Dispersion correction to infinite frequency
     if "dm_pc_cm-3" in df.columns:
         dm_vals = df["dm_pc_cm-3"].astype(float).to_numpy()
     elif default_dm is not None:
         dm_vals = np.full(len(df), float(default_dm))
     else:
-        raise ValueError("No hay columna 'dm_pc_cm-3' ni --default_dm especificado para corrección de dispersión")
+        raise ValueError("No 'dm_pc_cm-3' column nor --default_dm specified for dispersion correction")
 
-    # Preferir frecuencia efectiva del header si está disponible (columna nu_eff_inv2)
+    # Prefer effective frequency from header if available (nu_eff_inv2 column)
     if "nu_eff_inv2" in df.columns:
         nu_eff_inv2 = df["nu_eff_inv2"].astype(float).to_numpy()
         dmcorr_sec = K_DM * dm_vals * nu_eff_inv2
     else:
         dmcorr_sec = K_DM * dm_vals / (freq_mhz ** 2)
     dmcorr_days = dmcorr_sec / 86400.0
-    # TDB a frecuencia infinita
+    # TDB to infinite frequency
     df["mjd_bary_tdb_inf"] = df["mjd_bary_tdb"] - dmcorr_days
-    # UTC a frecuencia infinita
+    # UTC to infinite frequency
     df["mjd_bary_utc_inf"] = df["mjd_bary_utc"] - dmcorr_days
     return df
 
@@ -193,40 +193,40 @@ def convert_times_to_mjd(
     center_sample: bool = True,
     nu_ref_mode: str = "header_mean",
 ):
-    # Metadatos del archivo
+    # File metadata
     meta = get_file_metadata(file_path)
     mjd_start = float(meta["tstart_mjd"])
     tsamp_s = float(meta.get("tsamp_s", 0.0))
 
-    # Preparar filas base
+    # Prepare base rows
     df = pd.DataFrame({
         "file": [Path(file_path).name] * len(times_sec),
         "t_sec": times_sec,
     })
 
-    # Centrar en medio de sample si corresponde
+    # Center on middle of sample if applicable
     if center_sample:
         t_sec_centered = df["t_sec"].astype(float) + (tsamp_s / 2.0)
     else:
         t_sec_centered = df["t_sec"].astype(float)
     df["t_sec_centered"] = t_sec_centered
 
-    # MJD topocéntrico UTC
+    # Topocentric MJD UTC
     df["mjd_start_file"] = mjd_start
     df["mjd_utc"] = df["mjd_start_file"] + (t_sec_centered / 86400.0)
 
-    # Frecuencia efectiva <1/nu^2> desde header si se solicita
+    # Effective frequency <1/nu^2> from header if requested
     if nu_ref_mode == "header_mean" and "chan_freqs_MHz" in meta:
         freqs = np.asarray(meta["chan_freqs_MHz"], dtype=float)
         valid = freqs > 0
         if valid.any():
             df["nu_eff_inv2"] = float(np.mean(1.0 / (freqs[valid] ** 2)))
 
-    # Añadir DM por defecto si no hay columna
+    # Add default DM if no column
     if default_dm is not None:
         df["dm_pc_cm-3"] = float(default_dm)
 
-    # Baricéntrico si corresponde
+    # Barycentric if applicable
     if compute_bary:
         df = _compute_barycentric_columns(
             df,

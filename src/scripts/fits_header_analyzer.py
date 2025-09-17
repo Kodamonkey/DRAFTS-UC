@@ -2,27 +2,27 @@
 
                       
 """
-Analizador de Headers FITS para el Pipeline DRAFTS
-================================================
+FITS Header Analyzer for DRAFTS Pipeline
+=====================================
 
-Script robusto para analizar y extraer información detallada de headers
-de archivos FITS/PSRFITS utilizados en el pipeline de detección de FRBs.
+Robust script to analyze and extract detailed information from headers
+of FITS/PSRFITS files used in the FRB detection pipeline.
 
-Características:
-- Análisis completo de headers primarios y extensiones
-- Información detallada sobre metadatos astronómicos
-- Estadísticas de datos y estructura del archivo
-- Validación de integridad y compatibilidad
-- Sistema de logging integrado
-- Manejo robusto de errores
+Features:
+- Complete analysis of primary headers and extensions
+- Detailed information about astronomical metadata
+- Data statistics and file structure
+- Integrity and compatibility validation
+- Integrated logging system
+- Robust error handling
 
-Uso:
-    python fits_header_analyzer.py [archivo1.fits] [archivo2.fits] ...
-    python fits_header_analyzer.py --all  # Analizar todos los archivos en DATA_DIR
-    python fits_header_analyzer.py --targets  # Analizar archivos en FRB_TARGETS
+Usage:
+    python fits_header_analyzer.py [file1.fits] [file2.fits] ...
+    python fits_header_analyzer.py --all  # Analyze all files in DATA_DIR
+    python fits_header_analyzer.py --targets  # Analyze files in FRB_TARGETS
 
-Autor: Sistema DRAFTS
-Versión: 1.0
+Author: DRAFTS System
+Version: 1.0
 """
 
 from __future__ import annotations
@@ -80,14 +80,14 @@ class Colors:
                         
 try:
     from config import config
-    logger.info("Configuración del proyecto cargada correctamente")
+    logger.info("Project configuration loaded successfully")
 except ImportError as e:
-    logger.warning(f"No se pudo cargar configuración del proyecto: {e}")
+    logger.warning(f"Could not load project configuration: {e}")
                                       
     class DefaultConfig:
         DATA_DIR = Path("./Data/raw")
     config = DefaultConfig()
-    logger.info("Usando configuración por defecto")
+    logger.info("Using default configuration")
 
                                                                                
                               
@@ -121,13 +121,13 @@ PROCESSING_HEADERS = [
 
 def analyze_primary_header(header: fits.Header) -> Dict[str, Any]:
     """
-    Analiza el header primario del archivo FITS.
+    Analyzes the primary header of the FITS file.
 
     Args:
-        header: Header primario de astropy.io.fits
+        header: Primary header from astropy.io.fits
 
     Returns:
-        Dict con información detallada del header primario
+        Dict with detailed information from the primary header
     """
     analysis = {
         'basic_info': {},

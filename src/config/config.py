@@ -35,6 +35,30 @@ try:
         SAVE_ONLY_BURST,
         AUTO_HIGH_FREQ_PIPELINE,
         HIGH_FREQ_THRESHOLD_MHZ,
+        HF_BOW_TIE_MIN_DM_INDEX,
+        HF_BOW_TIE_MIN_SNR,
+        HF_BOW_TIE_THRESHOLD,
+        HF_BOW_TIE_WING_WIDTH,
+        HF_DEDUP_DM_TOL,
+        HF_DEDUP_TIME_TOL_SEC,
+        HF_DM_COARSE_STEP,
+        HF_DM_EXPANSION_FACTOR,
+        HF_DM_MIN_STEP,
+        HF_MIN_SIGNIFICANT_DM,
+        HF_MONITOR_BOW_TIE_RATIO,
+        HF_SUBBAND_CONSISTENCY_THRESHOLD,
+        HF_SUBBAND_COUNT,
+        HF_SUBBAND_SNR_THRESHOLD,
+        HF_TEMPORAL_CHUNK_SEC,
+        HF_TEMPORAL_SNR_THRESHOLD,
+        HF_VALIDATION_DM_MAX,
+        HF_VALIDATION_DM_MIN,
+        HF_VALIDATION_DM_STEP,
+        HF_VALIDATION_PATCH_LEN,
+        HF_ZERO_DM_MAX_CANDIDATES,
+        HF_ZERO_DM_MIN_SNR,
+        HF_ZERO_DM_SENSITIVITY,
+        HF_ZERO_DM_TRIALS,
     )
 except ImportError:
                                              
@@ -56,19 +80,75 @@ except ImportError:
         SAVE_ONLY_BURST,
         AUTO_HIGH_FREQ_PIPELINE,
         HIGH_FREQ_THRESHOLD_MHZ,
+        HF_BOW_TIE_MIN_DM_INDEX,
+        HF_BOW_TIE_MIN_SNR,
+        HF_BOW_TIE_THRESHOLD,
+        HF_BOW_TIE_WING_WIDTH,
+        HF_DEDUP_DM_TOL,
+        HF_DEDUP_TIME_TOL_SEC,
+        HF_DM_COARSE_STEP,
+        HF_DM_EXPANSION_FACTOR,
+        HF_DM_MIN_STEP,
+        HF_MIN_SIGNIFICANT_DM,
+        HF_MONITOR_BOW_TIE_RATIO,
+        HF_SUBBAND_CONSISTENCY_THRESHOLD,
+        HF_SUBBAND_COUNT,
+        HF_SUBBAND_SNR_THRESHOLD,
+        HF_TEMPORAL_CHUNK_SEC,
+        HF_TEMPORAL_SNR_THRESHOLD,
+        HF_VALIDATION_DM_MAX,
+        HF_VALIDATION_DM_MIN,
+        HF_VALIDATION_DM_STEP,
+        HF_VALIDATION_PATCH_LEN,
+        HF_ZERO_DM_MAX_CANDIDATES,
+        HF_ZERO_DM_MIN_SNR,
+        HF_ZERO_DM_SENSITIVITY,
+        HF_ZERO_DM_TRIALS,
     )
 
                           
 from pathlib import Path
 
-                     
+
 import numpy as np
 
-                              
+
 try:
     import torch
-except ImportError:                                                    
+except ImportError:
     torch = None
+
+
+_HF_DEFAULTS = {
+    'HF_DM_EXPANSION_FACTOR': 3.0,
+    'HF_DM_COARSE_STEP': 5.0,
+    'HF_DM_MIN_STEP': 1.0,
+    'HF_BOW_TIE_THRESHOLD': 2.0,
+    'HF_BOW_TIE_WING_WIDTH': 20,
+    'HF_BOW_TIE_MIN_DM_INDEX': 10,
+    'HF_BOW_TIE_MIN_SNR': 5.0,
+    'HF_ZERO_DM_TRIALS': [0.0, 1.0, 2.0, 5.0],
+    'HF_ZERO_DM_SENSITIVITY': 0.4,
+    'HF_ZERO_DM_MIN_SNR': 3.5,
+    'HF_ZERO_DM_MAX_CANDIDATES': 1000,
+    'HF_MIN_SIGNIFICANT_DM': 15.0,
+    'HF_VALIDATION_DM_MIN': 0.0,
+    'HF_VALIDATION_DM_MAX': 6000.0,
+    'HF_VALIDATION_DM_STEP': 5.0,
+    'HF_VALIDATION_PATCH_LEN': 256,
+    'HF_SUBBAND_COUNT': 4,
+    'HF_SUBBAND_SNR_THRESHOLD': 5.0,
+    'HF_SUBBAND_CONSISTENCY_THRESHOLD': 0.75,
+    'HF_TEMPORAL_CHUNK_SEC': 30.0,
+    'HF_TEMPORAL_SNR_THRESHOLD': 5.0,
+    'HF_DEDUP_TIME_TOL_SEC': 1.0,
+    'HF_DEDUP_DM_TOL': 50.0,
+    'HF_MONITOR_BOW_TIE_RATIO': 0.1,
+}
+
+for _key, _value in _HF_DEFAULTS.items():
+    if _key not in globals():
+        globals()[_key] = _value
 
                                                                                
                                     

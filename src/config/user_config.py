@@ -66,6 +66,38 @@ AUTO_HIGH_FREQ_PIPELINE: bool = True
 # Central frequency threshold (MHz) to consider "high frequency"
 HIGH_FREQ_THRESHOLD_MHZ: float = 8000.0
 
+# --- Yong-Kun Zhang high-frequency strategies --------------------------------
+
+# Strategy 1 (bow-tie recovery) parameters
+HF_DM_EXPANSION_FACTOR: float = 3.0          # Multiplier for the traditional DM range
+HF_DM_COARSE_STEP: float = 5.0               # Coarse DM step (pc cm⁻³)
+HF_DM_MIN_STEP: float = 1.0                  # Minimum DM step to guarantee coverage
+HF_BOW_TIE_THRESHOLD: float = 2.0            # Minimum contrast required for bow-tie pattern
+HF_BOW_TIE_WING_WIDTH: int = 20              # Samples used to estimate bow-tie wings
+HF_BOW_TIE_MIN_DM_INDEX: int = 10            # Minimum DM index to accept a bow-tie candidate
+HF_BOW_TIE_MIN_SNR: float = 5.0              # Minimum SNR for bow-tie detections
+
+# Strategy 2 (zero-DM + validation) parameters
+HF_ZERO_DM_TRIALS = [0.0, 1.0, 2.0, 5.0]     # DM trials around zero for permissive detection
+HF_ZERO_DM_SENSITIVITY: float = 0.4          # Minimum class probability in permissive stage
+HF_ZERO_DM_MIN_SNR: float = 3.5              # Minimum SNR to keep zero-DM candidates
+HF_ZERO_DM_MAX_CANDIDATES: int = 1000        # Limit of candidates processed in validation
+HF_MIN_SIGNIFICANT_DM: float = 15.0          # Minimum DM considered astrophysically valid
+HF_VALIDATION_DM_MIN: float = 0.0            # DM search lower bound during validation
+HF_VALIDATION_DM_MAX: float = 6000.0         # DM search upper bound during validation
+HF_VALIDATION_DM_STEP: float = 5.0           # DM step during validation scan
+HF_VALIDATION_PATCH_LEN: int = 256           # Samples used in validation patches
+HF_SUBBAND_COUNT: int = 4                    # Sub-bands used to verify consistency
+HF_SUBBAND_SNR_THRESHOLD: float = 5.0        # Minimum SNR per sub-band
+HF_SUBBAND_CONSISTENCY_THRESHOLD: float = 0.75  # Required fraction of consistent sub-bands
+HF_TEMPORAL_CHUNK_SEC: float = 30.0          # Temporal window for consistency checks
+HF_TEMPORAL_SNR_THRESHOLD: float = 5.0       # Minimum SNR in independent chunk reprocessing
+HF_DEDUP_TIME_TOL_SEC: float = 1.0           # Time tolerance for deduplication (seconds)
+HF_DEDUP_DM_TOL: float = 50.0                # DM tolerance for deduplication (pc cm⁻³)
+
+# Monitoring thresholds for the integrated pipeline
+HF_MONITOR_BOW_TIE_RATIO: float = 0.1        # Expected minimum ratio of bow-tie recoveries
+
 # =============================================================================
 # POLARIZATION CONFIGURATION (PSRFITS INPUT)
 # =============================================================================

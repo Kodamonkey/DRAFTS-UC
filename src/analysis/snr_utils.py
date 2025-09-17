@@ -41,13 +41,13 @@ def compute_snr_profile(
     if waterfall.ndim != 2:
         raise ValueError("waterfall must be 2D (time, freq)")
 
-    # 1) Integrar en frecuencia → serie temporal
+    # 1) Integrate in frequency → time series
     timeseries = np.mean(waterfall, axis=1).astype(np.float32)
 
-    # 2) Detrend/normalización por bloques (RMS≈1)
+    # 2) Detrend/normalization by blocks (RMS≈1)
     ts = _detrend_normalize_by_blocks(timeseries, block_len=1000, fast=True)
 
-    # 3) Matched filtering con set de anchos PRESTO (recortado a 30 por defecto)
+    # 3) Matched filtering with PRESTO width set (trimmed to 30 by default)
     widths = [1, 2, 3, 4, 6, 9, 14, 20, 30]
     n = ts.shape[0]
     # Evitar broadcasting: limitar anchos a la longitud disponible
@@ -147,10 +147,10 @@ def _detrend_normalize_timeseries(timeseries: np.ndarray) -> np.ndarray:
 def _detrend_normalize_by_blocks(timeseries: np.ndarray, block_len: int = 1000, fast: bool = True) -> np.ndarray:
     """Detrend y normaliza por bloques al estilo PRESTO, devolviendo RMS≈1.
 
-    - Divide la serie en bloques de longitud ~block_len (último bloque puede ser menor)
-    - Para cada bloque: remueve tendencia (mediana si fast=True), estima σ robusta
-      con recorte ~5% y aplica corrección 1.148; normaliza el bloque por σ
-    - Opcionalmente, suprime bloques anómalos (σ fuera de rango) poniéndolos en 0
+    - Divide the series into blocks of length ~block_len (last block may be smaller)
+    - For each block: remove trend (median if fast=True), estimate robust σ
+      with ~5% clipping and apply 1.148 correction; normalize block by σ
+    - Optionally, suppress anomalous blocks (σ out of range) by setting them to 0
     """
     t = timeseries.astype(np.float32, copy=False)
     n = t.shape[0]
@@ -159,26 +159,26 @@ def _detrend_normalize_by_blocks(timeseries: np.ndarray, block_len: int = 1000, 
     blen = max(32, min(block_len, n))
     out = np.empty_like(t)
 
-    # Estimar σ por bloque de forma robusta
+    # Estimate σ per block robustly
     block_sigmas: list[float] = []
     blocks: list[tuple[int, int]] = []
     for start in range(0, n, blen):
         end = min(n, start + blen)
         block = t[start:end].copy()
         if fast:
-            # Remoción de mediana (modo 'fast' de PRESTO)
+            # Median removal (PRESTO 'fast' mode)
             med = float(np.median(block))
             block -= med
             work = block.copy()
         else:
-            # Detrend lineal aproximado (fallback)
+            # Approximate linear detrend (fallback)
             x = np.linspace(0.0, 1.0, block.shape[0], dtype=np.float32)
             p = np.polyfit(x, block.astype(np.float64), deg=1)
             trend = (p[0] * x + p[1]).astype(np.float32)
             block = block - trend
             work = block.copy()
 
-        # σ robusta por recorte central (~95%) y corrección 1.148
+        # Robust σ by central clipping (~95%) and 1.148 correction
         work.sort()
         m = work.shape[0]
         lo = m // 40
@@ -196,7 +196,7 @@ def _detrend_normalize_by_blocks(timeseries: np.ndarray, block_len: int = 1000, 
         block_sigmas.append(sigma)
         blocks.append((start, end))
 
-    # Identificar bloques anómalos y suprimirlos (similar al filtrado de bad blocks)
+    # Identify anomalous blocks and suppress them (similar to bad blocks filtering)
     sigmas_arr = np.asarray(block_sigmas, dtype=np.float32)
     if sigmas_arr.size >= 3:
         med = float(np.median(sigmas_arr))
@@ -215,24 +215,24 @@ def compute_presto_matched_snr(
     max_downfact: int = 30,
     widths: Optional[List[int]] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Compute SNR profile emulando PRESTO (matched filtering con boxcars).
+    """Compute SNR profile emulating PRESTO (matched filtering with boxcars).
 
     Args:
-        waterfall: matriz 2D (n_time, n_freq)
-        dt_seconds: resolución temporal (s) por muestra
-        max_downfact: downfact máximo (bins) a usar
-        widths: lista de anchos de boxcar; si None, usa set por defecto PRESTO
+        waterfall: 2D matrix (n_time, n_freq)
+        dt_seconds: temporal resolution (s) per sample
+        max_downfact: maximum downfact (bins) to use
+        widths: list of boxcar widths; if None, uses default PRESTO set
 
     Returns:
-        snr_max: perfil SNR máximo por muestra
-        best_width: ancho de boxcar que maximiza SNR en cada muestra
+        snr_max: maximum SNR profile per sample
+        best_width: boxcar width that maximizes SNR at each sample
     """
     if waterfall is None or waterfall.size == 0:
-        raise ValueError("waterfall vacío en compute_presto_matched_snr")
+        raise ValueError("empty waterfall in compute_presto_matched_snr")
 
                                              
     if waterfall.ndim != 2:
-        raise ValueError("waterfall debe ser 2D (tiempo, freq)")
+        raise ValueError("waterfall must be 2D (time, freq)")
     timeseries = np.mean(waterfall, axis=1).astype(np.float32)
 
                                                 

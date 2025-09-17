@@ -68,10 +68,10 @@ def _d_dm_time_cpu(
     dm_max: float,
     freq_ds: np.ndarray,
 ) -> np.ndarray:
-    """CPU fallback para dedispersión con normalización por exposición y bordes.
+    """CPU fallback for dedispersion with exposure normalization and edge handling.
 
-    Implementa suma con manejo de bordes por canal y normaliza cada
-    punto (DM,t) por el número de canales que aportaron.
+    Implements summation with edge handling per channel and normalizes each
+    point (DM,t) by the number of channels that contributed.
     """
     out = np.zeros((3, height, width), dtype=np.float32)
     nchan_ds = freq_ds.shape[0]
@@ -153,9 +153,9 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
     
                                                  
     if config.FREQ is None or config.FREQ.size == 0:
-        raise ValueError("config.FREQ inválido durante dedispersión (vacío)")
+        raise ValueError("config.FREQ invalid during dedispersion (empty)")
     if config.FREQ_RESO == 0 or config.DOWN_FREQ_RATE == 0:
-        raise ValueError(f"Parámetros de frecuencia inválidos: FREQ_RESO={config.FREQ_RESO}, DOWN_FREQ_RATE={config.DOWN_FREQ_RATE}")
+        raise ValueError(f"Invalid frequency parameters: FREQ_RESO={config.FREQ_RESO}, DOWN_FREQ_RATE={config.DOWN_FREQ_RATE}")
     if (config.FREQ_RESO // config.DOWN_FREQ_RATE) * config.DOWN_FREQ_RATE != config.FREQ_RESO:
                                                        
         n_groups = config.FREQ_RESO // config.DOWN_FREQ_RATE
@@ -212,7 +212,7 @@ def _d_dm_time_torch_gpu(
     dm_max: float,
     freq_ds_np: np.ndarray,
 ) -> np.ndarray:
-    """Dedispersión en GPU usando PyTorch (más compatible en Windows que Numba)."""
+    """GPU dedispersion using PyTorch (more compatible on Windows than Numba)."""
     device = torch.device('cuda')
                    
     data_t = torch.from_numpy(data_np).to(device=device, dtype=torch.float32)          
@@ -351,21 +351,21 @@ def dedisperse_block(
 
                                    
     if config.DEBUG_FREQUENCY_ORDER:
-        logger.debug(f"[DEBUG DEDISPERSIÓN] DM: {dm:.2f} pc cm⁻³")
-        logger.debug(f"[DEBUG DEDISPERSIÓN] freq_down shape: {freq_down.shape}")
-        logger.debug(f"[DEBUG DEDISPERSIÓN] Primeras 3 freq_down: {freq_down[:3]}")
-        logger.debug(f"[DEBUG DEDISPERSIÓN] Últimas 3 freq_down: {freq_down[-3:]}")
-        logger.debug(f"[DEBUG DEDISPERSIÓN] freq_down.max(): {freq_down.max():.2f} MHz")
-        logger.debug(f"[DEBUG DEDISPERSIÓN] Primeros 3 delays: {delays[:3]} muestras")
-        logger.debug(f"[DEBUG DEDISPERSIÓN] Últimos 3 delays: {delays[-3:]} muestras")
-        logger.debug(f"[DEBUG DEDISPERSIÓN] max_delay: {delays.max()} muestras")
-        logger.debug(f"[DEBUG DEDISPERSIÓN] Dedispersión esperada: freq ALTAS llegan primero (delay=0), freq BAJAS llegan después (delay>0)")
+        logger.debug(f"[DEBUG DEDISPERSION] DM: {dm:.2f} pc cm⁻³")
+        logger.debug(f"[DEBUG DEDISPERSION] freq_down shape: {freq_down.shape}")
+        logger.debug(f"[DEBUG DEDISPERSION] First 3 freq_down: {freq_down[:3]}")
+        logger.debug(f"[DEBUG DEDISPERSION] Last 3 freq_down: {freq_down[-3:]}")
+        logger.debug(f"[DEBUG DEDISPERSION] freq_down.max(): {freq_down.max():.2f} MHz")
+        logger.debug(f"[DEBUG DEDISPERSION] First 3 delays: {delays[:3]} samples")
+        logger.debug(f"[DEBUG DEDISPERSION] Last 3 delays: {delays[-3:]} samples")
+        logger.debug(f"[DEBUG DEDISPERSION] max_delay: {delays.max()} samples")
+        logger.debug(f"[DEBUG DEDISPERSION] Expected dedispersion: HIGH freq arrive first (delay=0), LOW freq arrive later (delay>0)")
         if freq_down[0] < freq_down[-1]:              
-            expected_delay_pattern = "delays DECRECIENTES (de max a 0)"
+            expected_delay_pattern = "DECREASING delays (from max to 0)"
         else:               
-            expected_delay_pattern = "delays CRECIENTES (de 0 a max)"
-        logger.debug(f"[DEBUG DEDISPERSIÓN] Patrón esperado de delays: {expected_delay_pattern}")
-        logger.debug("[DEBUG DEDISPERSIÓN] " + "="*60)
+            expected_delay_pattern = "INCREASING delays (from 0 to max)"
+        logger.debug(f"[DEBUG DEDISPERSION] Expected delay pattern: {expected_delay_pattern}")
+        logger.debug("[DEBUG DEDISPERSION] " + "="*60)
 
     max_delay = int(delays.max())
     if start + block_len + max_delay > data.shape[0]:

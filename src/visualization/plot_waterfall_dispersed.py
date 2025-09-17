@@ -28,34 +28,34 @@ def calculate_undispersed_burst_time(
     freq_high: float
 ) -> float:
     """
-    Calcula el tiempo de llegada no dispersado del burst.
+    Calculates the undispersed burst arrival time.
     
-    La fórmula para el retraso de dispersión entre dos frecuencias es:
+    The formula for dispersion delay between two frequencies is:
     Δt = k × DM × (1/f_low² - 1/f_high²)
     
-    Donde:
-    - k ≈ 4.15 × 10³ s·MHz²·pc⁻¹·cm³ (constante de dispersión en unidades cgs)
-    - DM es la Medida de Dispersión en pc·cm⁻³
-    - f_low y f_high son las frecuencias más baja y más alta en MHz
+    Where:
+    - k ≈ 4.15 × 10³ s·MHz²·pc⁻¹·cm³ (dispersion constant in cgs units)
+    - DM is the Dispersion Measure in pc·cm⁻³
+    - f_low and f_high are the lowest and highest frequencies in MHz
     
-    Para obtener el tiempo no dispersado:
+    To get the undispersed time:
     t_0 = t_obs - Δt
     
     Parameters
     ----------
     observed_time : float
-        Tiempo de llegada observado de la señal dispersada (segundos)
+        Observed arrival time of the dispersed signal (seconds)
     dm : float
-        Medida de Dispersión en pc·cm⁻³
+        Dispersion Measure in pc·cm⁻³
     freq_low : float
-        Frecuencia más baja en MHz
+        Lowest frequency in MHz
     freq_high : float
-        Frecuencia más alta en MHz
+        Highest frequency in MHz
     
     Returns
     -------
     float
-        Tiempo de llegada no dispersado del burst (segundos)
+        Undispersed burst arrival time (seconds)
     """
                                                                              
                                                             
@@ -67,11 +67,11 @@ def calculate_undispersed_burst_time(
                           
     undispersed_time = observed_time - delta_t
     
-    logger.debug(f"[CORRECCIÓN DISPERSIÓN] DM: {dm:.2f} pc cm⁻³")
-    logger.debug(f"[CORRECCIÓN DISPERSIÓN] Frecuencias: {freq_low:.1f} - {freq_high:.1f} MHz")
-    logger.debug(f"[CORRECCIÓN DISPERSIÓN] Retraso calculado: {delta_t:.6f} s")
-    logger.debug(f"[CORRECCIÓN DISPERSIÓN] Tiempo observado: {observed_time:.6f} s")
-    logger.debug(f"[CORRECCIÓN DISPERSIÓN] Tiempo no dispersado: {undispersed_time:.6f} s")
+    logger.debug(f"[DISPERSION CORRECTION] DM: {dm:.2f} pc cm⁻³")
+    logger.debug(f"[DISPERSION CORRECTION] Frequencies: {freq_low:.1f} - {freq_high:.1f} MHz")
+    logger.debug(f"[DISPERSION CORRECTION] Calculated delay: {delta_t:.6f} s")
+    logger.debug(f"[DISPERSION CORRECTION] Observed time: {observed_time:.6f} s")
+    logger.debug(f"[DISPERSION CORRECTION] Undispersed time: {undispersed_time:.6f} s")
     
     return undispersed_time
 

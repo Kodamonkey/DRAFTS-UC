@@ -9,7 +9,7 @@ from typing import Tuple, Dict, List, Optional, Any
 logger = logging.getLogger(__name__)
 
 class DynamicDMRangeCalculator:
-    """Calculadora de rangos DM dinámicos para visualización óptima."""
+    """Dynamic DM range calculator for optimal visualization."""
     
     def __init__(self):
         self.dm_ranges_cache = {}
@@ -26,26 +26,26 @@ class DynamicDMRangeCalculator:
         freq_range: Tuple[float, float] = (1200.0, 1500.0)
     ) -> Tuple[float, float, Dict[str, Any]]:
         """
-        Calcula el rango DM óptimo centrado en el candidato detectado.
+        Calculates optimal DM range centered on detected candidate.
         
         Parameters
         ----------
         dm_optimal : float
-            DM óptimo del candidato detectado
+            Optimal DM of detected candidate
         dm_global_min : int
-            DM mínimo global del análisis
+            Global minimum DM of analysis
         dm_global_max : int
-            DM máximo global del análisis
+            Global maximum DM of analysis
         range_factor : float
-            Factor de rango como fracción del DM óptimo (0.2 = ±20%)
+            Range factor as fraction of optimal DM (0.2 = ±20%)
         min_range_width : float
-            Ancho mínimo del rango DM en pc cm⁻³
+            Minimum DM range width in pc cm⁻³
         max_range_width : float
-            Ancho máximo del rango DM en pc cm⁻³
+            Maximum DM range width in pc cm⁻³
         time_reso : float
-            Resolución temporal en segundos
+            Temporal resolution in seconds
         freq_range : tuple
-            Rango de frecuencias (freq_min, freq_max) en MHz
+            Frequency range (freq_min, freq_max) in MHz
             
         Returns
         -------
@@ -53,7 +53,7 @@ class DynamicDMRangeCalculator:
             (dm_plot_min, dm_plot_max, calculation_details)
         """
         
-        logger.info("Calculando rango DM dinámico para candidato con DM=%.1f", dm_optimal)
+        logger.info("Calculating dynamic DM range for candidate with DM=%.1f", dm_optimal)
         
                                                         
         if dm_optimal > 0:
@@ -97,7 +97,7 @@ class DynamicDMRangeCalculator:
             'dispersion_analysis': dispersion_analysis
         }
         
-        logger.info("Rango DM dinámico: %.1f - %.1f (ancho: %.1f, centrado en: %.1f)", 
+        logger.info("Dynamic DM range: %.1f - %.1f (width: %.1f, centered on: %.1f)", 
                    dm_plot_min, dm_plot_max, range_width, dm_plot_center)
         
         return dm_plot_min, dm_plot_max, calculation_details
@@ -109,7 +109,7 @@ class DynamicDMRangeCalculator:
         time_reso: float, 
         freq_range: Tuple[float, float]
     ) -> Dict[str, float]:
-        """Analiza características de dispersión para el rango DM específico."""
+        """Analyzes dispersion characteristics for specific DM range."""
         
         freq_min, freq_max = freq_range
         K_DM = 4.148808e3                           
@@ -139,14 +139,14 @@ class DynamicDMRangeCalculator:
         **kwargs
     ) -> Tuple[float, float, Dict[str, Any]]:
         """
-        Calcula rango DM que cubra múltiples candidatos detectados.
+        Calculates DM range that covers multiple detected candidates.
         
         Parameters
         ----------
         dm_candidates : list
-            Lista de DMs de candidatos detectados
+            List of DMs from detected candidates
         coverage_factor : float
-            Factor de cobertura para incluir todos los candidatos (1.2 = 20% extra)
+            Coverage factor to include all candidates (1.2 = 20% extra)
             
         Returns
         -------

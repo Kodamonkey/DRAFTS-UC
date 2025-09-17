@@ -56,7 +56,6 @@ SNR_THRESH: float = 4.0                     # SNR threshold used in plots
 USE_MULTI_BAND: bool = False                # True = enable multi-band analysis, False = only full band
 
 # =============================================================================
-
 # HIGH-FREQUENCY PIPELINE CONFIGURATION
 # =============================================================================
 

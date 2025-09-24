@@ -1,3 +1,5 @@
+# This module builds neural network models for binary classification.
+
 import numpy as np
 import torch, torchvision
 from torchvision import transforms
@@ -49,7 +51,7 @@ class BinaryNet(torch.nn.Module):
         self.base_model.fc    = torch.nn.Linear(num_ch, num_classes)
 
     def forward(self, x):
-        x = self.base_model(x) # x.sigmoid_()
+        x = self.base_model(x)               
         return x
 
 
@@ -101,6 +103,6 @@ class SPPResNet(torch.nn.Module):
         x = self.base_model.layer3(x)
         x = self.base_model.layer4(x)
         x = self.spp(x)
-        x = self.classifier(x) # x.sigmoid_()
+        x = self.classifier(x)               
 
         return x

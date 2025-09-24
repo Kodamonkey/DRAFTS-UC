@@ -1,73 +1,98 @@
 from pathlib import Path
 
 # =============================================================================
-# CONFIGURACIÓN DE DATOS Y ARCHIVOS
+# DATA AND FILE CONFIGURATION
 # =============================================================================
 
-# Directorios de entrada y salida
-DATA_DIR = Path("./Data/raw")                        # Directorio con archivos de entrada (.fits, .fil)
-RESULTS_DIR = Path("./Results")                      # Directorio para guardar resultados
+# Input and output directories
+DATA_DIR = Path("./Data/raw")                        # Directory with input files (.fits, .fil)
+RESULTS_DIR = Path("./fusion-tests")                      # Directory where results are stored
 
-# Lista de archivos a procesar
+# List of files to process
 FRB_TARGETS = [
-   "3096_0001_00_8bit"
+   "2017-04-03-12_56_05_230_0002_t2.3_t17.395"
 ]
 
 # =============================================================================
-# CONFIGURACIÓN DE ANÁLISIS TEMPORAL
+# TEMPORAL ANALYSIS CONFIGURATION
 # =============================================================================
 
-# Duración de cada slice temporal (milisegundos)
-SLICE_DURATION_MS: float = 500.0
+# Duration of each temporal slice (milliseconds)
+SLICE_DURATION_MS: float = 300.0
 
 # =============================================================================
-# CONFIGURACIÓN DE DOWNSAMPLING
+# DOWNSAMPLING CONFIGURATION
 # =============================================================================
 
-# Factores de reducción para optimizar el procesamiento
-DOWN_FREQ_RATE: int = 1                      # Factor de reducción en frecuencia (1 = sin reducción)
-DOWN_TIME_RATE: int = 12                     # Factor de reducción en tiempo (1 = sin reducción)
+# Reduction factors to optimize processing
+DOWN_FREQ_RATE: int = 1                      # Frequency reduction factor (1 = no reduction)
+DOWN_TIME_RATE: int = 8                     # Time reduction factor (1 = no reduction)
+
 
 # =============================================================================
-# CONFIGURACIÓN DE DISPERSIÓN (DM)
+# DISPERSION MEASURE CONFIGURATION (DM)
 # =============================================================================
 
-# Rango de Dispersion Measure para búsqueda
-DM_min: int = 0                             # DM mínimo en pc cm⁻³
-DM_max: int = 1024                          # DM máximo en pc cm⁻³
+# Dispersion Measure search range
+DM_min: int = 0                             # Minimum DM in pc cm⁻³
+DM_max: int = 1024                          # Maximum DM in pc cm⁻³
 
 # =============================================================================
-# UMBRALES DE DETECCIÓN
+# DETECTION THRESHOLDS
 # =============================================================================
 
-# Probabilidades mínimas para detección y clasificación
-DET_PROB: float = 0.3                       # Probabilidad mínima para considerar una detección válida
-CLASS_PROB: float = 0.5                     # Probabilidad mínima para clasificar como burst
+# Minimum probabilities for detection and classification
+DET_PROB: float = 0.3                       # Minimum probability to consider a detection valid
+CLASS_PROB: float = 0.5                     # Minimum probability to classify as burst
 
-# Umbral de SNR para resaltar en visualizaciones
-SNR_THRESH: float = 3.0                     # Umbral de SNR para resaltar en visualizaciones
-
-# =============================================================================
-# CONFIGURACIÓN DE ANÁLISIS MULTI-BANDA
-# =============================================================================
-
-# Análisis multi-banda (Full/Low/High)
-USE_MULTI_BAND: bool = False                # True = usar análisis multi-banda, False = solo banda completa
+# SNR threshold for highlighting in visualizations
+SNR_THRESH: float = 4.0                     # SNR threshold used in plots
 
 # =============================================================================
-# CONFIGURACIÓN DE LOGGING Y DEBUG
+# MULTI-BAND ANALYSIS CONFIGURATION
 # =============================================================================
 
-# Debug de frecuencias y archivos
-DEBUG_FREQUENCY_ORDER: bool = False        # True = mostrar información detallada de frecuencias y archivos
-                                           # False = modo silencioso (recomendado para procesamiento en lote)
-
-# Forzar generación de plots incluso sin candidatos (modo debug)
-FORCE_PLOTS: bool = False                  # True = siempre generar plots para inspección
+# Multi-band analysis (Full/Low/High)
+USE_MULTI_BAND: bool = False                # True = enable multi-band analysis, False = only full band
 
 # =============================================================================
-# CONFIGURACIÓN DE FILTRADO DE CANDIDATOS
+# HIGH-FREQUENCY PIPELINE CONFIGURATION
 # =============================================================================
 
-# Solo guardar y mostrar candidatos clasificados como BURST
-SAVE_ONLY_BURST: bool = True             # True = solo guardar candidatos BURST, False = guardar todos los candidatos
+# Controls whether the high-frequency pipeline is triggered automatically
+# based on the file's central frequency (default ≥ 8000 MHz)
+AUTO_HIGH_FREQ_PIPELINE: bool = True
+
+# Central frequency threshold (MHz) to consider "high frequency"
+HIGH_FREQ_THRESHOLD_MHZ: float = 8000.0
+
+# =============================================================================
+# POLARIZATION CONFIGURATION (PSRFITS INPUT)
+# =============================================================================
+
+# Polarization mode for PSRFITS with POL_TYPE=IQUV and npol>=4
+# Options: "intensity" (I), "linear" (sqrt(Q^2+U^2)), "circular" (abs(V)),
+#          "pol0", "pol1", "pol2", "pol3" to select a specific index
+POLARIZATION_MODE: str = "intensity"
+
+# Default index when IQUV is not available (e.g., AABB, two pols)
+POLARIZATION_INDEX: int = 0
+
+# =============================================================================
+# LOGGING AND DEBUG CONFIGURATION
+# =============================================================================
+
+# Frequency and file debugging
+DEBUG_FREQUENCY_ORDER: bool = True        # True = show detailed frequency and file information
+                                           # False = quiet mode (recommended for batch processing)
+
+# Force plot generation even when no candidates (debug mode)
+FORCE_PLOTS: bool = False                  # True = always generate plots for inspection
+
+# =============================================================================
+# CANDIDATE FILTERING CONFIGURATION
+# =============================================================================
+
+# Only save and display candidates classified as BURST
+SAVE_ONLY_BURST: bool = True             # True = keep only BURST candidates, False = keep all candidates
+

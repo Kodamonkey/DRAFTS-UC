@@ -1,4 +1,6 @@
-"""Gestor del flujo de datos: chunks, slices y planificación del procesamiento."""
+# This module manages chunk-level data flow operations.
+
+"""Manage chunks, slices, and scheduling of the processing workflow."""
 from __future__ import annotations
 
 import logging
@@ -19,21 +21,12 @@ from .pipeline_parameters import (
     calculate_width_total,
 )
 
-# Setup logger
+              
 logger = logging.getLogger(__name__)
 
 
 def downsample_chunk(block: np.ndarray) -> tuple[np.ndarray, float]:
-    """Aplica downsampling temporal (suma) y frecuencial (promedio) al chunk completo.
-
-    Args:
-        block: Bloque de datos original
-        
-    Returns:
-        tuple[np.ndarray, float]: (block_ds, dt_ds)
-            - block_ds: bloque decimado (tiempo, freq)
-            - dt_ds: resolución temporal efectiva (s)
-    """
+    """Apply temporal and frequency downsampling to the full chunk."""
     from ..preprocessing.data_downsampler import downsample_data
     block_ds = downsample_data(block)
     dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
@@ -41,41 +34,21 @@ def downsample_chunk(block: np.ndarray) -> tuple[np.ndarray, float]:
 
 
 def build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max: float) -> np.ndarray:
-    """Construye el cubo DM–tiempo para el bloque decimado completo.
-    
-    Args:
-        block_ds: Bloque decimado
-        height: Altura del cubo DM
-        dm_min: DM mínimo
-        dm_max: DM máximo
-        
-    Returns:
-        np.ndarray: Cubo DM-tiempo
-    """
+    """Build the DM–time cube for the decimated block."""
     width = block_ds.shape[0]
     from ..preprocessing.dedispersion import d_dm_time_g
     return d_dm_time_g(block_ds, height=height, width=width, dm_min=dm_min, dm_max=dm_max)
 
 
 def trim_valid_window(
-    block_ds: np.ndarray, 
-    dm_time_full: np.ndarray, 
-    overlap_left_ds: int, 
+    block_ds: np.ndarray,
+    dm_time_full: np.ndarray,
+    overlap_left_ds: int,
     overlap_right_ds: int
 ) -> tuple[np.ndarray, np.ndarray, int, int]:
-    """Extrae la ventana válida del bloque, eliminando bordes contaminados por solapamiento.
-    
-    Args:
-        block_ds: Bloque decimado
-        dm_time_full: Cubo DM-tiempo completo
-        overlap_left_ds: Solapamiento izquierdo decimado
-        overlap_right_ds: Solapamiento derecho decimado
-        
-    Returns:
-        tuple[np.ndarray, np.ndarray, int, int]: (block_valid, dm_time, valid_start_ds, valid_end_ds)
-    """
+    """Extract the valid window, discarding overlap-contaminated edges."""
     valid_start_ds = max(0, overlap_left_ds)
-    # Conservar el lado derecho completo para continuidad
+                                                         
     valid_end_ds = block_ds.shape[0]
     if valid_end_ds <= valid_start_ds:
         valid_start_ds, valid_end_ds = 0, block_ds.shape[0]
@@ -86,16 +59,7 @@ def trim_valid_window(
 
 
 def plan_slices(block_valid: np.ndarray, slice_len: int, chunk_idx: int) -> list[tuple[int, int, int]]:
-    """Genera (j, start_idx, end_idx) por slice para el bloque válido.
-    
-    Args:
-        block_valid: Bloque válido (sin bordes contaminados)
-        slice_len: Longitud de cada slice
-        chunk_idx: Índice del chunk
-        
-    Returns:
-        list[tuple[int, int, int]]: Lista de tuplas (slice_idx, start_idx, end_idx)
-    """
+    """Return slice boundaries for the valid portion of the block."""
     if getattr(config, 'USE_PLANNED_CHUNKING', False):
         time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
         plan = plan_slices_for_chunk(
@@ -120,35 +84,23 @@ def plan_slices(block_valid: np.ndarray, slice_len: int, chunk_idx: int) -> list
 
 
 def validate_slice_indices(
-    start_idx: int, 
-    end_idx: int, 
-    block_shape: int, 
-    slice_len: int, 
-    j: int, 
+    start_idx: int,
+    end_idx: int,
+    block_shape: int,
+    slice_len: int,
+    j: int,
     chunk_idx: int
 ) -> tuple[bool, int, int, str]:
-    """Valida y ajusta los índices de un slice si es necesario.
-    
-    Args:
-        start_idx: Índice de inicio del slice
-        end_idx: Índice de fin del slice
-        block_shape: Tamaño del bloque
-        slice_len: Longitud esperada del slice
-        j: Índice del slice
-        chunk_idx: Índice del chunk
-        
-    Returns:
-        tuple[bool, int, int, str]: (es_valido, start_idx_ajustado, end_idx_ajustado, razon)
-    """
-    # Verificar que no excedemos los límites del bloque
+    """Validate and adjust slice indices if needed."""
+                                                       
     if start_idx >= block_shape:
         return False, start_idx, end_idx, "Slice fuera de límites - no hay datos que procesar"
     
     if end_idx > block_shape:
-        # Ajustar el índice de fin al tamaño del bloque
+                                                       
         end_idx_ajustado = block_shape
         
-        # Si el slice es muy pequeño después del ajuste, saltarlo
+                                                                 
         if end_idx_ajustado - start_idx < slice_len // 2:
             return False, start_idx, end_idx_ajustado, "Slice demasiado pequeño para procesamiento efectivo"
         
@@ -158,20 +110,11 @@ def validate_slice_indices(
 
 
 def create_chunk_directories(
-    save_dir: Path, 
-    fits_path: Path, 
+    save_dir: Path,
+    fits_path: Path,
     chunk_idx: int
 ) -> tuple[Path, Path, Path]:
-    """Crea las carpetas necesarias para un chunk específico.
-    
-    Args:
-        save_dir: Directorio base de guardado
-        fits_path: Path del archivo FITS
-        chunk_idx: Índice del chunk
-        
-    Returns:
-        tuple[Path, Path, Path]: (composite_dir, detections_dir, patches_dir)
-    """
+    """Return the directories used to store results for a given chunk."""
     file_folder_name = fits_path.stem
     chunk_folder_name = f"chunk{chunk_idx:03d}"
     
@@ -183,22 +126,16 @@ def create_chunk_directories(
 
 
 def get_chunk_processing_parameters(metadata: dict) -> dict:
-    """Obtiene todos los parámetros necesarios para procesar un chunk.
-    
-    Args:
-        metadata: Metadatos del chunk
-        
-    Returns:
-        dict: Parámetros del chunk
-    """
-    # Calcular parámetros básicos
+    """Return derived parameters required to process a chunk."""
+                                 
+    chunk_samples = int(metadata.get("actual_chunk_size", config.FILE_LENG))
     freq_down = calculate_frequency_downsampled()
     height = calculate_dm_height()
-    width_total = calculate_width_total()
+    width_total = calculate_width_total(chunk_samples)
     slice_len, real_duration_ms = calculate_slice_parameters()
     time_slice = calculate_time_slice(width_total, slice_len)
     
-    # Calcular solapamiento decimado
+                                    
     _ol_raw = int(metadata.get("overlap_left", 0))
     _or_raw = int(metadata.get("overlap_right", 0))
     overlap_left_ds, overlap_right_ds = calculate_overlap_decimated(_ol_raw, _or_raw)

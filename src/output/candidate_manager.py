@@ -1,23 +1,25 @@
+# This module handles candidate persistence and CSV output.
+
 """Candidate management for FRB pipeline - handles CSV output and candidate serialization."""
 from __future__ import annotations
 
-# Standard library imports
+                          
 import csv
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
 
-# Setup logger
+              
 logger = logging.getLogger(__name__)
 
-# CSV header for candidate output
+                                 
 CANDIDATE_HEADER = [
     "file",
-    "chunk_id",  # ID del chunk
-    "slice_id",  # Más claro que "slice"
-    "band_id",   # Más claro que "band"
-    "detection_prob",  # Más claro que "prob"
+    "chunk_id",                
+    "slice_id",                         
+    "band_id",                         
+    "detection_prob",                        
     "dm_pc_cm-3",
     "t_sec",
     "t_sample",
@@ -26,6 +28,7 @@ CANDIDATE_HEADER = [
     "x2",
     "y2",
     "snr",
+    "width_ms",
     "class_prob",
     "is_burst",
     "patch_file",
@@ -57,7 +60,7 @@ def append_candidate(csv_path: Path, candidate_row: list) -> None:
 class Candidate:
     """Data structure for detected FRB candidates."""
     file: str
-    chunk_id: int  # ID del chunk donde se encontró el candidato
+    chunk_id: int                                               
     slice_id: int
     band_id: int
     prob: float
@@ -69,12 +72,13 @@ class Candidate:
     class_prob: float | None = None
     is_burst: bool | None = None
     patch_file: str | None = None
+    width_ms: float | None = None
 
     def to_row(self) -> List:
         """Convert candidate to CSV row format."""
         row = [
             self.file,
-            self.chunk_id,  # Incluir chunk_id en CSV
+            self.chunk_id,                           
             self.slice_id,
             self.band_id,
             f"{self.prob:.3f}",
@@ -84,6 +88,10 @@ class Candidate:
             *self.box,
             f"{self.snr:.2f}",
         ]
+        if self.width_ms is not None:
+            row.append(f"{self.width_ms:.3f}")
+        else:
+            row.append("")
         if self.class_prob is not None:
             row.append(f"{self.class_prob:.3f}")
         if self.is_burst is not None:

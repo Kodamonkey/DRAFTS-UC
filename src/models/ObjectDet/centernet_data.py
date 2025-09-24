@@ -1,9 +1,11 @@
+# This module prepares data for CenterNet object detection.
+
 import os, cv2, torch
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 from torchvision import transforms
-# import albumentations as A
+                            
 
 
 input_size  = 512
@@ -32,7 +34,7 @@ if False:
 
     def gaussian2D(shape, sx, theta):
 
-        ## 短轴是长轴的一半
+                   
         sy = sx / 2
         a  =   np.cos(theta)**2  / (2 * sx**2) + np.sin(theta)**2  / (2 * sy**2)
         b  = - np.sin(theta * 2) / (4 * sx**2) + np.sin(theta * 2) / (4 * sy**2)
@@ -76,7 +78,7 @@ if False:
 
 
 if True:
-    # 中心点变热力图
+             
     def draw_gaussian(heatmap, center, w_radius, h_radius):
 
         sigma    = np.clip(w_radius * h_radius // 2000, 2, 4)
@@ -112,11 +114,11 @@ def make_data(target):
     reg      = np.zeros([2, output_shape, output_shape])
     reg_mask = np.zeros([1, output_shape, output_shape])
 
-    ## 如果没有目标，那么target应该是小于0的
+                             
     if len(target) == 1 and target[0, 0] < 0:
         return np.vstack((hm, wh, reg, reg_mask))
 
-    ## 如果有目标，计算高斯，w和h在开始已经乘2
+                            
     for i in range(len(target)):
 
         x, y, w, h  = target[i]
@@ -165,10 +167,10 @@ class BurstDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
 
-        img, target = self.load_img(idx) # 读取数据
+        img, target = self.load_img(idx)       
         img = self.normalize(img)
-        img = img.transpose([2, 0, 1]) # RGB转到第一个通道
-        targ_gt = make_data(target) # 构建目标数据
+        img = img.transpose([2, 0, 1])             
+        targ_gt = make_data(target)         
 
         return img, targ_gt
 
@@ -199,7 +201,7 @@ class BurstDataset(torch.utils.data.Dataset):
         frb_path = self.img_id[idx].split('__')[0] + '.npy'
         freq_sli = int(self.img_id[idx].split('__')[1].split('.npy')[0])
 
-        ## 读取数据和box，x时间，y色散
+                           
         img  = np.load(os.path.join(data_path, frb_path))[freq_sli]
         img      = (img - np.min(img)) / (np.max(img) - np.min(img))
         img      = (img - np.mean(img)) / np.std(img)
@@ -212,7 +214,7 @@ class BurstDataset(torch.utils.data.Dataset):
 
         img                  = np.mean(img.reshape(512, 2, 2048, 4), axis=(1, 3))
         img                  = cv2.resize(img, (input_size, input_size))
-        ## 如果没有目标，那么target就会是-1/16或者-1/2
+                                        
         target[:, [0, 2]]   /= 16
         target[:, [1, 3]]   /= 2
 
@@ -220,26 +222,26 @@ class BurstDataset(torch.utils.data.Dataset):
 
     def random_clip(self, img, target):
 
-        ## 随机裁剪，计算图像中所有目标框的坐标最小与最大值
+                                   
         time_min, time_max   = np.min(target[:, 0] - target[:, 2] / 2), np.max(target[:, 0] + target[:,     2] / 2)
         dm_min, dm_max       = np.min(target[:, 1] - target[:, 3] / 2), np.max(target[:, 1] + target[:,     3] / 2)
-        ## 随机选取图像边缘到目标之间的区间
+                           
         time_start, time_end = np.random.randint(0, int(time_min)), np.random.randint(int(time_max), 8192)
         dm_start, dm_end     = np.random.randint(0, int(dm_min)), np.random.randint(int(dm_max), 1024)
         img                  = img[dm_start: dm_end, time_start: time_end]
-        ## 由于坐标0点变化导致目标框的转变
+                           
         target[:, 0]        -= time_start
         target[:, 1]        -= dm_start
-        ## 根据剩余数据的长宽计算下采样率
+                          
         down_time_rate       = int(np.ceil((time_end - time_start) / 2048))
         down_dm_rate         = int(np.ceil((dm_end - dm_start) / 512))
-        ## 下采样
+              
         img                  = img[:img.shape[0] - img.shape[0] % down_dm_rate, :img.shape[1] - img.shape   [1] % down_time_rate]
         img                  = np.mean(img.reshape(
             img.shape[0] // down_dm_rate, down_dm_rate,
             img.shape[1] // down_time_rate, down_time_rate
         ), axis=(1, 3))
-        ## 只需要考虑下采样率
+                    
         target[:, [0, 2]]   /= (down_time_rate * (img.shape[1] / input_size))
         target[:, [1, 3]]   /= (down_dm_rate   * (img.shape[0] / input_size))
         img                  = cv2.resize(img, (input_size, input_size))
@@ -312,6 +314,6 @@ class BurstDataset(torch.utils.data.Dataset):
         img = (img - np.min(img)) / (np.max(img) - np.min(img))
         img = plt.get_cmap('mako')(img)
         img = img[..., :3]
-        # img = (img * 255).astype(np.uint8)
+                                            
 
         return img

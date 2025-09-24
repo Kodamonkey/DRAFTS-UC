@@ -1,19 +1,21 @@
+# This module plans slice layouts for each chunk.
+
 """Chunk planner for FRB pipeline - plans optimal chunk and slice sizes."""
 from __future__ import annotations
 
-# Standard library imports
+                          
 import logging
 from dataclasses import dataclass
 from typing import Dict, List
 
-# Setup logger
+              
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class SlicePlan:
     start_idx: int
-    end_idx: int  # exclusivo
+    end_idx: int             
     length: int
     duration_ms: float
 
@@ -49,7 +51,7 @@ def plan_slices_for_chunk(
     if time_reso_decimated_s <= 0:
         raise ValueError("time_reso_decimated_s debe ser > 0")
     if target_duration_ms <= 0:
-        # fallback: 1 slice
+                           
         target_duration_ms = num_samples_decimated * time_reso_decimated_s * 1000
 
     target_samples_float = (target_duration_ms / 1000.0) / time_reso_decimated_s
@@ -57,7 +59,7 @@ def plan_slices_for_chunk(
         target_samples_float = 1.0
 
     n_slices = max(1, min(max_slice_count, int(round(num_samples_decimated / target_samples_float))))
-    n_slices = min(n_slices, num_samples_decimated)  # no más slices que muestras
+    n_slices = min(n_slices, num_samples_decimated)                              
 
     base = num_samples_decimated // n_slices
     r = num_samples_decimated % n_slices
@@ -67,16 +69,16 @@ def plan_slices_for_chunk(
         length = base + (1 if i < r else 0)
         lengths.append(max(1, length))
 
-    # Construir planes contiguos
+                                
     slices: List[SlicePlan] = []
     s0 = 0
     for length in lengths:
-        s1 = s0 + length  # exclusivo
+        s1 = s0 + length             
         duration_ms = length * time_reso_decimated_s * 1000.0
         slices.append(SlicePlan(start_idx=s0, end_idx=s1, length=length, duration_ms=duration_ms))
         s0 = s1
 
-    # Validaciones de contigüidad y cobertura
+                                             
     assert slices[0].start_idx == 0
     assert slices[-1].end_idx == num_samples_decimated
     for a, b in zip(slices, slices[1:]):

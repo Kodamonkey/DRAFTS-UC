@@ -1,74 +1,73 @@
+# This module provides signal-to-noise ratio analysis helpers.
+
 """Utilities for SNR calculation and analysis in FRB detection."""
 from __future__ import annotations
 
-# Standard library imports
+                          
 from typing import List, Optional, Tuple
 
-# Third-party imports
+                     
 import numpy as np
 
-# Nota: este módulo no requiere configuración global del pipeline
+                                                                 
 
 
 def compute_snr_profile(
-    waterfall: np.ndarray, 
+    waterfall: np.ndarray,
     off_regions: Optional[List[Tuple[int, int]]] = None
-) -> Tuple[np.ndarray, float]:
-    """
-    Calculate SNR profile from a waterfall array.
-    
-    Parameters
-    ----------
-    waterfall : np.ndarray
-        2D array with shape (n_time, n_freq)
-    off_regions : List[Tuple[int, int]], optional
-        List of (start, end) bin ranges to use for noise estimation.
-        If None, uses IQR method over the entire profile.
-    
+) -> Tuple[np.ndarray, float, np.ndarray]:
+    """Compute a unified PRESTO-style SNR profile from a 2D waterfall.
+
+    Pipeline:
+    - Integrate over frequency to obtain a time series
+    - Detrend/normalize in blocks (RMS≈1) with the 1.148 correction
+    - Apply matched filtering with boxcars normalized by ``√width``
+    - Return the per-sample maximum SNR and effective sigma≈1.0
+
+    The ``off_regions`` parameter is kept for compatibility but is unused because
+    block normalization already stabilizes the RMS.
+
     Returns
     -------
     snr : np.ndarray
-        1D SNR profile with shape (n_time,)
+        1D SNR profile (maximum over widths) with shape ``(n_time,)``
     sigma : float
-        Estimated noise standard deviation
+        Effective noise standard deviation (≈1.0 after normalization)
+    best_width : np.ndarray
+        Boxcar width (in samples) that maximizes the SNR at each sample
     """
-    # Verificación básica para arrays válidos
     if waterfall is None or waterfall.size == 0:
         raise ValueError("waterfall is None or empty in compute_snr_profile")
-    if waterfall.ndim < 2:
-        raise ValueError(f"waterfall must be 2D, got {waterfall.ndim}D array")
-    
-    # Integrate over frequency axis
-    profile = np.mean(waterfall, axis=1)
-    
-    if off_regions is None:
-        # Use IQR method for robust noise estimation
-        sigma = estimate_sigma_iqr(profile)
-        mean_level = np.median(profile)
-    else:
-        # Use specified off-pulse regions
-        off_data = []
-        for start, end in off_regions:
-            # Handle negative indices and bounds
-            start_idx = max(0, start if start >= 0 else len(profile) + start)
-            end_idx = min(len(profile), end if end >= 0 else len(profile) + end)
-            if start_idx < end_idx:
-                off_data.extend(profile[start_idx:end_idx])
-        
-        if off_data:
-            off_data = np.array(off_data)
-            sigma = np.std(off_data, ddof=1)
-            mean_level = np.mean(off_data)
-        else:
-            # Fallback to IQR if no valid off regions
-            sigma = estimate_sigma_iqr(profile)
-            mean_level = np.median(profile)
-    
-    # Calculate SNR
-    snr = (profile - mean_level) / (sigma + 1e-10)  # Add small epsilon to avoid division by zero
-    
-    return snr, sigma
+    if waterfall.ndim != 2:
+        raise ValueError("waterfall must be 2D (time, freq)")
 
+    # 1) Integrate in frequency → time series
+    timeseries = np.mean(waterfall, axis=1).astype(np.float32)
+
+    # 2) Detrend/normalization by blocks (RMS≈1)
+    ts = _detrend_normalize_by_blocks(timeseries, block_len=1000, fast=True)
+
+    # 3) Matched filtering with PRESTO width set (trimmed to 30 by default)
+    widths = [1, 2, 3, 4, 6, 9, 14, 20, 30]
+    n = ts.shape[0]
+    # Evitar broadcasting: limitar anchos a la longitud disponible
+    widths = [w for w in widths if 1 <= w <= n]
+    if not widths:
+        widths = [1]
+    snr_max = np.full(n, -np.inf, dtype=np.float32)
+    best_width = np.zeros(n, dtype=np.int32)
+    for w in widths:
+        if w <= 0:
+            continue
+        kernel = np.ones(w, dtype=np.float32) / np.sqrt(float(w))
+        conv = np.convolve(ts, kernel, mode="same").astype(np.float32)
+        mask = conv > snr_max
+        snr_max[mask] = conv[mask]
+        best_width[mask] = w
+
+    snr_max = np.nan_to_num(snr_max, nan=-np.inf,
+                            posinf=np.max(snr_max[np.isfinite(snr_max)]) if np.isfinite(snr_max).any() else 0.0)
+    return snr_max, 1.0, best_width
 
 def estimate_sigma_iqr(data: np.ndarray) -> float:
     """
@@ -88,7 +87,7 @@ def estimate_sigma_iqr(data: np.ndarray) -> float:
     """
     q25, q75 = np.percentile(data, [25, 75])
     iqr = q75 - q25
-    # For Gaussian distribution: sigma ≈ IQR / 1.349
+                                                    
     return iqr / 1.349
 
 
@@ -140,64 +139,131 @@ def _detrend_normalize_timeseries(timeseries: np.ndarray) -> np.ndarray:
         sigma = float(np.std(ts))
     else:
         sigma = float(np.sqrt((central.astype(np.float64) ** 2.0).sum() / (0.95 * n)))
-        sigma *= 1.148  # corrección por recorte 5%
+        sigma *= 1.148                             
     if sigma <= 0:
         sigma = 1.0
     return ts / sigma
 
+def _detrend_normalize_by_blocks(timeseries: np.ndarray, block_len: int = 1000, fast: bool = True) -> np.ndarray:
+    """Detrend y normaliza por bloques al estilo PRESTO, devolviendo RMS≈1.
 
+    - Divide the series into blocks of length ~block_len (last block may be smaller)
+    - For each block: remove trend (median if fast=True), estimate robust σ
+      with ~5% clipping and apply 1.148 correction; normalize block by σ
+    - Optionally, suppress anomalous blocks (σ out of range) by setting them to 0
+    """
+    t = timeseries.astype(np.float32, copy=False)
+    n = t.shape[0]
+    if n == 0:
+        return t
+    blen = max(32, min(block_len, n))
+    out = np.empty_like(t)
+
+    # Estimate σ per block robustly
+    block_sigmas: list[float] = []
+    blocks: list[tuple[int, int]] = []
+    for start in range(0, n, blen):
+        end = min(n, start + blen)
+        block = t[start:end].copy()
+        if fast:
+            # Median removal (PRESTO 'fast' mode)
+            med = float(np.median(block))
+            block -= med
+            work = block.copy()
+        else:
+            # Approximate linear detrend (fallback)
+            x = np.linspace(0.0, 1.0, block.shape[0], dtype=np.float32)
+            p = np.polyfit(x, block.astype(np.float64), deg=1)
+            trend = (p[0] * x + p[1]).astype(np.float32)
+            block = block - trend
+            work = block.copy()
+
+        # Robust σ by central clipping (~95%) and 1.148 correction
+        work.sort()
+        m = work.shape[0]
+        lo = m // 40
+        hi = m - lo
+        central = work[lo:hi]
+        if central.size == 0:
+            sigma = float(np.std(work))
+        else:
+            sigma = float(np.sqrt((central.astype(np.float64) ** 2.0).sum() / (0.95 * m)))
+            sigma *= 1.148
+        if sigma <= 0 or not np.isfinite(sigma):
+            sigma = 1.0
+        block /= sigma
+        out[start:end] = block
+        block_sigmas.append(sigma)
+        blocks.append((start, end))
+
+    # Identify anomalous blocks and suppress them (similar to bad blocks filtering)
+    sigmas_arr = np.asarray(block_sigmas, dtype=np.float32)
+    if sigmas_arr.size >= 3:
+        med = float(np.median(sigmas_arr))
+        sdev = float(np.std(sigmas_arr))
+        lo_th = med - 4.0 * sdev
+        hi_th = med + 4.0 * sdev
+        for (start, end), s in zip(blocks, sigmas_arr):
+            if s < lo_th or s > hi_th:
+                out[start:end] = 0.0
+
+    return out
+  
 def compute_presto_matched_snr(
     waterfall: np.ndarray,
     dt_seconds: float,
     max_downfact: int = 30,
     widths: Optional[List[int]] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Compute SNR profile emulando PRESTO (matched filtering con boxcars).
+    """Compute SNR profile emulating PRESTO (matched filtering with boxcars).
 
     Args:
-        waterfall: matriz 2D (n_time, n_freq)
-        dt_seconds: resolución temporal (s) por muestra
-        max_downfact: downfact máximo (bins) a usar
-        widths: lista de anchos de boxcar; si None, usa set por defecto PRESTO
+        waterfall: 2D matrix (n_time, n_freq)
+        dt_seconds: temporal resolution (s) per sample
+        max_downfact: maximum downfact (bins) to use
+        widths: list of boxcar widths; if None, uses default PRESTO set
 
     Returns:
-        snr_max: perfil SNR máximo por muestra
-        best_width: ancho de boxcar que maximiza SNR en cada muestra
+        snr_max: maximum SNR profile per sample
+        best_width: boxcar width that maximizes SNR at each sample
     """
     if waterfall is None or waterfall.size == 0:
-        raise ValueError("waterfall vacío en compute_presto_matched_snr")
+        raise ValueError("empty waterfall in compute_presto_matched_snr")
 
-    # Integrar en frecuencia → serie temporal
+                                             
     if waterfall.ndim != 2:
-        raise ValueError("waterfall debe ser 2D (tiempo, freq)")
+        raise ValueError("waterfall must be 2D (time, freq)")
     timeseries = np.mean(waterfall, axis=1).astype(np.float32)
 
-    # Detrend + normalización aproximando PRESTO
+                                                
     ts = _detrend_normalize_timeseries(timeseries)
 
-    # Conjunto de anchos por defecto (subset de PRESTO)
+                                                        
+                                                                                        
+                                                                                        
+                                                                                   
     if widths is None:
-        widths = [1, 2, 3, 4, 6, 9, 14, 20, 30]
+        widths = [2, 3, 4, 6, 9, 14, 20, 30, 45, 70, 100, 150, 220, 300]
     widths = [w for w in widths if w <= max_downfact and w >= 1]
     n = ts.shape[0]
     snr_max = np.full(n, -np.inf, dtype=np.float32)
     best_width = np.zeros(n, dtype=np.int32)
 
-    # Convolución con kernel normalizado por sqrt(width)
+                                                        
     for w in widths:
         kernel = np.ones(w, dtype=np.float32) / np.sqrt(float(w))
         conv = np.convolve(ts, kernel, mode="same").astype(np.float32)
-        # actualizar máximo y ancho
+                                   
         mask = conv > snr_max
         snr_max[mask] = conv[mask]
         best_width[mask] = w
 
-    # Asegurar finitos
+                      
     snr_max = np.nan_to_num(snr_max, nan=-np.inf, posinf=np.max(snr_max[np.isfinite(snr_max)]) if np.isfinite(snr_max).any() else 0.0)
     return snr_max, best_width
 
 
-## Nota: se eliminaron utilidades de regiones off-pulse no utilizadas por el pipeline
+                                                                                     
 
 
 def inject_synthetic_frb(
@@ -234,12 +300,12 @@ def inject_synthetic_frb(
     waterfall_with_pulse = waterfall.copy()
     n_time, n_freq = waterfall.shape
     
-    # Create 2D Gaussian pulse
+                              
     t_indices = np.arange(n_time)
     f_indices = np.arange(n_freq)
     t_grid, f_grid = np.meshgrid(t_indices, f_indices, indexing='ij')
     
-    # Gaussian profile in time and frequency
+                                            
     pulse = amplitude * np.exp(
         -0.5 * ((t_grid - peak_time_idx) / width_time) ** 2
         -0.5 * ((f_grid - peak_freq_idx) / width_freq) ** 2
@@ -271,11 +337,11 @@ def compute_detection_significance(
     float
         Significance level (number of sigma)
     """
-    # Bonferroni correction for multiple testing
+                                                
     effective_trials = n_samples * n_trials
     
-    # For Gaussian statistics, convert to significance
-    # This is a simplified calculation
+                                                      
+                                      
     significance = snr_peak - np.sqrt(2 * np.log(effective_trials))
     
     return max(0, significance)

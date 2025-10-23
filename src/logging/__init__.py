@@ -1,3 +1,5 @@
+# This module collects logging utilities for the pipeline.
+
 """
 Paquete de Logging para DRAFTS
 =============================
@@ -49,10 +51,6 @@ from .pipeline_logging import (
     log_streaming_parameters,
     log_block_processing,
     log_processing_summary,
-    log_file_detection,
-    log_fits_detected,
-    log_fil_detected,
-    log_unsupported_file_type,
     log_pipeline_file_processing,
     log_pipeline_file_completion
 )
@@ -88,10 +86,6 @@ __all__ = [
     'log_streaming_parameters',
     'log_block_processing',
     'log_processing_summary',
-    'log_file_detection',
-    'log_fits_detected',
-    'log_fil_detected',
-    'log_unsupported_file_type',
     'log_pipeline_file_processing',
     'log_pipeline_file_completion'
-] 
+]

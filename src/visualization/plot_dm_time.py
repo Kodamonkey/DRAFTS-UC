@@ -1,21 +1,23 @@
+# This module plots dispersion measure versus time.
+
 """DM-Time plot generation module for FRB pipeline - identical to the detection panel in composite plot."""
 from __future__ import annotations
 
-# Standard library imports
+                          
 import logging
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
-# Third-party imports
+                     
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Local imports
+               
 from ..config import config
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
 from .visualization_ranges import get_dynamic_dm_range_for_candidate
 
-# Setup logger
+              
 logger = logging.getLogger(__name__)
 
 
@@ -77,12 +79,12 @@ def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
         axis=1,
     )
     
-    if band_idx == 0:  # Full Band
+    if band_idx == 0:             
         return freq_ds.min(), freq_ds.max()
-    elif band_idx == 1:  # Low Band 
+    elif band_idx == 1:             
         mid_channel = len(freq_ds) // 2
         return freq_ds.min(), freq_ds[mid_channel]
-    elif band_idx == 2:  # High Band
+    elif band_idx == 2:             
         mid_channel = len(freq_ds) // 2  
         return freq_ds[mid_channel], freq_ds.max()
     else:
@@ -115,10 +117,10 @@ def create_dm_time_plot(
 ) -> plt.Figure:
     """Create DM-Time plot identical to the detection panel in composite plot."""
     
-    # Get band frequency range for display
+                                          
     band_name_with_freq = get_band_name_with_freq_range(band_idx, band_name)
     
-    # Calculate absolute time ranges
+                                    
     if absolute_start_time is not None:
         slice_start_abs = absolute_start_time
     else:
@@ -127,17 +129,17 @@ def create_dm_time_plot(
     real_samples = slice_samples if slice_samples is not None else slice_len
     slice_end_abs = slice_start_abs + real_samples * config.TIME_RESO * config.DOWN_TIME_RATE
 
-    # Create figure
+                   
     fig = plt.figure(figsize=(14, 8))
     ax_det = fig.add_subplot(111)
     
-    # Create detection panel - IDÉNTICO al composite
+                                                    
     ax_det.imshow(img_rgb, origin="lower", aspect="auto")
     ax_det.set_title("Detection Results", fontsize=10, fontweight="bold")
     ax_det.set_xlabel("Time (s)", fontsize=9)
     ax_det.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=9)
 
-    # Set time axis labels for detection panel - IDÉNTICO al composite
+                                                                      
     n_time_ticks_det = 8
     time_positions_det = np.linspace(0, img_rgb.shape[1] - 1, n_time_ticks_det)
     n_px = img_rgb.shape[1]
@@ -147,7 +149,7 @@ def create_dm_time_plot(
     ax_det.set_xticklabels([f"{t:.6f}" for t in time_values_det])
     ax_det.set_xlabel("Time (s)", fontsize=10, fontweight="bold")
 
-    # Set DM axis labels with dynamic range - IDÉNTICO al composite
+                                                                   
     n_dm_ticks = 8
     dm_positions = np.linspace(0, img_rgb.shape[0] - 1, n_dm_ticks)
     dm_plot_min, dm_plot_max = _calculate_dynamic_dm_range(
@@ -163,7 +165,7 @@ def create_dm_time_plot(
     ax_det.set_yticklabels([f"{dm:.0f}" for dm in dm_values])
     ax_det.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=10, fontweight="bold")
 
-    # Add bounding boxes with detection information - IDÉNTICO al composite
+                                                                           
     if top_boxes is not None:
         for idx, (conf, box) in enumerate(zip(top_conf, top_boxes)):
             x1, y1, x2, y2 = map(int, box)
@@ -172,7 +174,7 @@ def create_dm_time_plot(
             effective_len_det = slice_samples if slice_samples is not None else slice_len
             dm_val_cand, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, effective_len_det)
             
-            # Calculate absolute detection time - IDÉNTICO al composite
+                                                                       
             if candidate_times_abs is not None and idx < len(candidate_times_abs):
                 detection_time = float(candidate_times_abs[idx])
             else:
@@ -181,7 +183,7 @@ def create_dm_time_plot(
                 else:
                     detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
             
-            # Determine classification probabilities - IDÉNTICO al composite
+                                                                            
             if class_probs is not None and idx < len(class_probs):
                 class_prob = class_probs[idx]
                 is_burst = class_prob >= config.CLASS_PROB
@@ -200,7 +202,7 @@ def create_dm_time_plot(
                 color = "lime"
                 label = f"#{idx+1}\nDM: {dm_val_cand:.1f}\nTime: {detection_time:.3f}s\nDet: {conf:.2f}"
             
-            # Draw rectangle and label - IDÉNTICO al composite
+                                                              
             rect = plt.Rectangle(
                 (x1, y1), x2 - x1, y2 - y1, 
                 linewidth=2, edgecolor=color, facecolor="none"
@@ -218,7 +220,7 @@ def create_dm_time_plot(
                 arrowprops=dict(arrowstyle="->", color=color, lw=1.5),
             )
     
-    # Set detection panel title - IDÉNTICO al composite
+                                                       
     dm_range_info = f"{dm_plot_min:.0f}\u2013{dm_plot_max:.0f}"
     if getattr(config, 'DM_DYNAMIC_RANGE_ENABLE', True) and top_boxes is not None and len(top_boxes) > 0:
         dm_range_info += " (auto)"
@@ -233,7 +235,7 @@ def create_dm_time_plot(
     )
     ax_det.set_title(title_det, fontsize=11, fontweight="bold")
 
-    # Set main title - IDÉNTICO al composite
+                                            
     idx_start_ds = int(round(slice_start_abs / (config.TIME_RESO * config.DOWN_TIME_RATE)))
     idx_end_ds = idx_start_ds + real_samples - 1
     start_center = slice_start_abs
@@ -254,7 +256,7 @@ def create_dm_time_plot(
 
     fig.suptitle(title, fontsize=14, fontweight="bold", y=0.97)
     
-    # Add temporal information - IDÉNTICO al composite
+                                                      
     try:
         dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
         global_start_sample = int(round(slice_start_abs / dt_ds))
@@ -300,7 +302,7 @@ def save_dm_time_plot(
 ) -> None:
     """Save DM-Time plot by creating the figure and saving it to file."""
     
-    # Create the DM-Time figure
+                               
     fig = create_dm_time_plot(
         img_rgb=img_rgb,
         top_conf=top_conf,
@@ -319,10 +321,10 @@ def save_dm_time_plot(
         candidate_times_abs=candidate_times_abs,
     )
     
-    # Ensure output directory exists
+                                    
     out_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Save the figure
+                     
     plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close(fig)
 

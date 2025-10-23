@@ -1,15 +1,17 @@
+# This module manages pipeline summary metadata.
+
 """Summary manager for FRB pipeline - handles logging, statistics, and progress tracking."""
-# Standard library imports
+                          
 import json
 import logging
 import time
 from datetime import datetime
 from pathlib import Path
 
-# Local imports
+               
 from ..config import config
 
-# Setup logger
+              
 logger = logging.getLogger(__name__)
 
 def _write_summary_with_timestamp(summary: dict, save_path: Path, preserve_history: bool = True) -> None:
@@ -28,17 +30,17 @@ def _write_summary_with_timestamp(summary: dict, save_path: Path, preserve_histo
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     if preserve_history:
-        # Crear summary con timestamp
+                                     
         timestamped_path = save_path / f"summary_{timestamp}.json"
         with timestamped_path.open("w") as f_json:
             json.dump(summary, f_json, indent=2)
         logger.info("Resumen con timestamp escrito en %s", timestamped_path)
         
-        # Actualizar summary maestro con historial
+                                                  
         master_summary_path = save_path / "summary_master.json"
         master_summary = _load_or_create_master_summary(master_summary_path)
         
-        # Agregar esta ejecución al historial
+                                             
         execution_record = {
             "timestamp": timestamp,
             "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -55,11 +57,11 @@ def _write_summary_with_timestamp(summary: dict, save_path: Path, preserve_histo
         
         master_summary["execution_history"].append(execution_record)
         
-        # Mantener solo las últimas 10 ejecuciones para evitar archivos muy grandes
+                                                                                   
         if len(master_summary["execution_history"]) > 10:
             master_summary["execution_history"] = master_summary["execution_history"][-10:]
         
-        # Actualizar estadísticas globales acumuladas
+                                                     
         if "cumulative_stats" not in master_summary:
             master_summary["cumulative_stats"] = {
                 "total_executions": 0,
@@ -75,19 +77,19 @@ def _write_summary_with_timestamp(summary: dict, save_path: Path, preserve_histo
         master_summary["cumulative_stats"]["total_bursts_detected"] += execution_record["total_bursts"]
         master_summary["cumulative_stats"]["total_processing_time"] += execution_record["total_processing_time"]
         
-        # Escribir summary maestro
+                                  
         with master_summary_path.open("w") as f_json:
             json.dump(master_summary, f_json, indent=2)
         logger.info("Summary maestro actualizado en %s", master_summary_path)
         
-        # También escribir el summary actual (sin timestamp) para compatibilidad
+                                                                                
         current_summary_path = save_path / "summary.json"
         with current_summary_path.open("w") as f_json:
             json.dump(summary, f_json, indent=2)
         logger.info("Summary actual escrito en %s", current_summary_path)
         
     else:
-        # Modo simple: solo escribir con timestamp
+                                                  
         timestamped_path = save_path / f"summary_{timestamp}.json"
         with timestamped_path.open("w") as f_json:
             json.dump(summary, f_json, indent=2)
@@ -102,7 +104,7 @@ def _load_or_create_summary(save_path: Path) -> dict:
         try:
             with summary_path.open("r") as f:
                 summary = json.load(f)
-            # Ensure required keys exist
+                                        
             if "files_processed" not in summary:
                 summary["files_processed"] = {}
             if "pipeline_info" not in summary:
@@ -118,7 +120,7 @@ def _load_or_create_summary(save_path: Path) -> dict:
         except (json.JSONDecodeError, FileNotFoundError):
             logger.warning(f"Error leyendo {summary_path}, creando nuevo summary")
 
-    # Crear nuevo summary con estructura inicial
+                                                
     return {
         "pipeline_info": {
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -147,7 +149,7 @@ def _load_or_create_master_summary(master_path: Path) -> dict:
         except (json.JSONDecodeError, FileNotFoundError):
             logger.warning(f"Error leyendo {master_path}, creando nuevo master summary")
     
-    # Crear nuevo master summary
+                                
     return {
         "created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "execution_history": [],

@@ -1,19 +1,22 @@
+# This module orchestrates the end-to-end FRB processing pipeline.
+
 from __future__ import annotations
 
-# Standard library imports
+                          
 import gc
 import logging
 import shutil
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
-# Third-party imports
+                     
 import numpy as np
 
-# Optional third-party imports
+                              
 try:
     import torch
-except ImportError:  
+except ImportError:
     torch = None
 
 try:
@@ -21,7 +24,7 @@ try:
 except ImportError:
     plt = None
 
-# Local imports
+               
 from ..config import config
 from .detection_engine import process_slice_with_multiple_bands
 from .data_flow_manager import (
@@ -33,27 +36,59 @@ from .data_flow_manager import (
     trim_valid_window,
     validate_slice_indices,
 )
-from .pipeline_parameters import calculate_absolute_slice_time
-from ..input.data_loader import stream_fil, stream_fits
+from .pipeline_parameters import calculate_absolute_slice_time, calculate_frequency_downsampled
 from ..input.parameter_extractor import extract_parameters_auto
 from ..input.streaming_orchestrator import get_streaming_function
+from .high_freq_pipeline import _process_file_chunked_high_freq
 from ..input.file_finder import find_data_files
 from ..logging import (
     log_block_processing,
-    log_fil_detected,
-    log_fits_detected,
     log_pipeline_file_completion,
     log_pipeline_file_processing,
     log_processing_summary,
     log_streaming_parameters,
-    log_unsupported_file_type
 )
 from ..output.candidate_manager import ensure_csv_header
 from ..output.summary_manager import _update_summary_with_results, _write_summary_with_timestamp
-from ..preprocessing.dedispersion import d_dm_time_g
 
-# Setup logger
+              
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DetectionStats:
+    """Accumulate detection metrics for a chunk or file."""
+
+    n_candidates: int = 0
+    n_bursts: int = 0
+    n_no_bursts: int = 0
+    max_prob: float = 0.0
+    snr_values: list[float] = field(default_factory=list)
+
+    def update(self, candidates: int, bursts: int, no_bursts: int, prob_max: float) -> None:
+        """Update counters with the result of a slice or chunk."""
+
+        self.n_candidates += candidates
+        self.n_bursts += bursts
+        self.n_no_bursts += no_bursts
+        self.max_prob = max(self.max_prob, float(prob_max))
+
+    def merge(self, other: "DetectionStats") -> None:
+        """Merge metrics coming from another :class:`DetectionStats` instance."""
+
+        self.update(other.n_candidates, other.n_bursts, other.n_no_bursts, other.max_prob)
+        if other.snr_values:
+            self.snr_values.extend(other.snr_values)
+
+    def mean_snr(self) -> float:
+        return float(np.mean(self.snr_values)) if self.snr_values else 0.0
+
+    def effective_counts(self, save_only_burst: bool) -> tuple[int, int, int]:
+        """Return counts respecting the SAVE_ONLY_BURST flag."""
+
+        if save_only_burst:
+            return self.n_bursts, self.n_bursts, 0
+        return self.n_candidates, self.n_bursts, self.n_no_bursts
 
 def _trace_info(message: str, *args) -> None:
     try:
@@ -64,32 +99,32 @@ def _trace_info(message: str, *args) -> None:
         logger.info(message, *args)
 
 def _optimize_memory(aggressive: bool = False) -> None:
-    """Optimiza el uso de memoria del sistema.
-    
+    """Release cached resources to keep the pipeline within memory limits.
+
     Args:
-        aggressive: Si True, realiza limpieza más agresiva
+        aggressive: When ``True`` also clear GPU caches and pause briefly.
     """
-    # Limpieza básica de Python
+
     gc.collect()
-    
-    # Limpieza de matplotlib para evitar acumulación de figuras
+
+
     if plt is not None:
-        plt.close('all')  # Cerrar todas las figuras de matplotlib
+        plt.close('all')                                          
     
-    # Limpieza de CUDA si está disponible
+                                         
     if torch is not None and torch.cuda.is_available():
         torch.cuda.empty_cache()
         
         if aggressive:
-            # Limpieza más agresiva de CUDA
+                                           
             torch.cuda.synchronize()
             torch.cuda.reset_peak_memory_stats()
     
-    # Pausa breve para permitir liberación de memoria
+                                                     
     if aggressive:
-        time.sleep(0.05)  # 50ms para limpieza agresiva
+        time.sleep(0.05)                               
     else:
-        time.sleep(0.01)  # 10ms para limpieza normal
+        time.sleep(0.01)                             
 
 
 def _load_detection_model() -> torch.nn.Module:
@@ -99,7 +134,7 @@ def _load_detection_model() -> torch.nn.Module:
 
     from ..models.ObjectDet.centernet_model import centernet
     model = centernet(model_name=config.MODEL_NAME).to(config.DEVICE)
-    state = torch.load(config.MODEL_PATH, map_location=config.DEVICE)
+    state = torch.load(config.MODEL_PATH, map_location=config.DEVICE, weights_only=True)
     model.load_state_dict(state)
     model.eval()
     return model
@@ -111,292 +146,258 @@ def _load_class_model() -> torch.nn.Module:
 
     from ..models.BinaryClass.binary_model import BinaryNet
     model = BinaryNet(config.CLASS_MODEL_NAME, num_classes=2).to(config.DEVICE)
-    state = torch.load(config.CLASS_MODEL_PATH, map_location=config.DEVICE)
+    state = torch.load(config.CLASS_MODEL_PATH, map_location=config.DEVICE, weights_only=True)
     model.load_state_dict(state)
     model.eval()
     return model
 
 def _process_block(
-    det_model: torch.nn.Module, # Modelo de detección
-    cls_model: torch.nn.Module, # Modelo de clasificación
-    block: np.ndarray, # Bloque de datos
-    metadata: dict, # Metadatos del bloque
-    fits_path: Path, # Path del archivo FITS
-    save_dir: Path, # Path de guardado
-    chunk_idx: int, # Índice del chunk
-    csv_file: Path,  # CSV file por archivo
-) -> dict: 
-    """Procesa un bloque de datos y retorna estadísticas del bloque."""
-    
-    original_file_leng = config.FILE_LENG # Tamaño original del archivo
-    
-    config.FILE_LENG = metadata["actual_chunk_size"] # Tamaño del chunk
-    
-    chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO # Tiempo de inicio del chunk
-    chunk_duration_sec = metadata["actual_chunk_size"] * config.TIME_RESO # Duración del chunk
-    
-    # =============================================================================
-    # LOGGING INFORMATIVO DETALLADO DEL CHUNK
-    # =============================================================================
+    det_model: torch.nn.Module,
+    cls_model: torch.nn.Module,
+    block: np.ndarray,
+    metadata: dict,
+    fits_path: Path,
+    save_dir: Path,
+    chunk_idx: int,
+    csv_file: Path,
+) -> DetectionStats:
+    """Process a data block and return aggregated detection statistics."""
+
+    chunk_samples = int(metadata.get("actual_chunk_size", block.shape[0]))
+    total_samples = int(metadata.get("total_samples", 0)) or chunk_samples
+    start_sample = int(metadata.get("start_sample", 0))
+    end_sample = int(metadata.get("end_sample", start_sample + chunk_samples))
+
+    chunk_start_time_sec = start_sample * config.TIME_RESO
+    chunk_duration_sec = chunk_samples * config.TIME_RESO
+
     logger.info(
-        f"INICIANDO CHUNK {chunk_idx:03d}:\n"
-        f"   • Muestras en chunk: {metadata['actual_chunk_size']:,} / {metadata['total_samples']:,} totales\n"
-        f"   • Rango de muestras: [{metadata['start_sample']:,} → {metadata['end_sample']:,}]\n"
-        f"   • Tiempo absoluto: {chunk_start_time_sec:.3f}s → {chunk_start_time_sec + chunk_duration_sec:.3f}s\n"
-        f"   • Duración del chunk: {chunk_duration_sec:.2f}s\n"
-        f"   • Progreso del archivo: {(metadata['start_sample'] / metadata['total_samples']) * 100:.1f}%"
+        "Chunk %03d • samples=%s/%s • range=[%s→%s] • time=%.2fs-%.2fs (%.2fs) • progress=%.1f%%",
+        chunk_idx,
+        f"{chunk_samples:,}",
+        f"{total_samples:,}",
+        f"{start_sample:,}",
+        f"{end_sample:,}",
+        chunk_start_time_sec,
+        chunk_start_time_sec + chunk_duration_sec,
+        chunk_duration_sec,
+        (start_sample / max(total_samples, 1)) * 100,
     )
-    
-    logger.info(f"Chunk {chunk_idx:03d}: Tiempo {chunk_start_time_sec:.2f}s - {chunk_start_time_sec + chunk_duration_sec:.2f}s "
-               f"(duración: {chunk_duration_sec:.2f}s)")
-    
-    try:
-        # Aplicar downsampling al bloque
-        block, dt_ds = downsample_chunk(block)
 
-        dt_raw = config.TIME_RESO
-        _trace_info(
-            "[TRACE] Chunk %03d: tsamp=%.9fs DOWN_TIME_RATE=%dx Δt=%.9fs start_sample_raw=%d end_sample_raw=%d",
-            chunk_idx, dt_raw, int(config.DOWN_TIME_RATE), dt_ds,
-            metadata.get("start_sample", -1), metadata.get("end_sample", -1)
-        )
-        
-        # Obtener parámetros del chunk usando el nuevo módulo centralizado
-        chunk_params = get_chunk_processing_parameters(metadata)
-        freq_down = chunk_params['freq_down']
-        height = chunk_params['height']
-        width_total = chunk_params['width_total']
-        slice_len = chunk_params['slice_len']
-        real_duration_ms = chunk_params['real_duration_ms']
-        time_slice = chunk_params['time_slice']
-        overlap_left_ds = chunk_params['overlap_left_ds']
-        overlap_right_ds = chunk_params['overlap_right_ds']
-        
-        # TRACE: mostrar cómo se mapean los solapes
-        logger.info(
-            "[TRACE] Overlap raw→ds: left=%d→%d (R=%d) right=%d→%d",
-            int(metadata.get("overlap_left", 0)), overlap_left_ds, int(config.DOWN_TIME_RATE), 
-            int(metadata.get("overlap_right", 0)), overlap_right_ds
-        ) # Número de slices por chunk
-        
-        logger.info(f"Chunk {chunk_idx:03d}: {metadata['actual_chunk_size']} muestras → {time_slice} slices")
-        
-        # Generar DM-time cube del bloque decimado completo
-        dm_time_full = build_dm_time_cube(block, height=height, dm_min=config.DM_min, dm_max=config.DM_max)
+    block, dt_ds = downsample_chunk(block)
 
-        # Extraer ventana válida (sin bordes inválidos) usando los solapes decimados
-        block, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(
-            block, dm_time_full, overlap_left_ds, overlap_right_ds
-        )
+    _trace_info(
+        "[TRACE] Chunk %03d: tsamp=%.9fs DOWN_TIME_RATE=%dx Δt=%.9fs start_sample_raw=%d end_sample_raw=%d",
+        chunk_idx,
+        config.TIME_RESO,
+        int(config.DOWN_TIME_RATE),
+        dt_ds,
+        metadata.get("start_sample", -1),
+        metadata.get("end_sample", -1),
+    )
 
-        _trace_info(
-            "[TRACE] Chunk %03d: valid_start_ds=%d valid_end_ds=%d (N_valid=%d)",
-            chunk_idx, valid_start_ds, valid_end_ds, (valid_end_ds - valid_start_ds)
-        )
-        
-        # Configurar bandas
-        band_configs = config.get_band_configs() # Configuración de bandas (fullband, lowband, highband)
-        
-        # Procesar slices
-        cand_counter = 0 # Contador de candidatos
-        n_bursts = 0 # Contador de candidatos de tipo burst
-        n_no_bursts = 0 # Contador de candidatos de tipo no burst
-        prob_max = 0.0 # Probabilidad máxima de detección
-        snr_list = [] # Lista de SNRs de los candidatos
-        
-        # Plan de slices por chunk con contigüidad y ajuste divisor
-        slices_to_process = plan_slices(block, slice_len, chunk_idx)
+    chunk_params = get_chunk_processing_parameters(metadata)
+    freq_down = chunk_params['freq_down']
+    height = chunk_params['height']
+    slice_len = chunk_params['slice_len']
+    time_slice = chunk_params['time_slice']
+    overlap_left_ds = chunk_params['overlap_left_ds']
+    overlap_right_ds = chunk_params['overlap_right_ds']
 
-        for j, start_idx, end_idx in slices_to_process: # Procesar cada slice
-            # Mensaje de progreso cada 10 slices o en el primer slice
-            if j % 10 == 0 or j == 0:
-                try:
-                    from ..logging.logging_config import get_global_logger
-                    global_logger = get_global_logger()
-                    global_logger.slice_progress(j, time_slice, chunk_idx)
-                except ImportError:
-                    pass
-            
-            # Validar índices del slice usando el nuevo módulo
-            
-            es_valido, start_idx_ajustado, end_idx_ajustado, razon = validate_slice_indices(
-                start_idx, end_idx, block.shape[0], slice_len, j, chunk_idx
-            )
-            
-            if not es_valido:
-                logger.warning(f"SALTANDO SLICE {j} (chunk {chunk_idx}): {razon}")
-                continue
-            
-            # Usar índices ajustados si fue necesario
-            start_idx, end_idx = start_idx_ajustado, end_idx_ajustado
-            
-            # Información del slice para logging
-            dt_ds_local = config.TIME_RESO * config.DOWN_TIME_RATE
-            slice_abs_start_preview = chunk_start_time_sec + (start_idx * dt_ds_local)
-            slice_info = {
-                'slice_idx': j,
-                'slice_len': slice_len,
-                'start_idx': start_idx,
-                'end_idx_calculado': end_idx,
-                'block_shape': block.shape[0],
-                'chunk_idx': chunk_idx,
-                'tiempo_absoluto_inicio': slice_abs_start_preview,
-                'duracion_slice_esperada_ms': slice_len * config.TIME_RESO * config.DOWN_TIME_RATE * 1000
-            }
-            
-            slice_cube = dm_time[:, :, start_idx : end_idx] # Cubo DM-time para este slice
-            waterfall_block = block[start_idx : end_idx] # Bloque de datos para este slice
+    logger.debug(
+        "Overlap raw→ds • left=%d→%d (rate=%d) • right=%d→%d",
+        int(metadata.get("overlap_left", 0)),
+        overlap_left_ds,
+        int(config.DOWN_TIME_RATE),
+        int(metadata.get("overlap_right", 0)),
+        overlap_right_ds,
+    )
 
-            # Log informativo del slice que se va a procesar
-            slice_tiempo_real_ms = (end_idx - start_idx) * config.TIME_RESO * config.DOWN_TIME_RATE * 1000
-            logger.info(
-                f"PROCESANDO SLICE {j} (chunk {chunk_idx}):\n"
-                f"   • Rango de muestras: [{start_idx} → {end_idx}] ({end_idx - start_idx} muestras)\n"
-                f"   • Tiempo absoluto: {slice_info['tiempo_absoluto_inicio']:.3f}s\n"
-                f"   • Duración real: {slice_tiempo_real_ms:.1f}ms\n"
-                f"   • Shape del slice: {slice_cube.shape}\n"
-                f"   • Datos del waterfall: {waterfall_block.shape}"
-            )
+    dm_time_full = build_dm_time_cube(block, height=height, dm_min=config.DM_min, dm_max=config.DM_max)
+    block, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(
+        block, dm_time_full, overlap_left_ds, overlap_right_ds
+    )
 
-            if slice_cube.size == 0 or waterfall_block.size == 0: # Si el cubo o el bloque están vacíos
-                logger.warning(
-                    f"SALTANDO SLICE {j} (chunk {chunk_idx}) - DATOS VACÍOS:\n"
-                    f"   • slice_cube.size: {slice_cube.size}\n"
-                    f"   • waterfall_block.size: {waterfall_block.size}\n"
-                    f"   • Rango de muestras: [{start_idx} → {end_idx}]\n"
-                    f"   • Tiempo absoluto: {slice_info['tiempo_absoluto_inicio']:.3f}s\n"
-                    f"   • Razón: No hay datos útiles para procesar"
-                )
-                continue
+    _trace_info(
+        "[TRACE] Chunk %03d: valid_start_ds=%d valid_end_ds=%d (N_valid=%d)",
+        chunk_idx,
+        valid_start_ds,
+        valid_end_ds,
+        (valid_end_ds - valid_start_ds),
+    )
 
-            # Calcular tiempo absoluto para este slice específico
-            # Importante: tras recorte izquierdo, el índice 0 de 'block' corresponde a chunk_start_time_sec
-            slice_start_time_sec = calculate_absolute_slice_time(
-                chunk_start_time_sec, start_idx, dt_ds
-            )
+    band_configs = config.get_band_configs()
+    chunk_stats = DetectionStats()
+    snr_list = chunk_stats.snr_values
+    slices_to_process = plan_slices(block, slice_len, chunk_idx)
 
-            _trace_info(
-                "[TRACE] Slice %03d (chunk %03d): start_idx=%d end_idx=%d N=%d | abs_start=%.9fs abs_end=%.9fs Δt=%.9fs",
-                j, chunk_idx, start_idx, end_idx, (end_idx - start_idx),
-                slice_start_time_sec,
-                slice_start_time_sec + (end_idx - start_idx) * dt_ds,
-                dt_ds,
-            )
+    logger.info(
+        "Chunk %03d • planned slices=%d (slice_len=%d)",
+        chunk_idx,
+        len(slices_to_process),
+        slice_len,
+    )
 
-            # Crear directorios del chunk usando el nuevo módulo
-            composite_dir, detections_dir, patches_dir = create_chunk_directories(
-                save_dir, fits_path, chunk_idx
-            )
-
-            # Pass chunked paths to process_slice_with_multiple_bands (these will be used in plot_manager)
-            cands, bursts, no_bursts, max_prob = process_slice_with_multiple_bands( # Procesar el slice
-                j, dm_time, block, slice_len, det_model, cls_model, fits_path, save_dir,
-                freq_down, csv_file, config.TIME_RESO * config.DOWN_TIME_RATE, band_configs,
-                snr_list, config, 
-                absolute_start_time=slice_start_time_sec,
-                composite_dir=composite_dir,
-                detections_dir=detections_dir,
-                patches_dir=patches_dir,
-                chunk_idx=chunk_idx,
-                force_plots=config.FORCE_PLOTS,
-                slice_start_idx=start_idx,
-                slice_end_idx=end_idx,
-            )
-
-            cand_counter += cands
-            n_bursts += bursts
-            n_no_bursts += no_bursts
-            prob_max = max(prob_max, max_prob)
-            
-            # Evitar log duplicado: el resumen de slice se registra dentro de detection_engine.process_slice
-
-            # LIMPIEZA DE MEMORIA DESPUÉS DE CADA SLICE
-            if j % 10 == 0:  # Cada 10 slices
-                _optimize_memory(aggressive=False)
-            else:
-                # Limpieza básica después de cada slice
-                if plt is not None:
-                    plt.close('all')
-                gc.collect()
-
-        # Mensaje de resumen del chunk
-        try:
-            from ..logging.logging_config import get_global_logger
-            global_logger = get_global_logger()
-            global_logger.chunk_completed(chunk_idx, cand_counter, n_bursts, n_no_bursts)
-        except ImportError:
-            pass
-        
-        # =============================================================================
-        # REORGANIZACIÓN DE CHUNKS CON FRBs (solo cuando SAVE_ONLY_BURST = False)
-        # =============================================================================
-        # Solo reorganizar chunks cuando SAVE_ONLY_BURST = False
-        # Si SAVE_ONLY_BURST = True, todos los candidatos guardados son BURST por definición
-        if not config.SAVE_ONLY_BURST and n_bursts > 0:
-            # Definir nombres de carpetas para la reorganización
-            file_folder_name = fits_path.stem
-            chunk_folder_name = f"chunk{chunk_idx:03d}"
+    for j, start_idx, end_idx in slices_to_process:
+        if j % 10 == 0 or j == 0:
             try:
-                # Crear la carpeta ChunksWithFRBs si no existe
-                chunks_with_frbs_dir = save_dir / "Composite" / file_folder_name / "ChunksWithFRBs"
-                chunks_with_frbs_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Verificar si la carpeta del chunk existe y contiene plots
-                chunk_dir = save_dir / "Composite" / file_folder_name / chunk_folder_name
-                if chunk_dir.exists():
-                    # Verificar si hay al menos un plot en la carpeta
-                    png_files = list(chunk_dir.glob("*.png"))
-                    if png_files:
-                        # Mover la carpeta completa del chunk a ChunksWithFRBs
-                        destination_dir = chunks_with_frbs_dir / chunk_folder_name
-                        
-                        # Si la carpeta de destino ya existe, eliminarla primero
-                        if destination_dir.exists():
-                            shutil.rmtree(destination_dir)
-                        
-                        # Mover la carpeta
-                        shutil.move(str(chunk_dir), str(destination_dir))
-                        
-                        logger.info(f"Chunk {chunk_idx:03d} movido a ChunksWithFRBs "
-                                  f"(contiene {n_bursts} candidatos BURST)")
-                        
+                from ..logging.logging_config import get_global_logger
 
-                    else:
-                        logger.warning(f"Chunk {chunk_idx:03d} tiene {n_bursts} BURST pero no contiene plots, "
-                                     f"no se moverá a ChunksWithFRBs")
-                else:
-                    logger.warning(f"Carpeta del chunk {chunk_idx:03d} no existe, no se puede mover")
-                    
-            except Exception as e:
-                logger.error(f"Error moviendo chunk {chunk_idx:03d} a ChunksWithFRBs: {e}")
-        elif config.SAVE_ONLY_BURST and n_bursts > 0:
-            # Cuando SAVE_ONLY_BURST = True, todos los candidatos guardados son BURST
-            logger.info(f"Chunk {chunk_idx:03d} contiene {n_bursts} candidatos BURST "
-                       f"(SAVE_ONLY_BURST=True, no se reorganiza - todos los chunks con candidatos son chunks con FRBs)")
-        
-        # FILTRADO: Si SAVE_ONLY_BURST está activado, solo contar candidatos BURST para estadísticas
-        if config.SAVE_ONLY_BURST:
-            effective_cand_counter = n_bursts
-            effective_n_bursts = n_bursts
-            effective_n_no_bursts = 0  # No contar NO BURST cuando solo se guardan BURST
-        else:
-            # Comportamiento normal: contar todos los candidatos
-            effective_cand_counter = cand_counter
-            effective_n_bursts = n_bursts
-            effective_n_no_bursts = n_no_bursts
-        
-        return {
-            "n_candidates": effective_cand_counter,
-            "n_bursts": effective_n_bursts,
-            "n_no_bursts": effective_n_no_bursts,
-            "max_prob": prob_max,
-            "mean_snr": float(np.mean(snr_list)) if snr_list else 0.0,
-            "time_slice": time_slice,
+                global_logger = get_global_logger()
+                global_logger.slice_progress(j, time_slice, chunk_idx)
+            except ImportError:
+                pass
+
+        es_valido, start_idx_ajustado, end_idx_ajustado, razon = validate_slice_indices(
+            start_idx, end_idx, block.shape[0], slice_len, j, chunk_idx
+        )
+
+        if not es_valido:
+            logger.warning("Skipping slice %d (chunk %d): %s", j, chunk_idx, razon)
+            continue
+
+        start_idx, end_idx = start_idx_ajustado, end_idx_ajustado
+
+        dt_ds_local = config.TIME_RESO * config.DOWN_TIME_RATE
+        slice_abs_start_preview = chunk_start_time_sec + (start_idx * dt_ds_local)
+        slice_info = {
+            'slice_idx': j,
+            'slice_len': slice_len,
+            'start_idx': start_idx,
+            'end_idx_calculado': end_idx,
+            'block_shape': block.shape[0],
+            'chunk_idx': chunk_idx,
+            'tiempo_absoluto_inicio': slice_abs_start_preview,
+            'duracion_slice_esperada_ms': slice_len * config.TIME_RESO * config.DOWN_TIME_RATE * 1000,
         }
-        
-    finally:
-        # Restaurar configuración original
-        config.FILE_LENG = original_file_leng
+
+        slice_cube = dm_time[:, :, start_idx:end_idx]
+        waterfall_block = block[start_idx:end_idx]
+
+        slice_tiempo_real_ms = (end_idx - start_idx) * config.TIME_RESO * config.DOWN_TIME_RATE * 1000
+        logger.debug(
+            "Slice %03d (chunk %03d) • samples=%d • abs=%.3fs • duration=%.1f ms • cube=%s • waterfall=%s",
+            j,
+            chunk_idx,
+            end_idx - start_idx,
+            slice_info['tiempo_absoluto_inicio'],
+            slice_tiempo_real_ms,
+            slice_cube.shape,
+            waterfall_block.shape,
+        )
+
+        if slice_cube.size == 0 or waterfall_block.size == 0:
+            logger.warning(
+                "Skipping slice %d (chunk %d) because the data window is empty: cube=%d waterfall=%d",
+                j,
+                chunk_idx,
+                slice_cube.size,
+                waterfall_block.size,
+            )
+            continue
+
+        slice_start_time_sec = calculate_absolute_slice_time(
+            chunk_start_time_sec, start_idx, dt_ds
+        )
+
+        _trace_info(
+            "[TRACE] Slice %03d (chunk %03d): start_idx=%d end_idx=%d N=%d | abs_start=%.9fs abs_end=%.9fs Δt=%.9fs",
+            j,
+            chunk_idx,
+            start_idx,
+            end_idx,
+            (end_idx - start_idx),
+            slice_start_time_sec,
+            slice_start_time_sec + (end_idx - start_idx) * dt_ds,
+            dt_ds,
+        )
+
+        composite_dir, detections_dir, patches_dir = create_chunk_directories(
+            save_dir, fits_path, chunk_idx
+        )
+
+        cands, bursts, no_bursts, max_prob = process_slice_with_multiple_bands(
+            j,
+            dm_time,
+            block,
+            slice_len,
+            det_model,
+            cls_model,
+            fits_path,
+            save_dir,
+            freq_down,
+            csv_file,
+            config.TIME_RESO * config.DOWN_TIME_RATE,
+            band_configs,
+            snr_list,
+            config,
+            absolute_start_time=slice_start_time_sec,
+            composite_dir=composite_dir,
+            detections_dir=detections_dir,
+            patches_dir=patches_dir,
+            chunk_idx=chunk_idx,
+            force_plots=config.FORCE_PLOTS,
+            slice_start_idx=start_idx,
+            slice_end_idx=end_idx,
+        )
+
+        chunk_stats.update(cands, bursts, no_bursts, max_prob)
+
+        if j % 10 == 0:
+            _optimize_memory(aggressive=False)
+        else:
+            if plt is not None:
+                plt.close('all')
+            gc.collect()
+
+    try:
+        from ..logging.logging_config import get_global_logger
+
+        global_logger = get_global_logger()
+        global_logger.chunk_completed(
+            chunk_idx, chunk_stats.n_candidates, chunk_stats.n_bursts, chunk_stats.n_no_bursts
+        )
+    except ImportError:
+        pass
+
+    if not config.SAVE_ONLY_BURST and chunk_stats.n_bursts > 0:
+        file_folder_name = fits_path.stem
+        chunk_folder_name = f"chunk{chunk_idx:03d}"
+        try:
+            chunks_with_frbs_dir = save_dir / "Composite" / file_folder_name / "ChunksWithFRBs"
+            chunks_with_frbs_dir.mkdir(parents=True, exist_ok=True)
+
+            chunk_dir = save_dir / "Composite" / file_folder_name / chunk_folder_name
+            if chunk_dir.exists():
+                png_files = list(chunk_dir.glob("*.png"))
+                if png_files:
+                    destination_dir = chunks_with_frbs_dir / chunk_folder_name
+                    if destination_dir.exists():
+                        shutil.rmtree(destination_dir)
+                    shutil.move(str(chunk_dir), str(destination_dir))
+                    logger.info(
+                        "Chunk %03d moved to ChunksWithFRBs (contains %d burst candidates)",
+                        chunk_idx,
+                        chunk_stats.n_bursts,
+                    )
+                else:
+                    logger.warning(
+                        "Chunk %03d has %d burst candidates but no plots were produced, leaving in place",
+                        chunk_idx,
+                        chunk_stats.n_bursts,
+                    )
+            else:
+                logger.warning("Chunk directory %s is missing; cannot move chunk %03d", chunk_dir, chunk_idx)
+        except Exception as e:
+            logger.error("Failed to move chunk %03d to ChunksWithFRBs: %s", chunk_idx, e)
+    elif config.SAVE_ONLY_BURST and chunk_stats.n_bursts > 0:
+        logger.info(
+            "Chunk %03d contains %d burst candidates (SAVE_ONLY_BURST=True, no reorganisation)",
+            chunk_idx,
+            chunk_stats.n_bursts,
+        )
+
+    return chunk_stats
 
 
 def _process_file_chunked(
@@ -406,152 +407,182 @@ def _process_file_chunked(
     save_dir: Path,
     chunk_samples: int,
 ) -> dict:
-    """Procesa un archivo en bloques usando stream_fil o stream_fits."""
+    """Process a file in streaming chunks using ``stream_fil`` or ``stream_fits``."""
     
-    # CALCULAR INFORMACIÓN DEL ARCHIVO DE MANERA EFICIENTE
-    logger.info(f"Analizando estructura del archivo: {fits_path.name}")
+                                                          
+    logger.info("Inspecting file structure: %s", fits_path.name)
     
-    # Calcular información basada en config.FILE_LENG (ya cargado por get_obparams_fil)
-    total_samples = config.FILE_LENG # Longitud total del archivo 
+                                                                                       
+    total_samples = config.FILE_LENG                              
     
-    # DETECTAR ARCHIVOS PEQUEÑOS Y AJUSTAR CHUNKING
+    if chunk_samples <= 0:
+        raise ValueError("chunk_samples must be greater than zero")
+
+
     if total_samples <= chunk_samples:
-        logger.info(f"Archivo pequeño detectado ({total_samples:,} muestras), "
-                    f"procesando en un solo chunk optimizado")
-        # Para archivos pequeños, usar el tamaño completo como chunk
+        logger.info(
+            "Small file detected (%s samples); running in a single optimised chunk",
+            f"{total_samples:,}",
+        )
+                                                                    
         effective_chunk_samples = total_samples
         chunk_count = 1
-        logger.info(f"   • Ajuste automático: chunk_samples = {effective_chunk_samples:,} (archivo completo)")
+        logger.info(
+            "Using single chunk optimisation • chunk_samples=%s (entire file)",
+            f"{effective_chunk_samples:,}",
+        )
     else:
         effective_chunk_samples = chunk_samples
-        chunk_count = (total_samples + chunk_samples - 1) // chunk_samples  # Redondear hacia arriba
-        logger.info(f"   • Usando chunking estándar: {chunk_count} chunks")
+        chunk_count = (total_samples + chunk_samples - 1) // chunk_samples
+        logger.info("Standard chunking • estimated chunks=%d", chunk_count)
+
+    total_duration_sec = total_samples * config.TIME_RESO
+    chunk_duration_sec = effective_chunk_samples * config.TIME_RESO
+
+    logger.info(
+        "File summary • chunks=%d • samples=%s • duration=%.2fs (%.1f min) • chunk_size=%s (%.2fs)",
+        chunk_count,
+        f"{total_samples:,}",
+        total_duration_sec,
+        total_duration_sec / 60,
+        f"{effective_chunk_samples:,}",
+        chunk_duration_sec,
+    )
+    logger.info("Starting streaming processing...")
     
-    total_duration_sec = total_samples * config.TIME_RESO # Duración total del archivo (en segundos)
-    chunk_duration_sec = effective_chunk_samples * config.TIME_RESO # Duración de cada chunk (en segundos)
+    csv_file = save_dir / f"{fits_path.stem}.candidates.csv"                       
+    ensure_csv_header(csv_file)                                               
     
-    logger.info(f"RESUMEN DEL ARCHIVO:")
-    logger.info(f"   Total de chunks estimado: {chunk_count}")
-    logger.info(f"   Muestras totales: {total_samples:,}")
-    logger.info(f"   Duración total: {total_duration_sec:.2f} segundos ({total_duration_sec/60:.1f} minutos)")
-    logger.info(f"   Tamaño de chunk efectivo: {effective_chunk_samples:,} muestras ({chunk_duration_sec:.2f}s)")
-    if total_samples <= chunk_samples: 
-        logger.info(f"   Modo optimizado: archivo pequeño procesado en un solo chunk")
-    else:
-        logger.info(f"   Modo chunking estándar: múltiples chunks")
-    logger.info(f"   Iniciando procesamiento...")
-    
-    csv_file = save_dir / f"{fits_path.stem}.candidates.csv" # CSV file por archivo
-    ensure_csv_header(csv_file) # Asegurar que el header del CSV esté presente
-    
-    t_start = time.time() # Tiempo de inicio del procesamiento 
-    cand_counter_total = 0 # Contador de candidatos totales
-    n_bursts_total = 0 # Contador de candidatos de tipo burst
-    n_no_bursts_total = 0 # Contador de candidatos de tipo no burst
-    prob_max_total = 0.0 # Probabilidad máxima de detección
-    snr_list_total = [] # Lista de SNRs de los candidatos
-    actual_chunk_count = 0 # Contador de chunks procesados
+    t_start = time.time()                                     
+    actual_chunk_count = 0                                
+    file_stats = DetectionStats()
     
     try:
         if total_samples <= 0:
-            raise ValueError(f"Archivo inválido: {total_samples} muestras")
-        if total_samples > 1_000_000_000:  # 1B muestras = ~1TB
-            logger.warning(f"Archivo muy grande detectado ({total_samples:,} muestras), "
-                          f"puede requerir mucho tiempo de procesamiento")
+            raise ValueError(f"Invalid file length: {total_samples} samples")
+        if total_samples > 1_000_000_000:                      
+            logger.warning(
+                "Large file detected (%s samples); processing may take longer",
+                f"{total_samples:,}",
+            )
         
-        # Calcular Δt_max para determinar solapamiento en bruto
-        freq_ds = np.mean(
-            config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
-            axis=1,
-        )
-        nu_min = float(freq_ds.min()) # Frecuencia mínima
-        nu_max = float(freq_ds.max()) # Frecuencia máxima
-        # Usamos constante para frecuencias en MHz: Δt_sec = 4.1488e3 * DM * (ν_min^-2 − ν_max^-2)
-        dt_max_sec = 4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2) # Tiempo máximo de solapamiento (en segundos)
-        overlap_raw = int(np.ceil(dt_max_sec / config.TIME_RESO)) # Tiempo de solapamiento (en muestras)
+                                                               
+        try:
+            freq_ds = calculate_frequency_downsampled()
+        except ValueError as exc:
+            logger.warning(
+                "Failed to compute frequency downsampling (%s); using original axis.",
+                exc,
+            )
+            if config.FREQ is None or len(config.FREQ) == 0:
+                raise
+            freq_ds = config.FREQ
+        nu_min = float(freq_ds.min())
+        nu_max = float(freq_ds.max())
+        dt_max_sec = 4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)
 
-        # Obtener función de streaming apropiada para el tipo de archivo
+        if config.TIME_RESO <= 0:
+            logger.warning(
+                "Invalid TIME_RESO (%s); using default overlap window",
+                config.TIME_RESO,
+            )
+            overlap_raw = 1024
+        else:
+            overlap_raw = max(0, int(np.ceil(dt_max_sec / config.TIME_RESO)))
+
+                                                                        
         streaming_func, file_type = get_streaming_function(fits_path) 
-        logger.info(f"DETECTADO: Archivo {file_type.upper()} - {fits_path.name}")
-        logger.info(f"Usando streaming {file_type.upper()}: {streaming_func.__name__}")
+        logger.info(
+            "Detected %s file • using streaming reader %s",
+            file_type.upper(),
+            streaming_func.__name__,
+        )
         
         log_streaming_parameters(effective_chunk_samples, overlap_raw, total_samples, chunk_samples, streaming_func, file_type)
         
+        # Switch to the high-frequency pipeline when the configuration allows it
+        try:
+            freq_ds_local = np.mean(
+                config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
+                axis=1,
+            )
+            center_mhz = float(np.median(freq_ds_local))
+            exceeds_threshold = center_mhz >= float(getattr(config, 'HIGH_FREQ_THRESHOLD_MHZ', 8000.0))
+        except Exception:
+            exceeds_threshold = False
+
+        auto_high_freq_enabled = bool(getattr(config, 'AUTO_HIGH_FREQ_PIPELINE', True))
+
+        if auto_high_freq_enabled and exceeds_threshold:
+            logger.info(
+                "Switching to high-frequency pipeline (SNR-based detection)")
+            logger.info(
+                "Reason: centre frequency %.1f MHz ≥ threshold %.1f MHz",
+                center_mhz,
+                float(getattr(config, 'HIGH_FREQ_THRESHOLD_MHZ', 8000.0)),
+            )
+            return _process_file_chunked_high_freq(
+                cls_model=cls_model,
+                fits_path=fits_path,
+                save_dir=save_dir,
+                chunk_samples=effective_chunk_samples,
+                streaming_func=streaming_func,
+            )
+
         # Procesar cada bloque con solapamiento
         for block, metadata in streaming_func(str(fits_path), effective_chunk_samples, overlap_samples=overlap_raw):
-            actual_chunk_count += 1 # Incrementar el contador de chunks procesados
+            actual_chunk_count += 1                                               
             
             log_block_processing(actual_chunk_count, block.shape, str(block.dtype), metadata)
             
-            logger.info(f"Procesando chunk {metadata['chunk_idx']:03d} " # Log del chunk actual
-                       f"({metadata['start_sample']:,} - {metadata['end_sample']:,})") # Log del rango de muestras del chunk
+            logger.info(
+                "Processing chunk %03d • samples %s→%s",
+                metadata['chunk_idx'],
+                f"{metadata['start_sample']:,}",
+                f"{metadata['end_sample']:,}",
+            )
             
-            # Procesar bloque con manejo de errores robusto
+                                                           
             try:
-                block_results = _process_block(  
-                    det_model, cls_model, block, metadata, # Modelos de detección y clasificación
-                    fits_path, save_dir, metadata['chunk_idx'], csv_file 
-                ) 
-                
-                # Acumular resultados
-                cand_counter_total += block_results["n_candidates"] # Acumular el número de candidatos
-                n_bursts_total += block_results["n_bursts"] # Acumular el número de candidatos de tipo burst
-                n_no_bursts_total += block_results["n_no_bursts"] # Acumular el número de candidatos de tipo no burst
-                prob_max_total = max(prob_max_total, block_results["max_prob"]) # Actualizar la probabilidad máxima de detección
-                
-                # Acumular SNR si está disponible
-                if "mean_snr" in block_results and block_results["mean_snr"] > 0:
-                    snr_list_total.append(block_results["mean_snr"])
-                
+                block_stats = _process_block(
+                    det_model,
+                    cls_model,
+                    block,
+                    metadata,
+                    fits_path,
+                    save_dir,
+                    metadata['chunk_idx'],
+                    csv_file,
+                )
+                file_stats.merge(block_stats)
             except Exception as chunk_error:
-                # Log con traceback completo para ubicar la línea exacta del fallo
                 logger.exception(f"Error procesando chunk {metadata['chunk_idx']:03d}: {chunk_error}")
-                # Continuar con el siguiente chunk en lugar de fallar completamente
-                block_results = {
-                    "n_candidates": 0,
-                    "n_bursts": 0,
-                    "n_no_bursts": 0,
-                    "max_prob": 0.0,
-                    "mean_snr": 0.0,
-                    "time_slice": 0,
-                }
-                # Acumular resultados de error (ceros)
-                cand_counter_total += 0
-                n_bursts_total += 0
-                n_no_bursts_total += 0
-                prob_max_total = max(prob_max_total, 0.0)
-            
-            # LIMPIEZA AGRESIVA DE MEMORIA
-            del block # Liberar memoria del bloque
-            _optimize_memory(aggressive=(actual_chunk_count % 5 == 0))  # Limpieza agresiva cada 5 chunks
-        
-        # *** DEBUG CRÍTICO: CONFIRMAR RESUMEN FINAL ***
-        log_processing_summary(actual_chunk_count, chunk_count, cand_counter_total, n_bursts_total)
-        
-        runtime = time.time() - t_start # Tiempo de ejecución
+
+                                          
+            del block                             
+            _optimize_memory(aggressive=(actual_chunk_count % 5 == 0))                                   
+
+                                                        
+        log_processing_summary(actual_chunk_count, chunk_count, file_stats.n_candidates, file_stats.n_bursts)
+
+        runtime = time.time() - t_start                      
         logger.info(
-            f"Archivo completado: {actual_chunk_count} chunks procesados, "
-            f"{cand_counter_total} candidatos, max prob {prob_max_total:.2f}, ⏱️ {runtime:.1f}s"
+            "File completed • chunks=%d • candidates=%d • max_prob=%.2f • runtime=%.1fs",
+            actual_chunk_count,
+            file_stats.n_candidates,
+            file_stats.max_prob,
+            runtime,
         )
-        
-        # FILTRADO: Si SAVE_ONLY_BURST está activado, solo contar candidatos BURST para estadísticas
-        if config.SAVE_ONLY_BURST:
-            effective_cand_counter_total = n_bursts_total
-            effective_n_bursts_total = n_bursts_total
-            effective_n_no_bursts_total = 0  # No contar NO BURST cuando solo se guardan BURST
-        else:
-            # Comportamiento normal: contar todos los candidatos
-            effective_cand_counter_total = cand_counter_total
-            effective_n_bursts_total = n_bursts_total
-            effective_n_no_bursts_total = n_no_bursts_total
-        
+
+        n_candidates, n_bursts, n_no_bursts = file_stats.effective_counts(config.SAVE_ONLY_BURST)
+
         return {
-            "n_candidates": effective_cand_counter_total,
-            "n_bursts": effective_n_bursts_total,
-            "n_no_bursts": effective_n_no_bursts_total,
+            "n_candidates": n_candidates,
+            "n_bursts": n_bursts,
+            "n_no_bursts": n_no_bursts,
             "runtime_s": runtime,
-            "max_prob": prob_max_total,
-            "mean_snr": float(np.mean(snr_list_total)) if snr_list_total else 0.0,
+            "max_prob": file_stats.max_prob,
+            "mean_snr": file_stats.mean_snr,
             "status": "SUCCESS_CHUNKED",
             "chunks_processed": actual_chunk_count,
             "total_chunks": chunk_count,
@@ -560,23 +591,23 @@ def _process_file_chunked(
         }
         
     except Exception as e:
-        # Determinar tipo de error para mejor diagnóstico
+                                                         
         error_msg = str(e).lower()
         if "corrupted" in error_msg or "invalid" in error_msg or "corrupt" in error_msg:
             status = "ERROR_CORRUPTED_FILE"
-            logger.error(f"Archivo corrupto detectado: {fits_path.name} - {e}")
+            logger.error("Corrupted file detected: %s - %s", fits_path.name, e)
         elif "memory" in error_msg or "out of memory" in error_msg or "oom" in error_msg:
             status = "ERROR_MEMORY"
-            logger.error(f"Error de memoria procesando: {fits_path.name} - {e}")
+            logger.error("Memory error while processing %s: %s", fits_path.name, e)
         elif "file not found" in error_msg or "no such file" in error_msg:
             status = "ERROR_FILE_NOT_FOUND"
-            logger.error(f"Archivo no encontrado: {fits_path.name} - {e}")
+            logger.error("File not found: %s - %s", fits_path.name, e)
         elif "permission" in error_msg or "access denied" in error_msg:
             status = "ERROR_PERMISSION"
-            logger.error(f"Error de permisos: {fits_path.name} - {e}")
+            logger.error("Permission error processing %s: %s", fits_path.name, e)
         else:
             status = "ERROR_CHUNKED"
-            logger.error(f"Error general procesando: {fits_path.name} - {e}")
+            logger.error("Unhandled error processing %s: %s", fits_path.name, e)
         
         return {
             "n_candidates": 0,
@@ -592,81 +623,82 @@ def _process_file_chunked(
 def run_pipeline(chunk_samples: int = 0) -> None:
     from ..logging.logging_config import setup_logging, set_global_logger
     
-    logger = setup_logging(level="INFO", use_colors=True) # Configurar logging
-    set_global_logger(logger) # Establecer el logger global
+    logger = setup_logging(level="INFO", use_colors=True)                     
+    set_global_logger(logger)                              
     
-    # Configuración del pipeline
+                                
     pipeline_config = {
-        'data_dir': str(config.DATA_DIR), # Directorio de datos
-        'results_dir': str(config.RESULTS_DIR), # Directorio de resultados
-        'targets': config.FRB_TARGETS, # Targets a procesar
-        'chunk_samples': chunk_samples # Número de muestras por bloque para archivos .fil
+        'data_dir': str(config.DATA_DIR),                      
+        'results_dir': str(config.RESULTS_DIR),                           
+        'targets': config.FRB_TARGETS,                     
+        'chunk_samples': chunk_samples                                                   
     }
     
     logger.pipeline_start(pipeline_config) 
 
-    # Mostrar configuración de filtrado de candidatos
+                                                     
     if config.SAVE_ONLY_BURST:
-        logger.logger.info("CONFIGURACIÓN ACTIVADA: SAVE_ONLY_BURST=True")
-        logger.logger.info("   → Solo se guardarán y mostrarán candidatos clasificados como BURST")
-        logger.logger.info("   → Los candidatos NO BURST serán detectados pero no guardados ni visualizados")
-        logger.logger.info("   → NO se reorganizarán chunks a 'ChunksWithFRBs' (todos los chunks con candidatos son chunks con FRBs)")
+        logger.logger.info("Mode: save only BURST candidates; non-bursts will be discarded")
     else:
-        logger.logger.info("CONFIGURACIÓN: SAVE_ONLY_BURST=False")
-        logger.logger.info("   → Se guardarán y mostrarán TODOS los candidatos (BURST y NO BURST)")
-        logger.logger.info("   → SÍ se reorganizarán chunks con FRBs a 'ChunksWithFRBs' para separar chunks con/sin FRBs")
+        logger.logger.info("Mode: save all detected candidates (BURST and non-BURST)")
 
-    save_dir = config.RESULTS_DIR # Directorio de resultados (sin subcarpeta del modelo)
-    save_dir.mkdir(parents=True, exist_ok=True) # Crear el directorio de resultados
-    
-    logger.logger.info("Cargando modelos...")
-    det_model = _load_detection_model() # Cargar el modelo de detección
-    cls_model = _load_class_model() # Cargar el modelo de clasificación
-    logger.logger.info("Modelos cargados exitosamente") # Log de carga de modelos
+    save_dir = config.RESULTS_DIR
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.logger.info("Loading models...")
+    det_model = _load_detection_model()
+    cls_model = _load_class_model()
+    logger.logger.info("Models loaded successfully")
 
     summary: dict[str, dict] = {}
-    for frb in config.FRB_TARGETS: # Procesar cada archivo de datos
-        logger.logger.info(f"Buscando archivos para target: {frb}") # Log de búsqueda de archivos
-        file_list = find_data_files(frb) # Buscar archivos de datos usando el nuevo sistema inteligente
-        logger.logger.info(f"Archivos encontrados: {[f.name for f in file_list]}") # Log de archivos encontrados
+    for frb in config.FRB_TARGETS:                                 
+        logger.logger.info("Searching files for target: %s", frb)
+        file_list = find_data_files(frb)
+        logger.logger.info("Files found: %s", [f.name for f in file_list])
         if not file_list:
-            logger.logger.warning(f"No se encontraron archivos para {frb}")
+            logger.logger.warning("No files found for %s", frb)
             continue
         try:
-            # Extraer parámetros automáticamente usando el nuevo sistema inteligente
+
             first_file = file_list[0]
-            logger.logger.info(f"Extrayendo parámetros automáticamente desde: {first_file.name}")
-            
+            logger.logger.info("Extracting parameters from %s", first_file.name)
+
             extraction_result = extract_parameters_auto(first_file)
             if extraction_result['success']:
-                logger.logger.info(f"Parámetros extraídos exitosamente: {', '.join(extraction_result['parameters_extracted'])}")
+                logger.logger.info(
+                    "Parameters extracted: %s",
+                    ", ".join(extraction_result['parameters_extracted']),
+                )
             else:
-                logger.logger.error(f"Error extrayendo parámetros: {', '.join(extraction_result['errors'])}")
+                logger.logger.error(
+                    "Parameter extraction failed: %s",
+                    ", ".join(extraction_result['errors']),
+                )
                 continue
             
-            # CALCULAR PARÁMETROS DE PROCESAMIENTO AUTOMÁTICAMENTE
+                                                                  
             from ..preprocessing.slice_len_calculator import get_processing_parameters, validate_processing_parameters
             from ..logging.chunking_logging import display_detailed_chunking_info
             
-            if chunk_samples == 0:  # Modo automático
-                processing_params = get_processing_parameters() # Obtener los parámetros de procesamiento
-                if validate_processing_parameters(processing_params): # Validar los parámetros de procesamiento
-                    chunk_samples = processing_params['chunk_samples'] # Obtener el número de muestras por bloque
-                    # Mostrar información detallada del sistema de chunking
-                    display_detailed_chunking_info(processing_params) # Mostrar información detallada del sistema de chunking
+            if chunk_samples == 0:
+                processing_params = get_processing_parameters()
+                if validate_processing_parameters(processing_params):
+                    chunk_samples = processing_params['chunk_samples']
+
+                    display_detailed_chunking_info(processing_params)
                 else:
-                    logger.logger.error("Parámetros calculados inválidos, usando valores por defecto")
-                    chunk_samples = 2_097_152  # 2MB por defecto
+                    logger.logger.error("Calculated processing parameters are invalid; falling back to defaults")
+                    chunk_samples = 2_097_152
             else:
-                logger.logger.info(f"Usando chunk_samples manual: {chunk_samples:,}")
-                
+                logger.logger.info("Using manual chunk_samples override: %s", f"{chunk_samples:,}")
+
         except Exception as e:
-            logger.logger.error(f"Error obteniendo parámetros: {e}")
+            logger.logger.error("Failed to obtain parameters: %s", e)
             continue
             
-        for fits_path in file_list: # Procesar cada archivo de datos
+        for fits_path in file_list:                                 
             try:
-                # Información del archivo para logging
+                                                      
                 file_info = {
                     'samples': config.FILE_LENG,
                     'duration_min': (config.FILE_LENG * config.TIME_RESO) / 60,
@@ -676,12 +708,12 @@ def run_pipeline(chunk_samples: int = 0) -> None:
                 
                 log_pipeline_file_processing(fits_path.name, fits_path.suffix.lower(), config.FILE_LENG, chunk_samples) 
                 
-                results = _process_file_chunked(det_model, cls_model, fits_path, save_dir, chunk_samples) # Procesar el archivo de datos
-                summary[fits_path.name] = results # Guardar los resultados en el resumen
+                results = _process_file_chunked(det_model, cls_model, fits_path, save_dir, chunk_samples)                               
+                summary[fits_path.name] = results                                       
                 
                 log_pipeline_file_completion(fits_path.name, results)
                 
-                # *** GUARDAR RESULTADOS INMEDIATAMENTE EN SUMMARY.JSON ***
+                                                                           
                 _update_summary_with_results(save_dir, fits_path.stem, {
                     "n_candidates": results.get("n_candidates", 0),
                     "n_bursts": results.get("n_bursts", 0),
@@ -694,7 +726,7 @@ def run_pipeline(chunk_samples: int = 0) -> None:
                 
                 logger.file_processing_end(fits_path.name, results)
             except Exception as e:
-                logger.logger.error(f"Error procesando {fits_path.name}: {e}")
+                logger.logger.error("Error processing %s: %s", fits_path.name, e)
                 error_results = {
                     "n_candidates": 0,
                     "n_bursts": 0,
@@ -706,7 +738,7 @@ def run_pipeline(chunk_samples: int = 0) -> None:
                 }
                 summary[fits_path.name] = error_results
                 
-                # *** GUARDAR RESULTADOS DE ERROR INMEDIATAMENTE ***
+                                                                    
                 _update_summary_with_results(save_dir, fits_path.stem, {
                     "n_candidates": 0,
                     "n_bursts": 0,
@@ -718,10 +750,10 @@ def run_pipeline(chunk_samples: int = 0) -> None:
                     "error_message": str(e)
                 })
 
-    logger.logger.info("Escribiendo resumen final...")
+    logger.logger.info("Writing final summary...")
     _write_summary_with_timestamp(summary, save_dir)
     logger.pipeline_end(summary)
 
 if __name__ == "__main__":
-    # Ejecutar pipeline con configuración por defecto
+                                                     
     run_pipeline()

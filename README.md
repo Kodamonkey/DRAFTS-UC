@@ -1,554 +1,267 @@
-# 🚀 DRAFTS-UC Pipeline
+# DRAFTS++ Radio Transient Search Pipeline
 
-<div align="center">
+## Project Overview
 
-✨ **FRB Detection Pipeline based on DRAFTS for UC** ✨
+**DRAFTS++** is an advanced pipeline for detecting **Fast Radio Bursts (FRBs)** in radio astronomy data using deep learning. It builds upon the original **DRAFTS** (Deep Learning‑based RAdio Fast Transient Search) framework, integrating modern neural networks to overcome challenges like radio‑frequency interference (RFI) and propagation dispersion that hinder traditional search algorithms. In DRAFTS++, a **deep‑learning object detector** (CenterNet‑based) localizes burst candidates in dedispersed time–DM space, and a **binary classifier** (ResNet‑based) verifies each candidate to distinguish real FRBs from noise/RFI. This two‑stage approach greatly improves detection accuracy and reduces false positives compared to classical methods (e.g., PRESTO/Heimdall).
 
-[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-1.8+-red.svg)](https://pytorch.org/)
-[![CUDA](https://img.shields.io/badge/CUDA-11.0+-green.svg)](https://developer.nvidia.com/cuda-toolkit)
+> **What’s DRAFTS‑UC?**  
+> DRAFTS++ (a.k.a. _DRAFTS‑UC_) is our maintained fork/extension. It keeps the original DRAFTS ideas and models, adds modern engineering (logging, chunking, GPU/CPU fallbacks), and streamlines configuration for easy, reproducible runs.
 
-[Description](#description) •
-[Installation](#installation) •
-[Configuration](#configuration) •
-[Usage](#usage) •
-[Models](#models) •
-[Features](#features) •
-[Contributing](#contributing)
+---
 
-</div>
+## Features
 
-![DRAFTS WorkFlow](./WorkFlow.png)
+- **CUDA‑accelerated dedispersion** for near real‑time DM sweeps.
+- **CenterNet object detection** to infer **arrival time & DM** directly from time–DM “bow‑ties”.
+- **ResNet binary classification** to confirm candidates and **reduce false positives** dramatically.
+- **Single‑config operation**: one place to set data paths, DM range, thresholds, and options.
+- **Chunked processing** of large files with automatic memory‑aware slicing.
+- **PSRFITS & SIGPROC (.fil)** input support; optional multi‑band analysis.
+- **Rich outputs**: CSV summaries, annotated plots (waterfalls, DM curves, S/N traces), and logs.
+- **Trainable**: scripts to (re)train detection and classification models on your own data.
 
-## 📖 Description
+---
 
-**DRAFTS-UC** is an FRB (Fast Radio Bursts) detection pipeline based on the original **DRAFTS** project (Deep learning-based RAdio Fast Transient Search), but adapted and optimized for specific use.
-
-### 🎯 What is DRAFTS?
-
-**DRAFTS** is a deep learning-based radio fast transient search pipeline designed to address limitations in traditional single-pulse search techniques like Presto and Heimdall.
-
-### 🔄 How does this project relate?
-
-This project is a **specialized fork** of DRAFTS that:
-
-- ✅ **Uses** pre-trained models and neural network architectures from DRAFTS
-- ✅ **Maintains** core detection and classification functionality
-- ✅ **Adapts** the pipeline for specific use at UC
-- ✅ **Optimizes** processing for local data
-- ✅ **Simplifies** configuration and execution
-
-### 🚀 Key Advantages
-
-- **Written entirely in Python** for easy cross-platform installation
-- **CUDA acceleration** for faster dedispersion
-- **Pre-trained models** ready to use
-- **Improved detection** compared to traditional methods
-- **Binary classification** with >99% accuracy on FAST and GBT data
-- **Significant reduction** in manual verification required
-
-## 🆕 Special Features
-
-### 🎯 Dispersion Correction for Waterfall Plots
-
-**New functionality!** The pipeline now includes automatic dispersion correction that allows visualization of the **natural burst parabola** instead of the time offset introduced by interstellar dispersion.
-
-#### ✨ Benefits
-
-- **Visualization of the natural parabola** of the burst
-- **Better analysis** of intrinsic morphology
-- **Correct temporal alignment** of burst start
-- **Facilitates identification** of burst characteristics vs. propagation effects
-
-#### 🔧 Usage
-
-```python
-# With correction to show natural parabola
-save_waterfall_dispersed_plot(
-    waterfall_block=data,
-    out_path=Path("output/waterfall.png"),
-    # ... other parameters
-    dm_value=100.0,  # 🆕 DM value for correction
-)
-```
-
-### 📊 Automatic Parameter System
-
-**Simplified configuration!** You only need to configure `SLICE_DURATION_MS` in `user_config.py` and the system automatically calculates all other optimized parameters.
-
-#### 🚀 Basic Usage
-
-```python
-# In user_config.py - Just this:
-SLICE_DURATION_MS: float = 64.0  # Desired duration of each slice in ms
-
-# Execution:
-python main.py  # Automatic mode by default
-```
-
-#### 📊 Typical Configurations
-
-| Use Case     | SLICE_DURATION_MS | Description                                 |
-| ------------ | ----------------- | ------------------------------------------- |
-| Fast FRBs    | 32.0 ms           | Short slices for very fast pulses           |
-| General FRBs | 64.0 ms           | Balance between sensitivity and speed       |
-| Long pulses  | 128.0 ms          | Longer slices for extended pulses           |
-| Weak signals | 256.0 ms          | Greater temporal integration for better SNR |
-
-### 🎨 Signal-to-Noise Ratio (SNR) Analysis
-
-The pipeline includes comprehensive SNR analysis capabilities that enhance FRB candidate detection and visualization:
-
-#### ✨ Key Features
-
-- **Automatic SNR calculation**: All candidate patches show temporal profiles in SNR units (σ)
-- **Robust noise estimation**: Uses Interquartile Range (IQR) method robust to multiple pulses
-- **Configurable thresholds**: Set `SNR_THRESH` in `user_config.py` to highlight significant detections
-- **Enhanced visualizations**: SNR profiles with peak annotations, threshold lines, color-coded regions
-
-## 🛠️ Installation
-
-### Prerequisites
-
-- **Python 3.8 or higher** (recommended Python 3.8+)
-- **CUDA 11.0+** (for GPU acceleration)
-- **Git** to clone the repository
-- **Virtual environment** recommended (`venv` or `conda`)
-
-### 🔧 Installation Steps
-
-1. **Clone the Repository**
-
-   ```bash
-   git clone <REPOSITORY_URL>
-   cd DRAFTS-UC
-   ```
-
-2. **Create and Activate Virtual Environment**
-
-   ```bash
-   # Using venv (recommended)
-   python -m venv venv_drafts
-
-   # On Windows:
-   venv_drafts\Scripts\activate
-
-   # On Linux/Mac:
-   source venv_drafts/bin/activate
-   ```
-
-3. **Install Dependencies**
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Verify Installation**
-
-   ```bash
-   python -c "import torch; print(f'PyTorch: {torch.__version__}')"
-   python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
-   ```
-
-## ⚙️ Configuration
-
-### 📁 Main Configuration File
-
-The file `src/config/user_config.py` contains all customizable configurations:
-
-```python
-# =============================================================================
-# DATA AND FILE CONFIGURATION
-# =============================================================================
-DATA_DIR = Path("./Data/raw")              # Directory with .fits/.fil files
-RESULTS_DIR = Path("./Results")            # Directory to save results
-
-# List of files to process
-FRB_TARGETS = [
-   "3096_0001_00_8bit"                    # Specific files to analyze
-]
-
-# =============================================================================
-# TEMPORAL ANALYSIS CONFIGURATION
-# =============================================================================
-SLICE_DURATION_MS: float = 300.0           # Duration of each slice in ms
-
-# =============================================================================
-# DISPERSION (DM) CONFIGURATION
-# =============================================================================
-DM_min: int = 0                            # Minimum DM in pc cm⁻³
-DM_max: int = 1024                         # Maximum DM in pc cm⁻³
-
-# =============================================================================
-# DETECTION THRESHOLDS
-# =============================================================================
-DET_PROB: float = 0.3                      # Minimum probability for detection
-CLASS_PROB: float = 0.5                    # Minimum probability for classification
-SNR_THRESH: float = 3.0                    # SNR threshold for visualizations
-```
-
-### 🔧 Advanced Configurations
-
-#### Multi-Band Analysis
-
-```python
-# Multi-band analysis (Full/Low/High)
-USE_MULTI_BAND: bool = False               # True = use multi-band analysis
-```
-
-#### Processing Optimization
-
-```python
-# Reduction factors to optimize processing
-DOWN_FREQ_RATE: int = 1                    # Frequency reduction factor
-DOWN_TIME_RATE: int = 8                    # Time reduction factor
-```
-
-#### Debug and Logging
-
-```python
-# Frequency and file debug
-DEBUG_FREQUENCY_ORDER: bool = False        # Detailed frequency information
-FORCE_PLOTS: bool = False                  # Generate plots even without candidates
-```
-
-## 🚀 Usage
-
-### 🎯 Basic Execution
-
-1. **Configure parameters** in `src/config/user_config.py`
-2. **Place data files** in `Data/raw/`
-3. **Run the pipeline**:
-
-   ```bash
-   python main.py
-   ```
-
-### 📊 Pipeline Flow
-
-The pipeline automatically executes:
-
-1. **Preprocessing** - Loads and prepares FITS/FIL files
-2. **Dedispersion** - Applies dispersion correction with CUDA acceleration
-3. **Detection** - Uses object detection model to identify candidates
-4. **Classification** - Verifies authenticity with binary classification model
-5. **Visualization** - Generates plots and detailed reports
-6. **Results** - Saves candidates and metrics in `Results/`
-
-### 🔍 Specific Use Cases
-
-#### Single File Analysis
+## Quick Start
 
 ```bash
-# Process specific file
+# 1) Clone and enter the repo
+git clone <REPOSITORY_URL>
+cd DRAFTS-UC
+
+# 2) Create & activate a virtual environment (Python 3.8+)
+python3 -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# 3) Install dependencies
+pip install -r requirements.txt
+
+# 4) Put your .fits/.fil files under Data/raw/
+# 5) Edit src/config/user_config.py (DATA_DIR, RESULTS_DIR, FRB_TARGETS, DM range, thresholds)
+# 6) Run the full pipeline
 python main.py
 ```
 
-#### Specific Plot Scripts
+When it finishes, inspect `Results/` for plots and a CSV of detections.
+
+---
+
+## Prerequisites
+
+- **OS:** Linux/macOS recommended (Windows works too).
+- **Python:** 3.8+ (use a virtualenv/Conda).
+- **GPU:** NVIDIA GPU with CUDA 11+ **recommended** (CPU works but is slow).
+- **Drivers/Toolkit:** Matching NVIDIA driver + CUDA toolkit; install a **PyTorch** build that matches your CUDA.
+- **RAM/VRAM:** Several GB suggested for large observations (the pipeline chunks automatically).
+- **Git** to clone the repository.
+
+Verify PyTorch & CUDA after install:
 
 ```bash
-# Generate absolute segment plots
-python src/scripts/absolute_segment_plots.py --filename file.fits --start 10.0 --duration 5.0 --dm 100.0
+python -c "import torch; print(f'PyTorch={torch.__version__} CUDA={torch.cuda.is_available()}')"
 ```
 
-#### Individual Plot Generation
+---
 
-```python
-from src.visualization.plot_individual_components import generate_individual_plots
-
-# Generate individual plots for each component
-generate_individual_plots(
-    waterfall_block=data,
-    dedispersed_block=dedisp_data,
-    # ... other parameters
-    dm_val=100.0,  # DM for dispersion correction
-)
-```
-
-## 🧠 Models
-
-### 📥 Pre-trained Models Download
-
-Pre-trained models are available in the `models/` directory:
-
-```
-models/
-├── cent_resnet18.pth      # ResNet18 detection model
-├── cent_resnet50.pth      # ResNet50 detection model
-├── class_resnet18.pth     # ResNet18 classification model
-├── class_resnet50.pth     # ResNet50 classification model
-└── README.md              # Model information
-```
-
-### 🎯 Model Types
-
-#### 1. Object Detection Models (CenterNet)
-
-- **`cent_resnet18.pth`**: Fast detection with ResNet18 backbone
-- **`cent_resnet50.pth`**: Precise detection with ResNet50 backbone
-
-#### 2. Binary Classification Models
-
-- **`class_resnet18.pth`**: Fast classification with ResNet18
-- **`class_resnet50.pth`**: Precise classification with ResNet50
-
-### 🔧 Model Training (Optional)
-
-If you want to train your own models:
-
-#### Detection Training
-
-```bash
-cd src/models/ObjectDet/
-python centernet_train.py resnet18  # Use 'resnet50' for ResNet50
-```
-
-#### Classification Training
-
-```bash
-cd src/models/BinaryClass/
-python binary_train.py resnet18 BinaryNet  # Use 'resnet50' for ResNet50
-```
-
-## 📁 Project Structure
+## Repository Layout (abridged)
 
 ```
 DRAFTS-UC/
-├── 📁 Data/                           # Input and output data
-│   ├── raw/                           # Original .fits/.fil files
-│   └── processed/                     # Processed data (auto-generated)
-├── 📁 models/                         # Pre-trained models
-│   ├── cent_resnet18.pth             # ResNet18 detection model
-│   ├── cent_resnet50.pth             # ResNet50 detection model
-│   ├── class_resnet18.pth            # ResNet18 classification model
-│   └── class_resnet50.pth            # ResNet50 classification model
-├── 📁 src/                           # Pipeline source code
-│   ├── 📁 analysis/                  # Analysis utilities (SNR, etc.)
-│   ├── 📁 config/                    # System configurations
-│   ├── 📁 core/                      # Main pipeline logic
-│   ├── 📁 detection/                 # Model interfaces
-│   ├── 📁 input/                     # Data loading and processing
-│   ├── 📁 logging/                   # Centralized logging system
-│   ├── 📁 models/                    # Model training code
-│   ├── 📁 output/                    # Results and candidate management
-│   ├── 📁 preprocessing/             # Preprocessing and dedispersion
-│   ├── 📁 scripts/                   # Utility scripts
-│   └── 📁 visualization/             # Plot and visualization generation
-├── 📁 Results/                       # Pipeline results (auto-generated)
-├── 📁 venv_drafts/                   # Virtual environment (auto-generated)
-├── 📄 main.py                        # Main entry point
-├── 📄 requirements.txt                # Python dependencies
-├── 📄 README.md                       # This file
-└── 📄 WorkFlow.png                    # Workflow diagram
+├── Data/
+│   ├── raw/             # put your .fits/.fil here
+│   └── processed/       # temp/intermediate (generated)
+├── Results/             # figures, CSVs, logs (generated)
+├── models/              # .pth weights (detector/classifier)
+│   ├── cent_resnet18.pth
+│   ├── cent_resnet50.pth
+│   ├── class_resnet18.pth
+│   └── class_resnet50.pth
+├── src/
+│   ├── config/          # **start here** (user_config.py)
+│   ├── core/            # pipeline orchestrator
+│   ├── input/           # FITS/.fil readers, chunking
+│   ├── preprocessing/   # GPU/CPU dedispersion, filters
+│   ├── detection/       # model I/O & inference utils
+│   ├── models/          # training code (ObjectDet/BinaryClass)
+│   ├── analysis/        # S/N, stats
+│   ├── visualization/   # plotting & figure export
+│   ├── output/          # save candidates, CSVs
+│   └── scripts/         # helper/utility scripts
+├── main.py              # entry point
+├── requirements.txt
+└── README.md
 ```
 
-## 🧪 Testing and Validation
+---
 
-### ✅ Verify Functionality
+## Configuration (single place)
+
+All user‑facing settings live in **`src/config/user_config.py`**. Open it and set:
+
+- **Paths**
+  - `DATA_DIR`: where your `.fits/.fil` live (default `./Data/raw`)
+  - `RESULTS_DIR`: where results will be written (default `./Results`)
+- **Targets**
+  - `FRB_TARGETS = ["pattern1", "pattern2"]`: substrings to match filenames in `DATA_DIR`.
+    - Example: if you have `FRB121102_0001.fits`, set `FRB_TARGETS = ["FRB121102_0001"]`.
+- **Time slicing**
+  - `SLICE_DURATION_MS`: size of each time window (ms) analyzed at once.
+- **DM search**
+  - `DM_min`, `DM_max`: dispersion measure range for dedispersion.
+- **Decision thresholds**
+  - `DET_PROB`: min CenterNet confidence to accept a candidate (e.g., 0.30).
+  - `CLASS_PROB`: min ResNet probability to call it a true FRB (e.g., 0.50).
+  - `SNR_THRESH`: for highlighting in plots (visual only).
+- **Optional knobs**
+  - `DOWN_FREQ_RATE`, `DOWN_TIME_RATE` (downsampling for speed),
+  - `USE_MULTI_BAND` (split band into full/low/high),
+  - `POLARIZATION_MODE` (total intensity, linear, circular, or specific pol index),
+  - `AUTO_HIGH_FREQ_PIPELINE` and `HIGH_FREQ_THRESHOLD_MHZ` (auto tuning at mm‑wave),
+  - `FORCE_PLOTS`, `DEBUG_FREQUENCY_ORDER`, logging verbosity, etc.
+
+> **Tip:** Defaults are sensible. Start with paths + `FRB_TARGETS`, then run. Tighten `DM_max` to speed up if you know the DM.
+
+---
+
+## Running the Pipeline
+
+From the repo root:
 
 ```bash
-# Verify all dependencies are installed
-python -c "import torch, numpy, matplotlib, astropy; print('✅ All dependencies are available')"
-
-# Verify GPU access (if available)
-python -c "import torch; print(f'GPU available: {torch.cuda.is_available()}')"
-```
-
-### 🔍 Logs and Debug
-
-The system includes detailed logging:
-
-- **Automatic logs** in `src/logging/log/`
-- **Logging configuration** in `src/logging/logging_config.py`
-- **Configurable levels**: DEBUG, INFO, WARNING, ERROR
-
-### 📊 Test Plot Generation
-
-```bash
-# Generate plots even without candidates (debug mode)
-# In user_config.py: FORCE_PLOTS = True
 python main.py
 ```
 
-## 🚀 Optimization and Performance
+For each matching file in `DATA_DIR`:
 
-### 💾 Memory Management
+1. **Load & chunk** the dynamic spectrum (.fits/.fil), memory‑aware.
+2. **Dedisperse** across `[DM_min, DM_max]` (GPU if available).
+3. **Detect candidates** in time–DM (CenterNet) → boxes + scores.
+4. **Classify** each candidate (ResNet) → FRB vs non‑FRB probability.
+5. **Save outputs**: annotated figures, per‑file CSV, logs in `Results/`.
 
-- **Automatic chunking** for large files
-- **Memory optimization** based on available hardware
-- **Automatic configuration** of chunking parameters
-
-### ⚡ GPU Acceleration
-
-- **CUDA dedispersion** for fast processing
-- **PyTorch models** optimized for GPU
-- **Automatic fallback** to CPU if GPU unavailable
-
-### 📈 Scalability
-
-- **Parallel processing** when possible
-- **Automatic parameter optimization**
-- **Efficient management** of large files
-
-## 🔧 Troubleshooting
-
-### ❌ Common Problems
-
-#### 1. CUDA Error
-
-```bash
-# Verify CUDA installation
-nvidia-smi
-python -c "import torch; print(torch.version.cuda)"
-```
-
-#### 2. Missing Dependencies
-
-```bash
-# Reinstall dependencies
-pip install --force-reinstall -r requirements.txt
-```
-
-#### 3. Memory Problems
-
-```bash
-# Reduce chunk size in user_config.py
-SLICE_DURATION_MS = 64.0  # Reduce from 300.0 to 64.0
-```
-
-#### 4. Files Not Found
-
-```bash
-# Verify directory structure
-ls -la Data/raw/
-ls -la models/
-```
-
-### 📋 Verification Checklist
-
-- [ ] Virtual environment activated
-- [ ] All dependencies installed
-- [ ] Models downloaded in `models/`
-- [ ] Data files in `Data/raw/`
-- [ ] Configuration in `user_config.py` correct
-- [ ] GPU available (optional but recommended)
-
-## 🤝 Contributing
-
-### 📝 How to Contribute
-
-1. **Fork** this repository
-2. **Create a branch** for your feature: `git checkout -b new-feature`
-3. **Make your changes** and commit: `git commit -m "Add new feature"`
-4. **Push your changes**: `git push origin new-feature`
-5. **Open a Pull Request**
-
-### 🐛 Report Issues
-
-- Use the **Issues** system on GitHub
-- Include **complete error logs**
-- Describe the **environment** (OS, Python, CUDA version)
-- Provide **steps to reproduce** the problem
-
-## 📚 References and Resources
-
-### 🔬 Original DRAFTS Publication
-
-- **Paper**: [DRAFTS: A Deep Learning-Based Radio Fast Transient Search Pipeline](https://arxiv.org/abs/2410.03200)
-- **Original Repository**: [SukiYume/DRAFTS](https://github.com/SukiYume/DRAFTS)
-
-### 📖 Additional Documentation
-
-- **Automatic Parameter System**: Optimized automatic configuration
-- **SNR Analysis**: Signal-to-noise ratio analysis capabilities
-- **Dispersion Correction**: Natural burst parabola visualization
-
-### 🛠️ Related Tools
-
-- **Presto**: Traditional pulse search pipeline
-- **Heimdall**: Transient search pipeline
-- **FAST**: Five-hundred-meter Aperture Spherical Telescope
-- **GBT**: Green Bank Telescope
-
-## 📞 Contact and Support
-
-### 👥 Development Team
-
-- **Main Maintainer**: [Your Name]
-- **Institution**: UC
-- **Email**: [your.email@uc.cl]
-
-### 💬 Community
-
-- **Issues**: [GitHub Issues](https://github.com/your-username/DRAFTS-UC/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-username/DRAFTS-UC/discussions)
-- **Wiki**: [Detailed Documentation](https://github.com/your-username/DRAFTS-UC/wiki)
+If thresholds are strict, you may see fewer but higher‑confidence detections. Relax `DET_PROB`/`CLASS_PROB` to be more inclusive.
 
 ---
 
-<div align="center">
-  <sub>🔭✨📡 Searching for cosmic signals with DRAFTS-UC</sub>
-</div>
+## Usage Examples
+
+**Single file (simple):**
+
+```python
+# src/config/user_config.py
+DATA_DIR = Path("./Data/raw")
+RESULTS_DIR = Path("./Results")
+FRB_TARGETS = ["FRB121102_0001"]  # will match *FRB121102_0001*.fits/.fil
+# keep other defaults
+```
+
+```bash
+python main.py
+```
+
+**Batch multiple observations:**
+
+```python
+FRB_TARGETS = ["session1_", "session2_", "2024-10-05"]
+```
+
+```bash
+python main.py
+```
+
+**Ad‑hoc plotting (debug/inspection):**
+
+```bash
+python src/scripts/absolute_segment_plots.py   --filename FRB121102_0001.fits --start 10.0 --duration 5.0 --dm 565
+```
+
+**Embed in your own Python app:**
+
+```python
+from src.core.pipeline import run_pipeline
+# (Optionally edit config programmatically)
+run_pipeline()
+```
 
 ---
 
-## 📋 Project Status
+## Data Requirements
 
-- **Version**: 1.0.0
-- **Status**: ✅ Active and in development
-- **Last Update**: December 2024
-- **Compatibility**: Python 3.8+, PyTorch 1.8+, CUDA 11.0+
-
-### ✅ Implemented Features
-
-- [x] Complete FRB detection pipeline
-- [x] Pre-trained models (ResNet18/50)
-- [x] CUDA acceleration for dedispersion
-- [x] Automatic parameter system
-- [x] Integrated SNR analysis
-- [x] Dispersion correction for waterfall plots
-- [x] Centralized logging system
-- [x] Automatic plot generation
-- [x] Multi-band support
-- [x] Automatic memory optimization
-
-### 🚧 In Development
-
-- [ ] Web interface for monitoring
-- [ ] More pre-trained models
-- [ ] Integration with more telescopes
-- [ ] Real-time analysis
-- [ ] REST API for integration
-
-### 📈 Performance Metrics
-
-- **Speed**: Up to 10x faster than traditional methods
-- **Accuracy**: >99% in candidate classification
-- **Detection**: Double bursts detected vs. Heimdall
-- **Memory**: Automatic optimization for available hardware
+- **Inputs:** single‑beam **PSRFITS (.fits)** or **SIGPROC filterbank (.fil)** containing time–frequency power.
+- **Headers:** should include frequency axis, sample time, and shape (#chans, #samples).
+- **Placement:** files go under `Data/raw/` (or your custom `DATA_DIR`).
+- **Size:** large files are fine—processing is chunked automatically. Ensure free disk for `Results/` and temporary intermediates under `Data/processed/`.
 
 ---
 
-## 🔄 Relationship with Original DRAFTS
+## Model Weights
 
-This project is a **specialized fork** of the original DRAFTS pipeline that:
+Place pre‑trained weights under `./models/` with these names (or adjust in config):
 
-- **Preserves** the core neural network architectures and pre-trained models
-- **Maintains** compatibility with the original detection and classification workflows
-- **Enhances** the pipeline with UC-specific optimizations and features
-- **Simplifies** the configuration and execution process
-- **Adds** new capabilities like dispersion correction and automatic parameter optimization
+- **Detection (CenterNet):** `cent_resnet18.pth`, `cent_resnet50.pth`
+- **Classification (ResNet):** `class_resnet18.pth`, `class_resnet50.pth`
 
-### 📚 Original DRAFTS Resources
+By default, the pipeline loads the `resnet50` variants for best accuracy. Switch to `resnet18` for speed (edit the model names in config if applicable).
 
-- **Repository**: [https://github.com/SukiYume/DRAFTS](https://github.com/SukiYume/DRAFTS)
-- **Paper**: [arXiv:2410.03200](https://arxiv.org/abs/2410.03200)
-- **Documentation**: [Original DRAFTS README](README-old-Drafts.md)
+> **Custom models:** If you train your own, copy your `best_model.pth` here and rename accordingly or point the config to the new filenames.
 
-### 🎯 What This Fork Provides
+---
 
-- **Ready-to-use pipeline** with minimal configuration
-- **Optimized for UC research** and local data processing
-- **Enhanced visualization** with dispersion correction
-- **Automatic parameter optimization** based on hardware
-- **Comprehensive logging** and debugging capabilities
+## Training (optional)
+
+### Object detection (CenterNet)
+
+Training code lives in `src/models/ObjectDet/`.
+
+```bash
+cd src/models/ObjectDet/
+python centernet_train.py resnet18    # or: resnet50
+# outputs logs_resnet18/ (checkpoints incl. best_model.pth)
+```
+
+**Data:** 2D time–DM arrays (e.g., 512×512) + labels (boxes for each burst). A `data_label.txt`/CSV listing files and boxes is expected by the script (adapt paths as needed).
+
+### Binary classification (ResNet)
+
+Training code lives in `src/models/BinaryClass/`.
+
+```bash
+cd src/models/BinaryClass/
+python binary_train.py resnet18 BinaryNet   # or: resnet50
+# outputs logs_resnet18/ (checkpoints incl. best_model.pth)
+```
+
+**Data:** burst cutouts vs non‑bursts (two folders or an index file).
+
+After training, place your `best_model.pth` under `models/` with the expected name (or update config) and re‑run the pipeline.
+
+---
+
+## Outputs
+
+- **Per‑file CSV** with all candidates that pass thresholds (arrival time, DM, scores, S/N).
+- **Figures**: annotated waterfalls, time–DM “bow‑ties”, and S/N/DM curves.
+- **Logs**: detailed progress and timing (helpful for profiling and debugging).
+
+---
+
+## Tips & Troubleshooting
+
+- **No detections?** Lower `DET_PROB`/`CLASS_PROB`, widen DM range, or verify data quality/polarization mode.
+- **Too many false positives?** Raise thresholds, enable multi‑band, or restrict DM range.
+- **Slow run on CPU?** Install CUDA‑enabled PyTorch and a proper NVIDIA driver; enable GPU.
+- **Frequency axis inverted?** Set `DEBUG_FREQUENCY_ORDER = True` and check reader output.
+- **mm‑wave data (ALMA/hi‑freq):** Keep `AUTO_HIGH_FREQ_PIPELINE=True` so defaults adapt.
+
+---
+
+## Citation & Acknowledgements
+
+If you use DRAFTS++ in research, please cite the original DRAFTS paper and this repository fork:
+
+- **Zhang, Y.‑K., et al. (2024)**, _DRAFTS: A Deep Learning‑Based Radio Fast Transient Search Pipeline_ (arXiv:2410.03200).
+- **DRAFTS‑UC / DRAFTS++**: this repository and documentation.
+
+We acknowledge PRESTO and Heimdall for foundational single‑pulse search tooling, and the FRB community for datasets and benchmarks that enabled modern learning‑based approaches.
+
+** made by Sebastian Salgado Polanco **

@@ -1,23 +1,25 @@
+# This module creates composite diagnostic visualizations.
+
 """Composite plot generation module for FRB pipeline."""
 from __future__ import annotations
 
-# Standard library imports
+                          
 import logging
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
-# Third-party imports
+                     
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import gridspec
 
-# Local imports
+               
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..config import config
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
 from .visualization_ranges import get_dynamic_dm_range_for_candidate
 
-# Setup logger
+              
 logger = logging.getLogger(__name__)
 
 
@@ -79,12 +81,12 @@ def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
         axis=1,
     )
     
-    if band_idx == 0:  # Full Band
+    if band_idx == 0:             
         return freq_ds.min(), freq_ds.max()
-    elif band_idx == 1:  # Low Band 
+    elif band_idx == 1:             
         mid_channel = len(freq_ds) // 2
         return freq_ds.min(), freq_ds[mid_channel]
-    elif band_idx == 2:  # High Band
+    elif band_idx == 2:             
         mid_channel = len(freq_ds) // 2  
         return freq_ds[mid_channel], freq_ds.max()
     else:
@@ -125,7 +127,7 @@ def create_composite_plot(
 ) -> plt.Figure:
     """Create composite figure with detections and waterfalls with SNR analysis."""
     
-    # Get band frequency range for display
+                                          
     band_name_with_freq = get_band_name_with_freq_range(band_idx, band_name)
     
     freq_ds = np.mean(
@@ -137,13 +139,13 @@ def create_composite_plot(
     )
     time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
 
-    # Check if waterfall_block is valid
+                                       
     if waterfall_block is not None and waterfall_block.size > 0:
         wf_block = waterfall_block.copy()
     else:
         wf_block = None
     
-    # Check if dedispersed_block is valid
+                                         
     if dedispersed_block is not None and dedispersed_block.size > 0:
         dw_block = dedispersed_block.copy()
     else:
@@ -159,7 +161,7 @@ def create_composite_plot(
                 block -= block.min()
                 block /= block.max() - block.min()
 
-    # Calculate absolute time ranges
+                                    
     if absolute_start_time is not None:
         slice_start_abs = absolute_start_time
     else:
@@ -168,18 +170,18 @@ def create_composite_plot(
     real_samples = slice_samples if slice_samples is not None else slice_len
     slice_end_abs = slice_start_abs + real_samples * config.TIME_RESO * config.DOWN_TIME_RATE
 
-    # Create figure and gridspec
+                                
     fig = plt.figure(figsize=(14, 12))
     gs_main = gridspec.GridSpec(2, 1, height_ratios=[1.5, 1], hspace=0.3, figure=fig)
     
-    # Create detection panel
+                            
     ax_det = fig.add_subplot(gs_main[0, 0])
     ax_det.imshow(img_rgb, origin="lower", aspect="auto")
     ax_det.set_title("Detection Results", fontsize=10, fontweight="bold")
     ax_det.set_xlabel("Time (s)", fontsize=9)
     ax_det.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=9)
 
-    # Set time axis labels for detection panel
+                                              
     n_time_ticks_det = 8
     time_positions_det = np.linspace(0, img_rgb.shape[1] - 1, n_time_ticks_det)
     n_px = img_rgb.shape[1]
@@ -189,7 +191,7 @@ def create_composite_plot(
     ax_det.set_xticklabels([f"{t:.6f}" for t in time_values_det])
     ax_det.set_xlabel("Time (s)", fontsize=10, fontweight="bold")
 
-    # Set DM axis labels with dynamic range
+                                           
     n_dm_ticks = 8
     dm_positions = np.linspace(0, img_rgb.shape[0] - 1, n_dm_ticks)
     dm_plot_min, dm_plot_max = _calculate_dynamic_dm_range(
@@ -205,7 +207,7 @@ def create_composite_plot(
     ax_det.set_yticklabels([f"{dm:.0f}" for dm in dm_values])
     ax_det.set_ylabel("Dispersion Measure (pc cm⁻³)", fontsize=10, fontweight="bold")
 
-    # Add bounding boxes with detection information
+                                                   
     if top_boxes is not None:
         for idx, (conf, box) in enumerate(zip(top_conf, top_boxes)):
             x1, y1, x2, y2 = map(int, box)
@@ -214,7 +216,7 @@ def create_composite_plot(
             effective_len_det = slice_samples if slice_samples is not None else slice_len
             dm_val_cand, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, effective_len_det)
             
-            # Calculate absolute detection time
+                                               
             if candidate_times_abs is not None and idx < len(candidate_times_abs):
                 detection_time = float(candidate_times_abs[idx])
             else:
@@ -223,7 +225,7 @@ def create_composite_plot(
                 else:
                     detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
             
-            # Determine classification probabilities
+                                                    
             if class_probs is not None and idx < len(class_probs):
                 class_prob = class_probs[idx]
                 is_burst = class_prob >= config.CLASS_PROB
@@ -242,7 +244,7 @@ def create_composite_plot(
                 color = "lime"
                 label = f"#{idx+1}\nDM: {dm_val_cand:.1f}\nTime: {detection_time:.3f}s\nDet: {conf:.2f}"
             
-            # Draw rectangle and label
+                                      
             rect = plt.Rectangle(
                 (x1, y1), x2 - x1, y2 - y1, 
                 linewidth=2, edgecolor=color, facecolor="none"
@@ -260,7 +262,7 @@ def create_composite_plot(
                 arrowprops=dict(arrowstyle="->", color=color, lw=1.5),
             )
     
-    # Set detection panel title
+                               
     dm_range_info = f"{dm_plot_min:.0f}\u2013{dm_plot_max:.0f}"
     if getattr(config, 'DM_DYNAMIC_RANGE_ENABLE', True) and top_boxes is not None and len(top_boxes) > 0:
         dm_range_info += " (auto)"
@@ -275,19 +277,19 @@ def create_composite_plot(
     )
     ax_det.set_title(title_det, fontsize=11, fontweight="bold")
 
-    # Create bottom row with three panels
+                                         
     gs_bottom_row = gridspec.GridSpecFromSubplotSpec(
         1, 3, subplot_spec=gs_main[1, 0], width_ratios=[1, 1, 1], wspace=0.3
     )
 
-    # Panel 1: Raw Waterfall with SNR
+                                     
     gs_waterfall_nested = gridspec.GridSpecFromSubplotSpec(
         2, 1, subplot_spec=gs_bottom_row[0, 0], height_ratios=[1, 4], hspace=0.05
     )
     ax_prof_wf = fig.add_subplot(gs_waterfall_nested[0, 0])
     
     if wf_block is not None and wf_block.size > 0:
-        snr_wf, sigma_wf = compute_snr_profile(wf_block, off_regions)
+        snr_wf, sigma_wf, best_w_wf = compute_snr_profile(wf_block, off_regions)
         peak_snr_wf, peak_time_wf, peak_idx_wf = find_snr_peak(snr_wf)
         
         time_axis_wf = np.linspace(slice_start_abs, slice_end_abs, len(snr_wf))
@@ -311,13 +313,23 @@ def create_composite_plot(
         ax_prof_wf.grid(True, alpha=0.3)
         ax_prof_wf.set_xticks([])
         
+        width_ms_wf = float(best_w_wf[int(peak_idx_wf)]) * time_reso_ds * 1000.0 if len(best_w_wf) == len(snr_wf) else None
         if peak_time_wf_abs is not None:
-            ax_prof_wf.set_title(
-                f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ -> {peak_time_wf_abs:.6f}s",
-                fontsize=9, fontweight="bold",
-            )
+            if width_ms_wf is not None:
+                ax_prof_wf.set_title(
+                    f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ (w≈{width_ms_wf:.3f} ms) -> {peak_time_wf_abs:.6f}s",
+                    fontsize=9, fontweight="bold",
+                )
+            else:
+                ax_prof_wf.set_title(
+                    f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ -> {peak_time_wf_abs:.6f}s",
+                    fontsize=9, fontweight="bold",
+                )
         else:
-            ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ", fontsize=9, fontweight="bold")
+            if width_ms_wf is not None:
+                ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ (w≈{width_ms_wf:.3f} ms)", fontsize=9, fontweight="bold")
+            else:
+                ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ", fontsize=9, fontweight="bold")
     else:
         ax_prof_wf.text(0.5, 0.5, 'No waterfall data\navailable', 
                        transform=ax_prof_wf.transAxes, 
@@ -328,7 +340,7 @@ def create_composite_plot(
         ax_prof_wf.set_xticks([])
         ax_prof_wf.set_title("No Raw Waterfall Data", fontsize=9, fontweight="bold")
 
-    # Raw waterfall image
+                         
     ax_wf = fig.add_subplot(gs_waterfall_nested[1, 0])
     
     if wf_block is not None and wf_block.size > 0:
@@ -368,13 +380,13 @@ def create_composite_plot(
         ax_wf.set_xlabel("Time (s)", fontsize=9)
         ax_wf.set_ylabel("Frequency (MHz)", fontsize=9)
 
-    # Panel 2: Dedispersed Waterfall with SNR
+                                             
     gs_dedisp_nested = gridspec.GridSpecFromSubplotSpec(
         2, 1, subplot_spec=gs_bottom_row[0, 1], height_ratios=[1, 4], hspace=0.05
     )
     ax_prof_dw = fig.add_subplot(gs_dedisp_nested[0, 0])
     
-    # Calculate consistent DM value
+                                   
     if top_boxes is not None and len(top_boxes) > 0:
         best_candidate_idx = np.argmax(top_conf)
         best_box = top_boxes[best_candidate_idx]
@@ -384,7 +396,7 @@ def create_composite_plot(
         x1, y1, x2, y2 = map(int, best_box)
         candidate_region = waterfall_block[:, y1:y2] if waterfall_block is not None else None
         if candidate_region is not None and candidate_region.size > 0:
-            snr_profile_candidate, _ = compute_snr_profile(candidate_region)
+            snr_profile_candidate, _, _ = compute_snr_profile(candidate_region)
             snr_val_candidate = np.max(snr_profile_candidate)
         else:
             snr_val_candidate = 0.0
@@ -393,8 +405,9 @@ def create_composite_plot(
         snr_val_candidate = 0.0
     
     if dw_block is not None and dw_block.size > 0:
-        snr_dw, sigma_dw = compute_snr_profile(dw_block, off_regions)
+        snr_dw, sigma_dw, best_w_dw = compute_snr_profile(dw_block, off_regions)
         peak_snr_dw, peak_time_dw, peak_idx_dw = find_snr_peak(snr_dw)
+        width_ms_dw = float(best_w_dw[int(peak_idx_dw)]) * time_reso_ds * 1000.0 if len(best_w_dw) == len(snr_dw) else None
         
         time_axis_dw = np.linspace(slice_start_abs, slice_end_abs, len(snr_dw))
         peak_time_dw_abs = float(time_axis_dw[peak_idx_dw]) if len(snr_dw) > 0 else None
@@ -419,23 +432,44 @@ def create_composite_plot(
         
         if snr_val_candidate > 0:
             if peak_time_dw_abs is not None:
-                title_text = (
-                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                    f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s (block) / {snr_val_candidate:.1f}σ (candidate)"
-                )
+                if width_ms_dw is not None:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ (w≈{width_ms_dw:.3f} ms) -> {peak_time_dw_abs:.6f}s (block) / {snr_val_candidate:.1f}σ (candidate)"
+                    )
+                else:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s (block) / {snr_val_candidate:.1f}σ (candidate)"
+                    )
             else:
-                title_text = (
-                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                    f"Peak={peak_snr_dw:.1f}σ (block) / {snr_val_candidate:.1f}σ (candidate)"
-                )
+                if width_ms_dw is not None:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ (w≈{width_ms_dw:.3f} ms) (block) / {snr_val_candidate:.1f}σ (candidate)"
+                    )
+                else:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ (block) / {snr_val_candidate:.1f}σ (candidate)"
+                    )
         else:
             if peak_time_dw_abs is not None:
-                title_text = (
-                    f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                    f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s"
-                )
+                if width_ms_dw is not None:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ (w≈{width_ms_dw:.3f} ms) -> {peak_time_dw_abs:.6f}s"
+                    )
+                else:
+                    title_text = (
+                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
+                        f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s"
+                    )
             else:
-                title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ"
+                if width_ms_dw is not None:
+                    title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ (w≈{width_ms_dw:.3f} ms)"
+                else:
+                    title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ"
         ax_prof_dw.set_title(title_text, fontsize=9, fontweight="bold")
     else:
         ax_prof_dw.text(0.5, 0.5, 'No dedispersed\ndata available', 
@@ -447,7 +481,7 @@ def create_composite_plot(
         ax_prof_dw.set_xticks([])
         ax_prof_dw.set_title("No Dedispersed Data", fontsize=9, fontweight="bold")
 
-    # Dedispersed waterfall image
+                                 
     ax_dw = fig.add_subplot(gs_dedisp_nested[1, 0])
     
     if dw_block is not None and dw_block.size > 0:
@@ -483,15 +517,16 @@ def create_composite_plot(
         ax_dw.set_xlabel("Time (s)", fontsize=9)
         ax_dw.set_ylabel("Frequency (MHz)", fontsize=9)
 
-    # Panel 3: Candidate Patch with SNR
+                                       
     gs_patch_nested = gridspec.GridSpecFromSubplotSpec(
         2, 1, subplot_spec=gs_bottom_row[0, 2], height_ratios=[1, 4], hspace=0.05
     )
     ax_patch_prof = fig.add_subplot(gs_patch_nested[0, 0])
     
     if patch_img is not None and patch_img.size > 0:
-        snr_patch, sigma_patch = compute_snr_profile(patch_img, off_regions)
+        snr_patch, sigma_patch, best_w_patch = compute_snr_profile(patch_img, off_regions)
         peak_snr_patch, peak_time_patch, peak_idx_patch = find_snr_peak(snr_patch)
+        width_ms_patch = float(best_w_patch[int(peak_idx_patch)]) * time_reso_ds * 1000.0 if len(best_w_patch) == len(snr_patch) else None
         
         if absolute_start_time is not None:
             patch_start_abs = absolute_start_time + (patch_start - (slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE))
@@ -517,7 +552,10 @@ def create_composite_plot(
         ax_patch_prof.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
         ax_patch_prof.grid(True, alpha=0.3)
         ax_patch_prof.set_xticks([])
-        ax_patch_prof.set_title(f"Candidate Patch SNR\nPeak={peak_snr_patch:.1f}σ", fontsize=9, fontweight="bold")
+        if width_ms_patch is not None:
+            ax_patch_prof.set_title(f"Candidate Patch SNR\nPeak={peak_snr_patch:.1f}σ (w≈{width_ms_patch:.3f} ms)", fontsize=9, fontweight="bold")
+        else:
+            ax_patch_prof.set_title(f"Candidate Patch SNR\nPeak={peak_snr_patch:.1f}σ", fontsize=9, fontweight="bold")
     else:
         ax_patch_prof.text(0.5, 0.5, 'No candidate patch\navailable', 
                           transform=ax_patch_prof.transAxes, 
@@ -528,7 +566,7 @@ def create_composite_plot(
         ax_patch_prof.set_xticks([])
         ax_patch_prof.set_title("No Candidate Patch", fontsize=9, fontweight="bold")
 
-    # Candidate patch image
+                           
     ax_patch = fig.add_subplot(gs_patch_nested[1, 0])
     
     if patch_img is not None and patch_img.size > 0:
@@ -567,7 +605,7 @@ def create_composite_plot(
         ax_patch.set_xlabel("Time (s)", fontsize=9)
         ax_patch.set_ylabel("Frequency (MHz)", fontsize=9)
 
-    # Set main title
+                    
     idx_start_ds = int(round(slice_start_abs / (config.TIME_RESO * config.DOWN_TIME_RATE)))
     idx_end_ds = idx_start_ds + real_samples - 1
     start_center = slice_start_abs
@@ -588,7 +626,7 @@ def create_composite_plot(
 
     fig.suptitle(title, fontsize=14, fontweight="bold", y=0.97)
     
-    # Add temporal information
+                              
     try:
         dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
         global_start_sample = int(round(slice_start_abs / dt_ds))
@@ -650,7 +688,7 @@ def save_composite_plot(
         individual_plots_dir: Directory name for individual plots (relative to composite plot location)
     """
     
-    # Create the composite figure
+                                 
     fig = create_composite_plot(
         waterfall_block=waterfall_block,
         dedispersed_block=dedispersed_block,
@@ -677,14 +715,14 @@ def save_composite_plot(
         candidate_times_abs=candidate_times_abs,
     )
     
-    # Ensure output directory exists
+                                    
     out_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Save the composite figure
+                               
     plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close(fig)
     
-    # Generate individual plots if requested
+                                            
     if generate_individual_plots:
         try:
             from .plot_individual_components import generate_individual_plots
@@ -718,4 +756,4 @@ def save_composite_plot(
             )
         except Exception as e:
             logger.warning(f"Could not generate individual plots: {e}")
-            # Continue without individual plots - composite plot was already saved
+                                                                                  

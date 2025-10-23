@@ -1,13 +1,19 @@
-"""Utilidades comunes para el manejo de archivos astronómicos (FITS, filterbank)."""
+# This module provides utility conversions for input processing.
+
+"""Common utilities used while handling FITS and filterbank files."""
 from __future__ import annotations
 
 import os
 from pathlib import Path
 from typing import Dict
+import logging
 
-# Local imports
+
 from ..config import config
 from ..output.summary_manager import _update_summary_with_file_debug
+
+
+logger = logging.getLogger(__name__)
 
 
 def safe_float(value, default=0.0) -> float:
@@ -35,7 +41,7 @@ def safe_int(value, default=0) -> int:
 
 
 def auto_config_downsampling() -> None:
-    """Configura DOWN_FREQ_RATE y DOWN_TIME_RATE si no fueron fijados por el usuario."""
+    """Configure downsampling factors when the user did not override them."""
     user_configured_freq = getattr(config, 'DOWN_FREQ_RATE', None)
     user_configured_time = getattr(config, 'DOWN_TIME_RATE', None)
 
@@ -53,30 +59,31 @@ def auto_config_downsampling() -> None:
 
 
 def print_debug_frequencies(prefix: str, file_name: str, freq_axis_inverted: bool) -> None:
-    """Imprime bloque estándar de depuración de frecuencias con un prefijo dado."""
-    print(f"{prefix} Archivo: {file_name}")
-    print(f"{prefix} freq_axis_inverted detectado: {freq_axis_inverted}")
-    print(f"{prefix} DATA_NEEDS_REVERSAL configurado: {config.DATA_NEEDS_REVERSAL}")
-    print(f"{prefix} Primeras 5 frecuencias: {config.FREQ[:5]}")
-    print(f"{prefix} Últimas 5 frecuencias: {config.FREQ[-5:]}")
-    print(f"{prefix} Frecuencia mínima: {config.FREQ.min():.2f} MHz")
-    print(f"{prefix} Frecuencia máxima: {config.FREQ.max():.2f} MHz")
-    print(f"{prefix} Orden esperado: frecuencias ASCENDENTES (menor a mayor)")
+    """Log a standard frequency debug block with the given prefix."""
+
+    logger.debug("%s File: %s", prefix, file_name)
+    logger.debug("%s Detected freq_axis_inverted: %s", prefix, freq_axis_inverted)
+    logger.debug("%s DATA_NEEDS_REVERSAL: %s", prefix, config.DATA_NEEDS_REVERSAL)
+    logger.debug("%s First 5 frequencies: %s", prefix, config.FREQ[:5])
+    logger.debug("%s Last 5 frequencies: %s", prefix, config.FREQ[-5:])
+    logger.debug("%s Minimum frequency: %.2f MHz", prefix, config.FREQ.min())
+    logger.debug("%s Maximum frequency: %.2f MHz", prefix, config.FREQ.max())
+    logger.debug("%s Expected order: ascending frequencies", prefix)
     if config.FREQ[0] < config.FREQ[-1]:
-        print(f"{prefix} Orden CORRECTO: {config.FREQ[0]:.2f} < {config.FREQ[-1]:.2f}")
+        logger.debug("%s Order CORRECT: %.2f < %.2f", prefix, config.FREQ[0], config.FREQ[-1])
     else:
-        print(f"{prefix} Orden INCORRECTO: {config.FREQ[0]:.2f} > {config.FREQ[-1]:.2f}")
-    print(f"{prefix} DOWN_FREQ_RATE: {config.DOWN_FREQ_RATE}")
-    print(f"{prefix} DOWN_TIME_RATE: {config.DOWN_TIME_RATE}")
-    print(f"{prefix} " + "="*50)
+        logger.debug("%s Order INCORRECT: %.2f > %.2f", prefix, config.FREQ[0], config.FREQ[-1])
+    logger.debug("%s DOWN_FREQ_RATE: %s", prefix, config.DOWN_FREQ_RATE)
+    logger.debug("%s DOWN_TIME_RATE: %s", prefix, config.DOWN_TIME_RATE)
+    logger.debug("%s %s", prefix, "=" * 50)
 
 
 def save_file_debug_info(file_name: str, debug_info: Dict) -> None:
-    """Guarda debug info (FITS o FIL) en summary.json inmediatamente (unificado)."""
+    """Persist debug information (FITS or FIL) into ``summary.json`` immediately."""
     try:
         results_dir = getattr(config, 'RESULTS_DIR', Path('./Results'))
         results_dir.mkdir(parents=True, exist_ok=True)
         filename = Path(file_name).stem
         _update_summary_with_file_debug(results_dir, filename, debug_info)
     except Exception as e:
-        print(f"[WARNING] Error guardando debug info para {file_name}: {e}")
+        logger.warning("Failed to save debug info for %s: %s", file_name, e)

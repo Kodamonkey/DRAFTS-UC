@@ -15,3 +15,6 @@ timm
 torch
 torchvision
 tqdm
+your
+blimpy
+jplephem

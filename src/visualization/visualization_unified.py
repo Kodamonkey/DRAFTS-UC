@@ -1,11 +1,13 @@
+# This module coordinates unified visualization outputs.
+
 from __future__ import annotations
 
-# Standard library imports
+                          
 import logging
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
-# Third-party imports
+                     
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,7 +15,7 @@ import seaborn as sns
 from matplotlib import gridspec
 from matplotlib.colors import ListedColormap
 
-# Local imports
+               
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..config import config
 from ..preprocessing.dedispersion import dedisperse_block
@@ -21,10 +23,10 @@ from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
 from .visualization_ranges import get_dynamic_dm_range_for_candidate
 from .plot_composite import save_composite_plot
 
-# Setup logger
+              
 logger = logging.getLogger(__name__)
 
-# Register custom colormap if not already registered
+                                                    
 if "mako" not in plt.colormaps():
     plt.register_cmap(
         name="mako",
@@ -38,7 +40,7 @@ def _calculate_dynamic_dm_range(
     fallback_dm_max: int = None,
     confidence_scores: Iterable | None = None
 ) -> Tuple[float, float]:
-    """Delegado unificado: usa visualization_ranges para rango DM dinámico."""
+    """Unified delegate: uses visualization_ranges for dynamic DM range."""
     if (not getattr(config, 'DM_DYNAMIC_RANGE_ENABLE', True)
         or top_boxes is None
         or len(top_boxes) == 0):
@@ -76,7 +78,7 @@ def _calculate_dynamic_dm_range(
             max_range_width=getattr(config, 'DM_RANGE_MAX_WIDTH', 200.0),
         )
     except Exception as e:
-        print(f"[WARNING] Error calculando rango DM dinámico: {e}")
+        print(f"[WARNING] Error calculating dynamic DM range: {e}")
         dm_min = fallback_dm_min if fallback_dm_min is not None else config.DM_min
         dm_max = fallback_dm_max if fallback_dm_max is not None else config.DM_max
         return float(dm_min), float(dm_max)
@@ -132,14 +134,14 @@ def save_all_plots(
     if comp_path is not None:
         comp_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Calcular muestras reales del slice (por si el último slice está truncado)
+                                                                                   
         real_slice_samples = (
             waterfall_block.shape[0]
             if waterfall_block is not None and hasattr(waterfall_block, "shape")
             else slice_len
         )
 
-        # Generar plot composite (que automáticamente genera plots individuales)
+                                                                                
         save_slice_summary(
             waterfall_block,
             dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,
@@ -168,7 +170,7 @@ def save_all_plots(
         )
         
         logger.info(f"Plot composite generado en: {comp_path}")
-        logger.info(f"Plots individuales generados automáticamente en: {comp_path.parent}/individual_plots/")
+        logger.info(f"Individual plots automatically generated in: {comp_path.parent}/individual_plots/")
 
 def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
     freq_ds = np.mean(
@@ -176,12 +178,12 @@ def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
         axis=1,
     )
     
-    if band_idx == 0:  # Full Band
+    if band_idx == 0:             
         return freq_ds.min(), freq_ds.max()
-    elif band_idx == 1:  # Low Band 
+    elif band_idx == 1:             
         mid_channel = len(freq_ds) // 2
         return freq_ds.min(), freq_ds[mid_channel]
-    elif band_idx == 2:  # High Band
+    elif band_idx == 2:             
         mid_channel = len(freq_ds) // 2  
         return freq_ds[mid_channel], freq_ds.max()
     else:
@@ -213,7 +215,7 @@ def save_slice_summary(
     normalize: bool = False,
     off_regions: Optional[List[Tuple[int, int]]] = None,
     thresh_snr: Optional[float] = None,
-    band_idx: int = 0,  # Para mostrar el rango de frecuencias
+    band_idx: int = 0,                                        
     absolute_start_time: Optional[float] = None, 
     chunk_idx: Optional[int] = None,  
     slice_samples: Optional[int] = None,  

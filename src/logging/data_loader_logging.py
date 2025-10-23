@@ -1,36 +1,37 @@
-"""
-Manejo de Logging para Data Loader en DRAFTS
-============================================
+# This module logs data loading and streaming metrics.
 
-Este módulo proporciona funciones especializadas para mostrar información
-detallada del data loader, especialmente para operaciones de streaming
-de archivos FITS y FIL.
+"""
+Data Loader Logging Management for DRAFTS
+========================================
+
+This module provides specialized functions to display detailed information
+from the data loader, especially for FITS and FIL file streaming operations.
 """
 
-# Standard library imports
+                          
 from typing import Any, Dict, Optional
 
-# Local imports
+               
 from .logging_config import get_global_logger
 
 
 def log_stream_fil_parameters(nsamples: int, chunk_samples: int, overlap_samples: int, 
                              nchans: int, nifs: int, nbits: int, dtype: str) -> None:
     """
-    Registra los parámetros de streaming para archivos FIL.
+    Logs streaming parameters for FIL files.
     
     Args:
-        nsamples: Número total de muestras
-        chunk_samples: Tamaño del chunk
-        overlap_samples: Muestras de solapamiento
-        nchans: Número de canales
-        nifs: Número de IFs
-        nbits: Bits por muestra
-        dtype: Tipo de datos
+        nsamples: Total number of samples
+        chunk_samples: Chunk size
+        overlap_samples: Overlap samples
+        nchans: Number of channels
+        nifs: Number of IFs
+        nbits: Bits per sample
+        dtype: Data type
     """
     logger = get_global_logger()
-    logger.logger.debug(f"🔍 STREAM_FIL: nsamples={nsamples:,}, chunk_samples={chunk_samples:,}, overlap={overlap_samples}")
-    logger.logger.debug(f"🔍 STREAM_FIL: nchans={nchans}, nifs={nifs}, nbits={nbits}, dtype={dtype}")
+    logger.logger.debug(f"[DEBUG] STREAM_FIL: nsamples={nsamples:,}, chunk_samples={chunk_samples:,}, overlap={overlap_samples}")
+    logger.logger.debug(f"[DEBUG] STREAM_FIL: nchans={nchans}, nifs={nifs}, nbits={nbits}, dtype={dtype}")
 
 
 def log_stream_fil_block_generation(chunk_counter: int, block_shape: tuple, block_dtype: str,
@@ -38,70 +39,70 @@ def log_stream_fil_block_generation(chunk_counter: int, block_shape: tuple, bloc
                                    start_with_overlap: int, end_with_overlap: int,
                                    actual_chunk_size: int) -> None:
     """
-    Registra la generación de un bloque en streaming FIL.
+    Logs generation of a block in FIL streaming.
     
     Args:
-        chunk_counter: Contador del chunk
-        block_shape: Forma del bloque
-        block_dtype: Tipo de datos del bloque
-        valid_start: Inicio de la región válida
-        valid_end: Fin de la región válida
+        chunk_counter: Chunk counter
+        block_shape: Block shape
+        block_dtype: Block data type
+        valid_start: Start of valid region
+        valid_end: End of valid region
         start_with_overlap: Inicio con solapamiento
         end_with_overlap: Fin con solapamiento
         actual_chunk_size: Tamaño real del chunk
     """
     logger = get_global_logger()
-    logger.logger.debug(f"🔍 STREAM_FIL BLOQUE {chunk_counter}: shape={block_shape}, dtype={block_dtype}")
-    logger.logger.debug(f"🔍 STREAM_FIL BLOQUE {chunk_counter}: valid_range=({valid_start:,}, {valid_end:,})")
-    logger.logger.debug(f"🔍 STREAM_FIL BLOQUE {chunk_counter}: overlap_range=({start_with_overlap:,}, {end_with_overlap:,})")
-    logger.logger.debug(f"🔍 STREAM_FIL BLOQUE {chunk_counter}: actual_chunk_size={actual_chunk_size:,}")
+    logger.logger.debug(f"[DEBUG] STREAM_FIL BLOQUE {chunk_counter}: shape={block_shape}, dtype={block_dtype}")
+    logger.logger.debug(f"[DEBUG] STREAM_FIL BLOQUE {chunk_counter}: valid_range=({valid_start:,}, {valid_end:,})")
+    logger.logger.debug(f"[DEBUG] STREAM_FIL BLOQUE {chunk_counter}: overlap_range=({start_with_overlap:,}, {end_with_overlap:,})")
+    logger.logger.debug(f"[DEBUG] STREAM_FIL BLOQUE {chunk_counter}: actual_chunk_size={actual_chunk_size:,}")
 
 
 def log_stream_fil_summary(chunk_counter: int) -> None:
     """
-    Registra el resumen de streaming FIL.
+    Logs FIL streaming summary.
     
     Args:
-        chunk_counter: Número total de chunks generados
+        chunk_counter: Total number of chunks generated
     """
     logger = get_global_logger()
-    logger.logger.debug(f"🔍 STREAM_FIL RESUMEN: {chunk_counter} bloques generados exitosamente")
-    logger.logger.debug(f"🔍 STREAM_FIL RESUMEN: archivo procesado completamente a través de streaming")
+    logger.logger.debug(f"[DEBUG] STREAM_FIL SUMMARY: {chunk_counter} blocks generated successfully")
+    logger.logger.debug(f"[DEBUG] STREAM_FIL SUMMARY: file processed completely through streaming")
 
 
 def log_stream_fits_parameters(nsamples: int, chunk_samples: int, overlap_samples: int,
                               nsubint: Optional[int], nchan: Optional[int], 
                               npol: Optional[int], nsblk: Optional[int]) -> None:
     """
-    Registra los parámetros de streaming para archivos FITS.
+    Logs streaming parameters for FITS files.
     
     Args:
-        nsamples: Número total de muestras
-        chunk_samples: Tamaño del chunk
-        overlap_samples: Muestras de solapamiento
-        nsubint: Número de subintegraciones
-        nchan: Número de canales
-        npol: Número de polarizaciones
-        nsblk: Número de muestras por bloque
+        nsamples: Total number of samples
+        chunk_samples: Chunk size
+        overlap_samples: Overlap samples
+        nsubint: Number of subintegrations
+        nchan: Number of channels
+        npol: Number of polarizations
+        nsblk: Number of samples per block
     """
     logger = get_global_logger()
-    logger.logger.debug(f"🔍 STREAM_FITS: nsamples={nsamples:,}, chunk_samples={chunk_samples:,}, overlap={overlap_samples}")
-    logger.logger.debug(f"🔍 STREAM_FITS: nsubint={nsubint if nsubint is not None else 'N/A'}, nchan={nchan if nchan is not None else 'N/A'}")
-    logger.logger.debug(f"🔍 STREAM_FITS: npol={npol if npol is not None else 'N/A'}, nsblk={nsblk if nsblk is not None else 'N/A'}")
+    logger.logger.debug(f"[DEBUG] STREAM_FITS: nsamples={nsamples:,}, chunk_samples={chunk_samples:,}, overlap={overlap_samples}")
+    logger.logger.debug(f"[DEBUG] STREAM_FITS: nsubint={nsubint if nsubint is not None else 'N/A'}, nchan={nchan if nchan is not None else 'N/A'}")
+    logger.logger.debug(f"[DEBUG] STREAM_FITS: npol={npol if npol is not None else 'N/A'}, nsblk={nsblk if nsblk is not None else 'N/A'}")
 
 
 def log_stream_fits_load_strategy(use_memmap: bool, data_shape: tuple, data_dtype: str) -> None:
     """
-    Registra la estrategia de carga para archivos FITS.
+    Logs loading strategy for FITS files.
     
     Args:
-        use_memmap: Si se usa memmap
-        data_shape: Forma de los datos
-        data_dtype: Tipo de datos
+        use_memmap: Whether memmap is used
+        data_shape: Data shape
+        data_dtype: Data type
     """
     logger = get_global_logger()
-    logger.logger.debug(f"🔍 STREAM_FITS CARGA: use_memmap={use_memmap}, data_array.shape={data_shape}")
-    logger.logger.debug(f"🔍 STREAM_FITS CARGA: data_array.dtype={data_dtype}")
+    logger.logger.debug(f"[DEBUG] STREAM_FITS LOAD: use_memmap={use_memmap}, data_array.shape={data_shape}")
+    logger.logger.debug(f"[DEBUG] STREAM_FITS CARGA: data_array.dtype={data_dtype}")
 
 
 def log_stream_fits_block_generation(chunk_counter: int, block_shape: tuple, block_dtype: str,
@@ -109,32 +110,32 @@ def log_stream_fits_block_generation(chunk_counter: int, block_shape: tuple, blo
                                     start_with_overlap: int, end_with_overlap: int,
                                     actual_chunk_size: int) -> None:
     """
-    Registra la generación de un bloque en streaming FITS.
+    Logs generation of a block in FITS streaming.
     
     Args:
-        chunk_counter: Contador del chunk
-        block_shape: Forma del bloque
-        block_dtype: Tipo de datos del bloque
-        valid_start: Inicio de la región válida
-        valid_end: Fin de la región válida
-        start_with_overlap: Inicio con solapamiento
-        end_with_overlap: Fin con solapamiento
-        actual_chunk_size: Tamaño real del chunk
+        chunk_counter: Chunk counter
+        block_shape: Block shape
+        block_dtype: Block data type
+        valid_start: Start of valid region
+        valid_end: End of valid region
+        start_with_overlap: Start with overlap
+        end_with_overlap: End with overlap
+        actual_chunk_size: Actual chunk size
     """
     logger = get_global_logger()
-    logger.logger.debug(f"🔍 STREAM_FITS BLOQUE {chunk_counter}: shape={block_shape}, dtype={block_dtype}")
-    logger.logger.debug(f"🔍 STREAM_FITS BLOQUE {chunk_counter}: valid_range=({valid_start:,}, {valid_end:,})")
-    logger.logger.debug(f"🔍 STREAM_FITS BLOQUE {chunk_counter}: overlap_range=({start_with_overlap:,}, {end_with_overlap:,})")
-    logger.logger.debug(f"🔍 STREAM_FITS BLOQUE {chunk_counter}: actual_chunk_size={actual_chunk_size:,}")
+    logger.logger.debug(f"[DEBUG] STREAM_FITS BLOQUE {chunk_counter}: shape={block_shape}, dtype={block_dtype}")
+    logger.logger.debug(f"[DEBUG] STREAM_FITS BLOQUE {chunk_counter}: valid_range=({valid_start:,}, {valid_end:,})")
+    logger.logger.debug(f"[DEBUG] STREAM_FITS BLOQUE {chunk_counter}: overlap_range=({start_with_overlap:,}, {end_with_overlap:,})")
+    logger.logger.debug(f"[DEBUG] STREAM_FITS BLOQUE {chunk_counter}: actual_chunk_size={actual_chunk_size:,}")
 
 
 def log_stream_fits_summary(chunk_counter: int) -> None:
     """
-    Registra el resumen de streaming FITS.
+    Logs FITS streaming summary.
     
     Args:
-        chunk_counter: Número total de chunks generados
+        chunk_counter: Total number of chunks generated
     """
     logger = get_global_logger()
-    logger.logger.debug(f"🔍 STREAM_FITS RESUMEN: {chunk_counter} bloques generados exitosamente")
-    logger.logger.debug(f"🔍 STREAM_FITS RESUMEN: archivo procesado completamente a través de streaming")
+    logger.logger.debug(f"[DEBUG] STREAM_FITS RESUMEN: {chunk_counter} bloques generados exitosamente")
+    logger.logger.debug(f"[DEBUG] STREAM_FITS RESUMEN: archivo procesado completamente a través de streaming")

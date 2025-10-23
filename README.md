@@ -1,5 +1,9 @@
 # DRAFTS++ Radio Transient Search Pipeline
 
+![DRAFTS WorkFlow](WorkFlow.png)
+
+> **Original repository:** [DRAFTS](https://github.com/SukiYume/DRAFTS) - Deep learning-based RAdio Fast Transient Search pipeline
+
 ## Project Overview
 
 **DRAFTS++** is an advanced pipeline for detecting **Fast Radio Bursts (FRBs)** in radio astronomy data using deep learning. It builds upon the original **DRAFTS** (Deep Learning‑based RAdio Fast Transient Search) framework, integrating modern neural networks to overcome challenges like radio‑frequency interference (RFI) and propagation dispersion that hinder traditional search algorithms. In DRAFTS++, a **deep‑learning object detector** (CenterNet‑based) localizes burst candidates in dedispersed time–DM space, and a **binary classifier** (ResNet‑based) verifies each candidate to distinguish real FRBs from noise/RFI. This two‑stage approach greatly improves detection accuracy and reduces false positives compared to classical methods (e.g., PRESTO/Heimdall).

@@ -10,7 +10,13 @@ RESULTS_DIR = Path("./Results")                      # Directorio para guardar r
 
 # Lista de archivos a procesar
 FRB_TARGETS = [
-   "3096_0001_00_8bit"
+   "3096_0001_00_8bit",
+   "3097_0001_00_8bit",
+   "3098_0001_00_8bit",
+   "3099_0001_00_8bit",
+   "3100_0001_00_8bit",
+   "3101_0001_00_8bit",
+   "3102_0001_00_8bit",
 ]
 
 # =============================================================================
@@ -26,7 +32,7 @@ SLICE_DURATION_MS: float = 500.0
 
 # Factores de reducción para optimizar el procesamiento
 DOWN_FREQ_RATE: int = 1                      # Factor de reducción en frecuencia (1 = sin reducción)
-DOWN_TIME_RATE: int = 12                     # Factor de reducción en tiempo (1 = sin reducción)
+DOWN_TIME_RATE: int = 16                     # Factor de reducción en tiempo (1 = sin reducción)
 
 # =============================================================================
 # CONFIGURACIÓN DE DISPERSIÓN (DM)

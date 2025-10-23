@@ -5,19 +5,12 @@ from pathlib import Path
 # =============================================================================
 
 # Input and output directories
-DATA_DIR = Path("./Data/raw")                        # Directory with input files (.fits, .fil)
-RESULTS_DIR = Path("./fusion-tests")                 # Directory where results are stored
+DATA_DIR = Path("./Data/raw/")                        # Directory with input files (.fits, .fil)
+RESULTS_DIR = Path("./Tests-Pulse-big")                 # Directory where results are stored
 
 # List of files to process
 FRB_TARGETS = [
-   "3096_0001_00_8bit",
-   "3097_0001_00_8bit",
-   "3098_0001_00_8bit",
-   "3099_0001_00_8bit",
-   "3100_0001_00_8bit",
-   "3101_0001_00_8bit",
-   "3102_0001_00_8bit",
-
+   "2017-04-03-08_55_22_153_0006_t23.444"
 ]
 
 # =============================================================================
@@ -25,7 +18,7 @@ FRB_TARGETS = [
 # =============================================================================
 
 # Duration of each temporal slice (milliseconds)
-SLICE_DURATION_MS: float = 300.0
+SLICE_DURATION_MS: float = 5000.0
 
 # =============================================================================
 # DOWNSAMPLING CONFIGURATION
@@ -33,9 +26,7 @@ SLICE_DURATION_MS: float = 300.0
 
 # Reduction factors to optimize processing
 DOWN_FREQ_RATE: int = 1                      # Frequency reduction factor (1 = no reduction)
-DOWN_TIME_RATE: int = 8                     # Time reduction factor (1 = no reduction)
-
->>>>>>> f7d1333ce95ae21dd8689fe575ed169bfafc9ecc
+DOWN_TIME_RATE: int = 1080                     # Time reduction factor (1 = no reduction)
 
 # =============================================================================
 # DISPERSION MEASURE CONFIGURATION (DM)
@@ -91,11 +82,11 @@ POLARIZATION_INDEX: int = 0
 # =============================================================================
 
 # Frequency and file debugging
-DEBUG_FREQUENCY_ORDER: bool = True        # True = show detailed frequency and file information
+DEBUG_FREQUENCY_ORDER: bool = False        # True = show detailed frequency and file information
                                            # False = quiet mode (recommended for batch processing)
 
 # Force plot generation even when no candidates (debug mode)
-FORCE_PLOTS: bool = False                  # True = always generate plots for inspection
+FORCE_PLOTS: bool = True                  # True = always generate plots for inspection
 
 # =============================================================================
 # CANDIDATE FILTERING CONFIGURATION

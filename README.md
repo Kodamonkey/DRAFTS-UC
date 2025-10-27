@@ -1,4 +1,4 @@
-# DRAFTS++ Radio Transient Search Pipeline
+# DRAFTS++: Radio Transient Search Pipeline 
 
 ![DRAFTS WorkFlow](WorkFlow.png)
 
@@ -30,7 +30,7 @@
 
 ```bash
 # 1) Clone and enter the repo
-git clone <REPOSITORY_URL>
+git clone https://github.com/Kodamonkey/DRAFTS-UC.git
 cd DRAFTS-UC
 
 # 2) Create & activate a virtual environment (Python 3.8+)
@@ -67,7 +67,7 @@ python -c "import torch; print(f'PyTorch={torch.__version__} CUDA={torch.cuda.is
 
 ---
 
-## Repository Layout (abridged)
+## Repository Layout 
 
 ```
 DRAFTS-UC/
@@ -266,6 +266,4 @@ If you use DRAFTS++ in research, please cite the original DRAFTS paper and this 
 - **Zhang, Y.‑K., et al. (2024)**, _DRAFTS: A Deep Learning‑Based Radio Fast Transient Search Pipeline_ (arXiv:2410.03200).
 - **DRAFTS‑UC / DRAFTS++**: this repository and documentation.
 
-We acknowledge PRESTO and Heimdall for foundational single‑pulse search tooling, and the FRB community for datasets and benchmarks that enabled modern learning‑based approaches.
-
-** made by Sebastian Salgado Polanco **
+**Made by Sebastian Salgado Polanco**

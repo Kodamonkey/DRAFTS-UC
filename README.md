@@ -1,7 +1,5 @@
 # DRAFTS++: Radio Transient Search Pipeline 
 
-![DRAFTS WorkFlow](WorkFlow.png)
-
 > **Original repository:** [DRAFTS](https://github.com/SukiYume/DRAFTS) - Deep learning-based RAdio Fast Transient Search pipeline
 
 ## Project Overview

@@ -50,6 +50,7 @@ docs/
 # =============================================================================
 # MODELOS Y ARCHIVOS DE ENTRENAMIENTO
 # =============================================================================
+# Excluir carpeta models/ raíz, pero permitir src/models/ específicos
 models/
 *.pth
 *.pt
@@ -58,6 +59,11 @@ models/
 *.hdf5
 *.pkl
 *.pickle
+
+# EXCEPCIÓN: Permitir modelos específicos en src/models/
+!src/models/
+!src/models/cent_resnet50.pth
+!src/models/class_resnet50.pth
 
 # =============================================================================
 # CARPETAS LEGACY Y OBSOLETAS

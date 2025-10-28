@@ -6,7 +6,7 @@ from pathlib import Path
 
 # Input and output directories
 DATA_DIR = Path("./Data/raw/")                        # Directory with input files (.fits, .fil)
-RESULTS_DIR = Path("./Tests-Pulse-big")                 # Directory where results are stored
+RESULTS_DIR = Path("./Tests-Pulse-big-new")                 # Directory where results are stored
 
 # List of files to process
 FRB_TARGETS = [

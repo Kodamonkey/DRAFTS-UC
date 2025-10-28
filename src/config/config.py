@@ -76,11 +76,11 @@ except ImportError:
 
                      
 MODEL_NAME = "resnet50"                                                           
-MODEL_PATH = Path(f"./models/cent_{MODEL_NAME}.pth")                            
+MODEL_PATH = Path(__file__).parent.parent / "models" / f"cent_{MODEL_NAME}.pth"                            
 
                                  
 CLASS_MODEL_NAME = "resnet50"                                                         
-CLASS_MODEL_PATH = Path(f"./models/class_{CLASS_MODEL_NAME}.pth")                  
+CLASS_MODEL_PATH = Path(__file__).parent.parent / "models" / f"class_{CLASS_MODEL_NAME}.pth"                  
 
                         
 if torch is not None:

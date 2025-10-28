@@ -60,10 +60,10 @@ models/
 *.pkl
 *.pickle
 
-# EXCEPCIÓN: Permitir modelos específicos en src/models/
+# EXCEPCIÓN: Permitir modelos específicos ResNet-18 en src/models/
 !src/models/
-!src/models/cent_resnet50.pth
-!src/models/class_resnet50.pth
+!src/models/cent_resnet18.pth
+!src/models/class_resnet18.pth
 
 # =============================================================================
 # CARPETAS LEGACY Y OBSOLETAS

@@ -75,11 +75,11 @@ except ImportError:
                                                                                
 
                      
-MODEL_NAME = "resnet50"                                                           
+MODEL_NAME = "resnet18"                                                           
 MODEL_PATH = Path(__file__).parent.parent / "models" / f"cent_{MODEL_NAME}.pth"                            
 
                                  
-CLASS_MODEL_NAME = "resnet50"                                                         
+CLASS_MODEL_NAME = "resnet18"                                                         
 CLASS_MODEL_PATH = Path(__file__).parent.parent / "models" / f"class_{CLASS_MODEL_NAME}.pth"                  
 
                         

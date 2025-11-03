@@ -620,7 +620,11 @@ def _process_file_chunked(
             "error_details": str(e)
         }
 
-def run_pipeline(chunk_samples: int = 0) -> None:
+def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> None:
+    # Inyectar configuración si se proporciona
+    if config_dict is not None:
+        config.inject_config(config_dict)
+    
     from ..logging.logging_config import setup_logging, set_global_logger
     
     logger = setup_logging(level="INFO", use_colors=True)                     

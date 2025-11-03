@@ -18,7 +18,7 @@ FRB_TARGETS = [
 # =============================================================================
 
 # Duration of each temporal slice (milliseconds)
-SLICE_DURATION_MS: float = 5000.0
+SLICE_DURATION_MS: float = 300.0
 
 # =============================================================================
 # DOWNSAMPLING CONFIGURATION
@@ -26,7 +26,7 @@ SLICE_DURATION_MS: float = 5000.0
 
 # Reduction factors to optimize processing
 DOWN_FREQ_RATE: int = 1                      # Frequency reduction factor (1 = no reduction)
-DOWN_TIME_RATE: int = 1080                     # Time reduction factor (1 = no reduction)
+DOWN_TIME_RATE: int = 8                      # Time reduction factor (1 = no reduction)
 
 # =============================================================================
 # DISPERSION MEASURE CONFIGURATION (DM)
@@ -45,7 +45,7 @@ DET_PROB: float = 0.3                       # Minimum probability to consider a 
 CLASS_PROB: float = 0.5                     # Minimum probability to classify as burst
 
 # SNR threshold for highlighting in visualizations
-SNR_THRESH: float = 4.0                     # SNR threshold used in plots
+SNR_THRESH: float = 5.0                     # SNR threshold used in plots
 
 # =============================================================================
 # MULTI-BAND ANALYSIS CONFIGURATION
@@ -86,7 +86,7 @@ DEBUG_FREQUENCY_ORDER: bool = False        # True = show detailed frequency and 
                                            # False = quiet mode (recommended for batch processing)
 
 # Force plot generation even when no candidates (debug mode)
-FORCE_PLOTS: bool = True                  # True = always generate plots for inspection
+FORCE_PLOTS: bool = False                 # True = always generate plots for inspection
 
 # =============================================================================
 # CANDIDATE FILTERING CONFIGURATION

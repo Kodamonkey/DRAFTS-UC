@@ -9,11 +9,16 @@ o que son específicas del funcionamiento interno del pipeline.
 
 IMPORTANTE: 
 - NO modifique este archivo directamente
-- Para configurar parámetros del usuario, modifique user_config.py
+- Para configurar parámetros del usuario, use argumentos de línea de comandos o modifique user_config.py
 - Este archivo mantiene compatibilidad con el código existente
 """
 
 from __future__ import annotations
+from pathlib import Path
+
+# Variable global para almacenar configuración inyectada
+_injected_config: dict = {}
+_config_injected: bool = False
 
                                       
 try:
@@ -35,31 +40,74 @@ try:
         SAVE_ONLY_BURST,
         AUTO_HIGH_FREQ_PIPELINE,
         HIGH_FREQ_THRESHOLD_MHZ,
+        POLARIZATION_MODE,
+        POLARIZATION_INDEX,
     )
 except ImportError:
-                                             
-    from user_config import (
-        DATA_DIR,
-        DEBUG_FREQUENCY_ORDER,
-        DM_max,
-        DM_min,
-        DOWN_FREQ_RATE,
-        DOWN_TIME_RATE,
-        DET_PROB,
-        CLASS_PROB,
-        FORCE_PLOTS,
-        FRB_TARGETS,
-        RESULTS_DIR,
-        SLICE_DURATION_MS,
-        SNR_THRESH,
-        USE_MULTI_BAND,
-        SAVE_ONLY_BURST,
-        AUTO_HIGH_FREQ_PIPELINE,
-        HIGH_FREQ_THRESHOLD_MHZ,
-    )
+    try:
+        from user_config import (
+            DATA_DIR,
+            DEBUG_FREQUENCY_ORDER,
+            DM_max,
+            DM_min,
+            DOWN_FREQ_RATE,
+            DOWN_TIME_RATE,
+            DET_PROB,
+            CLASS_PROB,
+            FORCE_PLOTS,
+            FRB_TARGETS,
+            RESULTS_DIR,
+            SLICE_DURATION_MS,
+            SNR_THRESH,
+            USE_MULTI_BAND,
+            SAVE_ONLY_BURST,
+            AUTO_HIGH_FREQ_PIPELINE,
+            HIGH_FREQ_THRESHOLD_MHZ,
+            POLARIZATION_MODE,
+            POLARIZATION_INDEX,
+        )
+    except:
+        # Valores por defecto si no se puede importar user_config
+        DATA_DIR = Path("./Data/raw/")
+        RESULTS_DIR = Path("./Tests-Pulse-big-new")
+        FRB_TARGETS = ["2017-04-03-08_55_22_153_0006_t23.444"]
+        SLICE_DURATION_MS = 300.0
+        DOWN_FREQ_RATE = 1
+        DOWN_TIME_RATE = 8
+        DM_min = 0
+        DM_max = 1024
+        DET_PROB = 0.3
+        CLASS_PROB = 0.5
+        SNR_THRESH = 5.0
+        USE_MULTI_BAND = False
+        SAVE_ONLY_BURST = True
+        AUTO_HIGH_FREQ_PIPELINE = True
+        HIGH_FREQ_THRESHOLD_MHZ = 8000.0
+        POLARIZATION_MODE = "intensity"
+        POLARIZATION_INDEX = 0
+        DEBUG_FREQUENCY_ORDER = False
+        FORCE_PLOTS = False
 
-                          
-from pathlib import Path
+
+def inject_config(config_dict: dict):
+    """
+    Inyecta configuración desde argumentos de línea de comandos.
+    Sobrescribe las variables del módulo.
+    
+    Args:
+        config_dict: Diccionario con valores de configuración a inyectar
+    """
+    import sys
+    global _config_injected
+    
+    # Importar el módulo actual (config)
+    current_module = sys.modules[__name__]
+    
+    # Aplicar los valores inyectados a las variables del módulo
+    for key, value in config_dict.items():
+        setattr(current_module, key, value)
+    
+    _config_injected = True
 
                      
 import numpy as np

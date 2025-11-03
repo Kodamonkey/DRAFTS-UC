@@ -61,7 +61,6 @@ def validate_file_compatibility(file_path: Path) -> Dict[str, Any]:
         except ValueError as e:
             validation_result['validation_errors'].append(str(e))
             return validation_result
-        
                                       
         try:
             size_bytes = file_path.stat().st_size

@@ -1,0 +1,144 @@
+# Docker Compose para DRAFTS-UC
+
+# ==============================================================================
+# DRAFTS-UC Pipeline - Docker Compose
+# ==============================================================================
+# Este archivo define servicios para ejecutar el pipeline en CPU o GPU
+#
+# Uso:
+#   - CPU:  docker-compose run --rm drafts-cpu --data-dir /data --results-dir /results --target "archivo"
+#   - GPU:  docker-compose run --rm drafts-gpu --data-dir /data --results-dir /results --target "archivo"
+#
+# Para construcción:
+#   - CPU:  docker-compose build drafts-cpu
+#   - GPU:  docker-compose build drafts-gpu
+# ==============================================================================
+
+services:
+  # ============================================================================
+  # Servicio CPU - Para sistemas sin GPU NVIDIA
+  # ============================================================================
+  drafts-cpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: cpu-final
+    image: drafts-uc:cpu-latest
+    container_name: drafts-uc-cpu
+    
+    # Volúmenes para datos, resultados y modelos
+    volumes:
+      # Datos de entrada (solo lectura recomendado)
+      - ./Data/raw:/app/Data/raw:ro
+      
+      # Resultados (lectura-escritura)
+      - ./Results:/app/Results:rw
+      
+      # Modelos pre-entrenados (solo lectura) - donde el código los busca
+      - ./src/models:/app/src/models:ro
+      
+      # Opcional: logs persistentes
+      - ./logs:/app/logs:rw
+      
+      # Opcional: datos procesados temporales
+      - ./Data/processed:/app/Data/processed:rw
+    
+    # Variables de entorno
+    environment:
+      - PYTHONUNBUFFERED=1
+      - OMP_NUM_THREADS=4
+      - MKL_NUM_THREADS=4
+      - NUMBA_NUM_THREADS=4
+    
+    # Límites de recursos
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 16G
+        reservations:
+          cpus: '4'
+          memory: 8G
+    
+    # Red
+    network_mode: bridge
+    
+    # Política de reinicio
+    restart: "no"
+    
+    # Usuario
+    user: "1000:1000"
+
+  # ============================================================================
+  # Servicio GPU - Para sistemas con GPU NVIDIA + CUDA
+  # ============================================================================
+  drafts-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: gpu-final
+    image: drafts-uc:gpu-latest
+    container_name: drafts-uc-gpu
+    
+    # Runtime NVIDIA para acceso a GPU
+    runtime: nvidia
+    
+    # Volúmenes para datos, resultados y modelos
+    volumes:
+      # Datos de entrada (solo lectura recomendado)
+      - ./Data/raw:/app/Data/raw:ro
+      
+      # Resultados (lectura-escritura)
+      - ./Results:/app/Results:rw
+      
+      # Modelos pre-entrenados (solo lectura) - donde el código los busca
+      - ./src/models:/app/src/models:ro
+      
+      # Opcional: logs persistentes
+      - ./logs:/app/logs:rw
+      
+      # Opcional: datos procesados temporales
+      - ./Data/processed:/app/Data/processed:rw
+    
+    # Variables de entorno para GPU
+    environment:
+      - PYTHONUNBUFFERED=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - CUDA_VISIBLE_DEVICES=0
+    
+    # Límites de recursos
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 32G
+        reservations:
+          cpus: '4'
+          memory: 16G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    # Red
+    network_mode: bridge
+    
+    # Política de reinicio
+    restart: "no"
+    
+    # Usuario
+    user: "1000:1000"
+
+# ==============================================================================
+# Volúmenes nombrados (opcional)
+# ==============================================================================
+# Descomenta si prefieres usar volúmenes nombrados en lugar de bind mounts
+# volumes:
+#   drafts-data:
+#     driver: local
+#   drafts-results:
+#     driver: local
+#   drafts-models:
+#     driver: local
+

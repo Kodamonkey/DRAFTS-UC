@@ -1,0 +1,92 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.manifest
+*.spec
+
+# Virtual environments
+venv/
+venv_drafts/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.tox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# Data directories (se montan como volúmenes)
+Data/
+Tests-Pulse-big/
+Tests-Pulse-big-new/
+Results/
+
+# Logs
+*.log
+logs/
+src/logging/log/
+
+# Git y archivos Docker
+.git/
+.gitignore
+.gitattributes
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentation (excluir archivos md innecesarios, mantener README)
+*.md
+!README.md
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Temporal y cache
+*.tmp
+*.temp
+.cache/
+
+# Modelos (se montan como volúmenes, no copiar en imagen)
+src/models/*.pth
+src/models/*.pt
+models/
+
+
+

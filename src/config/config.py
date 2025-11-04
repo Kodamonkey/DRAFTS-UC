@@ -117,120 +117,71 @@ try:
     import torch
 except ImportError:                                                    
     torch = None
-
-                                                                               
-                                    
-                                                                               
-
-                     
+              
 MODEL_NAME = "resnet18"                                                           
 MODEL_PATH = Path(__file__).parent.parent / "models" / f"cent_{MODEL_NAME}.pth"                            
-
-                                 
+                                
 CLASS_MODEL_NAME = "resnet18"                                                         
 CLASS_MODEL_PATH = Path(__file__).parent.parent / "models" / f"class_{CLASS_MODEL_NAME}.pth"                  
-
-                        
+                   
 if torch is not None:
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 else:
     DEVICE = "cpu"
-
-                                                                               
-                                                                        
-                                                                               
-
-                                                       
+                                                   
 FREQ: np.ndarray | None = None                                                         
 FREQ_RESO: int = 0                                                              
 TIME_RESO: float = 0.0                                                      
 FILE_LENG: int = 0                                                           
-
-                                                           
+                                                         
 SLICE_LEN: int = 512                                                                                                          
-
-                          
+                      
 DATA_NEEDS_REVERSAL: bool = False                                                       
-
-                                          
+                                        
 MAX_SAMPLES_LIMIT: int = 10_000_000                                                                      
-
-                                                                               
-                                       
-                                                                               
-
-                                                
+                                             
 DM_RANGE_ADAPTIVE: bool = False                                                                  
 DM_RANGE_MIN_WIDTH: float = 80.0                                                  
 DM_RANGE_MAX_WIDTH: float = 300.0                                                 
-
-                                              
+                                         
 DM_PLOT_MARGIN_FACTOR: float = 0.25                                                    
 DM_PLOT_MIN_RANGE: float = 120.0                                              
 DM_PLOT_MAX_RANGE: float = 400.0                                              
 DM_PLOT_DEFAULT_RANGE: float = 250.0                                          
 DM_RANGE_DEFAULT_VISUALIZATION: str = "detailed"                                     
-
-                                  
+                               
 SNR_OFF_REGIONS = [(-250, -150), (-100, -50), (50, 100), (150, 250)]                       
 SNR_HIGHLIGHT_COLOR = "red"                                                  
-
-                                              
+                                         
 SLICE_LEN_MIN: int = 32                                                                                           
 SLICE_LEN_MAX: int = 2048                                                                                         
-
-                                                                               
-                                                           
-                                                                               
-
-                                                             
+                                                         
 USE_PLANNED_CHUNKING: bool = True                                                                       
-
-                                  
+                            
 MAX_CHUNK_BYTES: int | None = None                                                                                            
 MAX_RAM_FRACTION: float = 0.25                                                                                
 OVERHEAD_FACTOR: float = 1.3                                                                  
-
                                   
 TIME_TOL_MS: float = 0.1                                                                                   
 MAX_SLICE_COUNT: int = 5000                                                      
-
-                                                                               
-                                                      
-                                                                               
-
-                                                                
+                                                              
 DM_DYNAMIC_RANGE_ENABLE: bool = False                                                         
 DM_RANGE_FACTOR: float = 0.3                                                                 
-
-                                      
+                                     
 SNR_SHOW_PEAK_LINES: bool = False                                                              
 SNR_COLORMAP = "viridis"                                                     
-
-                                                                               
-                                                        
-                                                                               
-
                                       
 LOG_LEVEL: str = "INFO"                                                                    
 LOG_COLORS: bool = True                                                 
 LOG_FILE: bool = False                                               
 GPU_VERBOSE: bool = False                                                       
 SHOW_PROGRESS: bool = True                                              
-
                                                                                
-                                                                         
-                                                                               
-
-                                                                                  
 PREWHITEN_BEFORE_DM: bool = True
 
-                                                                                    
+                                                                                   
 SHADE_INVALID_TAIL: bool = True
 
-                                                                               
-                                      
-                                                                               
 
 def get_band_configs():
     """Retorna la configuración de bandas según USE_MULTI_BAND"""

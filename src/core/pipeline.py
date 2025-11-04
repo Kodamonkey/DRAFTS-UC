@@ -502,10 +502,8 @@ def _process_file_chunked(
         
         # Switch to the high-frequency pipeline when the configuration allows it
         try:
-            freq_ds_local = np.mean(
-                config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
-                axis=1,
-            )
+            # FIX: Usar calculate_frequency_downsampled para evitar error con canales no divisibles
+            freq_ds_local = calculate_frequency_downsampled()
             center_mhz = float(np.median(freq_ds_local))
             exceeds_threshold = center_mhz >= float(getattr(config, 'HIGH_FREQ_THRESHOLD_MHZ', 8000.0))
         except Exception:
@@ -620,7 +618,11 @@ def _process_file_chunked(
             "error_details": str(e)
         }
 
-def run_pipeline(chunk_samples: int = 0) -> None:
+def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> None:
+    # Inyectar configuración si se proporciona
+    if config_dict is not None:
+        config.inject_config(config_dict)
+    
     from ..logging.logging_config import setup_logging, set_global_logger
     
     logger = setup_logging(level="INFO", use_colors=True)                     

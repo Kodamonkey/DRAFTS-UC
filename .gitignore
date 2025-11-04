@@ -50,6 +50,7 @@ docs/
 # =============================================================================
 # MODELOS Y ARCHIVOS DE ENTRENAMIENTO
 # =============================================================================
+
 models/
 *.pth
 *.pt
@@ -58,6 +59,10 @@ models/
 *.hdf5
 *.pkl
 *.pickle
+
+!src/models/
+!src/models/cent_resnet18.pth
+!src/models/class_resnet18.pth
 
 # =============================================================================
 # CARPETAS LEGACY Y OBSOLETAS
@@ -135,9 +140,10 @@ build/
 # =============================================================================
 # ARCHIVOS DE DOCKER
 # =============================================================================
-Dockerfile
-docker-compose.yml
-.dockerignore
+# Archivos Docker ahora son parte del proyecto (comentado para permitir commit)
+# Dockerfile
+# docker-compose.yml
+# .dockerignore
 
 # =============================================================================
 # ARCHIVOS DE CI/CD

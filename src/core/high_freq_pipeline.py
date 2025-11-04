@@ -381,6 +381,7 @@ def _process_file_chunked_high_freq(
         plan_slices,
         trim_valid_window,
     )
+    from .pipeline_parameters import calculate_frequency_downsampled
     from ..output.candidate_manager import ensure_csv_header
     from ..logging import log_block_processing, log_streaming_parameters
     import time
@@ -398,7 +399,8 @@ def _process_file_chunked_high_freq(
 
     # Streaming parameters reused from the main pipeline.
     total_samples = config.FILE_LENG
-    freq_ds = np.mean(config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE), axis=1)
+    # FIX: Usar calculate_frequency_downsampled que hace trim seguro de canales
+    freq_ds = calculate_frequency_downsampled()
     nu_min = float(freq_ds.min())
     nu_max = float(freq_ds.max())
     dt_max_sec = 4.1488e3 * config.DM_max * (nu_min ** -2 - nu_max ** -2)

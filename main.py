@@ -71,13 +71,13 @@ Ejemplos de uso:
     # =============================================================================
     # MULTI-BAND ANALYSIS CONFIGURATION
     # =============================================================================
-    parser.add_argument("--multi-band", action="store_true", default=False,
+    parser.add_argument("--multi-band", dest="multi_band", action="store_true",
                         help="Activar análisis multi-band (Full/Low/High)")
     
     # =============================================================================
     # HIGH-FREQUENCY PIPELINE CONFIGURATION
     # =============================================================================
-    parser.add_argument("--auto-high-freq", action="store_true", default=True,
+    parser.add_argument("--auto-high-freq", dest="auto_high_freq", action="store_true",
                         help="Activar pipeline de alta frecuencia automáticamente")
     parser.add_argument("--no-auto-high-freq", dest="auto_high_freq", action="store_false",
                         help="Desactivar pipeline de alta frecuencia automático")
@@ -96,20 +96,31 @@ Ejemplos de uso:
     # =============================================================================
     # LOGGING AND DEBUG CONFIGURATION
     # =============================================================================
-    parser.add_argument("--debug-frequency", action="store_true", default=False,
-                        help="Mostrar información detallada de frecuencia y archivos [por defecto: desactivado]")
-    parser.add_argument("--force-plots", action="store_true", default=False,
+    parser.add_argument("--debug-frequency", dest="debug_frequency", action="store_true",
+                        help="Mostrar información detallada de frecuencia y archivos")
+    parser.add_argument("--force-plots", dest="force_plots", action="store_true",
                         help="Siempre generar gráficos (incluso sin candidatos)")
     parser.add_argument("--no-force-plots", dest="force_plots", action="store_false",
-                        help="No generar gráficos cuando no hay candidatos [por defecto]")
+                        help="No generar gráficos cuando no hay candidatos")
     
     # =============================================================================
     # CANDIDATE FILTERING CONFIGURATION
     # =============================================================================
-    parser.add_argument("--save-all", dest="save_only_burst", action="store_false", default=True,
+    parser.add_argument("--save-all", dest="save_only_burst", action="store_false",
                         help="Guardar todos los candidatos (no solo BURST)")
-    parser.add_argument("--save-only-burst", action="store_true", default=True,
+    parser.add_argument("--save-only-burst", dest="save_only_burst", action="store_true",
                         help="Guardar solo candidatos clasificados como BURST")
+    
+    # =============================================================================
+    # DEFAULTS para argumentos booleanos
+    # =============================================================================
+    parser.set_defaults(
+        multi_band=False,           # Multi-band: desactivado
+        auto_high_freq=True,        # Auto high-freq: activado
+        debug_frequency=False,      # Debug: desactivado
+        force_plots=False,          # Force plots: desactivado
+        save_only_burst=True        # Save only BURST: activado
+    )
     
     args = parser.parse_args()
     return args

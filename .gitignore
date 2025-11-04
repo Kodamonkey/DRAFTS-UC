@@ -141,9 +141,10 @@ build/
 # =============================================================================
 # ARCHIVOS DE DOCKER
 # =============================================================================
-Dockerfile
-docker-compose.yml
-.dockerignore
+# Archivos Docker ahora son parte del proyecto (comentado para permitir commit)
+# Dockerfile
+# docker-compose.yml
+# .dockerignore
 
 # =============================================================================
 # ARCHIVOS DE CI/CD

@@ -16,6 +16,7 @@
 ## Features
 
 - **CUDA‑accelerated dedispersion** for near real‑time DM sweeps.
+
 - **CenterNet object detection** to infer **arrival time & DM** directly from time–DM "bow‑ties".
 - **ResNet binary classification** to confirm candidates and **reduce false positives** dramatically.
 - **Command-line configuration**: flexible parameter control via argumentos CLI con valores por defecto sensibles.

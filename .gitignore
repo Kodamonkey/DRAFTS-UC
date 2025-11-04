@@ -50,7 +50,7 @@ docs/
 # =============================================================================
 # MODELOS Y ARCHIVOS DE ENTRENAMIENTO
 # =============================================================================
-# Excluir carpeta models/ raíz, pero permitir src/models/ específicos
+
 models/
 *.pth
 *.pt
@@ -60,7 +60,6 @@ models/
 *.pkl
 *.pickle
 
-# EXCEPCIÓN: Permitir modelos específicos ResNet-18 en src/models/
 !src/models/
 !src/models/cent_resnet18.pth
 !src/models/class_resnet18.pth

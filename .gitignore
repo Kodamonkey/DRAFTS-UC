@@ -1,5 +1,5 @@
 # =============================================================================
-# ENTORNO VIRTUAL Y DEPENDENCIAS
+# VIRTUAL ENVIRONMENT AND DEPENDENCIES
 # =============================================================================
 venv_drafts/
 venv/
@@ -15,7 +15,7 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 # =============================================================================
-# DATOS Y RESULTADOS
+# DATA AND RESULTS
 # =============================================================================
 Data/
 Results/
@@ -27,7 +27,7 @@ Results/
 *.npz
 
 # =============================================================================
-# LOGS Y ARCHIVOS TEMPORALES
+# LOGS AND TEMPORARY FILES
 # =============================================================================
 *.log
 *.tmp
@@ -37,7 +37,7 @@ Results/
 *~
 
 # =============================================================================
-# DOCUMENTACIÓN Y ARCHIVOS DE TEXTO
+# DOCUMENTATION AND TEXT FILES
 # =============================================================================
 docs/
 *.pdf
@@ -48,7 +48,7 @@ docs/
 !README.md
 
 # =============================================================================
-# MODELOS Y ARCHIVOS DE ENTRENAMIENTO
+# MODELS AND TRAINING FILES
 # =============================================================================
 
 models/
@@ -65,7 +65,7 @@ models/
 !src/models/class_resnet18.pth
 
 # =============================================================================
-# CARPETAS LEGACY Y OBSOLETAS
+# LEGACY AND OBSOLETE FOLDERS
 # =============================================================================
 legacy/
 drafts/
@@ -73,14 +73,14 @@ presto-master/
 pulse-simulation-main/
 
 # =============================================================================
-# ARCHIVOS DEL SISTEMA
+# SYSTEM FILES
 # =============================================================================
 .DS_Store
 Thumbs.db
 desktop.ini
 
 # =============================================================================
-# IDEs Y EDITORES
+# IDEs AND EDITORS
 # =============================================================================
 .vscode/
 .idea/
@@ -89,21 +89,21 @@ desktop.ini
 *~
 
 # =============================================================================
-# ARCHIVOS DE CONFIGURACIÓN LOCAL
+# LOCAL CONFIGURATION FILES
 # =============================================================================
 config_local.py
 .env.local
 .env.production
 
 # =============================================================================
-# ARCHIVOS DE BACKUP
+# BACKUP FILES
 # =============================================================================
 *.bak
 *.backup
 *.old
 
 # =============================================================================
-# ARCHIVOS DE TEST Y EVALUACIÓN
+# TEST AND EVALUATION FILES
 # =============================================================================
 tests/output/
 tests/results/
@@ -111,7 +111,7 @@ tests/results/
 *.spec
 
 # =============================================================================
-# ARCHIVOS DE COBERTURA Y TESTING
+# COVERAGE AND TESTING FILES
 # =============================================================================
 .coverage
 .pytest_cache/
@@ -124,7 +124,7 @@ coverage.xml
 .hypothesis/
 
 # =============================================================================
-# ARCHIVOS DE DISTRIBUCIÓN
+# DISTRIBUTION FILES
 # =============================================================================
 dist/
 build/
@@ -132,21 +132,21 @@ build/
 *.egg
 
 # =============================================================================
-# ARCHIVOS DE JUPYTER
+# JUPYTER FILES
 # =============================================================================
 .ipynb_checkpoints/
 *.ipynb
 
 # =============================================================================
-# ARCHIVOS DE DOCKER
+# DOCKER FILES
 # =============================================================================
-# Archivos Docker ahora son parte del proyecto (comentado para permitir commit)
+# Docker files are now part of the project (commented to allow commit)
 # Dockerfile
 # docker-compose.yml
 # .dockerignore
 
 # =============================================================================
-# ARCHIVOS DE CI/CD
+# CI/CD FILES
 # =============================================================================
 .github/workflows/
 .gitlab-ci.yml
@@ -154,9 +154,9 @@ build/
 .circleci/
 
 # =============================================================================
-# ARCHIVOS ESPECÍFICOS DEL PROYECTO
+# PROJECT SPECIFIC FILES
 # =============================================================================
-# Carpetas de salida específicas
+# Specific output folders
 waterfall_dispersion/
 waterfall_dedispersion/
 Detections/
@@ -164,7 +164,7 @@ Patches/
 Composite/
 individual_plots/
 
-# Archivos de configuración específicos
+# Specific configuration files
 sonar-project.properties
 
 

@@ -11,7 +11,7 @@
 FROM python:3.10-slim as base-cpu
 
 LABEL maintainer="Sebastian Salgado Polanco"
-LABEL description="DRAFTS-UC: Pipeline de Detección de FRB"
+LABEL description="DRAFTS-UC/DRAFTS++: Pipeline FRB"
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

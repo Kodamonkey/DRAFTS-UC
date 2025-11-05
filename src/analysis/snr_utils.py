@@ -50,7 +50,7 @@ def compute_snr_profile(
     # 3) Matched filtering with PRESTO width set (trimmed to 30 by default)
     widths = [1, 2, 3, 4, 6, 9, 14, 20, 30]
     n = ts.shape[0]
-    # Evitar broadcasting: limitar anchos a la longitud disponible
+    # Avoid broadcasting: constrain widths to the available length
     widths = [w for w in widths if 1 <= w <= n]
     if not widths:
         widths = [1]
@@ -145,7 +145,7 @@ def _detrend_normalize_timeseries(timeseries: np.ndarray) -> np.ndarray:
     return ts / sigma
 
 def _detrend_normalize_by_blocks(timeseries: np.ndarray, block_len: int = 1000, fast: bool = True) -> np.ndarray:
-    """Detrend y normaliza por bloques al estilo PRESTO, devolviendo RMS≈1.
+    """Detrend and normalize by blocks in a PRESTO style, returning RMS≈1.
 
     - Divide the series into blocks of length ~block_len (last block may be smaller)
     - For each block: remove trend (median if fast=True), estimate robust σ

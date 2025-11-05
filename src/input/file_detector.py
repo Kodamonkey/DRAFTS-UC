@@ -72,7 +72,7 @@ def validate_file_compatibility(file_path: Path) -> Dict[str, Any]:
                 
                                                             
             if size_bytes > 10 * 1024**3:
-                logger.warning(f"Archivo muy grande detectado: {size_bytes / (1024**3):.1f} GB")
+                logger.warning(f"Very large file detected: {size_bytes / (1024**3):.1f} GB")
                 
         except OSError as e:
             validation_result['validation_errors'].append(f"Error accessing file: {e}")

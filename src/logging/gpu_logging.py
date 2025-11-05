@@ -1,11 +1,11 @@
 # This module manages GPU-related logging helpers.
 
 """
-Manejo de Logging para GPU en DRAFTS
-===================================
+GPU logging utilities for DRAFTS
+================================
 
-Este módulo proporciona funciones para manejar los mensajes de GPU de manera
-limpia y configurable, evitando el spam de mensajes técnicos.
+This module provides functions to handle GPU messages cleanly and
+configurably, avoiding spammy technical logs.
 """
 
                           
@@ -19,17 +19,16 @@ logger = logging.getLogger(__name__)
 GPU_VERBOSE = False                                                  
 
 def set_gpu_verbose(verbose: bool = False):
-    """Configura si mostrar mensajes detallados de GPU."""
+    """Configure whether to display detailed GPU messages."""
     global GPU_VERBOSE
     GPU_VERBOSE = verbose
 
 def gpu_context(operation: str, suppress_messages: bool = True):
-    """
-    Context manager para operaciones GPU que suprime mensajes innecesarios.
-    
+    """Context manager for GPU operations that suppresses unnecessary messages.
+
     Args:
-        operation: Descripción de la operación GPU
-        suppress_messages: Si suprimir mensajes de CUDA
+        operation: Description of the GPU operation
+        suppress_messages: Whether to suppress CUDA messages
     """
     if suppress_messages:
                                                                     
@@ -50,14 +49,15 @@ def gpu_context(operation: str, suppress_messages: bool = True):
     else:
         yield
 
-def log_gpu_operation(operation: str, success: bool = True, details: Optional[str] = None):
-    """
-    Log de operaciones GPU de manera limpia.
-    
+def log_gpu_operation(
+    operation: str, success: bool = True, details: Optional[str] = None
+):
+    """Cleanly log GPU operations.
+
     Args:
-        operation: Descripción de la operación
-        success: Si la operación fue exitosa
-        details: Detalles adicionales (solo si GPU_VERBOSE=True)
+        operation: Description of the operation
+        success: Whether the operation succeeded
+        details: Additional details (only if ``GPU_VERBOSE=True``)
     """
     try:
         from .logging_config import get_global_logger
@@ -77,12 +77,11 @@ def log_gpu_operation(operation: str, success: bool = True, details: Optional[st
             logger.error(f"{operation}")
 
 def log_gpu_memory_operation(operation: str, bytes_allocated: int = 0):
-    """
-    Log de operaciones de memoria GPU de manera simplificada.
-    
+    """Log GPU memory operations in a simplified way.
+
     Args:
-        operation: Tipo de operación ('alloc', 'free', 'init')
-        bytes_allocated: Bytes involucrados
+        operation: Type of operation ('alloc', 'free', 'init')
+        bytes_allocated: Bytes involved
     """
     if not GPU_VERBOSE:
         return
@@ -106,14 +105,13 @@ def log_gpu_memory_operation(operation: str, bytes_allocated: int = 0):
 
                                                 
 def filter_cuda_messages(message: str) -> bool:
-    """
-    Filtra mensajes CUDA para mostrar solo los relevantes.
-    
+    """Filter CUDA messages to show only the relevant ones.
+
     Args:
-        message: Mensaje a filtrar
-        
+        message: Message to filter
+
     Returns:
-        True si el mensaje debe mostrarse, False si debe suprimirse
+        True if the message should be shown, False if it should be suppressed
     """
                                            
     important_messages = [

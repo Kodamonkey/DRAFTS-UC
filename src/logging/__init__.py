@@ -1,11 +1,11 @@
 # This module collects logging utilities for the pipeline.
 
 """
-Paquete de Logging para DRAFTS
-=============================
+DRAFTS Logging Package
+======================
 
-Este paquete contiene todos los módulos relacionados con el sistema de logging
-del pipeline DRAFTS, incluyendo configuración, formateadores y manejo de GPU.
+This package contains all modules related to the DRAFTS pipeline logging
+system, including configuration, formatters, and GPU handling.
 """
 
 from .logging_config import (

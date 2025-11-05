@@ -169,7 +169,7 @@ def save_all_plots(
             candidate_times_abs=candidate_times_abs,
         )
         
-        logger.info(f"Plot composite generado en: {comp_path}")
+        logger.info(f"Composite plot generated at: {comp_path}")
         logger.info(f"Individual plots automatically generated in: {comp_path.parent}/individual_plots/")
 
 def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:

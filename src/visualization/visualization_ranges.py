@@ -167,8 +167,8 @@ class DynamicDMRangeCalculator:
         dm_candidates_center = np.mean(dm_candidates)
         dm_candidates_range = dm_candidates_max - dm_candidates_min
         
-        logger.info("Calculando rango para %d candidatos: DM %.1f - %.1f", 
-                   len(dm_candidates), dm_candidates_min, dm_candidates_max)
+        logger.info("Calculating range for %d candidates: DM %.1f - %.1f",
+                    len(dm_candidates), dm_candidates_min, dm_candidates_max)
         
                                                          
         expanded_range = dm_candidates_range * coverage_factor
@@ -206,18 +206,17 @@ class DynamicDMRangeCalculator:
         adaptive_factor: bool = True,
         **kwargs
     ) -> Tuple[float, float, Dict[str, Any]]:
-        """
-        Calcula rango DM adaptativo basado en confianza de detección.
-        
+        """Calculate an adaptive DM range based on detection confidence.
+
         Parameters
         ----------
         dm_optimal : float
-            DM óptimo del candidato
+            Optimal DM of the candidate
         confidence : float
-            Confianza de la detección (0-1)
+            Detection confidence (0-1)
         adaptive_factor : bool
-            Si True, ajusta el rango basado en la confianza
-            
+            If True, adjust the range according to the confidence
+
         Returns
         -------
         tuple
@@ -233,8 +232,11 @@ class DynamicDMRangeCalculator:
             adjusted_range_factor = base_range_factor * confidence_adjustment
             kwargs['range_factor'] = adjusted_range_factor
             
-            logger.info("Ajuste adaptativo: confianza=%.2f, factor=%.3f", 
-                       confidence, adjusted_range_factor)
+            logger.info(
+                "Adaptive adjustment: confidence=%.2f, factor=%.3f",
+                confidence,
+                adjusted_range_factor,
+            )
         
         dm_plot_min, dm_plot_max, details = self.calculate_optimal_dm_range(
             dm_optimal, dm_global_min, dm_global_max, **kwargs
@@ -257,18 +259,17 @@ class DynamicDMRangeCalculator:
         dm_global_max: int = 1024,
         **kwargs
     ) -> Tuple[float, float, Dict[str, Any]]:
-        """
-        Obtiene rango DM optimizado para tipo específico de visualización.
-        
+        """Get the optimized DM range for a specific visualization type.
+
         Parameters
         ----------
         visualization_type : str
-            Tipo de visualización: 'composite', 'patch', 'detailed', 'overview'
+            Visualization type: 'composite', 'patch', 'detailed', 'overview'
         dm_optimal : float
-            DM óptimo del candidato
+            Optimal DM of the candidate
         confidence : float
-            Confianza de la detección
-            
+            Detection confidence
+
         Returns
         -------
         tuple
@@ -305,7 +306,7 @@ class DynamicDMRangeCalculator:
                                          
         final_kwargs = {**config, **kwargs}
         
-        logger.info("Calculando rango DM para visualización '%s'", visualization_type)
+        logger.info("Calculating DM range for visualization '%s'", visualization_type)
         
         dm_plot_min, dm_plot_max, details = self.calculate_adaptive_dm_range(
             dm_optimal=dm_optimal,
@@ -333,20 +334,19 @@ def get_dynamic_dm_range_for_candidate(
     confidence: float = 0.8,
     **kwargs
 ) -> Tuple[float, float]:
-    """
-    Función principal para obtener rango DM dinámico en el pipeline.
-    
+    """Main function to obtain the dynamic DM range in the pipeline.
+
     Parameters
     ----------
     dm_optimal : float
-        DM óptimo del candidato detectado
+        Optimal DM of the detected candidate
     config_module : module
-        Módulo de configuración
+        Configuration module
     visualization_type : str
-        Tipo de visualización
+        Visualization type
     confidence : float
-        Confianza de la detección
-        
+        Detection confidence
+
     Returns
     -------
     tuple
@@ -377,8 +377,13 @@ def get_dynamic_dm_range_for_candidate(
         **kwargs
     )
     
-    logger.info("Rango DM dinámico para %s: %.1f - %.1f (candidato DM=%.1f)", 
-               visualization_type, dm_plot_min, dm_plot_max, dm_optimal)
+    logger.info(
+        "Dynamic DM range for %s: %.1f - %.1f (candidate DM=%.1f)",
+        visualization_type,
+        dm_plot_min,
+        dm_plot_max,
+        dm_optimal,
+    )
     
     return dm_plot_min, dm_plot_max
 
@@ -388,18 +393,17 @@ def get_dynamic_dm_range_for_multiple_candidates(
     visualization_type: str = 'overview',
     **kwargs
 ) -> Tuple[float, float]:
-    """
-    Obtiene rango DM dinámico para múltiples candidatos.
-    
+    """Obtain a dynamic DM range for multiple candidates.
+
     Parameters
     ----------
     dm_candidates : list
-        Lista de DMs de candidatos detectados
+        List of detected candidate DMs
     config_module : module
-        Módulo de configuración
+        Configuration module
     visualization_type : str
-        Tipo de visualización
-        
+        Visualization type
+
     Returns
     -------
     tuple
@@ -416,8 +420,12 @@ def get_dynamic_dm_range_for_multiple_candidates(
         **kwargs
     )
     
-    logger.info("Rango DM para %d candidatos: %.1f - %.1f", 
-               len(dm_candidates), dm_plot_min, dm_plot_max)
+    logger.info(
+        "DM range for %d candidates: %.1f - %.1f",
+        len(dm_candidates),
+        dm_plot_min,
+        dm_plot_max,
+    )
     
     return dm_plot_min, dm_plot_max
 
@@ -434,9 +442,9 @@ if __name__ == "__main__":
         range_factor=0.2
     )
     
-    print(f"Candidato DM={dm_opt:.1f}")
-    print(f"Rango dinámico: {dm_min:.1f} - {dm_max:.1f}")
-    print(f"Ancho: {dm_max - dm_min:.1f} pc cm⁻³")
+    print(f"Candidate DM={dm_opt:.1f}")
+    print(f"Dynamic range: {dm_min:.1f} - {dm_max:.1f}")
+    print(f"Width: {dm_max - dm_min:.1f} pc cm⁻³")
     
                                      
     candidates = [120.3, 125.7, 130.1]
@@ -446,5 +454,5 @@ if __name__ == "__main__":
         dm_global_max=1024
     )
     
-    print(f"\nMúltiples candidatos: {candidates}")
-    print(f"Rango dinámico: {dm_min_multi:.1f} - {dm_max_multi:.1f}")
+    print(f"\nMultiple candidates: {candidates}")
+    print(f"Dynamic range: {dm_min_multi:.1f} - {dm_max_multi:.1f}")

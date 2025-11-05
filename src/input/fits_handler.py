@@ -112,11 +112,11 @@ def _select_polarization(
     mode: str,
     default_index: int = 0,
 ) -> np.ndarray:
-    """Selecciona/compone la polarización según config.
+    """Select or compose the polarisation according to configuration.
 
     - data: (nsamp, npol, nchan)
-    - pol_type: POL_TYPE del header (e.g., "IQUV", "AABB", etc.)
-    - mode: "intensity", "linear", "circular", o "pol{idx}"
+    - pol_type: Header ``POL_TYPE`` (e.g., "IQUV", "AABB", etc.)
+    - mode: "intensity", "linear", "circular", or "pol{idx}"
     """
     npol = data.shape[1]
     if npol == 1:
@@ -357,13 +357,19 @@ def load_fits_file(file_name: str) -> np.ndarray:
                     except Exception as e:
                         raise ValueError(f"Error reshaping data (fitsio): {e}\n  → Data cannot be reorganized into expected format (time={total_samples}, pol={num_pols}, channel={num_chans})")
     except (ValueError, fits.verify.VerifyError) as e:
-                                                                                       
+
         if "NSBLK" in str(e) and "0" in str(e):
-            raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → El archivo tiene NSBLK=0 en el header, lo que indica que está mal formateado o corrupto\n  → NSBLK debe ser > 0 para definir el número de muestras por bloque temporal\n  → Recomendación: Verificar el origen del archivo o obtener una versión correcta") from e
-        elif "Dimensiones inválidas" in str(e):
-            raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → {str(e)}\n  → El archivo no puede ser procesado debido a dimensiones inválidas en el header\n  → Recomendación: Verificar la integridad del archivo o usar un archivo diferente") from e
+            raise ValueError(
+                f"Corrupted FITS file: {file_name}\n  → The file has NSBLK=0 in the header, indicating it is malformed or corrupted\n  → NSBLK must be > 0 to define the number of temporal samples per block\n  → Recommendation: Verify the file source or obtain a correct version"
+            ) from e
+        elif "Invalid dimensions" in str(e):
+            raise ValueError(
+                f"Corrupted FITS file: {file_name}\n  → {str(e)}\n  → The file cannot be processed due to invalid dimensions in the header\n  → Recommendation: Verify the file integrity or use a different file"
+            ) from e
         else:
-            raise ValueError(f"Archivo FITS corrupto: {file_name}\n  → {str(e)}\n  → El archivo no puede ser leído correctamente\n  → Recomendación: Verificar que el archivo no esté dañado") from e
+            raise ValueError(
+                f"Corrupted FITS file: {file_name}\n  → {str(e)}\n  → The file cannot be read correctly\n  → Recommendation: Ensure the file is not damaged"
+            ) from e
     except Exception as e:
         logger.error("Error loading FITS with fitsio/astropy: %s", e)
         try:
@@ -467,7 +473,7 @@ def get_obparams(file_name: str) -> None:
         
                                             
         if config.DEBUG_FREQUENCY_ORDER:
-            logger.debug(f"[DEBUG HEADER] Estructura del archivo FITS:")
+            logger.debug(f"[DEBUG HEADER] FITS file structure:")
             for i, hdu in enumerate(f):
                 hdu_type = type(hdu).__name__
                 if hasattr(hdu, 'header') and hdu.header:
@@ -477,14 +483,14 @@ def get_obparams(file_name: str) -> None:
                         ext_name = 'PRIMARY' if i == 0 else f'HDU_{i}'
                     logger.debug(f"[DEBUG HEADER]   HDU {i}: {hdu_type} - {ext_name}")
                     if hasattr(hdu, 'columns') and hdu.columns:
-                        logger.debug(f"[DEBUG HEADER]     Columnas: {[col.name for col in hdu.columns]}")
+                        logger.debug(f"[DEBUG HEADER]     Columns: {[col.name for col in hdu.columns]}")
                 else:
-                    logger.debug(f"[DEBUG HEADER]   HDU {i}: {hdu_type} - Sin header")
-        
+                    logger.debug(f"[DEBUG HEADER]   HDU {i}: {hdu_type} - No header")
+
         if "SUBINT" in [hdu.name for hdu in f] and "TBIN" in f["SUBINT"].header:
-                                               
+
             if config.DEBUG_FREQUENCY_ORDER:
-                logger.debug(f"[DEBUG HEADER] Formato detectado: PSRFITS (SUBINT)")
+                logger.debug(f"[DEBUG HEADER] Detected format: PSRFITS (SUBINT)")
             
             hdr = f["SUBINT"].header
             primary = f["PRIMARY"].header if "PRIMARY" in [h.name for h in f] else {}
@@ -745,7 +751,7 @@ def get_obparams(file_name: str) -> None:
                                              
     if config.DEBUG_FREQUENCY_ORDER:
         logger.debug(f"[DEBUG FILE] Complete file information: {file_name}")
-        logger.debug(f"[DEBUG ARCHIVO] " + "="*60)
+        logger.debug(f"[DEBUG FILE] " + "="*60)
         logger.debug(f"[DEBUG FILE] DIMENSIONS AND RESOLUTION:")
         logger.debug(f"[DEBUG FILE]   - Temporal resolution: {config.TIME_RESO:.2e} seconds/sample")
         logger.debug(f"[DEBUG FILE]   - Frequency resolution: {config.FREQ_RESO} channels")
@@ -788,7 +794,7 @@ def get_obparams(file_name: str) -> None:
         logger.debug(f"[DEBUG FILE]   - Multi-band enabled: {'YES' if config.USE_MULTI_BAND else 'NO'}")
         logger.debug(f"[DEBUG FILE]   - DM range: {config.DM_min} - {config.DM_max} pc cm⁻³")
         logger.debug(f"[DEBUG FILE]   - Thresholds: DET_PROB={config.DET_PROB}, CLASS_PROB={config.CLASS_PROB}, SNR_THRESH={config.SNR_THRESH}")
-        logger.debug(f"[DEBUG ARCHIVO] " + "="*60)
+        logger.debug(f"[DEBUG FILE] " + "="*60)
 
                                                                                     
     auto_config_downsampling()
@@ -867,7 +873,7 @@ def stream_fits(
     overlap_samples: int = 0,
 ) -> Generator[Tuple[np.ndarray, Dict], None, None]:
     """
-    Generador que lee un archivo FITS en bloques sin cargar todo en RAM.
+    Generator that reads a FITS file in blocks without loading everything into RAM.
     
     Args:
         file_name: Path to .fits file
@@ -1426,8 +1432,10 @@ def stream_fits(
                     log_stream_fits_summary(chunk_counter)
                     return
                 else:
-                    raise ValueError(f"Archivo FITS no tiene estructura SUBINT válida: {file_name}")
+                    raise ValueError(
+                        f"FITS file does not have a valid SUBINT structure: {file_name}"
+                    )
         
     except Exception as e:
         logger.error("Error in stream_fits: %s", e)
-        raise ValueError(f"No se pudo leer el archivo FITS {file_name}") from e
+        raise ValueError(f"Could not read FITS file {file_name}") from e

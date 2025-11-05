@@ -1,22 +1,22 @@
 # This module defines runtime configuration defaults for the pipeline.
 
 """
-Configuración del Sistema para el Pipeline de Detección de FRB
-==============================================================
+System configuration for the FRB detection pipeline
+===================================================
 
-Este archivo contiene las configuraciones del sistema que se configuran automáticamente
-o que son específicas del funcionamiento interno del pipeline.
+This file contains system configurations that are set automatically or are
+specific to the internal operation of the pipeline.
 
-IMPORTANTE: 
-- NO modifique este archivo directamente
-- Para configurar parámetros del usuario, use argumentos de línea de comandos o modifique user_config.py
-- Este archivo mantiene compatibilidad con el código existente
+IMPORTANT:
+- Do NOT modify this file directly
+- To configure user parameters, use command-line arguments or edit user_config.py
+- This file maintains compatibility with the existing codebase
 """
 
 from __future__ import annotations
 from pathlib import Path
 
-# Variable global para almacenar configuración inyectada
+# Global variable to store injected configuration
 _injected_config: dict = {}
 _config_injected: bool = False
 
@@ -67,7 +67,7 @@ except ImportError:
             POLARIZATION_INDEX,
         )
     except:
-        # Valores por defecto si no se puede importar user_config
+        # Default values when user_config cannot be imported
         DATA_DIR = Path("./Data/raw/")
         RESULTS_DIR = Path("./Tests-Pulse-big-new")
         FRB_TARGETS = ["2017-04-03-08_55_22_153_0006_t23.444"]
@@ -90,20 +90,20 @@ except ImportError:
 
 
 def inject_config(config_dict: dict):
-    """
-    Inyecta configuración desde argumentos de línea de comandos.
-    Sobrescribe las variables del módulo.
-    
+    """Inject configuration from command-line arguments.
+
+    Overrides module-level variables.
+
     Args:
-        config_dict: Diccionario con valores de configuración a inyectar
+        config_dict: Dictionary with configuration values to inject
     """
     import sys
     global _config_injected
     
-    # Importar el módulo actual (config)
+    # Import current module (config)
     current_module = sys.modules[__name__]
     
-    # Aplicar los valores inyectados a las variables del módulo
+    # Apply injected values to module variables
     for key, value in config_dict.items():
         setattr(current_module, key, value)
     
@@ -184,7 +184,7 @@ SHADE_INVALID_TAIL: bool = True
 
 
 def get_band_configs():
-    """Retorna la configuración de bandas según USE_MULTI_BAND"""
+    """Return band configuration tuples based on ``USE_MULTI_BAND``."""
     return [
         (0, "fullband", "Full Band"),
         (1, "lowband", "Low Band"),
@@ -197,79 +197,78 @@ def get_band_configs():
                                                                                
 
 def validate_configuration():
-    """
-    Valida la configuración del sistema y genera mensajes de error informativos.
-    
-    Esta función verifica que todos los parámetros críticos estén configurados
-    correctamente antes de ejecutar el pipeline.
+    """Validate system configuration and generate informative error messages.
+
+    This function ensures all critical parameters are configured correctly
+    before running the pipeline.
     """
     errors = []
     
                                       
     if FREQ_RESO <= 0:
         errors.append(
-            f"FREQ_RESO={FREQ_RESO} es inválido\n"
-            f"  → FREQ_RESO debe ser > 0 para procesar datos de frecuencia\n"
-            f"  → Este valor se extrae del header del archivo FITS/FIL\n"
-            f"  → Recomendación: Verificar que el archivo de datos sea válido"
+            f"FREQ_RESO={FREQ_RESO} is invalid\n"
+            f"  → FREQ_RESO must be > 0 to process frequency data\n"
+            f"  → This value is extracted from the FITS/FIL file header\n"
+            f"  → Recommendation: Verify that the data file is valid"
         )
     
     if TIME_RESO <= 0:
         errors.append(
-            f"TIME_RESO={TIME_RESO} es inválido\n"
-            f"  → TIME_RESO debe ser > 0 para procesar datos temporales\n"
-            f"  → Este valor se extrae del header del archivo FITS/FIL\n"
-            f"  → Recomendación: Verificar que el archivo de datos sea válido"
+            f"TIME_RESO={TIME_RESO} is invalid\n"
+            f"  → TIME_RESO must be > 0 to process temporal data\n"
+            f"  → This value is extracted from the FITS/FIL file header\n"
+            f"  → Recommendation: Verify that the data file is valid"
         )
     
     if FILE_LENG <= 0:
         errors.append(
-            f"FILE_LENG={FILE_LENG} es inválido\n"
-            f"  → FILE_LENG debe ser > 0 para procesar datos\n"
-            f"  → Este valor indica el número total de muestras temporales\n"
-            f"  → Recomendación: Verificar que el archivo de datos sea válido"
+            f"FILE_LENG={FILE_LENG} is invalid\n"
+            f"  → FILE_LENG must be > 0 to process data\n"
+            f"  → This value indicates the total number of temporal samples\n"
+            f"  → Recommendation: Verify that the data file is valid"
         )
     
                                     
     if SLICE_LEN < SLICE_LEN_MIN or SLICE_LEN > SLICE_LEN_MAX:
         errors.append(
-            f"SLICE_LEN={SLICE_LEN} está fuera del rango válido [{SLICE_LEN_MIN}, {SLICE_LEN_MAX}]\n"
-            f"  → SLICE_LEN debe estar entre {SLICE_LEN_MIN} y {SLICE_LEN_MAX} muestras\n"
-            f"  → Este valor se calcula automáticamente desde SLICE_DURATION_MS\n"
-            f"  → Recomendación: Ajustar SLICE_DURATION_MS en user_config.py"
+            f"SLICE_LEN={SLICE_LEN} is outside the valid range [{SLICE_LEN_MIN}, {SLICE_LEN_MAX}]\n"
+            f"  → SLICE_LEN must lie between {SLICE_LEN_MIN} and {SLICE_LEN_MAX} samples\n"
+            f"  → This value is calculated automatically from SLICE_DURATION_MS\n"
+            f"  → Recommendation: Adjust SLICE_DURATION_MS in user_config.py"
         )
     
                        
     if DM_RANGE_MIN_WIDTH <= 0 or DM_RANGE_MAX_WIDTH <= 0:
         errors.append(
-            f"Rangos DM inválidos: MIN={DM_RANGE_MIN_WIDTH}, MAX={DM_RANGE_MAX_WIDTH}\n"
-            f"  → Ambos valores deben ser > 0\n"
-            f"  → Estos valores definen los límites del rango DM dinámico\n"
-            f"  → Recomendación: Verificar configuración de rangos DM"
+            f"Invalid DM ranges: MIN={DM_RANGE_MIN_WIDTH}, MAX={DM_RANGE_MAX_WIDTH}\n"
+            f"  → Both values must be > 0\n"
+            f"  → These values define the limits of the dynamic DM range\n"
+            f"  → Recommendation: Verify DM range configuration"
         )
     
     if DM_RANGE_MIN_WIDTH >= DM_RANGE_MAX_WIDTH:
         errors.append(
-            f"Rangos DM inconsistentes: MIN={DM_RANGE_MIN_WIDTH} >= MAX={DM_RANGE_MAX_WIDTH}\n"
-            f"  → DM_RANGE_MIN_WIDTH debe ser < DM_RANGE_MAX_WIDTH\n"
-            f"  → Recomendación: Ajustar los valores de rango DM"
+            f"Inconsistent DM ranges: MIN={DM_RANGE_MIN_WIDTH} >= MAX={DM_RANGE_MAX_WIDTH}\n"
+            f"  → DM_RANGE_MIN_WIDTH must be < DM_RANGE_MAX_WIDTH\n"
+            f"  → Recommendation: Adjust DM range values"
         )
     
                                       
     if not MODEL_PATH.exists():
         errors.append(
-            f"Modelo de detección no encontrado: {MODEL_PATH}\n"
-            f"  → El archivo del modelo no existe en la ruta especificada\n"
-            f"  → Verificar que el modelo esté entrenado y guardado\n"
-            f"  → Recomendación: Entrenar el modelo o verificar la ruta"
+            f"Detection model not found: {MODEL_PATH}\n"
+            f"  → The model file does not exist at the specified path\n"
+            f"  → Verify that the model is trained and saved\n"
+            f"  → Recommendation: Train the model or verify the path"
         )
     
     if not CLASS_MODEL_PATH.exists():
         errors.append(
-            f"Modelo de clasificación no encontrado: {CLASS_MODEL_PATH}\n"
-            f"  → El archivo del modelo no existe en la ruta especificada\n"
-            f"  → Verificar que el modelo esté entrenado y guardado\n"
-            f"  → Recomendación: Entrenar el modelo o verificar la ruta"
+            f"Classification model not found: {CLASS_MODEL_PATH}\n"
+            f"  → The model file does not exist at the specified path\n"
+            f"  → Verify that the model is trained and saved\n"
+            f"  → Recommendation: Train the model or verify the path"
         )
     
                                           
@@ -280,18 +279,18 @@ def validate_configuration():
             del test_tensor
         except Exception as e:
             errors.append(
-                f"Error con CUDA: {e}\n"
-                f"  → CUDA está disponible pero no funciona correctamente\n"
-                f"  → Verificar drivers de NVIDIA y instalación de PyTorch\n"
-                f"  → Recomendación: Reinstalar PyTorch con soporte CUDA o usar CPU"
+                f"CUDA error: {e}\n"
+                f"  → CUDA is available but not functioning correctly\n"
+                f"  → Verify NVIDIA drivers and the PyTorch installation\n"
+                f"  → Recommendation: Reinstall PyTorch with CUDA support or use CPU"
             )
     
                                                             
     if errors:
-        error_message = "Configuración del sistema inválida:\n\n"
+        error_message = "Invalid system configuration:\n\n"
         for i, error in enumerate(errors, 1):
             error_message += f"{i}. {error}\n\n"
-        error_message += "Corrija estos errores antes de ejecutar el pipeline."
+        error_message += "Fix these errors before running the pipeline."
         
         raise ValueError(error_message)
     
@@ -299,11 +298,10 @@ def validate_configuration():
 
 
 def check_model_files():
-    """
-    Verifica que los archivos de modelo existan y sean accesibles.
-    
+    """Verify that model files exist and are accessible.
+
     Returns:
-        dict: Diccionario con el estado de cada modelo
+        dict: Dictionary with the status of each model
     """
     model_status = {}
     
@@ -322,19 +320,19 @@ def check_model_files():
                 model_status['detection'] = {
                     'exists': True,
                     'size_mb': MODEL_PATH.stat().st_size / (1024 * 1024),
-                    'note': 'PyTorch no disponible para verificación completa'
+                    'note': 'PyTorch not available for full verification'
                 }
         except Exception as e:
             model_status['detection'] = {
                 'exists': True,
-                'error': f"Modelo corrupto: {e}",
-                'recommendation': 'Reentrenar el modelo'
+                'error': f"Corrupted model: {e}",
+                'recommendation': 'Retrain the model'
             }
     else:
         model_status['detection'] = {
             'exists': False,
-            'error': f"Archivo no encontrado: {MODEL_PATH}",
-            'recommendation': 'Entrenar el modelo o verificar la ruta'
+            'error': f"File not found: {MODEL_PATH}",
+            'recommendation': 'Train the model or verify the path'
         }
     
                                        
@@ -351,19 +349,19 @@ def check_model_files():
                 model_status['classification'] = {
                     'exists': True,
                     'size_mb': CLASS_MODEL_PATH.stat().st_size / (1024 * 1024),
-                    'note': 'PyTorch no disponible para verificación completa'
+                    'note': 'PyTorch not available for full verification'
                 }
         except Exception as e:
             model_status['classification'] = {
                 'exists': True,
-                'error': f"Modelo corrupto: {e}",
-                'recommendation': 'Reentrenar el modelo'
+                'error': f"Corrupted model: {e}",
+                'recommendation': 'Retrain the model'
             }
     else:
         model_status['classification'] = {
             'exists': False,
-            'error': f"Archivo no encontrado: {CLASS_MODEL_PATH}",
-            'recommendation': 'Entrenar el modelo o verificar la ruta'
+            'error': f"File not found: {CLASS_MODEL_PATH}",
+            'recommendation': 'Train the model or verify the path'
         }
     
     return model_status

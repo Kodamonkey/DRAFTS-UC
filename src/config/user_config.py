@@ -26,7 +26,7 @@ SLICE_DURATION_MS: float = 300.0
 
 # Reduction factors to optimize processing
 DOWN_FREQ_RATE: int = 1                      # Frequency reduction factor (1 = no reduction)
-DOWN_TIME_RATE: int = 8                      # Time reduction factor (1 = no reduction)
+DOWN_TIME_RATE: int = 32                      # Time reduction factor (1 = no reduction)
 
 # =============================================================================
 # DISPERSION MEASURE CONFIGURATION (DM)

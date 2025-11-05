@@ -161,23 +161,49 @@ The pipeline is configured exclusively via **command-line arguments**. All argum
 
 ### Command-Line Arguments Reference
 
-#### Required Arguments
+#### Configuration Modes
 
-These arguments are mandatory for every execution:
+The pipeline supports two execution modes:
 
-| Argument        | Type             | Description                                                                                              |
-| --------------- | ---------------- | -------------------------------------------------------------------------------------------------------- |
-| `--data-dir`    | `str`            | **[REQUIRED]** Directory containing input files (`.fits`, `.fil`). Can be relative or absolute path.     |
-| `--results-dir` | `str`            | **[REQUIRED]** Directory where all results will be saved (CSVs, plots, logs). Created if doesn't exist.  |
-| `--target`      | `str` (multiple) | **[REQUIRED]** Pattern(s) to search for files. Can specify multiple patterns. Supports partial matching. |
+**Mode 1: Using `user_config.py` (no CLI arguments)**
+```bash
+python main.py
+```
+All configuration parameters are read from `src/config/user_config.py`.
 
-**Example:**
+**Mode 2: Using CLI arguments (partial or complete override)**
+```bash
+python main.py --data-dir "./Data/raw/" --results-dir "./Results/" --target "file"
+```
+CLI arguments override `user_config.py` values. Any argument not provided falls back to `user_config.py`.
+
+---
+
+#### Data and File Configuration
+
+| Argument        | Type             | Default | Description                                                                                              |
+| --------------- | ---------------- | ------- | -------------------------------------------------------------------------------------------------------- |
+| `--data-dir`    | `str`            | From `user_config.py` | Directory containing input files (`.fits`, `.fil`). Can be relative or absolute path.     |
+| `--results-dir` | `str`            | From `user_config.py` | Directory where all results will be saved (CSVs, plots, logs). Created if doesn't exist.  |
+| `--target`      | `str` (multiple) | From `user_config.py` | Pattern(s) to search for files. Can specify multiple patterns. Supports partial matching. |
+
+**Example - Complete override:**
 
 ```bash
 python main.py \
   --data-dir "./Data/raw/" \
   --results-dir "./Results/" \
   --target "FRB20180301_0001"
+```
+
+**Example - Partial override:**
+
+```bash
+# Only override target files, use user_config.py for directories
+python main.py --target "FRB20180301" "FRB20201124"
+
+# Only override thresholds, use user_config.py for everything else
+python main.py --det-prob 0.6 --class-prob 0.8
 ```
 
 ---
@@ -389,10 +415,29 @@ python main.py \
 
 ### Configuration Priority
 
-1. **Command-line arguments** (highest priority) - Override all defaults
-2. **`src/config/user_config.py`** (lowest priority) - Only used if CLI args not provided
+1. **Command-line arguments** (highest priority) - Override `user_config.py` values
+2. **`src/config/user_config.py`** (fallback) - Used when CLI args not provided
 
-> **Important:** The three required arguments (`--data-dir`, `--results-dir`, `--target`) must always be provided via CLI. The pipeline will not run without them.
+**Configuration resolution:**
+- If you run `python main.py` → uses `user_config.py` entirely
+- If you provide any CLI arg → that specific value overrides `user_config.py`
+- Any CLI arg not provided → falls back to `user_config.py` value
+
+**Examples:**
+```bash
+# Use user_config.py completely
+python main.py
+
+# Override only DM range
+python main.py --dm-min 100 --dm-max 600
+
+# Override data directory and targets
+python main.py --data-dir "./NewData/" --target "FRB"
+
+# Complete override
+python main.py --data-dir "./Data/raw/" --results-dir "./Results/" \
+  --target "file" --det-prob 0.5 --class-prob 0.6
+```
 
 ---
 
@@ -502,15 +547,41 @@ python main.py --help
 
 #### Basic Local Execution
 
-**From repository root:**
+**Option A: Using `user_config.py` (quickest for development):**
+
+```bash
+# Edit src/config/user_config.py first with your parameters
+python main.py
+```
+
+**Option B: Using CLI arguments (flexible):**
 
 ```bash
 python main.py --data-dir "./Data/raw/" --results-dir "./Results/" --target "filename"
 ```
 
+**Option C: Hybrid approach (best of both):**
+
+```bash
+# Use user_config.py for directories, override only specific parameters
+python main.py --det-prob 0.6 --class-prob 0.8
+```
+
 #### Local Usage Examples
 
-**Simple processing with default values:**
+**Simple processing with `user_config.py`:**
+
+```bash
+python main.py
+```
+
+**Override specific files:**
+
+```bash
+python main.py --target "FRB20180301_0001"
+```
+
+**Complete CLI configuration:**
 
 ```bash
 python main.py --data-dir "./Data/raw/" --results-dir "./Results/" --target "FRB20180301_0001"
@@ -802,6 +873,10 @@ python main.py \
 
 ## Pipeline Execution Flow
 
+The pipeline operates in two modes depending on observation frequency:
+
+### Standard Pipeline (Frequency < 8 GHz)
+
 For each file matching the pattern specified in `--target`:
 
 1. **Load & chunk**: Efficiently loads the dynamic spectrum (.fits/.fil) into memory
@@ -809,6 +884,39 @@ For each file matching the pattern specified in `--target`:
 3. **Detect candidates**: Detects candidates in time–DM using CenterNet → boxes + scores
 4. **Classify**: Classifies each candidate with ResNet → FRB probability vs non-FRB
 5. **Save outputs**: Saves annotated figures, CSV per file, and logs in the results directory
+
+### High-Frequency Pipeline (Frequency ≥ 8 GHz)
+
+Automatically activated for observations with central frequency ≥ 8000 MHz (configurable via `--high-freq-threshold`).
+
+**Detection strategy:**
+
+1. **Load & chunk**: Loads data with ALL polarizations (if IQUV available)
+2. **Phase 1 - Intensity Detection** (MANDATORY):
+   - Compute SNR profile from Stokes I (Intensity)
+   - Detect peaks above threshold
+   - **If no peaks → skip to next slice**
+
+3. **Phase 2 - Linear Validation** (CONDITIONAL):
+   - **Only if peaks detected in Phase 1**
+   - Extract Linear Polarization (√(Q² + U²)) for the **same time samples**
+   - Re-evaluate each peak at its exact time index in Linear polarization
+   - **Peak must exceed threshold in BOTH Intensity AND Linear**
+   - **If no peaks pass → skip to next slice**
+
+4. **Phase 3 - Classification** (CONDITIONAL):
+   - **Only for peaks validated in BOTH polarizations**
+   - Classify with ResNet → FRB probability vs non-FRB
+
+5. **Visualization**: Generate composite plots with **3 dedispersed waterfalls**:
+   - Left: Dedispersed in Intensity (Stokes I)
+   - Middle: Dedispersed in Linear Polarization
+   - Right: Dedispersed in Circular Polarization (|V|)
+
+**Requirements for multi-pol mode:**
+- PSRFITS file with `POL_TYPE = "IQUV"`
+- At least 4 polarizations (I, Q, U, V)
+- Falls back to single-polarization if not available
 
 > **Tip:** If thresholds are too strict, you will see fewer detections but with higher confidence. Relax `--det-prob` or `--class-prob` to be more inclusive.
 

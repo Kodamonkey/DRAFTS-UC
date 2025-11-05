@@ -30,7 +30,7 @@ def _calculate_dynamic_dm_range(
     fallback_dm_max: int = None,
     confidence_scores: Iterable | None = None
 ) -> Tuple[float, float]:
-    """Delegado unificado: usa visualization_ranges para rango DM dinámico."""
+    """Unified delegate: use visualization_ranges for dynamic DM range."""
     if (not getattr(config, 'DM_DYNAMIC_RANGE_ENABLE', True)
         or top_boxes is None
         or len(top_boxes) == 0):
@@ -68,7 +68,7 @@ def _calculate_dynamic_dm_range(
             max_range_width=getattr(config, 'DM_RANGE_MAX_WIDTH', 200.0),
         )
     except Exception as e:
-        print(f"[WARNING] Error calculando rango DM dinámico: {e}")
+        print(f"[WARNING] Error calculating dynamic DM range: {e}")
         dm_min = fallback_dm_min if fallback_dm_min is not None else config.DM_min
         dm_max = fallback_dm_max if fallback_dm_max is not None else config.DM_max
         return float(dm_min), float(dm_max)

@@ -1,17 +1,17 @@
 # This module configures the logging infrastructure.
 
 """
-Sistema de Logging Centralizado para DRAFTS Pipeline
-===================================================
+Centralized logging system for the DRAFTS pipeline
+=================================================
 
-Este módulo proporciona un sistema de logging unificado, configurable y profesional
-para el pipeline de detección de FRB. Incluye:
+This module provides a unified, configurable, and professional logging system
+for the FRB detection pipeline. It includes:
 
-- Configuración de niveles de logging
-- Formateadores personalizados con colores
-- Handlers para diferentes tipos de salida
-- Funciones de utilidad para logging estructurado
-- Logging automático a archivo .log
+- Logging level configuration
+- Custom color formatters
+- Handlers for multiple output types
+- Utility functions for structured logging
+- Automatic logging to a .log file
 """
 
                           
@@ -24,7 +24,7 @@ from typing import Any, Dict, Optional
 
                             
 class Colors:
-    """Colores ANSI para formateo de mensajes."""
+    """ANSI colors for message formatting."""
     HEADER = '\033[95m'
     OKBLUE = '\033[94m'
     OKCYAN = '\033[96m'
@@ -45,7 +45,7 @@ class Colors:
 
 
 class DRAFTSFormatter(logging.Formatter):
-    """Formateador personalizado para DRAFTS con colores y estructura."""
+    """Custom formatter for DRAFTS with colors and structure."""
     
     def __init__(self, use_colors: bool = True):
         super().__init__()
@@ -61,37 +61,37 @@ class DRAFTSFormatter(logging.Formatter):
         }
     
     def format(self, record):
-        """Aplica formato según el nivel del log."""
+        """Apply formatting according to the log level."""
         if record.levelno in self.formats:
             return self.formats[record.levelno](record)
         return super().format(record)
     
     def _format_debug(self, record):
-        """Formato para mensajes DEBUG."""
+        """Format DEBUG messages."""
         if self.use_colors:
             return f"{Colors.OKCYAN} [DEBUG] {record.getMessage()}{Colors.ENDC}"
         return f"[DEBUG] {record.getMessage()}"
     
     def _format_info(self, record):
-        """Formato para mensajes INFO."""
+        """Format INFO messages."""
         if self.use_colors:
             return f"{Colors.OKGREEN}[INFO] {record.getMessage()}{Colors.ENDC}"
         return f"[INFO] {record.getMessage()}"
     
     def _format_warning(self, record):
-        """Formato para mensajes WARNING."""
+        """Format WARNING messages."""
         if self.use_colors:
             return f"{Colors.WARNING}[WARN] {record.getMessage()}{Colors.ENDC}"
         return f"{record.getMessage()}"
     
     def _format_error(self, record):
-        """Formato para mensajes ERROR."""
+        """Format ERROR messages."""
         if self.use_colors:
             return f"{Colors.ERROR}[ERROR] {record.getMessage()}{Colors.ENDC}"
         return f"[ERROR] {record.getMessage()}"
     
     def _format_critical(self, record):
-        """Formato para mensajes CRITICAL."""
+        """Format CRITICAL messages."""
         if self.use_colors:
             return f"{Colors.FAIL}{Colors.BOLD}[CRITICAL] {record.getMessage()}{Colors.ENDC}"
         return f"[CRITICAL] {record.getMessage()}"
@@ -100,8 +100,13 @@ class DRAFTSFormatter(logging.Formatter):
 class DRAFTSLogger:
     """Central logger used across the DRAFTS pipeline."""
 
-    def __init__(self, name: str = "DRAFTS", level: str = "INFO",
-                 log_file: Optional[Path] = None, use_colors: bool = True):
+    def __init__(
+        self,
+        name: str = "DRAFTS",
+        level: str = "INFO",
+        log_file: Optional[Path] = None,
+        use_colors: bool = True,
+    ):
         self.logger = logging.getLogger(name)
         self.logger.setLevel(getattr(logging, level.upper()))
 
@@ -330,24 +335,24 @@ class DRAFTSLogger:
         self.logger.debug("Generating composite and detection plots")
 
 
-def setup_logging(level: str = "INFO", log_file: Optional[Path] = None, 
-                 use_colors: bool = True) -> DRAFTSLogger:
-    """
-    Configura el sistema de logging para DRAFTS.
-    
+def setup_logging(
+    level: str = "INFO", log_file: Optional[Path] = None, use_colors: bool = True
+) -> DRAFTSLogger:
+    """Configure the logging system for DRAFTS.
+
     Args:
-        level: Nivel de logging ('DEBUG', 'INFO', 'WARNING', 'ERROR')
-        log_file: Archivo para guardar logs (opcional, se crea automáticamente si es None)
-        use_colors: Si usar colores en consola
-    
+        level: Logging level ('DEBUG', 'INFO', 'WARNING', 'ERROR')
+        log_file: File path to store logs (optional, created automatically if ``None``)
+        use_colors: Whether to use colors in the console output
+
     Returns:
-        DRAFTSLogger configurado
+        Configured :class:`DRAFTSLogger`
     """
     return DRAFTSLogger("DRAFTS", level, log_file, use_colors)
 
 
 def get_logger(name: str = "DRAFTS") -> logging.Logger:
-    """Obtiene un logger configurado."""
+    """Get a configured logger."""
     return logging.getLogger(name)
 
 
@@ -355,13 +360,13 @@ def get_logger(name: str = "DRAFTS") -> logging.Logger:
 _global_logger: Optional[DRAFTSLogger] = None
 
 def get_global_logger() -> DRAFTSLogger:
-    """Obtiene el logger global configurado."""
+    """Retrieve the configured global logger."""
     global _global_logger
     if _global_logger is None:
         _global_logger = setup_logging()
     return _global_logger
 
 def set_global_logger(logger: DRAFTSLogger):
-    """Establece el logger global."""
+    """Set the global logger."""
     global _global_logger
     _global_logger = logger 

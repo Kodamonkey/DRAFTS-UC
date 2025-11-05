@@ -29,7 +29,7 @@ def _infer_file_type(path: Path) -> str:
         return "fits"
     if suffix == ".fil":
         return "fil"
-    raise ValueError(f"Tipo de archivo no soportado: {suffix}")
+    raise ValueError(f"Unsupported file type: {suffix}")
 
 
 def _ensure_dir(p: Path) -> None:
@@ -37,9 +37,9 @@ def _ensure_dir(p: Path) -> None:
 
 
 def _compute_indices(start_sec: float, duration_sec: float) -> tuple[int, int, float]:
-    """Convierte tiempo absoluto a índices en dominio decimado del pipeline.
+    """Convert absolute time to indices in the pipeline's decimated domain.
 
-    Retorna (start_idx_ds, end_idx_ds_exclusive, dt_ds).
+    Returns (start_idx_ds, end_idx_ds_exclusive, dt_ds).
     """
     dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
     start_idx = int(round(start_sec / dt_ds))
@@ -49,7 +49,7 @@ def _compute_indices(start_sec: float, duration_sec: float) -> tuple[int, int, f
 
 
 def _compute_freq_down() -> np.ndarray:
-    """Devuelve el eje de frecuencias decimado exactamente como el pipeline (promedio por grupos)."""
+    """Return the decimated frequency axis exactly as in the pipeline (group averages)."""
     freq = np.asarray(config.FREQ).reshape(-1)
     dfr = int(getattr(config, "DOWN_FREQ_RATE", 1))
     if dfr <= 1:
@@ -84,7 +84,7 @@ def run_single_segment(
         data_raw = load_fil_file(str(filename))
                                         
     if data_raw.ndim != 3:
-        raise ValueError("Datos inesperados: se espera (time, pol, chan)")
+        raise ValueError("Unexpected data: expected (time, pol, chan)")
                                                                
     data_raw = data_raw[:, 0:1, :]
                                                                   
@@ -172,21 +172,21 @@ def run_single_segment(
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "Genera plots de un único tramo con eje absoluto (estilo PRESTO) "
-            "para waterfall dispersado y dedispersado."
+            "Generate plots of a single segment with absolute axis (PRESTO style) "
+            "for dispersed and dedispersed waterfalls."
         )
     )
-    parser.add_argument("--filename", required=True, type=Path, help="Ruta al archivo .fits/.fil")
-    parser.add_argument("--start", required=True, type=float, help="Tiempo absoluto de inicio (s)")
-    parser.add_argument("--duration", required=True, type=float, help="Duración del tramo (s)")
-    parser.add_argument("--dm", required=True, type=float, help="DM para dedispersado")
+    parser.add_argument("--filename", required=True, type=Path, help="Path to the .fits/.fil file")
+    parser.add_argument("--start", required=True, type=float, help="Absolute start time (s)")
+    parser.add_argument("--duration", required=True, type=float, help="Segment duration (s)")
+    parser.add_argument("--dm", required=True, type=float, help="DM used for dedispersion")
     parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path("Results/AbsoluteSegments"),
-        help="Directorio raíz para guardar resultados",
+        help="Root directory to store results",
     )
-    parser.add_argument("--no-normalize", action="store_true", help="Desactivar normalización visual")
+    parser.add_argument("--no-normalize", action="store_true", help="Disable visual normalization")
 
     args = parser.parse_args()
 

@@ -27,29 +27,28 @@ def plan_slices_for_chunk(
     max_slice_count: int = 5000,
     time_tol_ms: float = 0.1,
 ) -> Dict:
-    """
-    Calcula un plan de slices contiguos para un chunk ya *decimado* en tiempo.
+    """Compute contiguous slice plans for a time-decimated chunk.
 
-    - Ajusta el número de slices al divisor más cercano del tamaño del chunk.
-    - Genera límites 0-based contiguos sin solapes ni huecos.
+    - Adjust the slice count to the closest divisor of the chunk size.
+    - Generate contiguous 0-based boundaries without overlaps or gaps.
 
     Args:
-        num_samples_decimated: Muestras en el chunk tras downsampling temporal.
-        target_duration_ms: Duración objetivo por slice (ms).
-        time_reso_decimated_s: Resolución temporal efectiva (TIME_RESO * DOWN_TIME_RATE) en segundos.
-        max_slice_count: Máximo número de slices por chunk.
-        time_tol_ms: Tolerancia para reportes de ajuste.
+        num_samples_decimated: Samples in the chunk after temporal downsampling.
+        target_duration_ms: Target duration per slice (ms).
+        time_reso_decimated_s: Effective temporal resolution (``TIME_RESO * DOWN_TIME_RATE``) in seconds.
+        max_slice_count: Maximum number of slices per chunk.
+        time_tol_ms: Tolerance used in adjustment reports.
 
     Returns:
-        dict con:
+        dict with:
           - n_slices
           - avg_ms, delta_ms
           - slices: List[SlicePlan]
     """
     if num_samples_decimated <= 0:
-        raise ValueError("num_samples_decimated debe ser > 0")
+        raise ValueError("num_samples_decimated must be > 0")
     if time_reso_decimated_s <= 0:
-        raise ValueError("time_reso_decimated_s debe ser > 0")
+        raise ValueError("time_reso_decimated_s must be > 0")
     if target_duration_ms <= 0:
                            
         target_duration_ms = num_samples_decimated * time_reso_decimated_s * 1000

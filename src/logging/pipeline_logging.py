@@ -1,12 +1,11 @@
 # This module logs high-level pipeline execution events.
 
 """
-Manejo de Logging para Pipeline en DRAFTS
-=========================================
+Logging management for the DRAFTS pipeline
+==========================================
 
-Este módulo proporciona funciones especializadas para mostrar información
-detallada del pipeline, especialmente para operaciones de chunking y
-procesamiento de archivos.
+This module provides specialized functions to display detailed pipeline
+information, especially for chunking operations and file processing.
 """
 
                           
@@ -16,19 +15,23 @@ from typing import Any, Callable, Dict, Optional
 from .logging_config import get_global_logger
 
 
-def log_streaming_parameters(effective_chunk_samples: int, overlap_raw: int,
-                            total_samples: int, chunk_samples: int,
-                            streaming_func: Callable, file_type: str) -> None:
-    """
-    Registra los parámetros de streaming en el pipeline.
-    
+def log_streaming_parameters(
+    effective_chunk_samples: int,
+    overlap_raw: int,
+    total_samples: int,
+    chunk_samples: int,
+    streaming_func: Callable,
+    file_type: str,
+) -> None:
+    """Record streaming parameters used in the pipeline.
+
     Args:
-        effective_chunk_samples: Tamaño efectivo del chunk
-        overlap_raw: Solapamiento en muestras raw
-        total_samples: Total de muestras del archivo
-        chunk_samples: Tamaño configurado del chunk
-        streaming_func: Función de streaming utilizada
-        file_type: Tipo de archivo detectado
+        effective_chunk_samples: Effective chunk size
+        overlap_raw: Overlap in raw samples
+        total_samples: Total number of samples in the file
+        chunk_samples: Configured chunk size
+        streaming_func: Streaming function used
+        file_type: Detected file type
     """
     logger = get_global_logger().logger
     logger.info(
@@ -42,16 +45,16 @@ def log_streaming_parameters(effective_chunk_samples: int, overlap_raw: int,
     )
 
 
-def log_block_processing(actual_chunk_count: int, block_shape: tuple, block_dtype: str,
-                         metadata: Dict[str, Any]) -> None:
-    """
-    Registra el procesamiento de un bloque en el pipeline.
-    
+def log_block_processing(
+    actual_chunk_count: int, block_shape: tuple, block_dtype: str, metadata: Dict[str, Any]
+) -> None:
+    """Record block processing information in the pipeline.
+
     Args:
-        actual_chunk_count: Contador del chunk actual
-        block_shape: Forma del bloque
-        block_dtype: Tipo de datos del bloque
-        metadata: Metadatos del bloque
+        actual_chunk_count: Current chunk counter
+        block_shape: Shape of the block
+        block_dtype: Data type of the block
+        metadata: Block metadata
     """
     logger = get_global_logger().logger
     metadata_str = str(metadata) if metadata else "{}"
@@ -64,16 +67,19 @@ def log_block_processing(actual_chunk_count: int, block_shape: tuple, block_dtyp
     )
 
 
-def log_processing_summary(actual_chunk_count: int, chunk_count: int,
-                          cand_counter_total: int, n_bursts_total: int) -> None:
-    """
-    Registra el resumen del procesamiento en el pipeline.
-    
+def log_processing_summary(
+    actual_chunk_count: int,
+    chunk_count: int,
+    cand_counter_total: int,
+    n_bursts_total: int,
+) -> None:
+    """Record the processing summary within the pipeline.
+
     Args:
-        actual_chunk_count: Número de chunks procesados
-        chunk_count: Número total estimado de chunks
-        cand_counter_total: Total de candidatos encontrados
-        n_bursts_total: Total de bursts detectados
+        actual_chunk_count: Number of processed chunks
+        chunk_count: Estimated total number of chunks
+        cand_counter_total: Total candidates found
+        n_bursts_total: Total bursts detected
     """
     logger = get_global_logger().logger
     logger.info(
@@ -85,16 +91,16 @@ def log_processing_summary(actual_chunk_count: int, chunk_count: int,
     )
 
 
-def log_pipeline_file_processing(fits_path_name: str, file_suffix: str,
-                                total_samples: int, chunk_samples: int) -> None:
-    """
-    Registra el inicio del procesamiento de un archivo en el pipeline.
-    
+def log_pipeline_file_processing(
+    fits_path_name: str, file_suffix: str, total_samples: int, chunk_samples: int
+) -> None:
+    """Record the start of file processing in the pipeline.
+
     Args:
-        fits_path_name: Nombre del archivo
-        file_suffix: Extensión del archivo
-        total_samples: Total de muestras del archivo
-        chunk_samples: Tamaño configurado del chunk
+        fits_path_name: File name
+        file_suffix: File extension
+        total_samples: Total number of samples in the file
+        chunk_samples: Configured chunk size
     """
     logger = get_global_logger().logger
     logger.debug(
@@ -107,12 +113,11 @@ def log_pipeline_file_processing(fits_path_name: str, file_suffix: str,
 
 
 def log_pipeline_file_completion(fits_path_name: str, results: Dict[str, Any]) -> None:
-    """
-    Registra la finalización del procesamiento de un archivo en el pipeline.
-    
+    """Record the completion of file processing in the pipeline.
+
     Args:
-        fits_path_name: Nombre del archivo
-        results: Resultados del procesamiento
+        fits_path_name: File name
+        results: Processing results
     """
     logger = get_global_logger().logger
     logger.debug(

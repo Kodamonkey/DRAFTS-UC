@@ -1,11 +1,11 @@
 # This module logs chunk planning and slice configuration details.
 
 """
-Manejo de Logging para el Sistema de Chunking en DRAFTS
-======================================================
+Logging management for the chunking system in DRAFTS
+====================================================
 
-Este módulo proporciona funciones especializadas para mostrar información
-detallada del sistema de chunking de manera organizada y profesional.
+This module provides specialized functions to display detailed chunking
+information in an organized and professional manner.
 """
 
                           
@@ -71,12 +71,11 @@ def display_detailed_chunking_info(parameters: Dict[str, Any]) -> None:
 
 
 def log_chunk_processing_start(chunk_idx: int, chunk_info: Dict[str, Any]) -> None:
-    """
-    Registra el inicio del procesamiento de un chunk.
+    """Record the start of processing for a chunk.
 
     Args:
-        chunk_idx: Índice del chunk
-        chunk_info: Información del chunk
+        chunk_idx: Chunk index
+        chunk_info: Chunk information
     """
     logger = get_global_logger().logger
     logger.info(
@@ -89,12 +88,11 @@ def log_chunk_processing_start(chunk_idx: int, chunk_info: Dict[str, Any]) -> No
 
 
 def log_chunk_processing_end(chunk_idx: int, results: Dict[str, Any]) -> None:
-    """
-    Registra el fin del procesamiento de un chunk.
-    
+    """Record the completion of chunk processing.
+
     Args:
-        chunk_idx: Índice del chunk
-        results: Resultados del procesamiento
+        chunk_idx: Chunk index
+        results: Processing results
     """
     logger = get_global_logger().logger
     logger.info(
@@ -106,11 +104,10 @@ def log_chunk_processing_end(chunk_idx: int, results: Dict[str, Any]) -> None:
 
 
 def log_file_processing_summary(file_info: Dict[str, Any]) -> None:
-    """
-    Registra un resumen del procesamiento del archivo.
-    
+    """Record a summary of the file processing.
+
     Args:
-        file_info: Información del archivo procesado
+        file_info: Information about the processed file
     """
     logger = get_global_logger().logger
     logger.info(
@@ -124,11 +121,10 @@ def log_file_processing_summary(file_info: Dict[str, Any]) -> None:
 
 
 def log_memory_optimization(optimization_info: Dict[str, Any]) -> None:
-    """
-    Registra información sobre optimizaciones de memoria.
-    
+    """Record information about memory optimizations.
+
     Args:
-        optimization_info: Información de optimización
+        optimization_info: Optimization details
     """
     logger = get_global_logger().logger
     logger.debug(
@@ -140,11 +136,10 @@ def log_memory_optimization(optimization_info: Dict[str, Any]) -> None:
 
 
 def log_slice_configuration(slice_config: Dict[str, Any]) -> None:
-    """
-    Registra la configuración de slices.
-    
+    """Record the slice configuration.
+
     Args:
-        slice_config: Configuración de slices
+        slice_config: Slice configuration
     """
     logger = get_global_logger().logger
     logger.info(
@@ -157,11 +152,10 @@ def log_slice_configuration(slice_config: Dict[str, Any]) -> None:
 
 
 def log_chunk_budget(budget: Dict[str, Any]) -> None:
-    """
-    Registra el presupuesto de memoria y cálculo de tamaño de chunk cuando el planificador está activo.
+    """Record memory budget and chunk size calculations when the planner is active.
 
     Args:
-        budget: Dict con llaves esperadas:
+        budget: Dict with expected keys:
             - bytes_per_sample
             - available_bytes
             - usable_bytes
@@ -186,9 +180,9 @@ def log_chunk_budget(budget: Dict[str, Any]) -> None:
 
 
 def log_slice_plan_summary(chunk_idx: int, plan: Dict[str, Any]) -> None:
-    """Registra un resumen del plan de slices para un chunk.
+    """Record a summary of the slice plan for a chunk.
 
-    Muestra número de slices, duración media y algunos ejemplos de límites.
+    Show the number of slices, average duration, and sample boundaries.
     """
     logger = get_global_logger().logger
     n = plan.get("n_slices", 0)

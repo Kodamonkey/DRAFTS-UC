@@ -34,7 +34,7 @@ def _write_summary_with_timestamp(summary: dict, save_path: Path, preserve_histo
         timestamped_path = save_path / f"summary_{timestamp}.json"
         with timestamped_path.open("w") as f_json:
             json.dump(summary, f_json, indent=2)
-        logger.info("Resumen con timestamp escrito en %s", timestamped_path)
+        logger.info("Timestamped summary written to %s", timestamped_path)
         
                                                   
         master_summary_path = save_path / "summary_master.json"
@@ -80,20 +80,20 @@ def _write_summary_with_timestamp(summary: dict, save_path: Path, preserve_histo
                                   
         with master_summary_path.open("w") as f_json:
             json.dump(master_summary, f_json, indent=2)
-        logger.info("Summary maestro actualizado en %s", master_summary_path)
+        logger.info("Master summary updated at %s", master_summary_path)
         
                                                                                 
         current_summary_path = save_path / "summary.json"
         with current_summary_path.open("w") as f_json:
             json.dump(summary, f_json, indent=2)
-        logger.info("Summary actual escrito en %s", current_summary_path)
+        logger.info("Current summary written to %s", current_summary_path)
         
     else:
                                                   
         timestamped_path = save_path / f"summary_{timestamp}.json"
         with timestamped_path.open("w") as f_json:
             json.dump(summary, f_json, indent=2)
-        logger.info("Resumen con timestamp escrito en %s", timestamped_path)
+        logger.info("Timestamped summary written to %s", timestamped_path)
 
 
 def _load_or_create_summary(save_path: Path) -> dict:
@@ -118,7 +118,7 @@ def _load_or_create_summary(save_path: Path) -> dict:
                 }
             return summary
         except (json.JSONDecodeError, FileNotFoundError):
-            logger.warning(f"Error leyendo {summary_path}, creando nuevo summary")
+            logger.warning(f"Error reading {summary_path}, creating new summary")
 
                                                 
     return {
@@ -147,7 +147,7 @@ def _load_or_create_master_summary(master_path: Path) -> dict:
                 master_summary = json.load(f)
             return master_summary
         except (json.JSONDecodeError, FileNotFoundError):
-            logger.warning(f"Error leyendo {master_path}, creando nuevo master summary")
+            logger.warning(f"Error reading {master_path}, creating new master summary")
     
                                 
     return {
@@ -184,7 +184,7 @@ def _update_summary_with_file_debug(
         json.dump(summary, f, indent=2)
 
     if config.DEBUG_FREQUENCY_ORDER:
-        logger.info(f"Debug info guardada para {filename} en {summary_path}")
+        logger.info(f"Debug info saved for {filename} at {summary_path}")
 
 
 def _update_summary_with_results(
@@ -214,4 +214,4 @@ def _update_summary_with_results(
     with summary_path.open("w") as f:
         json.dump(summary, f, indent=2)
 
-    logger.info(f"Resultados guardados para {filename} en {summary_path}") 
+    logger.info(f"Results saved for {filename} at {summary_path}")

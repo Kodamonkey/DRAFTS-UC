@@ -11,11 +11,11 @@ from ..config import config
 
 
 def downsample_data(data: np.ndarray) -> np.ndarray:
-    """Down-sample time-frequency data usando las tasas de :mod:`config`.
+    """Down-sample time-frequency data using :mod:`config` rates.
 
-    - Temporal: suma sobre ventanas de tamaño ``DOWN_TIME_RATE`` (estilo PRESTO).
-    - Frecuencia: promedio sobre grupos de ``DOWN_FREQ_RATE`` canales.
-    - Polarización: promedio (Stokes I ya seleccionado en carga si existe).
+    - Temporal: sum over windows of size ``DOWN_TIME_RATE`` (PRESTO style).
+    - Frequency: average across groups of ``DOWN_FREQ_RATE`` channels.
+    - Polarization: average (Stokes I already selected during load if available).
     """
     n_time = (data.shape[0] // config.DOWN_TIME_RATE) * config.DOWN_TIME_RATE
     n_freq = (data.shape[2] // config.DOWN_FREQ_RATE) * config.DOWN_FREQ_RATE

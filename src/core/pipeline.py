@@ -502,7 +502,7 @@ def _process_file_chunked(
         
         # Switch to the high-frequency pipeline when the configuration allows it
         try:
-            # FIX: Usar calculate_frequency_downsampled para evitar error con canales no divisibles
+            # FIX: Use calculate_frequency_downsampled to avoid errors with non-divisible channels
             freq_ds_local = calculate_frequency_downsampled()
             center_mhz = float(np.median(freq_ds_local))
             exceeds_threshold = center_mhz >= float(getattr(config, 'HIGH_FREQ_THRESHOLD_MHZ', 8000.0))
@@ -527,7 +527,7 @@ def _process_file_chunked(
                 streaming_func=streaming_func,
             )
 
-        # Procesar cada bloque con solapamiento
+        # Process each block with overlap
         for block, metadata in streaming_func(str(fits_path), effective_chunk_samples, overlap_samples=overlap_raw):
             actual_chunk_count += 1                                               
             
@@ -554,7 +554,7 @@ def _process_file_chunked(
                 )
                 file_stats.merge(block_stats)
             except Exception as chunk_error:
-                logger.exception(f"Error procesando chunk {metadata['chunk_idx']:03d}: {chunk_error}")
+                logger.exception(f"Error processing chunk {metadata['chunk_idx']:03d}: {chunk_error}")
 
                                           
             del block                             
@@ -619,7 +619,7 @@ def _process_file_chunked(
         }
 
 def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> None:
-    # Inyectar configuración si se proporciona
+    # Inject configuration if provided
     if config_dict is not None:
         config.inject_config(config_dict)
     

@@ -169,9 +169,13 @@ def create_waterfall_dispersed_plot(
             freq_low=freq_min,
             freq_high=freq_max
         )
-        logger.info(f"[INFO] [CORRECCIÓN BURST] Tiempo original del burst: {burst_start_time_corrected:.6f}s")
-        logger.info(f"[INFO] [CORRECCIÓN BURST] Tiempo observado: {slice_start_abs:.6f}s")
-        logger.info(f"[INFO] [CORRECCIÓN BURST] Corrección aplicada para mostrar parábola natural")
+        logger.info(
+            f"[INFO] [BURST CORRECTION] Original burst time: {burst_start_time_corrected:.6f}s"
+        )
+        logger.info(f"[INFO] [BURST CORRECTION] Observed time: {slice_start_abs:.6f}s")
+        logger.info(
+            "[INFO] [BURST CORRECTION] Correction applied to show the natural parabola"
+        )
 
                                                         
     fig = plt.figure(figsize=(8, 10))
@@ -246,8 +250,8 @@ def create_waterfall_dispersed_plot(
         if config.DEBUG_FREQUENCY_ORDER:
             print(f"[DEBUG PLOT] wf_block shape: {wf_block.shape}")
             print(f"[DEBUG PLOT] freq_ds range: {freq_ds.min():.2f} - {freq_ds.max():.2f} MHz")
-            print(f"[DEBUG PLOT] freq_ds[0]: {freq_ds[0]:.2f} MHz (debería ser la más baja)")
-            print(f"[DEBUG PLOT] freq_ds[-1]: {freq_ds[-1]:.2f} MHz (debería ser la más alta)")
+            print(f"[DEBUG PLOT] freq_ds[0]: {freq_ds[0]:.2f} MHz (should be the lowest)")
+            print(f"[DEBUG PLOT] freq_ds[-1]: {freq_ds[-1]:.2f} MHz (should be the highest)")
         
         im_wf = ax_wf.imshow(
             wf_block.T,                                                  
@@ -278,7 +282,9 @@ def create_waterfall_dispersed_plot(
         
                                                                             
         if dm_value is not None and dm_value > 0:
-            correction_info = f"DM={dm_value:.1f} pc cm⁻³ | Tiempo corregido para parábola natural"
+            correction_info = (
+                f"DM={dm_value:.1f} pc cm⁻³ | Time corrected for natural parabola"
+            )
             ax_wf.text(0.02, 0.98, correction_info, transform=ax_wf.transAxes, 
                       ha='left', va='top', fontsize=8, fontweight='bold',
                       bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.8))
@@ -301,7 +307,7 @@ def create_waterfall_dispersed_plot(
                                                           
     correction_suffix = ""
     if dm_value is not None and dm_value > 0:
-        correction_suffix = f" | DM={dm_value:.1f} pc cm⁻³ (parábola natural)"
+        correction_suffix = f" | DM={dm_value:.1f} pc cm⁻³ (natural parabola)"
     
     if chunk_idx is not None:
         title = (
@@ -332,8 +338,12 @@ def create_waterfall_dispersed_plot(
         
                                                                
         if dm_value is not None and dm_value > 0:
-            info_lines.append(f"Burst start (corregido): {burst_start_time_corrected:.6f}s")
-            info_lines.append(f"Corrección DM: {dm_value:.1f} pc cm⁻³ → parábola natural visible")
+            info_lines.append(
+                f"Burst start (corrected): {burst_start_time_corrected:.6f}s"
+            )
+            info_lines.append(
+                f"DM correction: {dm_value:.1f} pc cm⁻³ → natural parabola visible"
+            )
         
         fig.text(
             0.01,

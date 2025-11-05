@@ -24,7 +24,9 @@ logger = logging.getLogger(__name__)
 def detect(model, img_tensor: np.ndarray):
     """Run the detection model and return confidences and boxes."""
     if get_res is None:
-        logger.error("get_res no está disponible. Verifique que models.ObjectDet.centernet_utils esté instalado.")
+        logger.error(
+            "get_res is not available. Verify that models.ObjectDet.centernet_utils is installed."
+        )
         return [], []
     
     try:
@@ -52,7 +54,7 @@ def detect(model, img_tensor: np.ndarray):
             top_boxes = top_boxes.tolist()
         return top_conf, top_boxes
     except Exception as e:
-        logger.error(f"Error en detect: {e}")
+        logger.error(f"Error in detect: {e}")
         return [], []
 
 def prep_patch(patch: np.ndarray) -> np.ndarray:
@@ -82,5 +84,5 @@ def classify_patch(model, patch: np.ndarray):
             prob = out.softmax(dim=1)[0, 1].item()
         return prob, proc
     except Exception as e:
-        logger.error(f"Error en classify_patch (fallback): {e}")
+        logger.error(f"Error in classify_patch (fallback): {e}")
         return 0.0, proc

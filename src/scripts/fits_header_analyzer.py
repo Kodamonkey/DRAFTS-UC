@@ -213,19 +213,18 @@ def analyze_primary_header(header: fits.Header) -> Dict[str, Any]:
         analysis['errors'] = _check_header_errors(header)
 
     except Exception as e:
-        analysis['errors'].append(f"Error analizando header primario: {e}")
+        analysis['errors'].append(f"Error analyzing primary header: {e}")
 
     return analysis
 
 def analyze_extension_headers(hdul: fits.HDUList) -> List[Dict[str, Any]]:
-    """
-    Analiza los headers de todas las extensiones del archivo FITS.
+    """Analyze headers of all FITS file extensions.
 
     Args:
-        hdul: HDUList de astropy.io.fits
+        hdul: ``astropy.io.fits.HDUList`` instance
 
     Returns:
-        Lista de diccionarios con análisis de cada extensión
+        List of dictionaries with the analysis of each extension
     """
     extensions_analysis = []
 
@@ -255,21 +254,20 @@ def analyze_extension_headers(hdul: fits.HDUList) -> List[Dict[str, Any]]:
             ext_analysis['errors'] = _check_extension_errors(hdu)
 
         except Exception as e:
-            ext_analysis['errors'].append(f"Error analizando extensión {i}: {e}")
+            ext_analysis['errors'].append(f"Error analyzing extension {i}: {e}")
 
         extensions_analysis.append(ext_analysis)
 
     return extensions_analysis
 
 def analyze_file_structure(filepath: Path) -> Dict[str, Any]:
-    """
-    Analiza la estructura general del archivo FITS.
+    """Analyze the general structure of the FITS file.
 
     Args:
-        filepath: Ruta al archivo FITS
+        filepath: Path to the FITS file
 
     Returns:
-        Dict con información de estructura del archivo
+        Dict with structural information about the file
     """
     structure_info = {
         'file_path': str(filepath),
@@ -284,7 +282,7 @@ def analyze_file_structure(filepath: Path) -> Dict[str, Any]:
     }
 
     if not filepath.exists():
-        structure_info['errors'].append(f"Archivo no encontrado: {filepath}")
+        structure_info['errors'].append(f"File not found: {filepath}")
         return structure_info
 
     try:
@@ -317,19 +315,18 @@ def analyze_file_structure(filepath: Path) -> Dict[str, Any]:
                 structure_info['extensions_info'].append(ext_info)
 
     except Exception as e:
-        structure_info['errors'].append(f"Error analizando estructura del archivo: {e}")
+        structure_info['errors'].append(f"Error analyzing file structure: {e}")
 
     return structure_info
 
 def analyze_observational_metadata(header: fits.Header) -> Dict[str, Any]:
-    """
-    Analiza metadatos astronómicos y observacionales detalladamente.
+    """Analyze astronomical and observational metadata in detail.
 
     Args:
-        header: Header de astropy.io.fits
+        header: ``astropy.io.fits`` header
 
     Returns:
-        Dict con metadatos astronómicos detallados
+        Dict with detailed astronomical metadata
     """
     metadata = {
         'coordinates': {},
@@ -357,7 +354,7 @@ def analyze_observational_metadata(header: fits.Header) -> Dict[str, Any]:
                     'galactic_b': coords.galactic.b.deg
                 }
             except Exception as e:
-                metadata['warnings'].append(f"Error procesando coordenadas: {e}")
+                metadata['warnings'].append(f"Error processing coordinates: {e}")
 
                               
         if 'DATE-OBS' in header:
@@ -370,7 +367,9 @@ def analyze_observational_metadata(header: fits.Header) -> Dict[str, Any]:
                     'datetime': obs_time.datetime.isoformat()
                 }
             except Exception as e:
-                metadata['warnings'].append(f"Error procesando tiempo de observación: {e}")
+                metadata['warnings'].append(
+                    f"Error processing observation time: {e}"
+                )
 
                                    
         metadata['frequency'] = {
@@ -396,7 +395,7 @@ def analyze_observational_metadata(header: fits.Header) -> Dict[str, Any]:
         metadata['derived_parameters'] = _calculate_derived_parameters(header)
 
     except Exception as e:
-        metadata['warnings'].append(f"Error en análisis de metadatos: {e}")
+        metadata['warnings'].append(f"Error in metadata analysis: {e}")
 
     return metadata
 
@@ -405,7 +404,7 @@ def analyze_observational_metadata(header: fits.Header) -> Dict[str, Any]:
                                                                                
 
 def _calculate_data_size(hdu: fits.HDU) -> float:
-    """Calcula el tamaño de los datos en MB."""
+    """Calculate the size of the data in MB."""
     if hdu.data is None:
         return 0.0
 
@@ -422,7 +421,7 @@ def _calculate_data_size(hdu: fits.HDU) -> float:
         return 0.0
 
 def _extract_extension_specific_headers(header: fits.Header, hdu: fits.HDU) -> Dict[str, Any]:
-    """Extrae headers específicos según el tipo de extensión."""
+    """Extract specific headers according to the extension type."""
     specific_headers = {}
 
                                               
@@ -452,69 +451,69 @@ def _extract_extension_specific_headers(header: fits.Header, hdu: fits.HDU) -> D
     return specific_headers
 
 def _validate_header_integrity(header: fits.Header) -> List[str]:
-    """Valida la integridad del header y retorna warnings."""
+    """Validate header integrity and return warnings."""
     warnings = []
 
                                           
     critical_headers = ['NAXIS', 'BITPIX']
     for key in critical_headers:
         if key not in header:
-            warnings.append(f"Header crítico faltante: {key}")
+            warnings.append(f"Missing critical header: {key}")
 
                                            
     naxis = header.get('NAXIS', 0)
     for i in range(1, naxis + 1):
         axis_key = f'NAXIS{i}'
         if axis_key not in header:
-            warnings.append(f"NAXIS{i} faltante para NAXIS={naxis}")
+            warnings.append(f"Missing NAXIS{i} for NAXIS={naxis}")
 
                                                 
     if 'TELESCOP' not in header:
-        warnings.append("Header TELESCOP faltante - telescopio no especificado")
+        warnings.append("Missing TELESCOP header - telescope not specified")
     if 'OBS_MODE' not in header:
-        warnings.append("Header OBS_MODE faltante - modo de observación no especificado")
+        warnings.append("Missing OBS_MODE header - observation mode not specified")
 
     return warnings
 
 def _check_header_errors(header: fits.Header) -> List[str]:
-    """Verifica errores críticos en el header."""
+    """Check for critical errors in the header."""
     errors = []
 
                                  
     if header.get('NAXIS', 0) < 0:
-        errors.append("NAXIS negativo - archivo corrupto")
+        errors.append("Negative NAXIS - corrupted file")
     if header.get('BITPIX', 0) not in [-64, -32, 8, 16, 32, 64]:
-        errors.append("BITPIX inválido - no es un valor FITS estándar")
+        errors.append("Invalid BITPIX - not a standard FITS value")
 
     return errors
 
 def _validate_extension_integrity(hdu: fits.HDU) -> List[str]:
-    """Valida la integridad de una extensión."""
+    """Validate the integrity of an extension."""
     warnings = []
 
     if hasattr(hdu, 'data') and hdu.data is not None:
         if hdu.data.size == 0:
-            warnings.append("Extensión contiene datos vacíos")
+            warnings.append("Extension contains empty data")
 
                                   
         if not np.issubdtype(hdu.data.dtype, np.number):
-            warnings.append(f"Tipo de datos no numérico: {hdu.data.dtype}")
+            warnings.append(f"Non-numeric data type: {hdu.data.dtype}")
 
     return warnings
 
 def _check_extension_errors(hdu: fits.HDU) -> List[str]:
-    """Verifica errores en una extensión."""
+    """Check for errors in an extension."""
     errors = []
 
     if hasattr(hdu, 'header'):
                                                                 
         if 'XTENSION' not in hdu.header:
-            errors.append("Header XTENSION faltante en extensión")
+            errors.append("Missing XTENSION header in extension")
 
     return errors
 
 def _calculate_derived_parameters(header: fits.Header) -> Dict[str, Any]:
-    """Calcula parámetros derivados de los headers."""
+    """Calculate derived parameters from the headers."""
     derived = {}
 
     try:
@@ -555,26 +554,25 @@ def _calculate_derived_parameters(header: fits.Header) -> Dict[str, Any]:
                                                                                
 
 def print_analysis_report(filepath: Path, analysis: Dict[str, Any]) -> None:
-    """
-    Imprime un reporte completo del análisis del archivo FITS.
+    """Print a complete report of the FITS file analysis.
 
     Args:
-        filepath: Ruta al archivo analizado
-        analysis: Resultados del análisis completo
+        filepath: Path to the analyzed file
+        analysis: Results from the full analysis
     """
     print(f"\n{Colors.BOLD}{Colors.BLUE}{'='*80}{Colors.RESET}")
-    print(f"{Colors.BOLD}{Colors.BLUE}ANÁLISIS DE HEADER FITS{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.BLUE}FITS HEADER ANALYSIS{Colors.RESET}")
     print(f"{Colors.BOLD}{Colors.BLUE}{'='*80}{Colors.RESET}")
-    print(f"{Colors.BOLD}Archivo:{Colors.RESET} {filepath.name}")
-    print(f"{Colors.BOLD}Ruta:{Colors.RESET} {filepath}")
-    print(f"{Colors.BOLD}Tamaño:{Colors.RESET} {analysis['structure']['file_size_mb']:.2f} MB")
+    print(f"{Colors.BOLD}File:{Colors.RESET} {filepath.name}")
+    print(f"{Colors.BOLD}Path:{Colors.RESET} {filepath}")
+    print(f"{Colors.BOLD}Size:{Colors.RESET} {analysis['structure']['file_size_mb']:.2f} MB")
 
                                
     struct = analysis['structure']
-    print(f"\n{Colors.BOLD}{Colors.GREEN}ESTRUCTURA DEL ARCHIVO:{Colors.RESET}")
-    print(f"  • Es FITS válido: {struct['is_fits']}")
-    print(f"  • Es PSRFITS: {struct['is_psrfits']}")
-    print(f"  • Número de extensiones: {struct['num_extensions']}")
+    print(f"\n{Colors.BOLD}{Colors.GREEN}FILE STRUCTURE:{Colors.RESET}")
+    print(f"  • Is valid FITS: {struct['is_fits']}")
+    print(f"  • Is PSRFITS: {struct['is_psrfits']}")
+    print(f"  • Number of extensions: {struct['num_extensions']}")
 
     if struct['extensions_info']:
         print(f"  • Extensiones:")
@@ -583,46 +581,46 @@ def print_analysis_report(filepath: Path, analysis: Dict[str, Any]) -> None:
 
                              
     if analysis['primary']['astronomical']:
-        print(f"\n{Colors.BOLD}{Colors.GREEN}INFORMACIÓN ASTRONÓMICA:{Colors.RESET}")
+        print(f"\n{Colors.BOLD}{Colors.GREEN}ASTRONOMICAL INFORMATION:{Colors.RESET}")
         astro = analysis['primary']['astronomical']
         for key, value in astro.items():
             print(f"  • {key}: {value}")
 
                                
     obs = analysis['primary']['observational']
-    print(f"\n{Colors.BOLD}{Colors.GREEN}INFORMACIÓN OBSERVACIONAL:{Colors.RESET}")
-    print(f"  • Objeto: {obs['object']}")
-    print(f"  • Observador: {obs['observer']}")
-    print(f"  • Telescopio: {obs['telescope']}")
-    print(f"  • Instrumento: {obs['instrument']}")
-    print(f"  • Modo: {obs['obs_mode']}")
-    print(f"  • Fecha observación: {obs['date_obs']}")
-    print(f"  • Tiempo observación: {obs['time_obs']}")
+    print(f"\n{Colors.BOLD}{Colors.GREEN}OBSERVATIONAL INFORMATION:{Colors.RESET}")
+    print(f"  • Object: {obs['object']}")
+    print(f"  • Observer: {obs['observer']}")
+    print(f"  • Telescope: {obs['telescope']}")
+    print(f"  • Instrument: {obs['instrument']}")
+    print(f"  • Mode: {obs['obs_mode']}")
+    print(f"  • Observation date: {obs['date_obs']}")
+    print(f"  • Observation time: {obs['time_obs']}")
 
                          
     tech = analysis['primary']['technical']
-    print(f"\n{Colors.BOLD}{Colors.GREEN}INFORMACIÓN TÉCNICA:{Colors.RESET}")
-    print(f"  • Bits por muestra: {tech['nbits']}")
-    print(f"  • Número de polarizaciones: {tech['npol']}")
-    print(f"  • Número de canales: {tech['nchan']}")
-    print(f"  • Muestras por bloque: {tech['nsblk']}")
-    print(f"  • Tiempo muestreo: {tech['tsamp']}")
-    print(f"  • Frecuencia central: {tech['freq']} MHz")
-    print(f"  • Ancho de banda: {tech['bw']} MHz")
+    print(f"\n{Colors.BOLD}{Colors.GREEN}TECHNICAL INFORMATION:{Colors.RESET}")
+    print(f"  • Bits per sample: {tech['nbits']}")
+    print(f"  • Number of polarizations: {tech['npol']}")
+    print(f"  • Number of channels: {tech['nchan']}")
+    print(f"  • Samples per block: {tech['nsblk']}")
+    print(f"  • Sampling time: {tech['tsamp']}")
+    print(f"  • Center frequency: {tech['freq']} MHz")
+    print(f"  • Bandwidth: {tech['bw']} MHz")
 
                           
     if analysis['metadata']['coordinates']:
         coords = analysis['metadata']['coordinates']
-        print(f"\n{Colors.BOLD}{Colors.GREEN}COORDENADAS ASTRONÓMICAS:{Colors.RESET}")
+        print(f"\n{Colors.BOLD}{Colors.GREEN}ASTRONOMICAL COORDINATES:{Colors.RESET}")
         print(f"  • RA: {coords.get('ra_hms', 'N/A')} ({coords.get('ra_deg', 'N/A')}°)")
         print(f"  • DEC: {coords.get('dec_dms', 'N/A')} ({coords.get('dec_deg', 'N/A')}°)")
-        print(f"  • Longitud galáctica: {coords.get('galactic_l', 'N/A')}°")
-        print(f"  • Latitud galáctica: {coords.get('galactic_b', 'N/A')}°")
+        print(f"  • Galactic longitude: {coords.get('galactic_l', 'N/A')}°")
+        print(f"  • Galactic latitude: {coords.get('galactic_b', 'N/A')}°")
 
                           
     if analysis['metadata']['derived_parameters']:
         derived = analysis['metadata']['derived_parameters']
-        print(f"\n{Colors.BOLD}{Colors.GREEN}PARÁMETROS DERIVADOS:{Colors.RESET}")
+        print(f"\n{Colors.BOLD}{Colors.GREEN}DERIVED PARAMETERS:{Colors.RESET}")
         for key, value in derived.items():
             if isinstance(value, float):
                 print(f"  • {key}: {value:.2f}")
@@ -631,82 +629,80 @@ def print_analysis_report(filepath: Path, analysis: Dict[str, Any]) -> None:
 
                  
     if analysis['extensions']:
-        print(f"\n{Colors.BOLD}{Colors.GREEN}ANÁLISIS DE EXTENSIONES:{Colors.RESET}")
+        print(f"\n{Colors.BOLD}{Colors.GREEN}EXTENSION ANALYSIS:{Colors.RESET}")
         for ext in analysis['extensions']:
-            print(f"  • Extensión {ext['extension_number']} ({ext['extension_type']}):")
-            print(f"    - Tamaño datos: {ext['data_size_mb']:.2f} MB")
-            print(f"    - Forma datos: {ext['data_shape']}")
-            print(f"    - Tipo datos: {ext['data_type']}")
+            print(f"  • Extension {ext['extension_number']} ({ext['extension_type']}):")
+            print(f"    - Data size: {ext['data_size_mb']:.2f} MB")
+            print(f"    - Data shape: {ext['data_shape']}")
+            print(f"    - Data type: {ext['data_type']}")
 
                         
     if analysis['primary']['warnings']:
-        print(f"\n{Colors.BOLD}{Colors.YELLOW}ADVERTENCIAS:{Colors.RESET}")
+        print(f"\n{Colors.BOLD}{Colors.YELLOW}WARNINGS:{Colors.RESET}")
         for warning in analysis['primary']['warnings']:
             print(f"  • {warning}")
 
     if analysis['primary']['errors']:
-        print(f"\n{Colors.BOLD}{Colors.RED}ERRORES:{Colors.RESET}")
+        print(f"\n{Colors.BOLD}{Colors.RED}ERRORS:{Colors.RESET}")
         for error in analysis['primary']['errors']:
             print(f"  • {error}")
 
 def print_summary_report(files_analyzed: List[Dict[str, Any]]) -> None:
-    """
-    Imprime un reporte resumen de todos los archivos analizados.
+    """Print a summary report for all analyzed files.
 
     Args:
-        files_analyzed: Lista de análisis de archivos
+        files_analyzed: List of file analyses
     """
     if not files_analyzed:
-        print(f"\n{Colors.YELLOW}No se analizaron archivos.{Colors.RESET}")
+        print(f"\n{Colors.YELLOW}No files were analyzed.{Colors.RESET}")
         return
 
     print(f"\n{Colors.BOLD}{Colors.BLUE}{'='*80}{Colors.RESET}")
-    print(f"{Colors.BOLD}{Colors.BLUE}REPORTE RESUMEN{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.BLUE}SUMMARY REPORT{Colors.RESET}")
     print(f"{Colors.BOLD}{Colors.BLUE}{'='*80}{Colors.RESET}")
-    print(f"Archivos analizados: {len(files_analyzed)}")
+    print(f"Analyzed files: {len(files_analyzed)}")
 
     total_size = sum(f['analysis']['structure']['file_size_mb'] for f in files_analyzed)
-    print(f"Tamaño total: {total_size:.2f} MB")
+    print(f"Total size: {total_size:.2f} MB")
 
                            
     psrfits_count = sum(1 for f in files_analyzed if f['analysis']['structure']['is_psrfits'])
     fits_count = sum(1 for f in files_analyzed if f['analysis']['structure']['is_fits'] and not f['analysis']['structure']['is_psrfits'])
 
-    print(f"Archivos PSRFITS: {psrfits_count}")
-    print(f"Archivos FITS estándar: {fits_count}")
+    print(f"PSRFITS files: {psrfits_count}")
+    print(f"Standard FITS files: {fits_count}")
 
                          
     total_errors = sum(len(f['analysis']['primary']['errors']) for f in files_analyzed)
     total_warnings = sum(len(f['analysis']['primary']['warnings']) for f in files_analyzed)
 
     if total_errors > 0:
-        print(f"{Colors.RED}Errores totales: {total_errors}{Colors.RESET}")
+        print(f"{Colors.RED}Total errors: {total_errors}{Colors.RESET}")
     if total_warnings > 0:
-        print(f"{Colors.YELLOW}Advertencias totales: {total_warnings}{Colors.RESET}")
+        print(f"{Colors.YELLOW}Total warnings: {total_warnings}{Colors.RESET}")
 
                                      
     problematic_files = [f for f in files_analyzed if f['analysis']['primary']['errors']]
     if problematic_files:
-        print(f"\n{Colors.RED}Archivos con errores:{Colors.RESET}")
+        print(f"\n{Colors.RED}Files with errors:{Colors.RESET}")
         for f in problematic_files:
             error_count = len(f['analysis']['primary']['errors'])
-            print(f"  • {f['filepath'].name}: {error_count} errores")
+            print(f"  • {f['filepath'].name}: {error_count} errors")
 
                                                                                
                        
                                                                                
 
 def analyze_fits_file(filepath: Path) -> Dict[str, Any]:
-    """
-    Función principal para analizar un archivo FITS completo.
+    """Main function to analyze a complete FITS file.
 
     Args:
-        filepath: Ruta al archivo FITS
+        filepath: Path to the FITS file
 
     Returns:
-        Dict con análisis completo del archivo
+        Dict with the complete file analysis
     """
-    logger.info(f"Analizando archivo: {filepath.name}")
+    logger.info(f"Analyzing file: {filepath.name}")
 
     analysis = {
         'structure': {},
@@ -725,7 +721,7 @@ def analyze_fits_file(filepath: Path) -> Dict[str, Any]:
         analysis['structure'] = analyze_file_structure(filepath)
 
         if not analysis['structure']['is_fits']:
-            analysis['errors'].append("No es un archivo FITS válido")
+            analysis['errors'].append("Not a valid FITS file")
             return analysis
 
                                         
@@ -740,64 +736,66 @@ def analyze_fits_file(filepath: Path) -> Dict[str, Any]:
             analysis['metadata'] = analyze_observational_metadata(hdul[0].header)
 
         analysis['processing_time'] = time.time() - start_time
-        logger.info(f"Análisis completado en {analysis['processing_time']:.2f} segundos")
+        logger.info(
+            f"Analysis completed in {analysis['processing_time']:.2f} seconds"
+        )
 
     except Exception as e:
-        error_msg = f"Error crítico analizando {filepath.name}: {e}"
+        error_msg = f"Critical error analyzing {filepath.name}: {e}"
         logger.error(error_msg)
         analysis['errors'].append(error_msg)
 
     return analysis
 
 def main():
-    """Función principal del script."""
+    """Main entry point for the script."""
     parser = argparse.ArgumentParser(
-        description="Analizador de headers FITS para el pipeline DRAFTS",
+        description="FITS header analyzer for the DRAFTS pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Ejemplos de uso:
-  python fits_header_analyzer.py archivo.fits
-  python fits_header_analyzer.py archivo1.fits archivo2.fits
+Usage examples:
+  python fits_header_analyzer.py file.fits
+  python fits_header_analyzer.py file1.fits file2.fits
   python fits_header_analyzer.py --all
   python fits_header_analyzer.py --targets
-  python fits_header_analyzer.py --dir /ruta/a/directorio
+  python fits_header_analyzer.py --dir /path/to/directory
         """
     )
 
     parser.add_argument(
         'files',
         nargs='*',
-        help='Archivos FITS a analizar'
+        help='FITS files to analyze'
     )
 
     parser.add_argument(
         '--all',
         action='store_true',
-        help='Analizar todos los archivos FITS en DATA_DIR'
+        help='Analyze all FITS files in DATA_DIR'
     )
 
     parser.add_argument(
         '--targets',
         action='store_true',
-        help='Analizar archivos especificados en FRB_TARGETS'
+        help='Analyze files listed in FRB_TARGETS'
     )
 
     parser.add_argument(
         '--dir',
         type=str,
-        help='Directorio específico para buscar archivos FITS'
+        help='Specific directory to search for FITS files'
     )
 
     parser.add_argument(
         '--output',
         type=str,
-        help='Archivo de salida para el reporte (opcional)'
+        help='Output file for the report (optional)'
     )
 
     parser.add_argument(
         '--quiet',
         action='store_true',
-        help='Modo silencioso, solo reportes importantes'
+        help='Quiet mode, only important reports'
     )
 
     args = parser.parse_args()
@@ -818,7 +816,7 @@ Ejemplos de uso:
             if path.exists():
                 files_to_analyze.append(path)
             else:
-                logger.warning(f"Archivo no encontrado: {file_path}")
+                logger.warning(f"File not found: {file_path}")
 
     elif args.all:
                                         
@@ -826,9 +824,9 @@ Ejemplos de uso:
         if data_dir.exists():
             fits_files = list(data_dir.glob("*.fits")) + list(data_dir.glob("*.FITS"))
             files_to_analyze.extend(fits_files)
-            logger.info(f"Encontrados {len(fits_files)} archivos FITS en {data_dir}")
+            logger.info(f"Found {len(fits_files)} FITS files in {data_dir}")
         else:
-            logger.error(f"Directorio de datos no encontrado: {data_dir}")
+            logger.error(f"Data directory not found: {data_dir}")
 
     elif args.targets:
                                  
@@ -838,7 +836,7 @@ Ejemplos de uso:
             if target_path.exists():
                 files_to_analyze.append(target_path)
             else:
-                logger.warning(f"Archivo target no encontrado: {target_path}")
+                logger.warning(f"Target file not found: {target_path}")
 
     elif args.dir:
                                
@@ -846,9 +844,9 @@ Ejemplos de uso:
         if search_dir.exists():
             fits_files = list(search_dir.glob("*.fits")) + list(search_dir.glob("*.FITS"))
             files_to_analyze.extend(fits_files)
-            logger.info(f"Encontrados {len(fits_files)} archivos FITS en {search_dir}")
+            logger.info(f"Found {len(fits_files)} FITS files in {search_dir}")
         else:
-            logger.error(f"Directorio no encontrado: {search_dir}")
+            logger.error(f"Directory not found: {search_dir}")
 
     else:
                                                                                 
@@ -859,14 +857,14 @@ Ejemplos de uso:
             if target_path.exists():
                 files_to_analyze.append(target_path)
             else:
-                logger.warning(f"Archivo target no encontrado: {target_path}")
+                logger.warning(f"Target file not found: {target_path}")
 
     if not files_to_analyze:
-        logger.error("No se encontraron archivos FITS para analizar")
+        logger.error("No FITS files found to analyze")
         return 1
 
                        
-    logger.info(f"Iniciando análisis de {len(files_to_analyze)} archivos FITS")
+    logger.info(f"Starting analysis of {len(files_to_analyze)} FITS files")
     files_analyzed = []
 
     for filepath in files_to_analyze:
@@ -882,7 +880,7 @@ Ejemplos de uso:
                 print_analysis_report(filepath, analysis)
 
         except Exception as e:
-            logger.error(f"Error analizando {filepath.name}: {e}")
+            logger.error(f"Error analyzing {filepath.name}: {e}")
 
                      
     print_summary_report(files_analyzed)
@@ -905,12 +903,12 @@ Ejemplos de uso:
             with open(args.output, 'w', encoding='utf-8') as f:
                 json.dump(output_data, f, indent=2, ensure_ascii=False)
 
-            logger.info(f"Reporte guardado en: {args.output}")
+            logger.info(f"Report saved to: {args.output}")
 
         except Exception as e:
-            logger.error(f"Error guardando reporte: {e}")
+            logger.error(f"Error saving report: {e}")
 
-    logger.info("Análisis completado")
+    logger.info("Analysis completed")
     return 0
 
 if __name__ == "__main__":

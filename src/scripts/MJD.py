@@ -255,9 +255,9 @@ def convert_candidates_to_mjd(candidates_csv: str, data_dir: str, output_csv: st
                               nu_ref_mode: str = "header_mean") -> str:
     df = pd.read_csv(candidates_csv)
     if "file" not in df.columns or "t_sec" not in df.columns:
-        raise ValueError("El CSV debe contener columnas 'file' y 't_sec'")
+        raise ValueError("CSV must contain 'file' and 't_sec' columns")
 
-    # Calcular MJD_start por archivo
+    # Compute MJD_start per file
     filenames = df["file"].unique()
     file_to_mjdstart = {}
     file_to_tsamp = {}
@@ -266,35 +266,35 @@ def convert_candidates_to_mjd(candidates_csv: str, data_dir: str, output_csv: st
     file_to_dec = {}
     data_dir_path = Path(data_dir)
     for fname in filenames:
-        # Resolver ruta
+        # Resolve file path
         cand_path = data_dir_path / fname
         if not cand_path.exists():
-            # Intentar usar el path tal cual
+            # Attempt to use the provided path as-is
             cand_path = Path(fname)
-        # Metadatos precisos
+        # Retrieve precise metadata
         meta = get_file_metadata(str(cand_path))
         mjd_start = float(meta["tstart_mjd"])
         tsamp_s = float(meta.get("tsamp_s", 0.0))
         file_to_tsamp[fname] = tsamp_s
-        # Frec efectiva: <1/nu^2> sobre canales del header
+        # Effective frequency: <1/nu^2> over header channels
         if nu_ref_mode == "header_mean" and "chan_freqs_MHz" in meta:
             freqs = np.asarray(meta["chan_freqs_MHz"], dtype=float)
-            # Evitar ceros o negativos
+            # Avoid zero or negative frequencies
             valid = freqs > 0
             if valid.any():
                 nu_eff_inv2 = np.mean(1.0 / (freqs[valid] ** 2))
                 file_to_nu_eff_inv2[fname] = float(nu_eff_inv2)
-        # RA/DEC si el header las trae
+        # Include RA/DEC if the header provides them
         if meta.get("ra_hms") and meta.get("dec_dms"):
             file_to_ra[fname] = meta["ra_hms"]
             file_to_dec[fname] = meta["dec_dms"]
         file_to_mjdstart[fname] = mjd_start
 
-    # Añadir columnas topo
+    # Add topocentric columns
     df["mjd_start_file"] = df["file"].map(file_to_mjdstart)
-    # Centrar en el medio del sample si se solicita
+    # Center in the middle of the sample when requested
     if center_sample:
-        # sumar tsamp/2 por fila según el archivo correspondiente
+        # add tsamp/2 per row according to the corresponding file
         tsamp_series = df["file"].map(file_to_tsamp).astype(float).fillna(0.0)
         t_sec_centered = df["t_sec"].astype(float) + (tsamp_series / 2.0)
     else:
@@ -302,13 +302,13 @@ def convert_candidates_to_mjd(candidates_csv: str, data_dir: str, output_csv: st
     df["t_sec_centered"] = t_sec_centered
     df["mjd_utc"] = df["mjd_start_file"] + (t_sec_centered / 86400.0)
 
-    # Añadir nu_eff_inv2 si lo tenemos
+    # Add nu_eff_inv2 if available
     if file_to_nu_eff_inv2:
         df["nu_eff_inv2"] = df["file"].map(file_to_nu_eff_inv2)
 
-    # Opcional: añadir columnas baricéntricas (TDB) y a frecuencia infinita
+    # Optional: add barycentric columns (TDB) and infinite-frequency correction
     if compute_bary:
-        # RA/DEC por fila, si hay disponibles desde el header
+        # RA/DEC per row, if available from the header
         ra_series = df["file"].map(file_to_ra) if file_to_ra else None
         dec_series = df["file"].map(file_to_dec) if file_to_dec else None
         df = _compute_barycentric_columns(
@@ -329,25 +329,25 @@ def convert_candidates_to_mjd(candidates_csv: str, data_dir: str, output_csv: st
     return str(out_path)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Utilidades MJD: convertir t_sec de candidatos a MJD absoluto y opcionalmente baricéntrico")
-    parser.add_argument("--candidates_csv", type=str, help="Ruta al CSV de candidatos con columnas 'file' y 't_sec'")
-    parser.add_argument("--data_dir", type=str, default="Data/raw", help="Directorio base donde están los .fil/.fits")
-    parser.add_argument("--output", type=str, help="Ruta de salida para CSV con columna 'mjd_utc'")
-    # Calcular para tiempos específicos de un archivo
-    parser.add_argument("--file", type=str, help="Ruta a un .fil/.fits para calcular tiempos específicos")
-    parser.add_argument("--times", type=str, help="Lista de tiempos en segundos separados por coma")
-    parser.add_argument("--compute_bary", action="store_true", help="Añadir columnas baricéntricas (TDB/UTC) y a freq infinita")
-    parser.add_argument("--ra", type=str, default="05:31:58.70", help="RA de la fuente en HH:MM:SS.ss")
-    parser.add_argument("--dec", type=str, default="33:08:52.5", help="DEC de la fuente en DD:MM:SS.s")
-    parser.add_argument("--freq_mhz", type=float, default=1400.0, help="Frecuencia de referencia en MHz")
-    parser.add_argument("--location", type=str, default="Effelsberg", help="Observatorio (EarthLocation.of_site)")
-    parser.add_argument("--ephem", type=str, default="de432s", help="Efemérides JPL (ej. de432s)")
-    parser.add_argument("--default_dm", type=float, default=565.0, help="DM por defecto si no está en el CSV")
-    parser.add_argument("--no_center_sample", action="store_true", help="No sumar tsamp/2 al t_sec (por defecto se suma)")
-    parser.add_argument("--nu_ref_mode", type=str, default="header_mean", choices=["header_mean","fixed"], help="'header_mean': usa <1/nu^2> del header; 'fixed': usa --freq_mhz")
+    parser = argparse.ArgumentParser(description="MJD utilities: convert candidate t_sec to absolute (and optional barycentric) MJD")
+    parser.add_argument("--candidates_csv", type=str, help="Path to candidate CSV with columns 'file' and 't_sec'")
+    parser.add_argument("--data_dir", type=str, default="Data/raw", help="Base directory containing .fil/.fits files")
+    parser.add_argument("--output", type=str, help="Output path for CSV with 'mjd_utc' column")
+    # Compute specific times for one file
+    parser.add_argument("--file", type=str, help="Path to a .fil/.fits file to compute specific times")
+    parser.add_argument("--times", type=str, help="Comma-separated list of times in seconds")
+    parser.add_argument("--compute_bary", action="store_true", help="Add barycentric columns (TDB/UTC) and infinite-frequency correction")
+    parser.add_argument("--ra", type=str, default="05:31:58.70", help="Source RA in HH:MM:SS.ss")
+    parser.add_argument("--dec", type=str, default="33:08:52.5", help="Source DEC in DD:MM:SS.s")
+    parser.add_argument("--freq_mhz", type=float, default=1400.0, help="Reference frequency in MHz")
+    parser.add_argument("--location", type=str, default="Effelsberg", help="Observatory (EarthLocation.of_site)")
+    parser.add_argument("--ephem", type=str, default="de432s", help="JPL ephemerides (e.g., de432s)")
+    parser.add_argument("--default_dm", type=float, default=565.0, help="Default DM if not present in the CSV")
+    parser.add_argument("--no_center_sample", action="store_true", help="Do not add tsamp/2 to t_sec (added by default)")
+    parser.add_argument("--nu_ref_mode", type=str, default="header_mean", choices=["header_mean","fixed"], help="'header_mean': use <1/nu^2> from header; 'fixed': use --freq_mhz")
 
-    # Parámetros opcionales para ejemplo baricéntrico anterior
-    parser.add_argument("--example_bary", action="store_true", help="Ejecutar ejemplo de conversión baricéntrica")
+    # Optional parameters for the barycentric example
+    parser.add_argument("--example_bary", action="store_true", help="Run the barycentric conversion example")
     args = parser.parse_args()
 
     if args.candidates_csv:
@@ -368,7 +368,7 @@ if __name__ == "__main__":
             center_sample=(not args.no_center_sample),
             nu_ref_mode=args.nu_ref_mode,
         )
-        print(f"✅ Escrito {out_path}")
+        print(f"✅ Written {out_path}")
     elif args.file and args.times:
         times_list = [float(x) for x in args.times.replace(';', ',').split(',') if x.strip()]
         out_csv = args.output or str(Path("Results") / (Path(args.file).stem + "_times_mjd.csv"))
@@ -386,9 +386,9 @@ if __name__ == "__main__":
             center_sample=(not args.no_center_sample),
             nu_ref_mode=args.nu_ref_mode,
         )
-        print(f"✅ Escrito {out_path}")
+        print(f"✅ Written {out_path}")
     elif args.example_bary:
-        # Ejemplo anterior (requiere archivo con columnas esperadas)
+        # Previous example (requires a file with the expected columns)
         filename = "candidates.txt"
         mjd_files, times_s = np.loadtxt(filename, usecols=(7, 3), unpack=True, skiprows=1)
         topo_mjds = get_topo_MJD(mjd_files, times_s)
@@ -405,4 +405,4 @@ if __name__ == "__main__":
         np.savetxt("bary_toas.txt", out, fmt="%.12f", header="Topo_MJD  Bary_MJD")
         print("✅ Saved barycentric TOAs to bary_toas.txt")
     else:
-        print("Nada que hacer: proporcione --candidates_csv o --example_bary")
+        print("Nothing to do: provide --candidates_csv or --example_bary")

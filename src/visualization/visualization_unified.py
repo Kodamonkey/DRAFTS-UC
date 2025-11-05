@@ -129,6 +129,8 @@ def save_all_plots(
     chunk_idx=None,  
     force_plots: bool = False,
     candidate_times_abs: Optional[Iterable[float]] = None,
+    dedisp_block_linear: Optional[np.ndarray] = None,
+    dedisp_block_circular: Optional[np.ndarray] = None,
 ):
 
     if comp_path is not None:
@@ -167,6 +169,8 @@ def save_all_plots(
             chunk_idx=chunk_idx,  
             slice_samples=real_slice_samples,
             candidate_times_abs=candidate_times_abs,
+            dedisp_block_linear=dedisp_block_linear,
+            dedisp_block_circular=dedisp_block_circular,
         )
         
         logger.info(f"Composite plot generated at: {comp_path}")
@@ -220,6 +224,8 @@ def save_slice_summary(
     chunk_idx: Optional[int] = None,  
     slice_samples: Optional[int] = None,  
     candidate_times_abs: Optional[Iterable[float]] = None,
+    dedisp_block_linear: Optional[np.ndarray] = None,
+    dedisp_block_circular: Optional[np.ndarray] = None,
 ) -> None:
     
     save_composite_plot(
@@ -247,5 +253,7 @@ def save_slice_summary(
         chunk_idx=chunk_idx,
         slice_samples=slice_samples,
         candidate_times_abs=candidate_times_abs,
+        dedisp_block_linear=dedisp_block_linear,
+        dedisp_block_circular=dedisp_block_circular,
     )
 

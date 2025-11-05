@@ -30,6 +30,7 @@ Results/
 # LOGS AND TEMPORARY FILES
 # =============================================================================
 *.log
+src/logging/log/
 *.tmp
 *.temp
 *.swp

@@ -399,7 +399,7 @@ def _process_file_chunked_high_freq(
 
     # Streaming parameters reused from the main pipeline.
     total_samples = config.FILE_LENG
-    # FIX: Usar calculate_frequency_downsampled que hace trim seguro de canales
+    # FIX: Use calculate_frequency_downsampled, which safely trims channels
     freq_ds = calculate_frequency_downsampled()
     nu_min = float(freq_ds.min())
     nu_max = float(freq_ds.max())

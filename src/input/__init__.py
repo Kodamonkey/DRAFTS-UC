@@ -1,8 +1,8 @@
 # This module aggregates input handling utilities.
 
-"""Módulo de entrada de datos para archivos astronómicos.
+"""Data input module for astronomical files.
 
-Este módulo proporciona funcionalidades para cargar y procesar archivos FITS, PSRFITS y filterbank.
+This module provides functions to load and process FITS, PSRFITS, and filterbank files.
 """
 
                                                          

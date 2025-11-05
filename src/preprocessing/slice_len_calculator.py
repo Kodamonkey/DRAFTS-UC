@@ -50,34 +50,36 @@ def calculate_slice_len_from_duration() -> Tuple[int, float]:
     
                                                
     if abs(real_duration_ms - config.SLICE_DURATION_MS) > 5.0:
-        logger.warning(f"Diferencia significativa entre objetivo ({config.SLICE_DURATION_MS:.1f} ms) "
-                      f"y obtenido ({real_duration_ms:.1f} ms)")
+        logger.warning(
+            f"Significant difference between target ({config.SLICE_DURATION_MS:.1f} ms) "
+            f"and obtained ({real_duration_ms:.1f} ms)"
+        )
     
     return slice_len, real_duration_ms
 
 
 def calculate_optimal_chunk_size(slice_len: Optional[int] = None) -> int:
-    """Determina cuántas muestras puede contener un chunk.
+    """Determine how many samples a chunk can contain.
 
-    El cálculo se basa únicamente en la duración objetivo de cada slice y en la
-    memoria disponible del sistema. Si el archivo completo (tras la reducción en
-    frecuencia y tiempo) cabe en memoria, se procesa en un solo chunk. De lo
-    contrario se calcula el máximo número de muestras que ocupa como mucho el
-    25%% de la memoria disponible. El resultado siempre es múltiplo de
-    ``slice_len`` para que los slices encajen exactamente.
+    The calculation relies solely on the target duration for each slice and the
+    system's available memory. If the full file (after the reduction in
+    frequency and time) fits in memory, it is processed in a single chunk.
+    Otherwise, the maximum number of samples is computed so that the chunk uses
+    at most 25% of the available memory. The result is always a multiple of
+    ``slice_len`` so that slices align exactly.
 
     Args:
-        slice_len: Número de muestras de un slice. Si es ``None`` se calcula a
-            partir de :data:`config.SLICE_DURATION_MS`.
+        slice_len: Number of samples in a slice. If ``None`` it is derived from
+            :data:`config.SLICE_DURATION_MS`.
 
     Returns:
-        int: muestras por chunk.
+        int: Samples per chunk.
     """
     if slice_len is None:
         slice_len, _ = calculate_slice_len_from_duration()
 
     if config.FILE_LENG <= 0 or config.FREQ_RESO <= 0 or config.TIME_RESO <= 0:
-        logger.warning("Metadatos del archivo no disponibles, usando chunk por defecto")
+        logger.warning("File metadata not available, using default chunk size")
         return slice_len * 200
 
     total_samples = config.FILE_LENG // max(1, config.DOWN_TIME_RATE)                           
@@ -99,7 +101,7 @@ def calculate_optimal_chunk_size(slice_len: Optional[int] = None) -> int:
     chunk_duration_sec = chunk_samples * config.TIME_RESO * config.DOWN_TIME_RATE
     slices_per_chunk = chunk_samples // slice_len
     logger.info(
-        f"Chunk óptimo calculado: {chunk_samples:,} muestras "
+        f"Optimal chunk computed: {chunk_samples:,} samples "
         f"({chunk_duration_sec:.1f}s, {slices_per_chunk} slices)"
     )
 
@@ -107,15 +109,15 @@ def calculate_optimal_chunk_size(slice_len: Optional[int] = None) -> int:
 
 
 def get_processing_parameters() -> dict:
-    """Calcula automáticamente todos los parámetros de chunking y slicing.
+    """Automatically compute all chunking and slicing parameters.
 
-    A partir de :data:`config.SLICE_DURATION_MS` se determina ``slice_len`` y el
-    número máximo de muestras que puede manejar un chunk sin agotar la memoria
-    disponible.  También se calculan el número total de chunks y slices y las
-    muestras residuales que no forman un slice completo.
+    Using :data:`config.SLICE_DURATION_MS`, the function determines ``slice_len``
+    and the maximum number of samples a chunk can handle without exhausting
+    memory. It also calculates the total number of chunks and slices along with
+    residual samples that do not form a complete slice.
 
     Returns:
-        dict: Parámetros de procesamiento calculados.
+        dict: Calculated processing parameters.
     """
     slice_len, real_duration_ms = calculate_slice_len_from_duration()                                        
                                                                    
@@ -271,9 +273,9 @@ def get_processing_parameters() -> dict:
 
 
 def update_slice_len_dynamic():
-    """
-    Actualiza config.SLICE_LEN basado en SLICE_DURATION_MS.
-    Debe llamarse después de cargar metadatos del archivo.
+    """Update ``config.SLICE_LEN`` based on ``SLICE_DURATION_MS``.
+
+    Must be called after file metadata is loaded.
     """
     slice_len, real_duration_ms = calculate_slice_len_from_duration()
     
@@ -288,18 +290,17 @@ def update_slice_len_dynamic():
         })
     except ImportError:
                                   
-        logger.info(f"Slice configurado: {slice_len} muestras = {real_duration_ms:.1f} ms")
+        logger.info(f"Slice configured: {slice_len} samples = {real_duration_ms:.1f} ms")
     
     return slice_len, real_duration_ms
 
 
 def validate_processing_parameters(parameters: dict) -> bool:
-    """
-    Valida que los parámetros calculados sean razonables.
-    
+    """Validate that the calculated parameters are reasonable.
+
     Args:
         parameters: Dictionary with processing parameters
-        
+
     Returns:
         bool: True if parameters are valid
     """

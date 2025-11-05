@@ -243,16 +243,16 @@ def detect_and_classify_candidates_in_band(
             except ImportError:
                                              
                 logger.info(
-                    f"Candidato DM {dm_val:.2f} t={absolute_candidate_time:.3f}s conf={conf:.2f} class={class_prob:.2f} → {'BURST' if is_burst else 'no burst'}"
+                    f"Candidate DM {dm_val:.2f} t={absolute_candidate_time:.3f}s conf={conf:.2f} class={class_prob:.2f} → {'BURST' if is_burst else 'no burst'}"
                 )
                 logger.info(
-                    f"SNR Raw: {snr_val_raw:.2f}σ, SNR Patch Dedispersado: {snr_val:.2f}σ (guardado en CSV)"
+                    f"SNR Raw: {snr_val_raw:.2f}σ, SNR Patch Dedispersed: {snr_val:.2f}σ (saved to CSV)"
                 )
         else:
-                                                                                         
+
             logger.debug(
-                f"Candidato NO BURST filtrado (SAVE_ONLY_BURST=True): DM {dm_val:.2f} t={absolute_candidate_time:.3f}s "
-                f"conf={conf:.2f} class={class_prob:.2f} → NO BURST (no guardado)"
+                f"Non-burst candidate filtered out (SAVE_ONLY_BURST=True): DM {dm_val:.2f} t={absolute_candidate_time:.3f}s "
+                f"conf={conf:.2f} class={class_prob:.2f} → NO BURST (not saved)"
             )
                                                       
                                                                  
@@ -266,9 +266,9 @@ def detect_and_classify_candidates_in_band(
         burst_count = sum(1 for c in all_candidates if c['is_burst'])
         if global_logger:
             global_logger.logger.info(
-                f"{Colors.OKCYAN}Slice {j} - {band_name}: {len(all_candidates)} candidatos "
+                f"{Colors.OKCYAN}Slice {j} - {band_name}: {len(all_candidates)} candidates "
                 f"({burst_count} BURST, {len(all_candidates) - burst_count} NO BURST). "
-                f"Seleccionado: {'BURST' if best_is_burst else 'NO BURST'} (DM={final_dm:.2f}){Colors.ENDC}"
+                f"Selected: {'BURST' if best_is_burst else 'NO BURST'} (DM={final_dm:.2f}){Colors.ENDC}"
             )
     
     return {
@@ -323,7 +323,7 @@ def process_slice_with_multiple_bands(
                                                   
     if global_logger:
         chunk_info = f" (chunk {chunk_idx:03d})" if chunk_idx is not None else ""
-        global_logger.logger.info(f"{Colors.PROCESSING} Procesando slice {j:03d}{chunk_info}{Colors.ENDC}")
+        global_logger.logger.info(f"{Colors.PROCESSING} Processing slice {j:03d}{chunk_info}{Colors.ENDC}")
     
                                                                                               
     if slice_start_idx is not None and slice_end_idx is not None:
@@ -339,25 +339,25 @@ def process_slice_with_multiple_bands(
         if global_logger:
             chunk_info = f" (chunk {chunk_idx:03d})" if chunk_idx is not None else ""
             global_logger.logger.info(
-                f"{Colors.PROCESSING} Slice {j:03d}{chunk_info}: {real_samples} muestras reales "
-                f"(decimado) [{start_idx}→{end_idx}){Colors.ENDC}"
+                f"{Colors.PROCESSING} Slice {j:03d}{chunk_info}: {real_samples} real samples "
+                f"(downsampled) [{start_idx}→{end_idx}){Colors.ENDC}"
             )
         else:
             logger.info(
-                f"Slice {j:03d}: {end_idx - start_idx} muestras reales (decimado) "
+                f"Slice {j:03d}: {end_idx - start_idx} real samples (downsampled) "
                 f"[{start_idx}→{end_idx})"
             )
     except Exception:
-                                                              
+
         logger.info(
-            f"Slice {j:03d}: {end_idx - start_idx} muestras reales (decimado) "
+            f"Slice {j:03d}: {end_idx - start_idx} real samples (downsampled) "
             f"[{start_idx}→{end_idx})"
         )
 
     slice_cube = dm_time[:, :, start_idx:end_idx]
     waterfall_block = block[start_idx:end_idx]
     if slice_cube.size == 0 or waterfall_block.size == 0:
-        logger.warning(f"Slice {j}: slice_cube o waterfall_block vacío, saltando...")
+        logger.warning(f"Slice {j}: slice_cube or waterfall_block empty, skipping...")
         return 0, 0, 0, 0.0
     
                                                              
@@ -367,7 +367,7 @@ def process_slice_with_multiple_bands(
     
                                                     
     if global_logger:
-        global_logger.logger.debug(f"{Colors.OKCYAN} Creando waterfall dispersado para slice {j}{Colors.ENDC}")
+        global_logger.logger.debug(f"{Colors.OKCYAN} Creating dedispersed waterfall for slice {j}{Colors.ENDC}")
     
 
     slice_has_candidates = False                                      
@@ -448,7 +448,7 @@ def process_slice_with_multiple_bands(
             block_len = end_idx - start_idx
             dedisp_block = dedisperse_block(block, freq_down, dm_to_use, start, block_len)
             if global_logger:
-                global_logger.creating_waterfall("dedispersado", j, dm_to_use)
+                global_logger.creating_waterfall("dedispersed", j, dm_to_use)
                 global_logger.generating_plots()
 
             save_all_plots(
@@ -480,9 +480,9 @@ def process_slice_with_multiple_bands(
         else:
             if global_logger:
                 if config.SAVE_ONLY_BURST and n_no_bursts > 0:
-                    global_logger.logger.debug(f"{Colors.OKCYAN} Slice {j}: Solo candidatos NO BURST detectados (SAVE_ONLY_BURST=True, no plots){Colors.ENDC}")
+                    global_logger.logger.debug(f"{Colors.OKCYAN} Slice {j}: Only non-burst candidates detected (SAVE_ONLY_BURST=True, no plots){Colors.ENDC}")
                 else:
-                    global_logger.logger.debug(f"{Colors.OKCYAN} Slice {j}: Sin candidatos detectados{Colors.ENDC}")
+                    global_logger.logger.debug(f"{Colors.OKCYAN} Slice {j}: No candidates detected{Colors.ENDC}")
     
                                                                                                   
     if config.SAVE_ONLY_BURST:

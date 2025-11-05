@@ -215,8 +215,8 @@ def create_waterfall_dedispersed_plot(
         if config.DEBUG_FREQUENCY_ORDER:
             print(f"[DEBUG PLOT DW] dw_block shape: {dw_block.shape}")
             print(f"[DEBUG PLOT DW] freq_ds range: {freq_ds.min():.2f} - {freq_ds.max():.2f} MHz")
-            print(f"[DEBUG PLOT DW] freq_ds[0]: {freq_ds[0]:.2f} MHz (debería ser la más baja)")
-            print(f"[DEBUG PLOT DW] freq_ds[-1]: {freq_ds[-1]:.2f} MHz (debería ser la más alta)")
+            print(f"[DEBUG PLOT DW] freq_ds[0]: {freq_ds[0]:.2f} MHz (should be the lowest)")
+            print(f"[DEBUG PLOT DW] freq_ds[-1]: {freq_ds[-1]:.2f} MHz (should be the highest)")
         
         im_dw = ax_dw.imshow(
             dw_block.T,                                                  

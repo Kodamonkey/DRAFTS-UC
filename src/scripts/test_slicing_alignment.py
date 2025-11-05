@@ -1,16 +1,16 @@
 # This module tests slice alignment across data sources.
 
-"""Prueba de alineación de slicing en PSRFITS y Filterbank.
+"""Slicing alignment test for PSRFITS and filterbank files.
 
-Uso:
-  python src/scripts/test_slicing_alignment.py --fits Data/raw/<archivo>.fits --slice-sec 0.3
-  # Opcionalmente comparar también un .fil
-  python src/scripts/test_slicing_alignment.py --fil Data/raw/<archivo>.fil --slice-sec 0.3
+Usage:
+  python src/scripts/test_slicing_alignment.py --fits Data/raw/<file>.fits --slice-sec 0.3
+  # Optionally compare a .fil file as well
+  python src/scripts/test_slicing_alignment.py --fil Data/raw/<file>.fil --slice-sec 0.3
 
-Comprueba que:
-  - Los chunks son contiguos en índices de muestras: 0..N, N..2N, ...
-  - El incremento temporal entre comienzos de chunks es exactamente slice-sec
-  - No se excede la duración total
+Verifies that:
+  - Chunks are contiguous in sample indices: 0..N, N..2N, ...
+  - The time increment between chunk starts matches slice-sec exactly
+  - The total duration is not exceeded
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from src.config import config
 
 def _assert_close(a: float, b: float, tol: float, what: str) -> None:
     if not (abs(a - b) <= tol):
-        raise AssertionError(f"{what}: esperado {b}, obtenido {a}, tol={tol}")
+        raise AssertionError(f"{what}: expected {b}, obtained {a}, tol={tol}")
 
 
 def test_psrfits_slicing(fits_path: str, slice_sec: float) -> None:
@@ -36,11 +36,11 @@ def test_psrfits_slicing(fits_path: str, slice_sec: float) -> None:
     tbin = float(config.TIME_RESO)
     nsamples = int(config.FILE_LENG)
     if tbin <= 0:
-        raise AssertionError(f"TBIN inválido: {tbin}")
+        raise AssertionError(f"Invalid TBIN: {tbin}")
     chunk_samples = int(round(slice_sec / tbin))
     if chunk_samples <= 0:
         raise AssertionError(
-            f"chunk_samples inválido: {chunk_samples} (slice_sec={slice_sec}, tbin={tbin})"
+            f"Invalid chunk_samples: {chunk_samples} (slice_sec={slice_sec}, tbin={tbin})"
         )
 
     print(f"[PSRFITS] tbin={tbin:.9f} s, nsamples={nsamples}, slice={slice_sec}s, chunk_samples={chunk_samples}")
@@ -50,7 +50,7 @@ def test_psrfits_slicing(fits_path: str, slice_sec: float) -> None:
     if tstart_mjd is None:
         tstart_mjd = getattr(config, "TSTART_MJD", None)
     if tstart_mjd is None:
-        raise AssertionError("No se pudo determinar TSTART_MJD(_CORR)")
+        raise AssertionError("Unable to determine TSTART_MJD(_CORR)")
 
     last_start = None
     last_end = None
@@ -66,21 +66,21 @@ def test_psrfits_slicing(fits_path: str, slice_sec: float) -> None:
         end_sample = int(meta["end_sample"])                               
                                
         if last_end is None:
-            _assert_close(start_sample, 0, 0, "start_sample inicial")
+            _assert_close(start_sample, 0, 0, "initial start_sample")
         else:
-            _assert_close(start_sample, expected_start, 0, "start_sample no contiguo")
+            _assert_close(start_sample, expected_start, 0, "non-contiguous start_sample")
 
                                                       
         expected_len = min(chunk_samples, nsamples - start_sample)
         actual_len = end_sample - start_sample
         if start_sample + expected_len < nsamples:
-            _assert_close(actual_len, expected_len, 0, "chunk size inesperado")
+            _assert_close(actual_len, expected_len, 0, "unexpected chunk size")
 
                                               
         if last_start is not None:
             tprev = tstart_mjd + (last_start * tbin) / 86400.0
             tcurr = tstart_mjd + (start_sample * tbin) / 86400.0
-            _assert_close(tcurr - tprev, expected_delta_t_mjd, tol_time, "delta tiempo entre chunks")
+            _assert_close(tcurr - tprev, expected_delta_t_mjd, tol_time, "time delta between chunks")
 
         num_chunks += 1
         total_emitted += actual_len
@@ -90,7 +90,9 @@ def test_psrfits_slicing(fits_path: str, slice_sec: float) -> None:
 
                                   
     if total_emitted > nsamples:
-        raise AssertionError(f"Se emitieron más muestras de las existentes: {total_emitted}>{nsamples}")
+        raise AssertionError(
+            f"More samples emitted than available: {total_emitted}>{nsamples}"
+        )
 
     print(f"[PSRFITS] OK: {num_chunks} chunks, total_emitted={total_emitted}/{nsamples}")
 
@@ -100,11 +102,11 @@ def test_filterbank_slicing(fil_path: str, slice_sec: float) -> None:
     tsamp = float(config.TIME_RESO)
     nsamples = int(config.FILE_LENG)
     if tsamp <= 0:
-        raise AssertionError(f"tsamp inválido: {tsamp}")
+        raise AssertionError(f"Invalid tsamp: {tsamp}")
     chunk_samples = int(round(slice_sec / tsamp))
     if chunk_samples <= 0:
         raise AssertionError(
-            f"chunk_samples inválido: {chunk_samples} (slice_sec={slice_sec}, tsamp={tsamp})"
+            f"Invalid chunk_samples: {chunk_samples} (slice_sec={slice_sec}, tsamp={tsamp})"
         )
 
     print(f"[FIL] tsamp={tsamp:.9f} s, nsamples={nsamples}, slice={slice_sec}s, chunk_samples={chunk_samples}")
@@ -120,14 +122,14 @@ def test_filterbank_slicing(fil_path: str, slice_sec: float) -> None:
         end_sample = int(meta["end_sample"])                               
                      
         if last_end is None:
-            _assert_close(start_sample, 0, 0, "start_sample inicial")
+            _assert_close(start_sample, 0, 0, "initial start_sample")
         else:
-            _assert_close(start_sample, expected_start, 0, "start_sample no contiguo")
+            _assert_close(start_sample, expected_start, 0, "non-contiguous start_sample")
 
         expected_len = min(chunk_samples, nsamples - start_sample)
         actual_len = end_sample - start_sample
         if start_sample + expected_len < nsamples:
-            _assert_close(actual_len, expected_len, 0, "chunk size inesperado")
+            _assert_close(actual_len, expected_len, 0, "unexpected chunk size")
 
         num_chunks += 1
         total_emitted += actual_len
@@ -136,20 +138,22 @@ def test_filterbank_slicing(fil_path: str, slice_sec: float) -> None:
         expected_start += chunk_samples
 
     if total_emitted > nsamples:
-        raise AssertionError(f"Se emitieron más muestras de las existentes: {total_emitted}>{nsamples}")
+        raise AssertionError(
+            f"More samples emitted than available: {total_emitted}>{nsamples}"
+        )
 
     print(f"[FIL] OK: {num_chunks} chunks, total_emitted={total_emitted}/{nsamples}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Test de slicing para PSRFITS y Filterbank")
-    parser.add_argument("--fits", type=str, default=None, help="Ruta a archivo .fits (PSRFITS)")
-    parser.add_argument("--fil", type=str, default=None, help="Ruta a archivo .fil (Filterbank)")
-    parser.add_argument("--slice-sec", type=float, default=0.3, help="Duración del slice en segundos")
+    parser = argparse.ArgumentParser(description="Slicing test for PSRFITS and filterbank files")
+    parser.add_argument("--fits", type=str, default=None, help="Path to .fits (PSRFITS) file")
+    parser.add_argument("--fil", type=str, default=None, help="Path to .fil (filterbank) file")
+    parser.add_argument("--slice-sec", type=float, default=0.3, help="Slice duration in seconds")
     args = parser.parse_args()
 
     if args.fits is None and args.fil is None:
-        print("Debe especificar --fits o --fil")
+        print("You must specify --fits or --fil")
         sys.exit(2)
 
     try:
@@ -161,7 +165,7 @@ def main() -> None:
         print(f"FAIL: {e}")
         sys.exit(1)
 
-    print("PASS: slicing verificado")
+    print("PASS: slicing verified")
 
 
 if __name__ == "__main__":

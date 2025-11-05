@@ -45,7 +45,7 @@ def ensure_csv_header(csv_path: Path) -> None:
             writer = csv.writer(f_csv)
             writer.writerow(CANDIDATE_HEADER)
     except PermissionError as e:
-        logger.error("Error de permisos al crear CSV %s: %s", csv_path, e)
+        logger.error("Permission error while creating CSV %s: %s", csv_path, e)
         raise
 
 

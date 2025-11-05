@@ -94,7 +94,7 @@ def validate_slice_indices(
     """Validate and adjust slice indices if needed."""
                                                        
     if start_idx >= block_shape:
-        return False, start_idx, end_idx, "Slice fuera de límites - no hay datos que procesar"
+        return False, start_idx, end_idx, "Slice out of bounds - no data to process"
     
     if end_idx > block_shape:
                                                        
@@ -102,11 +102,11 @@ def validate_slice_indices(
         
                                                                  
         if end_idx_ajustado - start_idx < slice_len // 2:
-            return False, start_idx, end_idx_ajustado, "Slice demasiado pequeño para procesamiento efectivo"
-        
-        return True, start_idx, end_idx_ajustado, "Slice ajustado - último slice del chunk con datos residuales"
-    
-    return True, start_idx, end_idx, "Slice válido"
+            return False, start_idx, end_idx_ajustado, "Slice too small for effective processing"
+
+        return True, start_idx, end_idx_ajustado, "Slice adjusted - last chunk slice with residual data"
+
+    return True, start_idx, end_idx, "Valid slice"
 
 
 def create_chunk_directories(

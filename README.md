@@ -133,11 +133,14 @@ DRAFTS-UC/
 │   ├── input/           # FITS/.fil readers, chunking
 │   ├── preprocessing/   # GPU/CPU dedispersion, filters
 │   ├── detection/       # model I/O & inference utils
-│   ├── models/          # .pth weights + training code
+│   ├── models/          # pre-trained model weights
 │   │   ├── cent_resnet18.pth      # Detection model
 │   │   ├── class_resnet18.pth     # Classification model
-│   │   ├── ObjectDet/             # Training code for detector
-│   │   └── BinaryClass/           # Training code for classifier
+│   │   ├── ObjectDet/             # Detection model architecture
+│   │   └── BinaryClass/           # Classification model architecture
+│   ├── training/        # model training scripts (optional)
+│   │   ├── object_detection/      # CenterNet training
+│   │   └── binary_classification/ # ResNet training
 │   ├── analysis/        # S/N, stats
 │   ├── visualization/   # plotting & figure export
 │   ├── output/          # save candidates, CSVs
@@ -1265,6 +1268,7 @@ The pipeline uses two pre-trained deep learning models:
 - **File:** `src/models/cent_resnet18.pth`
 - **Purpose:** Localizes burst candidates in time-DM space
 - **Implementation:** `src/models/ObjectDet/centernet_model.py`
+- **Training:** See `src/training/object_detection/`
 
 ### Classification Model (ResNet)
 
@@ -1272,8 +1276,9 @@ The pipeline uses two pre-trained deep learning models:
 - **File:** `src/models/class_resnet18.pth`
 - **Purpose:** Distinguishes real FRBs from RFI/noise
 - **Implementation:** `src/models/BinaryClass/binary_model.py`
+- **Training:** See `src/training/binary_classification/`
 
-> **Note:** Training scripts for these models are not currently included in this repository. The pre-trained weights must be obtained separately and placed in `src/models/`.
+> **Note:** Training scripts are available in `src/training/`. Pre-trained weights must be obtained separately or trained using the provided scripts. See `src/training/README.md` for training instructions.
 
 ---
 

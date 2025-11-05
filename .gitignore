@@ -19,6 +19,8 @@ pip-delete-this-directory.txt
 # =============================================================================
 Data/
 Results/
+src/training/object_detection/Data/
+src/training/binary_classification/Data/
 *.fits
 *.fil
 *.h5
@@ -31,6 +33,8 @@ Results/
 # =============================================================================
 *.log
 src/logging/log/
+src/training/object_detection/logs*/
+src/training/binary_classification/logs*/
 *.tmp
 *.temp
 *.swp

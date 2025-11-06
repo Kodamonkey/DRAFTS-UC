@@ -867,6 +867,144 @@ def get_obparams(file_name: str) -> None:
         })
 
 
+def stream_fits_multi_pol(
+    file_name: str,
+    chunk_samples: int = 2_097_152,
+    overlap_samples: int = 0,
+) -> Generator[Tuple[np.ndarray, np.ndarray, Dict, str], None, None]:
+    """
+    Generator for high-frequency pipeline that preserves multi-polarization data.
+    
+    Args:
+        file_name: Path to .fits file
+        chunk_samples: Number of samples per block (default: 2M)
+        overlap_samples: Number of overlap samples between blocks
+    
+    Yields:
+        Tuple[data_block, raw_block, metadata, pol_type]:
+            - data_block: Block with selected polarization (time, 1, chan)
+            - raw_block: Block with ALL polarizations (time, npol, chan)
+            - metadata: Chunk metadata dictionary
+            - pol_type: Polarization type from header (e.g., "IQUV")
+    """
+    try:
+        logger.info("Streaming FITS data (multi-pol mode): chunk_size=%d, overlap=%d", chunk_samples, overlap_samples)
+        
+        # Try using 'your' library first
+        try:
+            if your_psrfits is not None:
+                pf = your_psrfits.PsrfitsFile([file_name])
+                nspec = int(pf.nspectra())
+                npol = int(pf.npol)
+                nchan = int(pf.nchans)
+                tsamp = float(pf.native_tsamp())
+                pol_type = getattr(pf, 'pol_type', 'IQUV') if hasattr(pf, 'pol_type') else 'IQUV'
+                
+                logger.info(
+                    "Streaming PSRFITS ('your'): nspec=%d, npol=%d, nchan=%d, pol_type=%s",
+                    nspec,
+                    npol,
+                    nchan,
+                    pol_type,
+                )
+                
+                chunk_counter = 0
+                emitted = 0
+                step = chunk_samples
+                
+                while emitted < nspec:
+                    start = emitted
+                    read_start = max(0, start - overlap_samples)
+                    read_end = min(nspec, start + step + overlap_samples)
+                    count = read_end - read_start
+                    
+                    # Get RAW data with ALL polarizations
+                    arr_raw = pf.get_data(read_start, count, npoln=npol)
+                    if arr_raw.ndim != 3:
+                        raise ValueError("Unexpected shape in 'your' get_data")
+                    
+                    # Reverse frequency if needed
+                    try:
+                        if getattr(pf, 'foff', 0.0) > 0:
+                            arr_raw = arr_raw[:, :, ::-1]
+                    except Exception:
+                        pass
+                    
+                    if arr_raw.dtype != np.float32:
+                        arr_raw = arr_raw.astype(np.float32)
+                    
+                    # Create the selected polarization block (for compatibility)
+                    from .polarization_utils import extract_polarization_from_raw
+                    block_selected = extract_polarization_from_raw(
+                        arr_raw, pol_type,
+                        getattr(config, 'POLARIZATION_MODE', 'intensity'),
+                        getattr(config, 'POLARIZATION_INDEX', 0)
+                    )
+                    
+                    chunk_counter += 1
+                    valid_start = start
+                    valid_end = min(start + step, nspec)
+                    start_with_overlap = read_start
+                    end_with_overlap = read_end
+                    
+                    metadata = {
+                        "chunk_idx": valid_start // chunk_samples,
+                        "start_sample": valid_start,
+                        "end_sample": valid_end,
+                        "actual_chunk_size": valid_end - valid_start,
+                        "block_start_sample": start_with_overlap,
+                        "block_end_sample": end_with_overlap,
+                        "overlap_left": valid_start - start_with_overlap,
+                        "overlap_right": end_with_overlap - valid_end,
+                        "total_samples": nspec,
+                        "nchans": nchan,
+                        "npol": npol,
+                        "nifs": 1,
+                        "dtype": str(block_selected.dtype),
+                        "shape": block_selected.shape,
+                        "file_type": "fits",
+                        "tbin_sec": tsamp,
+                        "t_rel_start_sec": valid_start * tsamp,
+                        "t_rel_end_sec": valid_end * tsamp,
+                    }
+                    
+                    yield block_selected, arr_raw, metadata, pol_type
+                    emitted += step
+                
+                return
+        
+        except Exception as e:
+            logger.debug("'your' library streaming failed (%s), falling back", e)
+        
+        # Fallback: load entire file (not streaming, but returns same format)
+        logger.warning("Multi-pol streaming not available, loading entire file")
+        data_full = load_fits_file(file_name)
+        
+        # Try to reload with all polarizations
+        # This is a simplified fallback - in production you'd need full FITS reading
+        metadata = {
+            "chunk_idx": 0,
+            "start_sample": 0,
+            "end_sample": data_full.shape[0],
+            "actual_chunk_size": data_full.shape[0],
+            "block_start_sample": 0,
+            "block_end_sample": data_full.shape[0],
+            "overlap_left": 0,
+            "overlap_right": 0,
+            "total_samples": data_full.shape[0],
+            "nchans": data_full.shape[2],
+            "npol": 1,
+            "file_type": "fits",
+        }
+        
+        # Return data twice (same block) since we don't have multi-pol in fallback
+        yield data_full, data_full, metadata, "UNKNOWN"
+        
+    except Exception as e:
+        logger.error("Error in multi-pol streaming: %s", e)
+        raise
+
+
 def stream_fits(
     file_name: str,
     chunk_samples: int = 2_097_152,

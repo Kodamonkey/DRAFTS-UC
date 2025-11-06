@@ -12,11 +12,15 @@ def parse_args():
         epilog="""
 Usage examples:
   
-  # Execute with specific files and custom thresholds:
-  python main.py --target "2017-04-03-08_55_22" --det-prob 0.5 --class-prob 0.6
+  # Run with user_config.py (no CLI args):
+  python main.py
   
-  # Change directories and configure DM range:
-  python main.py --data-dir "./Data/raw/" --results-dir "./Results/" --dm-max 512
+  # Execute with specific files and custom thresholds:
+  python main.py --data-dir "./Data/raw/" --results-dir "./Results/" \
+    --target "2017-04-03-08_55_22" --det-prob 0.5 --class-prob 0.6
+  
+  # Override only specific parameters (rest from user_config.py):
+  python main.py --dm-max 512 --det-prob 0.6
   
   # Enable multi-band analysis:
   python main.py --multi-band --slice-duration 3000.0
@@ -29,12 +33,12 @@ Usage examples:
     # =============================================================================
     # DATA AND FILE CONFIGURATION
     # =============================================================================
-    parser.add_argument("--data-dir", type=str, required=True,
-                        help="[REQUIRED] Directory containing input files (.fits, .fil)")
-    parser.add_argument("--results-dir", type=str, required=True,
-                        help="[REQUIRED] Directory where results will be stored")
-    parser.add_argument("--target", "--targets", dest="targets", type=str, nargs="+", required=True,
-                        help="[REQUIRED] List of files to process (search patterns)")
+    parser.add_argument("--data-dir", type=str, default=None,
+                        help="Directory containing input files (.fits, .fil). If not provided, uses user_config.py")
+    parser.add_argument("--results-dir", type=str, default=None,
+                        help="Directory where results will be stored. If not provided, uses user_config.py")
+    parser.add_argument("--target", "--targets", dest="targets", type=str, nargs="+", default=None,
+                        help="List of files to process (search patterns). If not provided, uses user_config.py")
     
     # =============================================================================
     # TEMPORAL ANALYSIS CONFIGURATION
@@ -137,31 +141,81 @@ def main():
     
     args = parse_args()
     
-    # Convert arguments to configuration dictionary
-    config_dict = {
-        "DATA_DIR": Path(args.data_dir),
-        "RESULTS_DIR": Path(args.results_dir),
-        "FRB_TARGETS": args.targets,
-        "SLICE_DURATION_MS": args.slice_duration,
-        "DOWN_FREQ_RATE": args.down_freq_rate,
-        "DOWN_TIME_RATE": args.down_time_rate,
-        "DM_min": args.dm_min,
-        "DM_max": args.dm_max,
-        "DET_PROB": args.det_prob,
-        "CLASS_PROB": args.class_prob,
-        "SNR_THRESH": args.snr_thresh,
-        "USE_MULTI_BAND": args.multi_band,
-        "AUTO_HIGH_FREQ_PIPELINE": args.auto_high_freq,
-        "HIGH_FREQ_THRESHOLD_MHZ": args.high_freq_threshold,
-        "POLARIZATION_MODE": args.polarization_mode,
-        "POLARIZATION_INDEX": args.polarization_index,
-        "DEBUG_FREQUENCY_ORDER": args.debug_frequency,
-        "FORCE_PLOTS": args.force_plots,
-        "SAVE_ONLY_BURST": args.save_only_burst,
-    }
+    # Load defaults from user_config.py
+    from src.config import user_config
+    
+    # Determine configuration source
+    using_cli_args = (args.data_dir is not None or args.results_dir is not None or args.targets is not None)
+    
+    if not using_cli_args:
+        # Use user_config.py entirely
+        print("=" * 80)
+        print("CONFIGURATION SOURCE: user_config.py")
+        print("=" * 80)
+        print("(Use CLI arguments to override specific parameters)")
+        print()
+        
+        config_dict = {
+            "DATA_DIR": user_config.DATA_DIR,
+            "RESULTS_DIR": user_config.RESULTS_DIR,
+            "FRB_TARGETS": user_config.FRB_TARGETS,
+            "SLICE_DURATION_MS": user_config.SLICE_DURATION_MS,
+            "DOWN_FREQ_RATE": user_config.DOWN_FREQ_RATE,
+            "DOWN_TIME_RATE": user_config.DOWN_TIME_RATE,
+            "DM_min": user_config.DM_min,
+            "DM_max": user_config.DM_max,
+            "DET_PROB": user_config.DET_PROB,
+            "CLASS_PROB": user_config.CLASS_PROB,
+            "SNR_THRESH": user_config.SNR_THRESH,
+            "USE_MULTI_BAND": user_config.USE_MULTI_BAND,
+            "AUTO_HIGH_FREQ_PIPELINE": user_config.AUTO_HIGH_FREQ_PIPELINE,
+            "HIGH_FREQ_THRESHOLD_MHZ": user_config.HIGH_FREQ_THRESHOLD_MHZ,
+            "POLARIZATION_MODE": user_config.POLARIZATION_MODE,
+            "POLARIZATION_INDEX": user_config.POLARIZATION_INDEX,
+            "DEBUG_FREQUENCY_ORDER": user_config.DEBUG_FREQUENCY_ORDER,
+            "FORCE_PLOTS": user_config.FORCE_PLOTS,
+            "SAVE_ONLY_BURST": user_config.SAVE_ONLY_BURST,
+        }
+    else:
+        # CLI arguments take priority, but use user_config.py as fallback for missing values
+        print("=" * 80)
+        print("CONFIGURATION SOURCE: CLI Arguments (with user_config.py fallback)")
+        print("=" * 80)
+        
+        config_dict = {
+            "DATA_DIR": Path(args.data_dir) if args.data_dir is not None else user_config.DATA_DIR,
+            "RESULTS_DIR": Path(args.results_dir) if args.results_dir is not None else user_config.RESULTS_DIR,
+            "FRB_TARGETS": args.targets if args.targets is not None else user_config.FRB_TARGETS,
+            "SLICE_DURATION_MS": args.slice_duration,
+            "DOWN_FREQ_RATE": args.down_freq_rate,
+            "DOWN_TIME_RATE": args.down_time_rate,
+            "DM_min": args.dm_min,
+            "DM_max": args.dm_max,
+            "DET_PROB": args.det_prob,
+            "CLASS_PROB": args.class_prob,
+            "SNR_THRESH": args.snr_thresh,
+            "USE_MULTI_BAND": args.multi_band,
+            "AUTO_HIGH_FREQ_PIPELINE": args.auto_high_freq,
+            "HIGH_FREQ_THRESHOLD_MHZ": args.high_freq_threshold,
+            "POLARIZATION_MODE": args.polarization_mode,
+            "POLARIZATION_INDEX": args.polarization_index,
+            "DEBUG_FREQUENCY_ORDER": args.debug_frequency,
+            "FORCE_PLOTS": args.force_plots,
+            "SAVE_ONLY_BURST": args.save_only_burst,
+        }
+    
+    # Validate critical parameters
+    if not isinstance(config_dict['DATA_DIR'], Path):
+        config_dict['DATA_DIR'] = Path(config_dict['DATA_DIR'])
+    if not isinstance(config_dict['RESULTS_DIR'], Path):
+        config_dict['RESULTS_DIR'] = Path(config_dict['RESULTS_DIR'])
+    
+    if not config_dict['DATA_DIR'].exists():
+        print(f"ERROR: Data directory does not exist: {config_dict['DATA_DIR']}")
+        print("Please create the directory or specify a valid path.")
+        sys.exit(1)
     
     # Display configuration being used
-    print("=" * 80)
     print("PIPELINE CONFIGURATION")
     print("=" * 80)
     print(f"Data directory:             {config_dict['DATA_DIR']}")
@@ -176,6 +230,7 @@ def main():
     print(f"SNR threshold:              {config_dict['SNR_THRESH']}")
     print(f"Multi-band:                 {'[ENABLED]' if config_dict['USE_MULTI_BAND'] else '[Disabled]'}")
     print(f"High-freq pipeline:         {'[ENABLED]' if config_dict['AUTO_HIGH_FREQ_PIPELINE'] else '[Disabled]'}")
+    print(f"Polarization mode:          {config_dict['POLARIZATION_MODE']}")
     print(f"Force plots:                {'[YES]' if config_dict['FORCE_PLOTS'] else '[No]'}")
     print(f"Save only BURST:            {'[YES]' if config_dict['SAVE_ONLY_BURST'] else '[No - all]'}")
     print(f"Debug frequency:            {'[ENABLED]' if config_dict['DEBUG_FREQUENCY_ORDER'] else '[Disabled]'}")

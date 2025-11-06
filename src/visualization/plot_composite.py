@@ -124,8 +124,21 @@ def create_composite_plot(
     chunk_idx: Optional[int] = None,  
     slice_samples: Optional[int] = None,  
     candidate_times_abs: Optional[Iterable[float]] = None,
+    dedisp_block_linear: Optional[np.ndarray] = None,
+    dedisp_block_circular: Optional[np.ndarray] = None,
 ) -> plt.Figure:
-    """Create composite figure with detections and waterfalls with SNR analysis."""
+    """Create composite figure with detections and waterfalls with SNR analysis.
+    
+    For high-frequency pipeline with multi-polarization data, the bottom panels show:
+    - Left: Dedispersed waterfall in Intensity (Stokes I)
+    - Middle: Dedispersed waterfall in Linear Polarization
+    - Right: Dedispersed waterfall in Circular Polarization
+    
+    For standard pipeline, shows the classic layout:
+    - Left: Dispersed waterfall
+    - Middle: Dedispersed waterfall  
+    - Right: Candidate patch
+    """
     
                                           
     band_name_with_freq = get_band_name_with_freq_range(band_idx, band_name)
@@ -139,6 +152,21 @@ def create_composite_plot(
     )
     time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
 
+    # Determine if we're in multi-polarization mode (HF pipeline)
+    multi_pol_mode = (dedisp_block_linear is not None and dedisp_block_circular is not None)
+    
+    if multi_pol_mode:
+        logger.info("Composite plot: Multi-polarization mode (HF pipeline) - Using 3 dedispersed waterfalls (I, L, V)")
+        logger.debug("Multi-pol blocks: Linear shape=%s, Circular shape=%s", 
+                    dedisp_block_linear.shape if dedisp_block_linear is not None else None,
+                    dedisp_block_circular.shape if dedisp_block_circular is not None else None)
+    else:
+        logger.info("Composite plot: Standard mode - Using dispersed/dedispersed/patch layout")
+        if dedisp_block_linear is None:
+            logger.debug("dedisp_block_linear is None")
+        if dedisp_block_circular is None:
+            logger.debug("dedisp_block_circular is None")
+    
                                        
     if waterfall_block is not None and waterfall_block.size > 0:
         wf_block = waterfall_block.copy()
@@ -151,8 +179,21 @@ def create_composite_plot(
     else:
         dw_block = None
     
+    # Prepare multi-pol blocks for HF pipeline
+    dw_linear = None
+    dw_circular = None
+    if multi_pol_mode:
+        if dedisp_block_linear is not None and dedisp_block_linear.size > 0:
+            dw_linear = dedisp_block_linear.copy()
+        if dedisp_block_circular is not None and dedisp_block_circular.size > 0:
+            dw_circular = dedisp_block_circular.copy()
+    
     if normalize:
-        for block in (wf_block, dw_block):
+        blocks_to_norm = [wf_block, dw_block]
+        if multi_pol_mode:
+            blocks_to_norm.extend([dw_linear, dw_circular])
+        
+        for block in blocks_to_norm:
             if block is not None:
                 block += 1
                 block /= np.mean(block, axis=0)
@@ -282,13 +323,41 @@ def create_composite_plot(
         1, 3, subplot_spec=gs_main[1, 0], width_ratios=[1, 1, 1], wspace=0.3
     )
 
-                                     
-    gs_waterfall_nested = gridspec.GridSpecFromSubplotSpec(
-        2, 1, subplot_spec=gs_bottom_row[0, 0], height_ratios=[1, 4], hspace=0.05
-    )
-    ax_prof_wf = fig.add_subplot(gs_waterfall_nested[0, 0])
+    # =============================================================================
+    # BOTTOM PANELS LAYOUT
+    # =============================================================================
+    # Multi-pol mode (HF pipeline): Show 3 dedispersed waterfalls (I, L, V)
+    # Standard mode: Show dispersed, dedispersed, patch
+    # =============================================================================
     
-    if wf_block is not None and wf_block.size > 0:
+    if multi_pol_mode:
+        # Use multi-polarization panel layout
+        from .plot_multi_pol_panels import create_multi_pol_panels
+        create_multi_pol_panels(
+            fig=fig,
+            gs_bottom_row=gs_bottom_row,
+            dedisp_intensity=dw_block,
+            dedisp_linear=dw_linear,
+            dedisp_circular=dw_circular,
+            dm_val=dm_val,
+            slice_start_abs=slice_start_abs,
+            slice_end_abs=slice_end_abs,
+            freq_ds=freq_ds,
+            time_reso_ds=time_reso_ds,
+            thresh_snr=thresh_snr,
+            off_regions=off_regions,
+        )
+        # Skip the standard 3-panel code below
+        _skip_standard_panels = True
+    else:
+        _skip_standard_panels = False
+        # LEFT PANEL: Dispersed waterfall (classic mode)
+        gs_waterfall_nested = gridspec.GridSpecFromSubplotSpec(
+            2, 1, subplot_spec=gs_bottom_row[0, 0], height_ratios=[1, 4], hspace=0.05
+        )
+        ax_prof_wf = fig.add_subplot(gs_waterfall_nested[0, 0])
+    
+    if not _skip_standard_panels and wf_block is not None and wf_block.size > 0:
         snr_wf, sigma_wf, best_w_wf = compute_snr_profile(wf_block, off_regions)
         peak_snr_wf, peak_time_wf, peak_idx_wf = find_snr_peak(snr_wf)
         
@@ -330,7 +399,7 @@ def create_composite_plot(
                 ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ (w≈{width_ms_wf:.3f} ms)", fontsize=9, fontweight="bold")
             else:
                 ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ", fontsize=9, fontweight="bold")
-    else:
+    elif not _skip_standard_panels:
         ax_prof_wf.text(0.5, 0.5, 'No waterfall data\navailable', 
                        transform=ax_prof_wf.transAxes, 
                        ha='center', va='center', fontsize=10, 
@@ -340,10 +409,10 @@ def create_composite_plot(
         ax_prof_wf.set_xticks([])
         ax_prof_wf.set_title("No Raw Waterfall Data", fontsize=9, fontweight="bold")
 
-                         
-    ax_wf = fig.add_subplot(gs_waterfall_nested[1, 0])
+    if not _skip_standard_panels:                     
+        ax_wf = fig.add_subplot(gs_waterfall_nested[1, 0])
     
-    if wf_block is not None and wf_block.size > 0:
+    if not _skip_standard_panels and wf_block is not None and wf_block.size > 0:
         im_wf = ax_wf.imshow(
             wf_block.T,
             origin="lower",
@@ -370,7 +439,7 @@ def create_composite_plot(
         if 'peak_snr_wf' in locals() and config.SNR_SHOW_PEAK_LINES:
             ax_wf.axvline(x=time_axis_wf[peak_idx_wf], color=config.SNR_HIGHLIGHT_COLOR, 
                          linestyle='-', alpha=0.8, linewidth=2)
-    else:
+    elif not _skip_standard_panels:
         ax_wf.text(0.5, 0.5, 'No waterfall data available', 
                   transform=ax_wf.transAxes, 
                   ha='center', va='center', fontsize=12, 
@@ -380,14 +449,14 @@ def create_composite_plot(
         ax_wf.set_xlabel("Time (s)", fontsize=9)
         ax_wf.set_ylabel("Frequency (MHz)", fontsize=9)
 
-                                             
-    gs_dedisp_nested = gridspec.GridSpecFromSubplotSpec(
-        2, 1, subplot_spec=gs_bottom_row[0, 1], height_ratios=[1, 4], hspace=0.05
-    )
-    ax_prof_dw = fig.add_subplot(gs_dedisp_nested[0, 0])
+    if not _skip_standard_panels:                                         
+        gs_dedisp_nested = gridspec.GridSpecFromSubplotSpec(
+            2, 1, subplot_spec=gs_bottom_row[0, 1], height_ratios=[1, 4], hspace=0.05
+        )
+        ax_prof_dw = fig.add_subplot(gs_dedisp_nested[0, 0])
     
                                    
-    if top_boxes is not None and len(top_boxes) > 0:
+    if not _skip_standard_panels and top_boxes is not None and len(top_boxes) > 0:
         best_candidate_idx = np.argmax(top_conf)
         best_box = top_boxes[best_candidate_idx]
         center_x, center_y = (best_box[0] + best_box[2]) / 2, (best_box[1] + best_box[3]) / 2
@@ -400,11 +469,11 @@ def create_composite_plot(
             snr_val_candidate = np.max(snr_profile_candidate)
         else:
             snr_val_candidate = 0.0
-    else:
+    elif not _skip_standard_panels:
         dm_val_consistent = dm_val
         snr_val_candidate = 0.0
     
-    if dw_block is not None and dw_block.size > 0:
+    if not _skip_standard_panels and dw_block is not None and dw_block.size > 0:
         snr_dw, sigma_dw, best_w_dw = compute_snr_profile(dw_block, off_regions)
         peak_snr_dw, peak_time_dw, peak_idx_dw = find_snr_peak(snr_dw)
         width_ms_dw = float(best_w_dw[int(peak_idx_dw)]) * time_reso_ds * 1000.0 if len(best_w_dw) == len(snr_dw) else None
@@ -471,7 +540,7 @@ def create_composite_plot(
                 else:
                     title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ"
         ax_prof_dw.set_title(title_text, fontsize=9, fontweight="bold")
-    else:
+    elif not _skip_standard_panels:
         ax_prof_dw.text(0.5, 0.5, 'No dedispersed\ndata available', 
                        transform=ax_prof_dw.transAxes, 
                        ha='center', va='center', fontsize=10, 
@@ -481,10 +550,10 @@ def create_composite_plot(
         ax_prof_dw.set_xticks([])
         ax_prof_dw.set_title("No Dedispersed Data", fontsize=9, fontweight="bold")
 
-                                 
-    ax_dw = fig.add_subplot(gs_dedisp_nested[1, 0])
+    if not _skip_standard_panels:                             
+        ax_dw = fig.add_subplot(gs_dedisp_nested[1, 0])
     
-    if dw_block is not None and dw_block.size > 0:
+    if not _skip_standard_panels and dw_block is not None and dw_block.size > 0:
         im_dw = ax_dw.imshow(
             dw_block.T,
             origin="lower",
@@ -507,7 +576,7 @@ def create_composite_plot(
         if 'peak_snr_dw' in locals() and config.SNR_SHOW_PEAK_LINES:
             ax_dw.axvline(x=time_axis_dw[peak_idx_dw], color=config.SNR_HIGHLIGHT_COLOR, 
                          linestyle='-', alpha=0.8, linewidth=2)
-    else:
+    elif not _skip_standard_panels:
         ax_dw.text(0.5, 0.5, 'No dedispersed data available', 
                   transform=ax_dw.transAxes, 
                   ha='center', va='center', fontsize=12, 
@@ -517,13 +586,13 @@ def create_composite_plot(
         ax_dw.set_xlabel("Time (s)", fontsize=9)
         ax_dw.set_ylabel("Frequency (MHz)", fontsize=9)
 
-                                       
-    gs_patch_nested = gridspec.GridSpecFromSubplotSpec(
-        2, 1, subplot_spec=gs_bottom_row[0, 2], height_ratios=[1, 4], hspace=0.05
-    )
-    ax_patch_prof = fig.add_subplot(gs_patch_nested[0, 0])
+    if not _skip_standard_panels:                                   
+        gs_patch_nested = gridspec.GridSpecFromSubplotSpec(
+            2, 1, subplot_spec=gs_bottom_row[0, 2], height_ratios=[1, 4], hspace=0.05
+        )
+        ax_patch_prof = fig.add_subplot(gs_patch_nested[0, 0])
     
-    if patch_img is not None and patch_img.size > 0:
+    if not _skip_standard_panels and patch_img is not None and patch_img.size > 0:
         snr_patch, sigma_patch, best_w_patch = compute_snr_profile(patch_img, off_regions)
         peak_snr_patch, peak_time_patch, peak_idx_patch = find_snr_peak(snr_patch)
         width_ms_patch = float(best_w_patch[int(peak_idx_patch)]) * time_reso_ds * 1000.0 if len(best_w_patch) == len(snr_patch) else None
@@ -556,7 +625,7 @@ def create_composite_plot(
             ax_patch_prof.set_title(f"Candidate Patch SNR\nPeak={peak_snr_patch:.1f}σ (w≈{width_ms_patch:.3f} ms)", fontsize=9, fontweight="bold")
         else:
             ax_patch_prof.set_title(f"Candidate Patch SNR\nPeak={peak_snr_patch:.1f}σ", fontsize=9, fontweight="bold")
-    else:
+    elif not _skip_standard_panels:
         ax_patch_prof.text(0.5, 0.5, 'No candidate patch\navailable', 
                           transform=ax_patch_prof.transAxes, 
                           ha='center', va='center', fontsize=10, 
@@ -566,10 +635,10 @@ def create_composite_plot(
         ax_patch_prof.set_xticks([])
         ax_patch_prof.set_title("No Candidate Patch", fontsize=9, fontweight="bold")
 
-                           
-    ax_patch = fig.add_subplot(gs_patch_nested[1, 0])
+    if not _skip_standard_panels:                       
+        ax_patch = fig.add_subplot(gs_patch_nested[1, 0])
     
-    if patch_img is not None and patch_img.size > 0:
+    if not _skip_standard_panels and patch_img is not None and patch_img.size > 0:
         ax_patch.imshow(
             patch_img.T,
             origin="lower",
@@ -595,7 +664,7 @@ def create_composite_plot(
         if 'peak_snr_patch' in locals() and config.SNR_SHOW_PEAK_LINES:
             ax_patch.axvline(x=patch_time_axis[peak_idx_patch], color=config.SNR_HIGHLIGHT_COLOR, 
                            linestyle='-', alpha=0.8, linewidth=2)
-    else:
+    elif not _skip_standard_panels:
         ax_patch.text(0.5, 0.5, 'No candidate patch available', 
                      transform=ax_patch.transAxes, 
                      ha='center', va='center', fontsize=12, 
@@ -679,6 +748,8 @@ def save_composite_plot(
     candidate_times_abs: Optional[Iterable[float]] = None,
     generate_individual_plots: bool = True,
     individual_plots_dir: str = "individual_plots",
+    dedisp_block_linear: Optional[np.ndarray] = None,
+    dedisp_block_circular: Optional[np.ndarray] = None,
 ) -> None:
     """Save composite plot by creating the figure and saving it to file.
     
@@ -686,6 +757,8 @@ def save_composite_plot(
         ... (existing parameters) ...
         generate_individual_plots: If True, also generate individual plot components
         individual_plots_dir: Directory name for individual plots (relative to composite plot location)
+        dedisp_block_linear: Dedispersed waterfall in Linear polarization (for HF pipeline)
+        dedisp_block_circular: Dedispersed waterfall in Circular polarization (for HF pipeline)
     """
     
                                  
@@ -713,6 +786,8 @@ def save_composite_plot(
         chunk_idx=chunk_idx,
         slice_samples=slice_samples,
         candidate_times_abs=candidate_times_abs,
+        dedisp_block_linear=dedisp_block_linear,
+        dedisp_block_circular=dedisp_block_circular,
     )
     
                                     

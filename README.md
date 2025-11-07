@@ -2,14 +2,21 @@
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
+[![CUDA](https://img.shields.io/badge/CUDA-11.0+-76B900.svg)](https://developer.nvidia.com/cuda-toolkit)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED.svg)](https://www.docker.com/)
+[![Research](https://img.shields.io/badge/Research-Academic-green.svg)](https://github.com/Kodamonkey/DRAFTS-UC)
 [![arXiv](https://img.shields.io/badge/arXiv-2410.03200-b31b1b.svg)](https://arxiv.org/abs/2410.03200)
-
-Deep learning pipeline for detecting Fast Radio Bursts using CenterNet + ResNet.
 
 ![DRAFTS WorkFlow](WorkFlow.png)
 
-**Based on:** [DRAFTS](https://github.com/SukiYume/DRAFTS) | [Paper](https://arxiv.org/abs/2410.03200)
+> **Original work:** [DRAFTS](https://github.com/SukiYume/DRAFTS) | [Paper](https://arxiv.org/abs/2410.03200)
+
+## Project Overview
+
+**DRAFTS++** is an advanced pipeline for detecting **Fast Radio Bursts (FRBs)** in radio astronomy data using deep learning. It builds upon the original **DRAFTS** (Deep Learning-based RAdio Fast Transient Search) framework, integrating modern neural networks to overcome challenges like radio-frequency interference (RFI) and propagation dispersion that hinder traditional search algorithms. In DRAFTS++, a **deep-learning object detector** (CenterNet-based) localizes burst candidates in dedispersed time–DM space, and a **binary classifier** (ResNet-based) verifies each candidate to distinguish real FRBs from noise/RFI. This two-stage approach greatly improves detection accuracy and reduces false positives compared to classical methods (e.g., PRESTO/Heimdall).
+
+> **What's DRAFTS-UC?**  
+> DRAFTS++ (a.k.a. _DRAFTS-UC_) is our maintained fork/extension. It keeps the original DRAFTS ideas and models, adds modern engineering (logging, chunking, GPU/CPU fallbacks), and streamlines configuration for easy, reproducible runs.
 
 ---
 

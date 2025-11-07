@@ -52,14 +52,41 @@ Results in `./Results/`
 
 ## Configuration
 
+### Path Configuration
+
+**Local execution:** Edit paths directly in `config.yaml`:
+
+```yaml
+data:
+  input_dir: "D:/MyData/FRB/" # Any valid path
+  results_dir: "./Results/"
+```
+
+**Docker execution:** Paths in `config.yaml` must match volume mounts in `docker-compose.yml`:
+
+```yaml
+# docker-compose.yml - Define your data location here
+volumes:
+  - D:/Seba - Dev/TESIS/Data/raw/:/app/Data/raw:ro # Host : Container
+
+# config.yaml - Use the container path
+data:
+  input_dir: "/app/Data/raw/" # Must match container mount point
+```
+
+**To change data location in Docker:** Edit `docker-compose.yml` volumes, not `config.yaml`.
+
+### Pipeline Parameters
+
 Edit `config.yaml`:
 
 ```yaml
 data:
-  input_dir: "./Data/raw/" # Your data location
-  results_dir: "./Results/" # Output location
   targets:
     - "FRB20201124_0009" # File patterns to process
+
+temporal:
+  slice_duration_ms: 300.0
 
 dispersion:
   dm_min: 0

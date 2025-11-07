@@ -1,97 +1,92 @@
+"""
+User Configuration Module
+===========================
+This module loads configuration from config.yaml and makes it available
+to the rest of the pipeline through config.py.
+
+DO NOT hardcode values here. Edit config.yaml instead.
+"""
+
 from pathlib import Path
+import yaml
+
+
+def _load_config():
+    """Load configuration from config.yaml file."""
+    config_path = Path(__file__).parent.parent.parent / "config.yaml"
+    
+    if not config_path.exists():
+        raise FileNotFoundError(
+            f"Configuration file not found: {config_path}\n"
+            f"Please create a config.yaml file in the project root.\n"
+            f"You can use config.example.yaml as a template."
+        )
+    
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+    
+    return config
+
+
+# Load configuration from YAML
+_config = _load_config()
 
 # =============================================================================
 # DATA AND FILE CONFIGURATION
 # =============================================================================
-
-# Input and output directories
-DATA_DIR = Path("./Data/raw/")                        # Directory with input files (.fits, .fil)
-RESULTS_DIR = Path("./Tests-Pulse-big-new")                 # Directory where results are stored
-
-# List of files to process
-FRB_TARGETS = [
-   "2017-04-03-08_55_22_153_0006_t23.444"
-]
+DATA_DIR = Path(_config['data']['input_dir'])
+RESULTS_DIR = Path(_config['data']['results_dir'])
+FRB_TARGETS = _config['data']['targets']
 
 # =============================================================================
 # TEMPORAL ANALYSIS CONFIGURATION
 # =============================================================================
-
-# Duration of each temporal slice (milliseconds)
-SLICE_DURATION_MS: float = 300.0
+SLICE_DURATION_MS = float(_config['temporal']['slice_duration_ms'])
 
 # =============================================================================
 # DOWNSAMPLING CONFIGURATION
 # =============================================================================
-
-# Reduction factors to optimize processing
-DOWN_FREQ_RATE: int = 1                      # Frequency reduction factor (1 = no reduction)
-DOWN_TIME_RATE: int = 32                      # Time reduction factor (1 = no reduction)
+DOWN_FREQ_RATE = int(_config['downsampling']['frequency_rate'])
+DOWN_TIME_RATE = int(_config['downsampling']['time_rate'])
 
 # =============================================================================
 # DISPERSION MEASURE CONFIGURATION (DM)
 # =============================================================================
-
-# Dispersion Measure search range
-DM_min: int = 0                             # Minimum DM in pc cm⁻³
-DM_max: int = 1024                          # Maximum DM in pc cm⁻³
+DM_min = int(_config['dispersion']['dm_min'])
+DM_max = int(_config['dispersion']['dm_max'])
 
 # =============================================================================
 # DETECTION THRESHOLDS
 # =============================================================================
-
-# Minimum probabilities for detection and classification
-DET_PROB: float = 0.3                       # Minimum probability to consider a detection valid
-CLASS_PROB: float = 0.5                     # Minimum probability to classify as burst
-
-# SNR threshold for highlighting in visualizations
-SNR_THRESH: float = 5.0                     # SNR threshold used in plots
+DET_PROB = float(_config['thresholds']['detection_probability'])
+CLASS_PROB = float(_config['thresholds']['classification_probability'])
+SNR_THRESH = float(_config['thresholds']['snr_threshold'])
 
 # =============================================================================
 # MULTI-BAND ANALYSIS CONFIGURATION
 # =============================================================================
-
-# Multi-band analysis (Full/Low/High)
-USE_MULTI_BAND: bool = False                # True = enable multi-band analysis, False = only full band
+USE_MULTI_BAND = bool(_config['multiband']['enabled'])
 
 # =============================================================================
 # HIGH-FREQUENCY PIPELINE CONFIGURATION
 # =============================================================================
-
-# Controls whether the high-frequency pipeline is triggered automatically
-# based on the file's central frequency (default ≥ 8000 MHz)
-AUTO_HIGH_FREQ_PIPELINE: bool = True
-
-# Central frequency threshold (MHz) to consider "high frequency"
-HIGH_FREQ_THRESHOLD_MHZ: float = 8000.0
+AUTO_HIGH_FREQ_PIPELINE = bool(_config['high_frequency']['auto_enable'])
+HIGH_FREQ_THRESHOLD_MHZ = float(_config['high_frequency']['threshold_mhz'])
 
 # =============================================================================
 # POLARIZATION CONFIGURATION (PSRFITS INPUT)
 # =============================================================================
-
-# Polarization mode for PSRFITS with POL_TYPE=IQUV and npol>=4
-# Options: "intensity" (I), "linear" (sqrt(Q^2+U^2)), "circular" (abs(V)),
-#          "pol0", "pol1", "pol2", "pol3" to select a specific index
-POLARIZATION_MODE: str = "intensity"
-
-# Default index when IQUV is not available (e.g., AABB, two pols)
-POLARIZATION_INDEX: int = 0
+POLARIZATION_MODE = str(_config['polarization']['mode'])
+POLARIZATION_INDEX = int(_config['polarization']['default_index'])
 
 # =============================================================================
 # LOGGING AND DEBUG CONFIGURATION
 # =============================================================================
-
-# Frequency and file debugging
-DEBUG_FREQUENCY_ORDER: bool = False        # True = show detailed frequency and file information
-                                           # False = quiet mode (recommended for batch processing)
-
-# Force plot generation even when no candidates (debug mode)
-FORCE_PLOTS: bool = False                 # True = always generate plots for inspection
+DEBUG_FREQUENCY_ORDER = bool(_config['debug']['show_frequency_info'])
+FORCE_PLOTS = bool(_config['debug']['force_plots'])
 
 # =============================================================================
 # CANDIDATE FILTERING CONFIGURATION
 # =============================================================================
-
-# Only save and display candidates classified as BURST
-SAVE_ONLY_BURST: bool = True             # True = keep only BURST candidates, False = keep all candidates
+SAVE_ONLY_BURST = bool(_config['output']['save_only_burst'])
 

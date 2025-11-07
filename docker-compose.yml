@@ -1,22 +1,26 @@
-# Docker Compose para DRAFTS-UC
+# Docker Compose for DRAFTS-UC
 
 # ==============================================================================
 # DRAFTS-UC Pipeline - Docker Compose
 # ==============================================================================
-# Este archivo define servicios para ejecutar el pipeline en CPU o GPU
+# This file defines services to run the pipeline on CPU or GPU
 #
-# Uso:
-#   - CPU:  docker-compose run --rm drafts-cpu --data-dir /data --results-dir /results --target "archivo"
-#   - GPU:  docker-compose run --rm drafts-gpu --data-dir /data --results-dir /results --target "archivo"
+# IMPORTANT: Configure the pipeline by editing config.yaml before running
 #
-# Para construcción:
+# Usage:
+#   - CPU:  docker-compose run --rm drafts-cpu
+#   - GPU:  docker-compose run --rm drafts-gpu
+#
+# Build:
 #   - CPU:  docker-compose build drafts-cpu
 #   - GPU:  docker-compose build drafts-gpu
+#
+# The pipeline reads configuration from config.yaml (mounted as volume)
 # ==============================================================================
 
 services:
   # ============================================================================
-  # Servicio CPU - Para sistemas sin GPU NVIDIA
+  # CPU Service - For systems without NVIDIA GPU
   # ============================================================================
   drafts-cpu:
     build:
@@ -26,31 +30,34 @@ services:
     image: drafts-uc:cpu-latest
     container_name: drafts-uc-cpu
     
-    # Volúmenes para datos, resultados y modelos
+    # Volumes for data, results, models and configuration
     volumes:
-      # Datos de entrada (solo lectura recomendado)
+      # Pipeline configuration (REQUIRED - read-write for updates)
+      - ./config.yaml:/app/config.yaml:rw
+      
+      # Input data (read-only recommended)
       - ./Data/raw:/app/Data/raw:ro
       
-      # Resultados (lectura-escritura)
+      # Results (read-write)
       - ./Results:/app/Results:rw
       
-      # Modelos pre-entrenados (solo lectura) - donde el código los busca
+      # Pre-trained models (read-only) - where code looks for them
       - ./src/models:/app/src/models:ro
       
-      # Opcional: logs persistentes
+      # Optional: persistent logs
       - ./logs:/app/logs:rw
       
-      # Opcional: datos procesados temporales
+      # Optional: temporary processed data
       - ./Data/processed:/app/Data/processed:rw
     
-    # Variables de entorno
+    # Environment variables
     environment:
       - PYTHONUNBUFFERED=1
       - OMP_NUM_THREADS=4
       - MKL_NUM_THREADS=4
       - NUMBA_NUM_THREADS=4
     
-    # Límites de recursos
+    # Resource limits
     deploy:
       resources:
         limits:
@@ -60,17 +67,17 @@ services:
           cpus: '4'
           memory: 8G
     
-    # Red
+    # Network
     network_mode: bridge
     
-    # Política de reinicio
+    # Restart policy
     restart: "no"
     
-    # Usuario
+    # User
     user: "1000:1000"
 
   # ============================================================================
-  # Servicio GPU - Para sistemas con GPU NVIDIA + CUDA
+  # GPU Service - For systems with NVIDIA GPU + CUDA
   # ============================================================================
   drafts-gpu:
     build:
@@ -80,34 +87,37 @@ services:
     image: drafts-uc:gpu-latest
     container_name: drafts-uc-gpu
     
-    # Runtime NVIDIA para acceso a GPU
+    # NVIDIA runtime for GPU access
     runtime: nvidia
     
-    # Volúmenes para datos, resultados y modelos
+    # Volumes for data, results, models and configuration
     volumes:
-      # Datos de entrada (solo lectura recomendado)
+      # Pipeline configuration (REQUIRED - read-write for updates)
+      - ./config.yaml:/app/config.yaml:rw
+      
+      # Input data (read-only recommended)
       - ./Data/raw:/app/Data/raw:ro
       
-      # Resultados (lectura-escritura)
+      # Results (read-write)
       - ./Results:/app/Results:rw
       
-      # Modelos pre-entrenados (solo lectura) - donde el código los busca
+      # Pre-trained models (read-only) - where code looks for them
       - ./src/models:/app/src/models:ro
       
-      # Opcional: logs persistentes
+      # Optional: persistent logs
       - ./logs:/app/logs:rw
       
-      # Opcional: datos procesados temporales
+      # Optional: temporary processed data
       - ./Data/processed:/app/Data/processed:rw
     
-    # Variables de entorno para GPU
+    # Environment variables for GPU
     environment:
       - PYTHONUNBUFFERED=1
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - CUDA_VISIBLE_DEVICES=0
     
-    # Límites de recursos
+    # Resource limits
     deploy:
       resources:
         limits:
@@ -121,19 +131,19 @@ services:
               count: 1
               capabilities: [gpu]
     
-    # Red
+    # Network
     network_mode: bridge
     
-    # Política de reinicio
+    # Restart policy
     restart: "no"
     
-    # Usuario
+    # User
     user: "1000:1000"
 
 # ==============================================================================
-# Volúmenes nombrados (opcional)
+# Named volumes (optional)
 # ==============================================================================
-# Descomenta si prefieres usar volúmenes nombrados en lugar de bind mounts
+# Uncomment if you prefer using named volumes instead of bind mounts
 # volumes:
 #   drafts-data:
 #     driver: local

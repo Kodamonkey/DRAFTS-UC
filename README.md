@@ -93,35 +93,6 @@ pip install -r requirements.txt
 python main.py
 ```
 
----
-
-## Project Structure
-
-```
-DRAFTS-UC/
-├── config.yaml           # ← Configure here
-├── main.py              # Entry point
-├── Data/raw/            # ← Put data here
-├── Results/             # ← Outputs here
-└── src/models/          # ← Model weights here
-    ├── cent_resnet18.pth
-    └── class_resnet18.pth
-```
-
----
-
-## Troubleshooting
-
-| Problem                  | Solution                                                    |
-| ------------------------ | ----------------------------------------------------------- |
-| No files found           | Verify `data.input_dir` and `data.targets` in `config.yaml` |
-| No detections            | Lower `thresholds.detection_probability` to 0.2             |
-| Too many false positives | Increase `thresholds.classification_probability` to 0.7     |
-| Models not found         | Place weights in `src/models/`                              |
-| Docker won't start       | Check Docker Desktop is running                             |
-
----
-
 ## Citation
 
 ```bibtex
@@ -139,11 +110,4 @@ DRAFTS-UC/
 
 **Sebastian Salgado Polanco**
 
-Academic and research use only. Please cite the original DRAFTS paper.
-
 ---
-
-## Links
-
-- [Original DRAFTS Repository](https://github.com/SukiYume/DRAFTS)
-- [DRAFTS Paper](https://arxiv.org/abs/2410.03200)

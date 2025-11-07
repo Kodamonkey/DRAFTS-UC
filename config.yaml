@@ -1,0 +1,149 @@
+# ==============================================================================
+# DRAFTS++ Pipeline Configuration - EXAMPLE
+# ==============================================================================
+# Copy this file to config.yaml and customize values as needed
+#
+# cp config.example.yaml config.yaml
+#
+# Then run: python main.py
+
+# ==============================================================================
+# DATA AND FILE PATHS
+# ==============================================================================
+data:
+  # Directory containing input files (.fits, .fil)
+  input_dir: "D:/Seba - Dev/TESIS/Data/raw/No0153/0006"
+
+  # Directory where results will be saved (CSVs, plots, logs)
+  results_dir: "./Results/"
+
+  # List of files to process (search patterns)
+  # Can specify full names or partial patterns
+  # Pipeline will search for files matching any of these patterns
+  targets:
+    - "2017-04-03-08_55_22_0006"
+    # - "FRB20201124"
+    # - "2017-04-03"
+    # - "B0355+54"
+
+# ==============================================================================
+# TEMPORAL ANALYSIS
+# ==============================================================================
+temporal:
+  # Duration of each temporal segment in milliseconds
+  # Common values: 150-500 ms
+  slice_duration_ms: 2000.0
+
+# ==============================================================================
+# DOWNSAMPLING
+# ==============================================================================
+downsampling:
+  # Frequency reduction factor (1 = no reduction)
+  # Values: 1, 2, 4, 8
+  frequency_rate: 1
+
+  # Time reduction factor (1 = no reduction)
+  # Common values: 4, 8, 16, 32
+  time_rate: 512
+
+# ==============================================================================
+# DISPERSION MEASURE (DM)
+# ==============================================================================
+dispersion:
+  # DM search range in pc cm⁻³
+  # Adjust according to your source:
+  # - Nearby pulsars: 0-100
+  # - Extragalactic FRBs: 100-2000
+  # - General/unknown: 0-1024
+  dm_min: 0
+  dm_max: 1024
+
+# ==============================================================================
+# DETECTION THRESHOLDS
+# ==============================================================================
+thresholds:
+  # Minimum probability for valid detection (CenterNet)
+  # Higher values = fewer detections but more confidence
+  # - Conservative: 0.5-0.7
+  # - Balanced: 0.3 (default)
+  # - Sensitive: 0.1-0.2
+  detection_probability: 0.3
+
+  # Minimum probability to classify as burst (ResNet)
+  # Higher values = more conservative classification
+  # - Conservative: 0.7-0.9
+  # - Balanced: 0.5 (default)
+  # - Sensitive: 0.3-0.4
+  classification_probability: 0.5
+
+  # SNR threshold for highlighting in visualizations
+  # Does not affect detection, only visualization
+  snr_threshold: 5.0
+
+# ==============================================================================
+# MULTI-BAND ANALYSIS
+# ==============================================================================
+multiband:
+  # Enable multi-band analysis (Full/Low/High)
+  # Useful for:
+  # - Detailed frequency characterization
+  # - Identifying band-dependent RFI
+  # - Scattering studies
+  # Note: Increases processing time ~3x
+  enabled: false
+
+# ==============================================================================
+# HIGH-FREQUENCY PIPELINE
+# ==============================================================================
+high_frequency:
+  # Automatically enable high-frequency pipeline
+  # when central frequency exceeds threshold
+  # Useful for: ALMA, mm-wave, observations >8 GHz
+  auto_enable: true
+
+  # Central frequency threshold in MHz
+  # Default: 8000 MHz (8 GHz) for ALMA
+  threshold_mhz: 8000.0
+
+# ==============================================================================
+# POLARIZATION (PSRFITS)
+# ==============================================================================
+polarization:
+  # Polarization mode for PSRFITS files with IQUV
+  # Options:
+  # - "intensity"  : Stokes I (total intensity) [DEFAULT]
+  # - "linear"     : Linear polarization √(Q² + U²)
+  # - "circular"   : Circular polarization |V|
+  # - "pol0"       : First polarization
+  # - "pol1"       : Second polarization
+  # - "pol2"       : Third polarization
+  # - "pol3"       : Fourth polarization
+  mode: "intensity"
+
+  # Default index when IQUV not available (e.g., AABB)
+  # Values: 0-3
+  default_index: 0
+
+# ==============================================================================
+# DEBUG AND LOGGING
+# ==============================================================================
+debug:
+  # Show detailed frequency and file information
+  # Useful for diagnosing frequency ordering issues
+  show_frequency_info: false
+
+  # Force plot generation even without candidates
+  # Useful for:
+  # - Verifying data quality
+  # - Debugging problematic files
+  # - Visual inspection of data without signals
+  force_plots: false
+
+# ==============================================================================
+# CANDIDATE FILTERING
+# ==============================================================================
+output:
+  # Save only candidates classified as BURST
+  # true  = Only candidates with positive classification (recommended)
+  # false = All detected candidates for further analysis
+  save_only_burst: true

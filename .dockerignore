@@ -74,6 +74,10 @@ docker-compose.yml
 *.md
 !README.md
 
+# Configuration (IMPORTANTE: config.yaml debe ser copiado al contenedor)
+# Si config.yaml está en .gitignore, NO lo ignoramos aquí para Docker
+!config.yaml
+
 # OS
 Thumbs.db
 .DS_Store

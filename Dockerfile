@@ -1,8 +1,8 @@
 # ==============================================================================
-# DRAFTS-UC Pipeline - Dockerfile Completo
+# DRAFTS-UC Pipeline - Complete Dockerfile
 # ==============================================================================
-# Multi-stage build optimizado para CPU y GPU
-# Incluye todas las dependencias necesarias para procesamiento de datos FRB
+# Multi-stage build optimized for CPU and GPU
+# Includes all necessary dependencies for FRB data processing
 # ==============================================================================
 
 # ==============================================================================
@@ -19,52 +19,52 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# Instalar dependencias del sistema completas
+# Install complete system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Compiladores y build tools
+    # Compilers and build tools
     gcc \
     g++ \
     gfortran \
     make \
-    # Librerías matemáticas
+    # Math libraries
     libopenblas-dev \
     liblapack-dev \
-    # HDF5 para astropy/fitsio
+    # HDF5 for astropy/fitsio
     libhdf5-dev \
-    # CFITSIO para manejo de archivos FITS
+    # CFITSIO for FITS file handling
     libcfitsio-dev \
-    # OpenCV dependencias (sin GUI)
+    # OpenCV dependencies (headless)
     libgl1-mesa-glx \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender-dev \
     libgomp1 \
-    # SSL y crypto
+    # SSL and crypto
     libffi-dev \
     libssl-dev \
-    # Utilidades
+    # Utilities
     wget \
     curl \
     git \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Crear usuario no-root
+# Create non-root user
 RUN useradd -m -u 1000 -s /bin/bash draftsuser
 
 # ==============================================================================
-# Stage 2: Builder CPU - Instalación de dependencias Python
+# Stage 2: Builder CPU - Python dependencies installation
 # ==============================================================================
 FROM base-cpu as builder-cpu
 
 WORKDIR /tmp
 
-# Copiar requirements
+# Copy requirements
 COPY requirements.txt .
 
-# Instalar PyTorch CPU + todas las dependencias
-# Orden optimizado: torch primero, luego el resto
+# Install PyTorch CPU + all dependencies
+# Optimized order: torch first, then the rest
 RUN pip install --no-cache-dir \
     torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir \
@@ -77,6 +77,7 @@ RUN pip install --no-cache-dir \
     opencv-python-headless \
     pandas \
     psutil \
+    pyyaml \
     seaborn \
     scikit-image \
     scikit-learn \
@@ -87,33 +88,33 @@ RUN pip install --no-cache-dir \
     jplephem
 
 # ==============================================================================
-# Stage 3: Imagen final CPU
+# Stage 3: Final CPU image
 # ==============================================================================
 FROM base-cpu as cpu-final
 
-# Copiar Python packages instalados
+# Copy installed Python packages
 COPY --from=builder-cpu /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
 COPY --from=builder-cpu /usr/local/bin /usr/local/bin
 
-# Crear estructura de directorios
+# Create directory structure
 WORKDIR /app
 RUN mkdir -p /app/Data/raw /app/Data/processed /app/Results /app/models /app/logs && \
     chown -R draftsuser:draftsuser /app
 
-# Copiar código fuente
+# Copy source code and configuration
 COPY --chown=draftsuser:draftsuser src/ /app/src/
 COPY --chown=draftsuser:draftsuser main.py /app/
+COPY --chown=draftsuser:draftsuser config.yaml /app/
 COPY --chown=draftsuser:draftsuser README.md /app/
 
-# Usuario no-root
+# Non-root user
 USER draftsuser
 
-# Entrypoint y comando
-ENTRYPOINT ["python", "main.py"]
-CMD ["--help"]
+# Default command
+CMD ["python", "main.py"]
 
 # ==============================================================================
-# Stage 4: Base GPU con CUDA
+# Stage 4: Base GPU with CUDA
 # ==============================================================================
 FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 as base-gpu
 
@@ -126,24 +127,24 @@ ENV PYTHONUNBUFFERED=1 \
     PATH=/usr/local/cuda/bin:$PATH \
     LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
-# Instalar Python 3.10 y dependencias del sistema
+# Install Python 3.10 and system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.10 \
     python3.10-dev \
     python3-pip \
-    # Compiladores
+    # Compilers
     gcc \
     g++ \
     gfortran \
     make \
-    # Librerías matemáticas
+    # Math libraries
     libopenblas-dev \
     liblapack-dev \
     # HDF5
     libhdf5-dev \
     # CFITSIO
     libcfitsio-dev \
-    # OpenCV (headless, sin GUI)
+    # OpenCV (headless, no GUI)
     libgl1-mesa-glx \
     libglib2.0-0 \
     libsm6 \
@@ -153,22 +154,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # SSL
     libffi-dev \
     libssl-dev \
-    # Utilidades
+    # Utilities
     wget \
     curl \
     git \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Crear enlaces simbólicos para python
+# Create symbolic links for python
 RUN ln -sf /usr/bin/python3.10 /usr/bin/python && \
     ln -sf /usr/bin/pip3 /usr/bin/pip
 
-# Crear usuario no-root
+# Create non-root user
 RUN useradd -m -u 1000 -s /bin/bash draftsuser
 
 # ==============================================================================
-# Stage 5: Builder GPU - Instalación de dependencias Python
+# Stage 5: Builder GPU - Python dependencies installation
 # ==============================================================================
 FROM base-gpu as builder-gpu
 
@@ -176,7 +177,7 @@ WORKDIR /tmp
 
 COPY requirements.txt .
 
-# Instalar PyTorch con CUDA 11.8 + todas las dependencias
+# Install PyTorch with CUDA 11.8 + all dependencies
 RUN pip install --no-cache-dir \
     torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118 && \
     pip install --no-cache-dir \
@@ -189,6 +190,7 @@ RUN pip install --no-cache-dir \
     opencv-python-headless \
     pandas \
     psutil \
+    pyyaml \
     seaborn \
     scikit-image \
     scikit-learn \
@@ -199,27 +201,27 @@ RUN pip install --no-cache-dir \
     jplephem
 
 # ==============================================================================
-# Stage 6: Imagen final GPU
+# Stage 6: Final GPU image
 # ==============================================================================
 FROM base-gpu as gpu-final
 
-# Copiar Python packages instalados
+# Copy installed Python packages
 COPY --from=builder-gpu /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
 COPY --from=builder-gpu /usr/local/bin /usr/local/bin
 
-# Crear estructura de directorios
+# Create directory structure
 WORKDIR /app
 RUN mkdir -p /app/Data/raw /app/Data/processed /app/Results /app/models /app/logs && \
     chown -R draftsuser:draftsuser /app
 
-# Copiar código fuente
+# Copy source code and configuration
 COPY --chown=draftsuser:draftsuser src/ /app/src/
 COPY --chown=draftsuser:draftsuser main.py /app/
+COPY --chown=draftsuser:draftsuser config.yaml /app/
 COPY --chown=draftsuser:draftsuser README.md /app/
 
-# Usuario no-root
+# Non-root user
 USER draftsuser
 
-# Entrypoint y comando
-ENTRYPOINT ["python", "main.py"]
-CMD ["--help"]
+# Default command
+CMD ["python", "main.py"]

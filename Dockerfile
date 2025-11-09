@@ -221,6 +221,7 @@ COPY --chown=draftsuser:draftsuser config.yaml /app/
 COPY --chown=draftsuser:draftsuser README.md /app/
 
 # Non-root user
+
 USER draftsuser
 
 # Default command

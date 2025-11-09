@@ -36,7 +36,8 @@ services:
       - ./config.yaml:/app/config.yaml:rw
       
       # Input data (read-only recommended)
-      - ./Data/raw:/app/Data/raw:ro
+      #- ./Data/raw:/app/Data/raw:ro
+      - D:/Seba - Dev/TESIS/Data/raw/No0153/0006:/app/Data/raw:ro
       
       # Results (read-write)
       - ./Results:/app/Results:rw
@@ -45,10 +46,10 @@ services:
       - ./src/models:/app/src/models:ro
       
       # Optional: persistent logs
-      - ./logs:/app/logs:rw
+      # - ./logs:/app/logs:rw
       
       # Optional: temporary processed data
-      - ./Data/processed:/app/Data/processed:rw
+      # - ./Data/processed:/app/Data/processed:rw
     
     # Environment variables
     environment:
@@ -96,7 +97,8 @@ services:
       - ./config.yaml:/app/config.yaml:rw
       
       # Input data (read-only recommended)
-      - ./Data/raw:/app/Data/raw:ro
+      # Change this path to your actual data location
+      - D:/Seba - Dev/TESIS/Data/raw/No0153/0006:/app/Data/raw:ro
       
       # Results (read-write)
       - ./Results:/app/Results:rw
@@ -105,10 +107,10 @@ services:
       - ./src/models:/app/src/models:ro
       
       # Optional: persistent logs
-      - ./logs:/app/logs:rw
+      # - ./logs:/app/logs:rw
       
       # Optional: temporary processed data
-      - ./Data/processed:/app/Data/processed:rw
+      # - ./Data/processed:/app/Data/processed:rw
     
     # Environment variables for GPU
     environment:

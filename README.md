@@ -11,121 +11,170 @@
 
 > **Original work:** [DRAFTS](https://github.com/SukiYume/DRAFTS) | [Paper](https://arxiv.org/abs/2410.03200)
 
-## Project Overview
+## Overview
 
-**DRAFTS++** is an advanced pipeline for detecting **Fast Radio Bursts (FRBs)** in radio astronomy data using deep learning. It builds upon the original **DRAFTS** (Deep Learning-based RAdio Fast Transient Search) framework, integrating modern neural networks to overcome challenges like radio-frequency interference (RFI) and propagation dispersion that hinder traditional search algorithms. In DRAFTS++, a **deep-learning object detector** (CenterNet-based) localizes burst candidates in dedispersed time–DM space, and a **binary classifier** (ResNet-based) verifies each candidate to distinguish real FRBs from noise/RFI. This two-stage approach greatly improves detection accuracy and reduces false positives compared to classical methods (e.g., PRESTO/Heimdall).
+**DRAFTS++** detects Fast Radio Bursts (FRBs) using deep learning: a **CenterNet detector** localizes candidates in time-DM space, and a **ResNet classifier** verifies them as real FRBs vs RFI/noise. This two-stage approach outperforms classical methods (PRESTO/Heimdall).
 
-> **What's DRAFTS-UC?**  
-> DRAFTS++ (a.k.a. _DRAFTS-UC_) is our maintained fork/extension. It keeps the original DRAFTS ideas and models, adds modern engineering (logging, chunking, GPU/CPU fallbacks), and streamlines configuration for easy, reproducible runs.
-
----
-
-## Quick Start
-
-```bash
-# 1. Clone
-git clone https://github.com/Kodamonkey/DRAFTS-UC.git
-cd DRAFTS-UC
-
-# 2. Configure
-nano config.yaml  # Edit input_dir and targets
-
-# 3. Run
-docker-compose build drafts-gpu
-docker-compose run --rm drafts-gpu
-```
-
-Results in `./Results/`
+> **DRAFTS-UC** is our maintained fork with modern engineering: logging, chunking, GPU/CPU fallbacks, and simplified configuration.
 
 ---
 
-## Prerequisites
+## Getting Started
+
+### Prerequisites
 
 | Component                | Required                                                |
 | ------------------------ | ------------------------------------------------------- |
 | **Model weights**        | `src/models/cent_resnet18.pth` and `class_resnet18.pth` |
-| **Data files**           | `.fits` or `.fil` files in `Data/raw/`                  |
+| **Data files**           | `.fits` or `.fil` files                                 |
 | **Docker** (recommended) | Docker Desktop + NVIDIA Docker (GPU)                    |
 | **Local** (alternative)  | Python 3.8+, CUDA 11+ (optional)                        |
 
----
+### Installation & Setup
 
-## Configuration
+**1. Clone repository:**
 
-### Path Configuration
-
-**Local execution:** Edit paths directly in `config.yaml`:
-
-```yaml
-data:
-  input_dir: "D:/MyData/FRB/" # Any valid path
-  results_dir: "./Results/"
+```bash
+git clone https://github.com/Kodamonkey/DRAFTS-UC.git
+cd DRAFTS-UC
 ```
 
-**Docker execution:** Paths in `config.yaml` must match volume mounts in `docker-compose.yml`:
+**2. Configure paths:**
+
+Choose your method:
+
+<details>
+<summary><b>Docker Setup (Recommended)</b></summary>
+
+Edit `docker-compose.yml` to mount your data:
 
 ```yaml
-# docker-compose.yml - Define your data location here
 volumes:
-  - D:/Seba - Dev/TESIS/Data/raw/:/app/Data/raw:ro # Host : Container
-
-# config.yaml - Use the container path
-data:
-  input_dir: "/app/Data/raw/" # Must match container mount point
+  - D:/Your/Data/Path:/app/Data/raw:ro # Your data location
 ```
 
-**To change data location in Docker:** Edit `docker-compose.yml` volumes, not `config.yaml`.
-
-### Pipeline Parameters
-
-Edit `config.yaml`:
+Edit `config.yaml` with container paths:
 
 ```yaml
 data:
+  input_dir: "/app/Data/raw/" # Keep as-is for Docker
   targets:
-    - "FRB20201124_0009" # File patterns to process
-
-temporal:
-  slice_duration_ms: 300.0
-
-dispersion:
-  dm_min: 0
-  dm_max: 1024
+    - "your-file-pattern" # Match your files
 
 thresholds:
   detection_probability: 0.3 # Lower = more detections
+  classification_probability: 0.5 # Higher = more conservative
+```
+
+**Run:**
+
+```bash
+# Build once
+docker-compose build drafts-gpu
+
+# Run (no rebuild needed after config changes)
+docker-compose run --rm drafts-gpu
+
+# CPU version: replace drafts-gpu with drafts-cpu
+```
+
+</details>
+
+<details>
+<summary><b>Local Setup</b></summary>
+
+Edit `config.yaml` with direct paths:
+
+```yaml
+data:
+  input_dir: "D:/Your/Data/Path" # Direct path to your data
+  targets:
+    - "your-file-pattern"
+
+thresholds:
+  detection_probability: 0.3
   classification_probability: 0.5
 ```
 
-Full options in `config.yaml` file.
-
----
-
-## Running the Pipeline
-
-### Option 1: Docker (Recommended)
+**Run:**
 
 ```bash
-# Build
-docker-compose build drafts-gpu
-
-# Run
-docker-compose run --rm drafts-gpu
-```
-
-**CPU version:** Replace `drafts-gpu` with `drafts-cpu`
-
-### Option 2: Local
-
-```bash
-# Setup
+# Setup environment
 python3 -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-# Run
+# Execute
 python main.py
 ```
+
+</details>
+
+**Results appear in:** `./Results/`
+
+### Configuration Tips
+
+**All parameters** are in `config.yaml`:
+
+```yaml
+temporal:
+  slice_duration_ms: 300.0 # Analysis window (150-500 ms)
+
+dispersion:
+  dm_min: 0 # DM search range
+  dm_max: 1024
+
+downsampling:
+  frequency_rate: 1 # Frequency reduction (1 = none)
+  time_rate: 8 # Time reduction
+
+multiband:
+  enabled: false # Multi-band analysis (Full/Low/High)
+
+high_frequency:
+  auto_enable: true # Auto-activate for freq ≥ 8 GHz
+
+polarization:
+  mode: "intensity" # intensity | linear | circular | pol0-3
+
+output:
+  save_only_burst: true # Keep only BURST candidates
+```
+
+See `config.yaml` for full documentation.
+
+---
+
+## Important Notes
+
+### Docker Considerations
+
+⚠️ **Volume behavior:**
+
+- Docker creates local folders for mounted volumes that don't exist
+- To prevent: comment out unused volumes in `docker-compose.yml`
+- **To change data location:** Edit `docker-compose.yml` volumes, NOT `config.yaml`
+- **After config changes:** No rebuild needed, just re-run
+
+✅ **Path mapping:**
+
+```yaml
+# docker-compose.yml defines HOST → CONTAINER mapping
+- D:/My/Data:/app/Data/raw:ro
+
+# config.yaml uses CONTAINER path
+input_dir: "/app/Data/raw/"
+```
+
+### File Integrity
+
+✅ **Verify before processing:**
+
+- Pipeline warns if FITS files are truncated/corrupted
+- Check: actual file size matches expected size
+- Use complete, non-corrupted files for accurate results
+
+---
 
 ## Citation
 
@@ -143,5 +192,3 @@ python main.py
 ## Author
 
 **Sebastian Salgado Polanco**
-
----

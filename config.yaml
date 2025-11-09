@@ -3,7 +3,7 @@
 # ==============================================================================
 data:
   # Directory containing input files (.fits, .fil)
-  input_dir: "D:/Seba - Dev/TESIS/Data/raw/No0153/0006"
+  input_dir: "/app/Data/raw/"
 
   # Directory where results will be saved (CSVs, plots, logs)
   results_dir: "./Results/"
@@ -23,7 +23,7 @@ data:
 temporal:
   # Duration of each temporal segment in milliseconds
   # Common values: 150-500 ms
-  slice_duration_ms: 2000.0
+  slice_duration_ms: 500.0
 
 # ==============================================================================
 # DOWNSAMPLING

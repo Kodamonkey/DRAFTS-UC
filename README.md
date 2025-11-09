@@ -112,6 +112,23 @@ python main.py
 
 **Results appear in:** `./Results/`
 
+### Quick CLI Overrides (Optional)
+
+For quick parameter adjustments without editing `config.yaml`:
+
+```bash
+# Override thresholds
+python main.py --dm-max 512 --det-prob 0.5
+
+# Enable features
+python main.py --multi-band --force-plots
+
+# See all options
+python main.py --help
+```
+
+**Note:** CLI args override `config.yaml` values. For permanent changes, edit `config.yaml`.
+
 ### Configuration Tips
 
 **All parameters** are in `config.yaml`:

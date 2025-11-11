@@ -109,10 +109,13 @@ Note: For Docker, data paths should be changed in docker-compose.yml, not via CL
                             help='Show detailed frequency information')
     debug_group.add_argument('--force-plots', action='store_true',
                             help='Generate plots even without candidates')
-    debug_group.add_argument('--save-all', action='store_true',
-                            help='Save all candidates (not only BURST)')
-    debug_group.add_argument('--save-only-burst', action='store_true',
-                            help='Save only BURST candidates (default)')
+    
+    # Candidate output filtering (mutually exclusive)
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument('--save-all-detections', action='store_true',
+                             help='Save ALL candidates detected by CenterNet (BURST + NON-BURST)')
+    output_group.add_argument('--save-only-burst', action='store_true',
+                             help='Save only candidates classified as BURST by ResNet (default)')
     
     parser.set_defaults(multi_band=None, auto_high_freq=None)
     
@@ -230,9 +233,9 @@ def main():
         config_dict["FORCE_PLOTS"] = True
         cli_overrides.append("force_plots=True")
     
-    if args.save_all:
+    if args.save_all_detections:
         config_dict["SAVE_ONLY_BURST"] = False
-        cli_overrides.append("save_only_burst=False")
+        cli_overrides.append("save_all_detections=True (BURST+NON-BURST)")
     elif args.save_only_burst:
         config_dict["SAVE_ONLY_BURST"] = True
         cli_overrides.append("save_only_burst=True")

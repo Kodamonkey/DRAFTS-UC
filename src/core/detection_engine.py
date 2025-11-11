@@ -232,16 +232,17 @@ def detect_and_classify_candidates_in_band(
             n_no_bursts += 1
         prob_max = max(prob_max, float(conf))
         
-                                                                                  
+        # Save candidate based on filtering mode
+        # SAVE_ONLY_BURST = True  → Only save if classified as BURST
+        # SAVE_ONLY_BURST = False → Save all CenterNet detections (BURST + NON-BURST)
         if not config.SAVE_ONLY_BURST or is_burst:
             append_candidate(csv_file, cand.to_row())
             
-                                                               
+            # Log the saved candidate
             try:
                 global_logger = get_global_logger()
                 global_logger.candidate_detected(dm_val, absolute_candidate_time, conf, class_prob, is_burst, snr_val_raw, snr_val)
             except ImportError:
-                                             
                 logger.info(
                     f"Candidate DM {dm_val:.2f} t={absolute_candidate_time:.3f}s conf={conf:.2f} class={class_prob:.2f} → {'BURST' if is_burst else 'no burst'}"
                 )
@@ -249,10 +250,10 @@ def detect_and_classify_candidates_in_band(
                     f"SNR Raw: {snr_val_raw:.2f}σ, SNR Patch Dedispersed: {snr_val:.2f}σ (saved to CSV)"
                 )
         else:
-
+            # Candidate detected by CenterNet but filtered out because not classified as BURST
             logger.debug(
-                f"Non-burst candidate filtered out (SAVE_ONLY_BURST=True): DM {dm_val:.2f} t={absolute_candidate_time:.3f}s "
-                f"conf={conf:.2f} class={class_prob:.2f} → NO BURST (not saved)"
+                f"NON-BURST filtered (SAVE_ONLY_BURST=True): DM {dm_val:.2f} t={absolute_candidate_time:.3f}s "
+                f"CenterNet_conf={conf:.2f} ResNet_class={class_prob:.2f} → NOT SAVED"
             )
                                                       
                                                                  

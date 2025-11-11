@@ -638,11 +638,13 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
     
     logger.pipeline_start(pipeline_config) 
 
-                                                     
+    # Log candidate filtering mode
     if config.SAVE_ONLY_BURST:
-        logger.logger.info("Mode: save only BURST candidates; non-bursts will be discarded")
+        logger.logger.info("Output mode: BURST ONLY - Non-burst detections will be discarded")
+        logger.logger.info("  → Only candidates classified as BURST by ResNet will be saved")
     else:
-        logger.logger.info("Mode: save all detected candidates (BURST and non-BURST)")
+        logger.logger.info("Output mode: ALL DETECTIONS - Saving all CenterNet detections")
+        logger.logger.info("  → Both BURST and NON-BURST candidates will be saved to CSV")
 
     save_dir = config.RESULTS_DIR
     save_dir.mkdir(parents=True, exist_ok=True)

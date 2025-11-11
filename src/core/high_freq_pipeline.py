@@ -321,6 +321,7 @@ def snr_detect_and_classify_candidates_in_band(
             n_no_bursts += 1
         prob_max = max(prob_max, float(conf))
 
+        # Save candidate based on filtering mode
         if not config.SAVE_ONLY_BURST or is_burst:
             append_candidate(csv_file, cand.to_row())
             try:
@@ -328,6 +329,11 @@ def snr_detect_and_classify_candidates_in_band(
                 gl.candidate_detected(dm_val, absolute_candidate_time, conf, class_prob, is_burst, snr_peak, snr_val)
             except Exception:
                 pass
+        else:
+            # NON-BURST filtered out when SAVE_ONLY_BURST=True
+            logger.debug(
+                f"NON-BURST filtered (SAVE_ONLY_BURST=True): DM {dm_val:.2f} t={absolute_candidate_time:.3f}s → NOT SAVED"
+            )
 
     # Generate an RGB image using the same colour pipeline as the standard flow.
     img_tensor = preprocess_img(band_img)

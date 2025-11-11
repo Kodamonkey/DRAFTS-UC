@@ -12,7 +12,7 @@ data:
   # Can specify full names or partial patterns
   # Pipeline will search for files matching any of these patterns
   targets:
-    - "2017-04-03-08_55_22_0006"
+    - "B0355+54_FB_20220918"
     # - "B0355+54"
 
 # ==============================================================================
@@ -21,7 +21,7 @@ data:
 temporal:
   # Duration of each temporal segment in milliseconds
   # Common values: 150-500 ms
-  slice_duration_ms: 500.0
+  slice_duration_ms: 300.0
 
 # ==============================================================================
 # DOWNSAMPLING
@@ -78,7 +78,7 @@ multiband:
   # - Detailed frequency characterization
   # - Identifying band-dependent RFI
   # - Scattering studies
-  # Note: Increases processing time ~3x
+  # Note: Increases processing time ~3xs
   enabled: false
 
 # ==============================================================================
@@ -129,10 +129,16 @@ debug:
   force_plots: false
 
 # ==============================================================================
-# CANDIDATE FILTERING
+# CANDIDATE FILTERING AND OUTPUT
 # ==============================================================================
 output:
-  # Save only candidates classified as BURST
-  # true  = Only candidates with positive classification (recommended)
-  # false = All detected candidates for further analysis
+  # Control which candidates to save to CSV
+  # Options:
+  #   true  = Save ONLY candidates classified as BURST by ResNet (conservative)
+  #   false = Save ALL candidates detected by CenterNet, regardless of classification
+  #           (includes BURST and NON-BURST for further analysis)
+  #
+  # Recommendation:
+  #   - Use 'true' for production runs (cleaner results, only real FRBs)
+  #   - Use 'false' for analysis, debugging, or studying RFI patterns
   save_only_burst: true

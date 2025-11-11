@@ -131,6 +131,7 @@ def save_all_plots(
     candidate_times_abs: Optional[Iterable[float]] = None,
     dedisp_block_linear: Optional[np.ndarray] = None,
     dedisp_block_circular: Optional[np.ndarray] = None,
+    class_probs_linear_list: Optional[Iterable[float]] = None,  # NEW: Linear classification probs
 ):
 
     if comp_path is not None:
@@ -171,6 +172,7 @@ def save_all_plots(
             candidate_times_abs=candidate_times_abs,
             dedisp_block_linear=dedisp_block_linear,
             dedisp_block_circular=dedisp_block_circular,
+            class_probs_linear=class_probs_linear_list,  # NEW: Pass Linear probs
         )
         
         logger.info(f"Composite plot generated at: {comp_path}")
@@ -226,6 +228,7 @@ def save_slice_summary(
     candidate_times_abs: Optional[Iterable[float]] = None,
     dedisp_block_linear: Optional[np.ndarray] = None,
     dedisp_block_circular: Optional[np.ndarray] = None,
+    class_probs_linear: Optional[Iterable[float]] = None,  # NEW: Linear classification probs
 ) -> None:
     
     save_composite_plot(
@@ -255,5 +258,6 @@ def save_slice_summary(
         candidate_times_abs=candidate_times_abs,
         dedisp_block_linear=dedisp_block_linear,
         dedisp_block_circular=dedisp_block_circular,
+        class_probs_linear=class_probs_linear,  # NEW: Pass Linear probs
     )
 

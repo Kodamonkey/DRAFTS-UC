@@ -60,7 +60,7 @@ def snr_detect_and_classify_candidates_in_band(
     j: int,
     fits_path: Path,
     save_dir: Path,
-    data_block: np.ndarray,  # decimated chunk block
+    data_block: np.ndarray,  # decimated chunk block (Intensity)
     freq_down: np.ndarray,
     csv_file: Path,
     time_reso_ds: float,
@@ -70,7 +70,8 @@ def snr_detect_and_classify_candidates_in_band(
     chunk_idx: int | None,
     band_idx: int,
     slice_start_idx: int,  # actual slice start in decimated samples
-    waterfall_block_raw: np.ndarray | None = None,  # RAW multi-pol data (time, npol, chan)
+    waterfall_block_raw: np.ndarray | None = None,  # RAW multi-pol data (time, npol, chan) - SLICE
+    data_block_raw: np.ndarray | None = None,  # RAW multi-pol data (time, npol, chan) - FULL CHUNK
     pol_type: str = "IQUV",
 ) -> dict:
     """Detect candidates from SNR peaks with multi-polarization validation.
@@ -130,21 +131,41 @@ def snr_detect_and_classify_candidates_in_band(
         }
     
     # =========================================================================
-    # PHASE 2: RE-EVALUATE IN LINEAR POLARIZATION - ONLY IF DETECTED IN INTENSITY
+    # PHASE 2: RE-EVALUATE IN LINEAR POLARIZATION - CONDITIONAL
     # =========================================================================
     from ..input.polarization_utils import extract_polarization_from_raw, has_full_polarization_data
     
-    peaks_final = []  # Only peaks that pass BOTH polarizations
+    peaks_final = []  # Peaks that pass validation
+    waterfall_block_linear = None  # Will be needed for Phase 3b
+    enable_phase2 = getattr(config, 'ENABLE_LINEAR_VALIDATION', True)
     
-    if waterfall_block_raw is not None and has_full_polarization_data(waterfall_block_raw, pol_type):
-        logger.info("Phase 2: Re-evaluating %d peaks in Linear Polarization", len(peaks_intensity))
-        
-        # Extract Linear Polarization from the SAME slice
+    # Extract Linear Polarization if multi-pol data available (needed for Phase 2 and 3b)
+    has_multipol = waterfall_block_raw is not None and has_full_polarization_data(waterfall_block_raw, pol_type)
+    
+    # Extract both slice and full chunk in Linear polarization
+    waterfall_block_linear = None  # Slice for Phase 2 (SNR validation)
+    data_block_linear = None       # Full chunk for Phase 3b (dedispersion)
+    
+    if has_multipol:
+        # Extract Linear from slice (for Phase 2 SNR validation)
         waterfall_block_linear = extract_polarization_from_raw(
             waterfall_block_raw, pol_type, "linear", default_index=0
         )
         # Remove polarization dimension for SNR computation
         waterfall_block_linear = waterfall_block_linear[:, 0, :]
+        
+        # Extract Linear from full chunk (for Phase 3b dedispersion)
+        if data_block_raw is not None:
+            data_block_linear_full = extract_polarization_from_raw(
+                data_block_raw, pol_type, "linear", default_index=0
+            )
+            data_block_linear = data_block_linear_full[:, 0, :]
+        else:
+            logger.warning("data_block_raw not available for Phase 3b classification")
+    
+    # Phase 2: SNR validation in Linear (conditional)
+    if enable_phase2 and has_multipol:
+        logger.info("Phase 2: ENABLED - Re-evaluating %d peaks in Linear Polarization", len(peaks_intensity))
         
         # Compute SNR profile in Linear Polarization
         snr_profile_linear, _, _ = compute_snr_profile(waterfall_block_linear)
@@ -190,8 +211,12 @@ def snr_detect_and_classify_candidates_in_band(
                 "candidate_times_abs": [],
             }
     else:
-        # No multi-pol data available, use all Intensity peaks
-        logger.warning("Phase 2 SKIPPED: No multi-pol data available, using only Intensity peaks")
+        # Phase 2 disabled or no multi-pol data available
+        if not enable_phase2 and has_multipol:
+            logger.info("Phase 2: DISABLED - Skipping Linear Polarization SNR validation")
+            logger.info("  → Linear will still be used in Phase 3b for classification")
+        elif not has_multipol:
+            logger.warning("Phase 2: SKIPPED - No multi-pol data available")
         peaks_final = peaks_intensity
     
     # Use the validated peaks for classification
@@ -213,6 +238,7 @@ def snr_detect_and_classify_candidates_in_band(
     top_conf: list[float] = []
     top_boxes: list[tuple[int, int, int, int]] = []
     class_probs_list: list[float] = []
+    class_probs_linear_list: list[float] = []  # NEW: Linear classification probs
     candidate_times_abs: list[float] = []
     cand_counter = 0
     n_bursts = 0
@@ -232,8 +258,10 @@ def snr_detect_and_classify_candidates_in_band(
         patch_path = (save_dir / "Patches" / fits_path.stem / f"patch_slice{j}_band{band_idx}.png")
 
     # =========================================================================
-    # PHASE 3: RESNET CLASSIFICATION - ONLY FOR VALIDATED PEAKS
+    # PHASE 3: RESNET CLASSIFICATION - FOR VALIDATED PEAKS
     # =========================================================================
+    logger.info("Phase 3: ResNet classification on Intensity and Linear Polarization patches")
+    
     for peak_idx in peaks:
         # Create a box centred on the peak.
         cx = int(max(0, min(img_w - 1, peak_idx)))
@@ -254,24 +282,83 @@ def snr_detect_and_classify_candidates_in_band(
         snr_peak = float(snr_profile_intensity[peak_idx])
         conf = float(min(0.99, max(0.05, snr_peak / 10.0)))
 
-        # Dedisperse a patch around the global peak time.
         global_sample = int(slice_start_idx) + int(peak_idx)
-        patch, start_sample = dedisperse_patch(data_block, freq_down, dm_val, global_sample)
+        
+        # =====================================================================
+        # PHASE 3a: ResNet Classification on INTENSITY
+        # =====================================================================
+        patch_intensity, start_sample = dedisperse_patch(data_block, freq_down, dm_val, global_sample)
 
-        snr_val = 0.0
+        snr_val_intensity = 0.0
         peak_idx_patch = None
-        if patch is not None and patch.size > 0:
-            snr_profile_pre, _, best_w_vec = compute_snr_profile(patch)
+        if patch_intensity is not None and patch_intensity.size > 0:
+            snr_profile_pre, _, best_w_vec = compute_snr_profile(patch_intensity)
             if snr_profile_pre.size > 0:
                 peak_idx_patch = int(np.argmax(snr_profile_pre))
-                snr_val = float(np.max(snr_profile_pre))
+                snr_val_intensity = float(np.max(snr_profile_pre))
         else:
-            snr_val = snr_peak
+            snr_val_intensity = snr_peak
 
-        # Binary classification.
         from ..detection.model_interface import classify_patch
-        class_prob, proc_patch = classify_patch(cls_model, patch)
-        is_burst = class_prob >= float(config.CLASS_PROB)
+        class_prob_intensity, proc_patch_intensity = classify_patch(cls_model, patch_intensity)
+        is_burst_intensity = class_prob_intensity >= float(config.CLASS_PROB)
+        
+        logger.debug(
+            "Phase 3a: Intensity classification - DM=%.2f t_idx=%d class_prob=%.3f is_burst=%s",
+            dm_val, peak_idx, class_prob_intensity, is_burst_intensity
+        )
+        
+        # =====================================================================
+        # PHASE 3b: ResNet Classification on LINEAR POLARIZATION
+        # =====================================================================
+        class_prob_linear = 0.0
+        is_burst_linear = False
+        
+        if data_block_linear is not None:
+            # Dedisperse Linear polarization patch at same DM and time
+            patch_linear, _ = dedisperse_patch(data_block_linear, freq_down, dm_val, global_sample)
+            
+            if patch_linear is not None and patch_linear.size > 0:
+                class_prob_linear, proc_patch_linear = classify_patch(cls_model, patch_linear)
+                is_burst_linear = class_prob_linear >= float(config.CLASS_PROB)
+                
+                logger.debug(
+                    "Phase 3b: Linear classification - DM=%.2f t_idx=%d class_prob=%.3f is_burst=%s",
+                    dm_val, peak_idx, class_prob_linear, is_burst_linear
+                )
+        
+        # =====================================================================
+        # DECISION LOGIC: Determine if candidate should be saved
+        # =====================================================================
+        # save_only_burst = true:  Save ONLY if BOTH Intensity AND Linear classify as BURST
+        # save_only_burst = false: Save if Intensity classifies as BURST (ignore Linear)
+        
+        should_save = False
+        save_reason = ""
+        
+        if waterfall_block_linear is not None:
+            # Multi-pol data available - apply dual validation
+            if config.SAVE_ONLY_BURST:
+                # Strict mode: Both must be BURST
+                should_save = is_burst_intensity and is_burst_linear
+                if should_save:
+                    save_reason = "BURST in BOTH polarizations"
+                else:
+                    save_reason = f"Filtered: Intensity={'BURST' if is_burst_intensity else 'NO-BURST'}, Linear={'BURST' if is_burst_linear else 'NO-BURST'}"
+            else:
+                # Permissive mode: Only Intensity needs to be BURST
+                should_save = is_burst_intensity
+                if should_save:
+                    save_reason = f"BURST in Intensity (Linear={'BURST' if is_burst_linear else 'NO-BURST'})"
+                else:
+                    save_reason = "NO-BURST in Intensity"
+        else:
+            # No multi-pol data - use only Intensity
+            should_save = not config.SAVE_ONLY_BURST or is_burst_intensity
+            save_reason = "BURST in Intensity" if is_burst_intensity else "NO-BURST in Intensity"
+        
+        # Use Intensity classification as primary for is_burst flag
+        is_burst = is_burst_intensity
         
         # Force the candidate time to align with the waterfall SNR peak.
         absolute_candidate_time = (absolute_start_time or 0.0) + (peak_idx * time_reso_ds)
@@ -280,12 +367,13 @@ def snr_detect_and_classify_candidates_in_band(
         snr_list.append(snr_peak)
         top_conf.append(conf)
         top_boxes.append(box)
-        class_probs_list.append(class_prob)
+        class_probs_list.append(class_prob_intensity)
+        class_probs_linear_list.append(class_prob_linear)  # NEW: Store Linear prob
         candidate_times_abs.append(float(absolute_candidate_time))
 
         # Keep track of the best candidate.
         if best_patch is None or (is_burst and not best_is_burst):
-            best_patch = proc_patch
+            best_patch = proc_patch_intensity
             best_start = absolute_candidate_time
             best_dm = dm_val
             best_is_burst = is_burst
@@ -308,8 +396,8 @@ def snr_detect_and_classify_candidates_in_band(
             float(absolute_candidate_time),
             int(peak_idx),
             tuple(map(int, box)),
-            float(snr_val),
-            float(class_prob),
+            float(snr_val_intensity),
+            float(class_prob_intensity),
             bool(is_burst),
             patch_path.name,
             width_ms,
@@ -321,18 +409,26 @@ def snr_detect_and_classify_candidates_in_band(
             n_no_bursts += 1
         prob_max = max(prob_max, float(conf))
 
-        # Save candidate based on filtering mode
-        if not config.SAVE_ONLY_BURST or is_burst:
+        # Save candidate based on dual-polarization filtering logic
+        if should_save:
             append_candidate(csv_file, cand.to_row())
             try:
                 gl = get_global_logger()
-                gl.candidate_detected(dm_val, absolute_candidate_time, conf, class_prob, is_burst, snr_peak, snr_val)
+                gl.candidate_detected(dm_val, absolute_candidate_time, conf, class_prob_intensity, is_burst, snr_peak, snr_val_intensity)
             except Exception:
                 pass
+            
+            logger.info(
+                "SAVED: DM=%.2f t=%.3fs I_class=%.2f L_class=%.2f → %s",
+                dm_val, absolute_candidate_time, class_prob_intensity, class_prob_linear, save_reason
+            )
         else:
-            # NON-BURST filtered out when SAVE_ONLY_BURST=True
             logger.debug(
-                f"NON-BURST filtered (SAVE_ONLY_BURST=True): DM {dm_val:.2f} t={absolute_candidate_time:.3f}s → NOT SAVED"
+                "FILTERED: DM=%.2f t=%.3fs I_class=%.2f(%.0f%%) L_class=%.2f(%.0f%%) → %s",
+                dm_val, absolute_candidate_time, 
+                class_prob_intensity, class_prob_intensity*100,
+                class_prob_linear, class_prob_linear*100,
+                save_reason
             )
 
     # Generate an RGB image using the same colour pipeline as the standard flow.
@@ -380,6 +476,7 @@ def snr_detect_and_classify_candidates_in_band(
         "top_conf": top_conf,
         "top_boxes": top_boxes,
         "class_probs_list": class_probs_list,
+        "class_probs_linear_list": class_probs_linear_list,  # NEW: Pass Linear probs
         "first_patch": best_patch,
         "first_start": best_start,
         "first_dm": best_dm,
@@ -485,6 +582,7 @@ def process_slice_with_multiple_bands_high_freq(
             band_idx,
             start_idx,
             waterfall_block_raw=waterfall_block_raw,
+            data_block_raw=block_raw,  # Pass full chunk RAW data
             pol_type=pol_type,
         )
         cand_counter += result["cand_counter"]
@@ -562,6 +660,7 @@ def process_slice_with_multiple_bands_high_freq(
                 # Multi-polarization dedispersed waterfalls for HF pipeline
                 dedisp_block_linear=dedisp_block_linear,
                 dedisp_block_circular=dedisp_block_circular,
+                class_probs_linear_list=result.get("class_probs_linear_list"),  # NEW: Linear classification
             )
 
     # Effective metrics after applying the SAVE_ONLY_BURST flag.

@@ -639,12 +639,21 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
     logger.pipeline_start(pipeline_config) 
 
     # Log candidate filtering mode
+    enable_linear = getattr(config, 'ENABLE_LINEAR_VALIDATION', True)
+    
     if config.SAVE_ONLY_BURST:
-        logger.logger.info("Output mode: BURST ONLY - Non-burst detections will be discarded")
-        logger.logger.info("  → Only candidates classified as BURST by ResNet will be saved")
+        logger.logger.info("Output mode: STRICT - Dual validation enabled")
+        if enable_linear:
+            logger.logger.info("  → High-freq: BOTH Intensity AND Linear must classify as BURST")
+        logger.logger.info("  → Standard: Only ResNet BURST classifications saved")
     else:
-        logger.logger.info("Output mode: ALL DETECTIONS - Saving all CenterNet detections")
-        logger.logger.info("  → Both BURST and NON-BURST candidates will be saved to CSV")
+        logger.logger.info("Output mode: PERMISSIVE - Intensity-based saving")
+        if enable_linear:
+            logger.logger.info("  → High-freq: Intensity BURST sufficient (Linear can disagree)")
+        logger.logger.info("  → Standard: All CenterNet detections saved (BURST + NON-BURST)")
+    
+    if hasattr(config, 'ENABLE_LINEAR_VALIDATION'):
+        logger.logger.info(f"Linear Polarization validation (Phase 2): {'ENABLED' if enable_linear else 'DISABLED'}")
 
     save_dir = config.RESULTS_DIR
     save_dir.mkdir(parents=True, exist_ok=True)

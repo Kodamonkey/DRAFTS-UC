@@ -126,6 +126,7 @@ def create_composite_plot(
     candidate_times_abs: Optional[Iterable[float]] = None,
     dedisp_block_linear: Optional[np.ndarray] = None,
     dedisp_block_circular: Optional[np.ndarray] = None,
+    class_probs_linear: Optional[Iterable[float]] = None,  # NEW: Linear classification probs
 ) -> plt.Figure:
     """Create composite figure with detections and waterfalls with SNR analysis.
     
@@ -266,21 +267,53 @@ def create_composite_plot(
                 else:
                     detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
             
-                                                    
+            # Dual-polarization classification color logic (HF pipeline)
             if class_probs is not None and idx < len(class_probs):
-                class_prob = class_probs[idx]
-                is_burst = class_prob >= config.CLASS_PROB
-                color = "lime" if is_burst else "orange"
-                burst_status = "BURST" if is_burst else "NO BURST"
+                class_prob_I = class_probs[idx]
+                is_burst_I = class_prob_I >= config.CLASS_PROB
                 
-                label = (
-                    f"#{idx+1}\n"
-                    f"DM: {dm_val_cand:.1f}\n"
-                    f"Time: {detection_time:.3f}s\n"
-                    f"Det: {conf:.2f}\n"
-                    f"Cls: {class_prob:.2f}\n"
-                    f"{burst_status}"
-                )
+                # Check if we have Linear classification (HF pipeline)
+                is_burst_L = False
+                class_prob_L = 0.0
+                has_linear_classification = (class_probs_linear is not None and 
+                                            idx < len(class_probs_linear) and 
+                                            class_probs_linear[idx] > 0.0)
+                
+                if has_linear_classification:
+                    class_prob_L = class_probs_linear[idx]
+                    is_burst_L = class_prob_L >= config.CLASS_PROB
+                    
+                    # HF Mode: Verde solo si AMBAS clasifican BURST
+                    color = "lime" if (is_burst_I and is_burst_L) else "orange"
+                    
+                    if is_burst_I and is_burst_L:
+                        burst_status = "BURST (I+L)"
+                    elif is_burst_I and not is_burst_L:
+                        burst_status = "I:BURST L:NO"
+                    else:
+                        burst_status = "NO BURST"
+                    
+                    label = (
+                        f"#{idx+1}\n"
+                        f"DM: {dm_val_cand:.1f}\n"
+                        f"Time: {detection_time:.3f}s\n"
+                        f"I: {class_prob_I:.2f}\n"
+                        f"L: {class_prob_L:.2f}\n"
+                        f"{burst_status}"
+                    )
+                else:
+                    # Standard mode: Solo Intensity
+                    color = "lime" if is_burst_I else "orange"
+                    burst_status = "BURST" if is_burst_I else "NO BURST"
+                    
+                    label = (
+                        f"#{idx+1}\n"
+                        f"DM: {dm_val_cand:.1f}\n"
+                        f"Time: {detection_time:.3f}s\n"
+                        f"Det: {conf:.2f}\n"
+                        f"Cls: {class_prob_I:.2f}\n"
+                        f"{burst_status}"
+                    )
             else:
                 color = "lime"
                 label = f"#{idx+1}\nDM: {dm_val_cand:.1f}\nTime: {detection_time:.3f}s\nDet: {conf:.2f}"
@@ -750,6 +783,7 @@ def save_composite_plot(
     individual_plots_dir: str = "individual_plots",
     dedisp_block_linear: Optional[np.ndarray] = None,
     dedisp_block_circular: Optional[np.ndarray] = None,
+    class_probs_linear: Optional[Iterable[float]] = None,  # NEW: Linear classification probs
 ) -> None:
     """Save composite plot by creating the figure and saving it to file.
     
@@ -788,6 +822,7 @@ def save_composite_plot(
         candidate_times_abs=candidate_times_abs,
         dedisp_block_linear=dedisp_block_linear,
         dedisp_block_circular=dedisp_block_circular,
+        class_probs_linear=class_probs_linear,  # NEW: Pass Linear probs
     )
     
                                     
@@ -828,6 +863,7 @@ def save_composite_plot(
                 slice_samples=slice_samples,
                 candidate_times_abs=candidate_times_abs,
                 output_dir=individual_plots_dir,
+                class_probs_linear=class_probs_linear,  # NEW: Pass Linear probs
             )
         except Exception as e:
             logger.warning(f"Could not generate individual plots: {e}")

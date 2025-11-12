@@ -44,6 +44,7 @@ def generate_individual_plots(
     slice_samples: Optional[int] = None,
     candidate_times_abs: Optional[Iterable[float]] = None,
     output_dir: str = "individual_plots",
+    class_probs_linear: Optional[Iterable[float]] = None,  # NEW: Linear classification probs
 ) -> None:
     """Generate individual plots for each component of the composite plot.
     
@@ -91,6 +92,7 @@ def generate_individual_plots(
             chunk_idx=chunk_idx,
             slice_samples=slice_samples,
             candidate_times_abs=candidate_times_abs,
+            class_probs_linear=class_probs_linear,  # NEW: Pass Linear probs
         )
         logger.info(f"✓ DM-Time plot saved: {dm_time_path}")
         

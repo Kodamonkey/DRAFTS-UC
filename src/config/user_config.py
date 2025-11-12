@@ -72,6 +72,7 @@ USE_MULTI_BAND = bool(_config['multiband']['enabled'])
 # =============================================================================
 AUTO_HIGH_FREQ_PIPELINE = bool(_config['high_frequency']['auto_enable'])
 HIGH_FREQ_THRESHOLD_MHZ = float(_config['high_frequency']['threshold_mhz'])
+ENABLE_LINEAR_VALIDATION = bool(_config['high_frequency'].get('enable_linear_validation', True))
 
 # =============================================================================
 # POLARIZATION CONFIGURATION (PSRFITS INPUT)

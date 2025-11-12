@@ -3,7 +3,7 @@
 # ==============================================================================
 data:
   # Directory containing input files (.fits, .fil)
-  input_dir: "/app/Data/raw/"
+  input_dir: "./Data/raw/"
 
   # Directory where results will be saved (CSVs, plots, logs)
   results_dir: "./Results/"
@@ -12,8 +12,12 @@ data:
   # Can specify full names or partial patterns
   # Pipeline will search for files matching any of these patterns
   targets:
-    - "B0355+54_FB_20220918"
-    # - "B0355+54"
+    - "2017-04-03-08_16_13_142_0006_t10.882_t25.829"
+    - "2017-04-03-08_55_22_153_0006_t23.444"
+    - "2017-04-03-08-16-13_142_0003_t39.977"
+    - "2017-04-03-12_56_05_230_0002_t2.3_t17.395"
+    - "2017-04-03-12_56_05_230_0003_t36.548"
+    - "2017-04-03-13_38_31_242_0005_t44.169"
 
 # ==============================================================================
 # TEMPORAL ANALYSIS
@@ -21,7 +25,7 @@ data:
 temporal:
   # Duration of each temporal segment in milliseconds
   # Common values: 150-500 ms
-  slice_duration_ms: 300.0
+  slice_duration_ms: 500.0
 
 # ==============================================================================
 # DOWNSAMPLING
@@ -33,7 +37,7 @@ downsampling:
 
   # Time reduction factor (1 = no reduction)
   # Common values: 4, 8, 16, 32
-  time_rate: 512
+  time_rate: 64
 
 # ==============================================================================
 # DISPERSION MEASURE (DM)
@@ -67,6 +71,10 @@ thresholds:
 
   # SNR threshold for highlighting in visualizations
   # Does not affect detection, only visualization
+  # Only use in High-Frequency Pipeline
+  # - Conservative: 5.0-10.0
+  # - Balanced: 3.0-7.0
+  # - Sensitive: 1.0-5.0
   snr_threshold: 5.0
 
 # ==============================================================================
@@ -93,6 +101,23 @@ high_frequency:
   # Central frequency threshold in MHz
   # Default: 8000 MHz (8 GHz) for ALMA
   threshold_mhz: 8000.0
+
+  # Enable Phase 2: Linear Polarization SNR validation
+  #
+  # Detection flow in High-Frequency Pipeline:
+  #   Phase 1: Boxcar matching on Intensity → SNR peaks (ALWAYS active)
+  #   Phase 2: Check if those SAME peaks also appear in Linear Polarization
+  #   Phase 3: ResNet classification on Intensity patch
+  #   Phase 4: ResNet classification on Linear patch
+  #
+  # This setting controls Phase 2:
+  # - true  = Peaks must exceed SNR threshold in BOTH Intensity AND Linear
+  #           (Dual-polarization validation, more conservative, filters RFI better)
+  # - false = Skip Phase 2, use only Intensity peaks
+  #           (Faster, less conservative, single-polarization detection)
+  #
+  # Note: Phase 3 and 4 (ResNet classification) always run if peaks are detected
+  enable_linear_validation: false
 
 # ==============================================================================
 # POLARIZATION (PSRFITS)
@@ -122,6 +147,7 @@ debug:
   show_frequency_info: false
 
   # Force plot generation even without candidates
+  # Plot all slices of the chunk even if no candidates are detected
   # Useful for:
   # - Verifying data quality
   # - Debugging problematic files
@@ -133,12 +159,20 @@ debug:
 # ==============================================================================
 output:
   # Control which candidates to save to CSV
-  # Options:
-  #   true  = Save ONLY candidates classified as BURST by ResNet (conservative)
-  #   false = Save ALL candidates detected by CenterNet, regardless of classification
-  #           (includes BURST and NON-BURST for further analysis)
+  #
+  # For STANDARD PIPELINE (<8 GHz):
+  #   true  = Save only candidates classified as BURST by ResNet
+  #   false = Save all CenterNet detections (BURST and NON-BURST)
+  #
+  # For HIGH-FREQUENCY PIPELINE (≥8 GHz with multi-pol):
+  #   true  = Save ONLY if ResNet classifies BURST in BOTH Intensity AND Linear
+  #   false = Save if ResNet classifies BURST in Intensity (regardless of Linear result)
+  #
+  # Summary:
+  #   true  = Strict mode (both polarizations must agree if available)
+  #   false = Permissive mode (Intensity BURST is sufficient)
   #
   # Recommendation:
-  #   - Use 'true' for production runs (cleaner results, only real FRBs)
-  #   - Use 'false' for analysis, debugging, or studying RFI patterns
-  save_only_burst: true
+  #   - Use 'true' for production (highest confidence, dual validation)
+  #   - Use 'false' for exploratory analysis
+  save_only_burst: false

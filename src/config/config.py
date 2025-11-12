@@ -49,6 +49,7 @@ try:
         SAVE_ONLY_BURST,
         AUTO_HIGH_FREQ_PIPELINE,
         HIGH_FREQ_THRESHOLD_MHZ,
+        ENABLE_LINEAR_VALIDATION,
         POLARIZATION_MODE,
         POLARIZATION_INDEX,
     )
@@ -72,6 +73,7 @@ except ImportError:
             SAVE_ONLY_BURST,
             AUTO_HIGH_FREQ_PIPELINE,
             HIGH_FREQ_THRESHOLD_MHZ,
+            ENABLE_LINEAR_VALIDATION,
             POLARIZATION_MODE,
             POLARIZATION_INDEX,
         )
@@ -92,6 +94,7 @@ except ImportError:
         SAVE_ONLY_BURST = True
         AUTO_HIGH_FREQ_PIPELINE = True
         HIGH_FREQ_THRESHOLD_MHZ = 8000.0
+        ENABLE_LINEAR_VALIDATION = True
         POLARIZATION_MODE = "intensity"
         POLARIZATION_INDEX = 0
         DEBUG_FREQUENCY_ORDER = False
@@ -100,19 +103,19 @@ except ImportError:
 # ==============================================================================
 # MODEL CONFIGURATION
 # ==============================================================================
-
-MODEL_NAME = "resnet18"
-MODEL_PATH = Path(__file__).parent.parent / "models" / f"cent_{MODEL_NAME}.pth"
-
-CLASS_MODEL_NAME = "resnet18"
-CLASS_MODEL_PATH = Path(__file__).parent.parent / "models" / f"class_{CLASS_MODEL_NAME}.pth"
-
+              
+MODEL_NAME = "resnet18"                                                           
+MODEL_PATH = Path(__file__).parent.parent / "models" / f"cent_{MODEL_NAME}.pth"                            
+                                
+CLASS_MODEL_NAME = "resnet18"                                                         
+CLASS_MODEL_PATH = Path(__file__).parent.parent / "models" / f"class_{CLASS_MODEL_NAME}.pth"                  
+                   
 # Device configuration (GPU/CPU)
 if torch is not None:
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 else:
     DEVICE = "cpu"
-
+                                                   
 # ==============================================================================
 # DATA PARAMETERS (set dynamically from file headers)
 # ==============================================================================
@@ -148,28 +151,28 @@ OVERHEAD_FACTOR: float = 1.3            # Memory overhead factor for safety
 # ==============================================================================
 
 # Adaptive DM range
-DM_RANGE_ADAPTIVE: bool = False
-DM_RANGE_MIN_WIDTH: float = 80.0
-DM_RANGE_MAX_WIDTH: float = 300.0
+DM_RANGE_ADAPTIVE: bool = False                                                                  
+DM_RANGE_MIN_WIDTH: float = 80.0                                                  
+DM_RANGE_MAX_WIDTH: float = 300.0                                                 
 DM_RANGE_FACTOR: float = 0.3
 DM_DYNAMIC_RANGE_ENABLE: bool = False
-
+                                         
 # DM plotting ranges
-DM_PLOT_MARGIN_FACTOR: float = 0.25
-DM_PLOT_MIN_RANGE: float = 120.0
-DM_PLOT_MAX_RANGE: float = 400.0
-DM_PLOT_DEFAULT_RANGE: float = 250.0
-DM_RANGE_DEFAULT_VISUALIZATION: str = "detailed"
-
+DM_PLOT_MARGIN_FACTOR: float = 0.25                                                    
+DM_PLOT_MIN_RANGE: float = 120.0                                              
+DM_PLOT_MAX_RANGE: float = 400.0                                              
+DM_PLOT_DEFAULT_RANGE: float = 250.0                                          
+DM_RANGE_DEFAULT_VISUALIZATION: str = "detailed"                                     
+                               
 # ==============================================================================
 # SNR AND VISUALIZATION CONFIGURATION
 # ==============================================================================
 
 # SNR off-pulse regions (for noise estimation)
-SNR_OFF_REGIONS = [(-250, -150), (-100, -50), (50, 100), (150, 250)]
-SNR_HIGHLIGHT_COLOR = "red"
-SNR_SHOW_PEAK_LINES: bool = False
-SNR_COLORMAP = "viridis"
+SNR_OFF_REGIONS = [(-250, -150), (-100, -50), (50, 100), (150, 250)]                       
+SNR_HIGHLIGHT_COLOR = "red"                                                  
+SNR_SHOW_PEAK_LINES: bool = False                                                              
+SNR_COLORMAP = "viridis"                                                     
 
 # ==============================================================================
 # PREPROCESSING CONFIGURATION
@@ -181,13 +184,13 @@ SHADE_INVALID_TAIL: bool = True    # Shade invalid tail regions in plots
 # ==============================================================================
 # LOGGING CONFIGURATION
 # ==============================================================================
-
-LOG_LEVEL: str = "INFO"
-LOG_COLORS: bool = True
-LOG_FILE: bool = False
-GPU_VERBOSE: bool = False
-SHOW_PROGRESS: bool = True
-
+                                      
+LOG_LEVEL: str = "INFO"                                                                    
+LOG_COLORS: bool = True                                                 
+LOG_FILE: bool = False                                               
+GPU_VERBOSE: bool = False                                                       
+SHOW_PROGRESS: bool = True                                              
+                                                                               
 # ==============================================================================
 # HELPER FUNCTIONS
 # ==============================================================================
@@ -223,11 +226,11 @@ def get_band_configs():
         (1, "lowband", "Low Band"),
         (2, "highband", "High Band"),
     ] if USE_MULTI_BAND else [(0, "fullband", "Full Band")]
-
+                                                                               
 
 def validate_configuration():
     """Validate system configuration and generate informative error messages.
-    
+
     This function ensures all critical parameters are configured correctly
     before running the pipeline.
     
@@ -332,7 +335,7 @@ def validate_configuration():
 
 def check_model_files():
     """Verify that model files exist and are accessible.
-    
+
     Returns:
         dict: Dictionary with the status of each model (detection, classification)
     """

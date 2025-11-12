@@ -94,6 +94,10 @@ Note: For Docker, data paths should be changed in docker-compose.yml, not via CL
                          help='Disable automatic high-frequency pipeline')
     hf_group.add_argument('--high-freq-threshold', type=float,
                          help='High-frequency threshold in MHz (default: from config.yaml)')
+    hf_group.add_argument('--enable-linear-validation', action='store_true',
+                         help='Enable Phase 2: Linear Polarization SNR validation')
+    hf_group.add_argument('--no-linear-validation', action='store_false', dest='enable_linear_validation',
+                         help='Disable Phase 2: Skip Linear Polarization validation')
     
     # Polarization
     pol_group = parser.add_argument_group('Polarization (PSRFITS)')
@@ -117,7 +121,7 @@ Note: For Docker, data paths should be changed in docker-compose.yml, not via CL
     output_group.add_argument('--save-only-burst', action='store_true',
                              help='Save only candidates classified as BURST by ResNet (default)')
     
-    parser.set_defaults(multi_band=None, auto_high_freq=None)
+    parser.set_defaults(multi_band=None, auto_high_freq=None, enable_linear_validation=None)
     
     return parser.parse_args()
 
@@ -151,6 +155,7 @@ def main():
         "USE_MULTI_BAND": user_config.USE_MULTI_BAND,
         "AUTO_HIGH_FREQ_PIPELINE": user_config.AUTO_HIGH_FREQ_PIPELINE,
         "HIGH_FREQ_THRESHOLD_MHZ": user_config.HIGH_FREQ_THRESHOLD_MHZ,
+        "ENABLE_LINEAR_VALIDATION": user_config.ENABLE_LINEAR_VALIDATION,
         "POLARIZATION_MODE": user_config.POLARIZATION_MODE,
         "POLARIZATION_INDEX": user_config.POLARIZATION_INDEX,
         "DEBUG_FREQUENCY_ORDER": user_config.DEBUG_FREQUENCY_ORDER,
@@ -216,6 +221,10 @@ def main():
     if args.high_freq_threshold is not None:
         config_dict["HIGH_FREQ_THRESHOLD_MHZ"] = args.high_freq_threshold
         cli_overrides.append(f"high_freq_threshold={args.high_freq_threshold}MHz")
+    
+    if args.enable_linear_validation is not None:
+        config_dict["ENABLE_LINEAR_VALIDATION"] = args.enable_linear_validation
+        cli_overrides.append(f"enable_linear_validation={args.enable_linear_validation}")
     
     if args.polarization_mode is not None:
         config_dict["POLARIZATION_MODE"] = args.polarization_mode

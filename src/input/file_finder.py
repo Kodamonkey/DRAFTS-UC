@@ -24,9 +24,9 @@ def find_data_files(frb_target: str, data_dir: Optional[Path] = None) -> List[Pa
 
     logger.info(f"Searching files for target '{frb_target}' in: {data_dir}")
     
-                                   
-    fits_files = list(data_dir.glob("*.fits"))
-    fil_files = list(data_dir.glob("*.fil"))
+    # Search recursively in all subdirectories
+    fits_files = list(data_dir.rglob("*.fits"))
+    fil_files = list(data_dir.rglob("*.fil"))
     
     all_files = fits_files + fil_files
     

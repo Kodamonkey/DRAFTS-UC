@@ -36,8 +36,8 @@ services:
       - ./config.yaml:/app/config.yaml:rw
       
       # Input data (read-only recommended)
-      #- ./Data/raw:/app/Data/raw:ro
-      - D:/Seba - Dev/TESIS/Data/raw/No0153/0006:/app/Data/raw:ro
+      # Change the left side to your actual data path
+      - D:/Your/Data/Path:/app/Data/raw:ro
       
       # Results (read-write)
       - ./Results:/app/Results:rw
@@ -97,8 +97,8 @@ services:
       - ./config.yaml:/app/config.yaml:rw
       
       # Input data (read-only recommended)
-      # Change this path to your actual data location
-      - D:/Seba - Dev/TESIS/Data/raw/No0153/0006:/app/Data/raw:ro
+      # Change the left side to your actual data path
+      - D:/Your/Data/Path:/app/Data/raw:ro
       
       # Results (read-write)
       - ./Results:/app/Results:rw

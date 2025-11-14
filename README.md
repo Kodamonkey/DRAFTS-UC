@@ -1,9 +1,11 @@
 # DRAFTS++: Deep Learning Radio Transient Search
 
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Kodamonkey/DRAFTS-UC/releases)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
 [![CUDA](https://img.shields.io/badge/CUDA-11.0+-76B900.svg)](https://developer.nvidia.com/cuda-toolkit)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED.svg)](https://www.docker.com/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![arXiv](https://img.shields.io/badge/arXiv-2410.03200-b31b1b.svg)](https://arxiv.org/abs/2410.03200)
 
 ![DRAFTS WorkFlow](WorkFlow.png)
@@ -25,7 +27,9 @@ The pipeline processes `.fits` or `.fil` files and outputs candidate detections 
 
 Before starting, ensure you have:
 
-- **Model weights**: `src/models/cent_resnet18.pth` and `class_resnet18.pth`
+- **Model weights**: Place `cent_resnet18.pth` and `class_resnet18.pth` in `src/models/`
+  - These are pre-trained models required for detection and classification
+  - If not included in the repository, they should be obtained from the original DRAFTS repository or trained using the provided training scripts
 - **Data files**: `.fits` or `.fil` files ready to process
 - **Docker (recommended)**: Docker Desktop + NVIDIA Docker (for GPU) or CPU version
 - **Local installation (alternative)**: Python 3.8+, CUDA 11+ (optional, for GPU acceleration)

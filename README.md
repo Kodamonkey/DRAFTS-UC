@@ -10,127 +10,175 @@
 
 ## What is DRAFTS++?
 
-**DRAFTS++** is an enhanced and production-ready implementation of the original DRAFTS pipeline. It uses a two-stage deep learning approach:
+**DRAFTS++** is a deep learning pipeline for detecting Fast Radio Bursts (FRBs) in radio astronomy data. It uses a two-stage approach:
 
 1. **CenterNet (Detection)** - Localizes burst candidates in time-DM space from dedispersed dynamic spectra
 2. **ResNet (Classification)** - Distinguishes real FRBs from RFI and noise
 
-### Key Improvements over Original DRAFTS
-
-- **Configuration via YAML** - Simple `config.yaml` instead of hardcoded values
-- **Docker support** - Reproducible CPU and GPU environments (CPU is beta)
-- **Smart chunking** - Handles large files with automatic memory management
-- **Logging** - Timestamped logs with color-coded console output
-- **CLI flexibility** - Optional command-line overrides for quick experiments
-- **Multi-polarization support** - High-frequency pipeline with IQUV analysis
-- **Better error handling** - Graceful fallbacks (GPU→CPU, Torch→Numba→CPU)
+The pipeline processes `.fits` or `.fil` files and outputs candidate detections with their properties (DM, time, SNR, classification probability).
 
 > Based on [DRAFTS](https://github.com/SukiYume/DRAFTS) by Zhang et al. | [Paper](https://arxiv.org/abs/2410.03200)
 
 ---
 
-## Quick Start
-
-```bash
-# 1. Clone
-git clone https://github.com/Kodamonkey/DRAFTS-UC.git
-cd DRAFTS-UC
-
-# 2. Configure
-nano config.yaml  # Set input_dir and targets
-
-# 3. Run
-docker-compose build drafts-gpu && docker-compose run --rm drafts-gpu
-
-# OR locally
-pip install -r requirements.txt && python main.py
-```
-
-Results in `./Results/`
-
----
-
 ## Prerequisites
 
-- Model weights: `src/models/cent_resnet18.pth` and `class_resnet18.pth`
-- Data files: `.fits` or `.fil` files
-- **Docker:** Docker Desktop + NVIDIA Docker (GPU) or CPU version
-- **Local:** Python 3.8+, CUDA 11+ (optional)
+Before starting, ensure you have:
+
+- **Model weights**: `src/models/cent_resnet18.pth` and `class_resnet18.pth`
+- **Data files**: `.fits` or `.fil` files ready to process
+- **Docker (recommended)**: Docker Desktop + NVIDIA Docker (for GPU) or CPU version
+- **Local installation (alternative)**: Python 3.8+, CUDA 11+ (optional, for GPU acceleration)
 
 ---
 
 ## Configuration
 
-### For Docker
+**Important:** Configure paths and parameters before installation, especially if using Docker.
 
-**1. Mount your data** in `docker-compose.yml`:
+### Step 1: Set Data Path
+
+**For Docker** - Edit `docker-compose.yml`:
+
+Replace only the left side of the path (your local data directory). **Do not change** `/app/Data/raw:ro`:
 
 ```yaml
 volumes:
-  - D:/Your/Data/Path:/app/Data/raw:ro # Change to your path
+  - D:/Your/Data/Path:/app/Data/raw:ro
+  #     ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^
+  #     EDIT THIS       DO NOT CHANGE THIS
 ```
 
-**2. Configure** in `config.yaml`:
+Example:
+
+```yaml
+volumes:
+  - /home/user/observations:/app/Data/raw:ro # Linux/Mac
+  - D:\Seba - Dev\TESIS\Data:/app/Data/raw:ro # Windows
+```
+
+**For Local** - Edit directly `config.yaml`:
 
 ```yaml
 data:
-  input_dir: "/app/Data/raw/" # Keep for Docker
-  targets: ["FRB20201124"] # Your file pattern
+  input_dir: "D:/Your/Data/Path" # Direct path to your data
+```
+
+### Step 2: Configure Processing Parameters
+
+Edit `config.yaml` with your observation parameters:
+
+```yaml
+data:
+  input_dir: "/app/Data/raw/" # Docker path (or local path if not using Docker)
+  targets:
+    - "2017-04-03-08_16_13_142_0006" # File patterns to process
+    - "2017-04-03-08_55_22_153_0006"
+
+dispersion:
+  dm_min: 0 # Minimum DM (pc cm⁻³)
+  dm_max: 1024 # Maximum DM (pc cm⁻³) - adjust for your source
 
 thresholds:
-  detection_probability: 0.3 # Lower = more detections
-  classification_probability: 0.5 # Higher = more conservative
+  detection_probability: 0.3 # Lower = more detections (0.1-0.7)
+  classification_probability: 0.5 # Higher = fewer false positives (0.3-0.9)
 
 output:
-  save_only_burst: true # false = save all detections (BURST + NON-BURST)
+  save_only_burst: true # true = only BURST candidates, false = all detections
 ```
 
-**3. Run:**
+**Key parameters to adjust:**
 
-```bash
-docker-compose build drafts-gpu
-docker-compose run --rm drafts-gpu
-```
-
-### For Local
-
-**1. Configure** `config.yaml`:
-
-```yaml
-data:
-  input_dir: "D:/Your/Data/Path" # Direct path
-  targets: ["FRB20201124"]
-```
-
-**2. Run:**
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python main.py
-```
-
-### CLI Overrides (Optional)
-
-```bash
-python main.py --dm-max 512 --det-prob 0.5 --save-all-detections
-python main.py --help  # See all options
-```
-
-Full config options in `config.yaml`.
+- `dm_min/dm_max`: Set based on your source (nearby pulsars: 0-100, extragalactic FRBs: 100-2000)
+- `detection_probability`: Lower values (0.1-0.2) for sensitive searches, higher (0.5-0.7) for conservative
+- `classification_probability`: Higher values (0.7-0.9) reduce false positives
 
 ---
 
-## Key Parameters
+## Installation
 
-| Parameter                    | Location    | Values        | Purpose                                           |
-| ---------------------------- | ----------- | ------------- | ------------------------------------------------- |
-| `input_dir`                  | config.yaml | Path string   | Data location                                     |
-| `targets`                    | config.yaml | File patterns | Which files to process                            |
-| `detection_probability`      | config.yaml | 0.1-0.7       | CenterNet threshold (lower = more detections)     |
-| `classification_probability` | config.yaml | 0.3-0.9       | ResNet threshold (higher = fewer false positives) |
-| `dm_min/dm_max`              | config.yaml | 0-2000        | DM search range (pc cm⁻³)                         |
-| `save_only_burst`            | config.yaml | true/false    | Save only BURST or all detections                 |
+### Option 1: Docker (Recommended)
+
+**For GPU:**
+
+```bash
+git clone https://github.com/Kodamonkey/DRAFTS-UC.git
+cd DRAFTS-UC
+docker-compose build drafts-gpu
+```
+
+**For CPU (beta):**
+
+```bash
+docker-compose build drafts-cpu
+```
+
+### Option 2: Local Installation
+
+```bash
+git clone https://github.com/Kodamonkey/DRAFTS-UC.git
+cd DRAFTS-UC
+python3 -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+---
+
+## Usage
+
+### Docker
+
+```bash
+docker-compose run --rm drafts-gpu
+# or for CPU:
+docker-compose run --rm drafts-cpu
+```
+
+### Local
+
+```bash
+python main.py
+```
+
+### Command-Line Overrides (Optional)
+
+You can override config parameters without editing the file:
+
+```bash
+python main.py --dm-max 512 --det-prob 0.5 --save-all-detections
+python main.py --help  # See all available options
+```
+
+---
+
+## Output
+
+Results are saved in `./Results/`:
+
+- **CSV files**: Candidate detections with DM, time, SNR, classification probability
+- **Plots**: Dynamic spectra with detected candidates highlighted
+- **Logs**: Processing information and timestamps
+
+**Output modes:**
+
+- `save_only_burst: true` → Only candidates classified as BURST (recommended for production)
+- `save_only_burst: false` → All detections including NON-BURST (useful for analysis)
+
+---
+
+## Key Parameters Reference
+
+| Parameter                    | Location    | Typical Values | Effect                                  |
+| ---------------------------- | ----------- | -------------- | --------------------------------------- |
+| `input_dir`                  | config.yaml | Path string    | Location of your data files             |
+| `targets`                    | config.yaml | File patterns  | Which files to process                  |
+| `dm_min/dm_max`              | config.yaml | 0-2000         | DM search range (pc cm⁻³)               |
+| `detection_probability`      | config.yaml | 0.1-0.7        | Lower = more detections                 |
+| `classification_probability` | config.yaml | 0.3-0.9        | Higher = fewer false positives          |
+| `save_only_burst`            | config.yaml | true/false     | Filter output by classification         |
+| `slice_duration_ms`          | config.yaml | 150-500        | Temporal resolution (ms)                |
+| `downsampling.time_rate`     | config.yaml | 4-64           | Time reduction factor (higher = faster) |
 
 ---
 
@@ -140,10 +188,51 @@ Full config options in `config.yaml`.
 | ---------------------------- | ------------------------------------------------------------------- |
 | **No files found**           | Check `input_dir` path in config.yaml or docker-compose.yml volumes |
 | **No detections**            | Lower `detection_probability` to 0.2 or enable `force_plots: true`  |
+| **Too many false positives** | Increase `classification_probability` to 0.7-0.9                    |
 | **File truncated/corrupted** | Verify file integrity, use complete files                           |
 | **Models not found**         | Place `cent_resnet18.pth` and `class_resnet18.pth` in `src/models/` |
-| **Slow on CPU**              | Use GPU version or increase `downsampling.time_rate`                |
+| **Slow processing**          | Use GPU version or increase `downsampling.time_rate`                |
 | **Docker won't start**       | Ensure Docker Desktop is running                                    |
+
+---
+
+## Advanced Features
+
+### High-Frequency Pipeline (≥8 GHz)
+
+For ALMA or high-frequency observations, the pipeline automatically enables:
+
+- Multi-polarization analysis (IQUV)
+- Linear polarization validation
+- Dual-polarization SNR checks
+
+Configure in `config.yaml`:
+
+```yaml
+high_frequency:
+  auto_enable: true
+  threshold_mhz: 8000.0
+  enable_linear_validation: false # true = stricter validation
+```
+
+### Multi-Band Analysis
+
+Enable frequency-dependent analysis:
+
+```yaml
+multiband:
+  enabled: true # Note: ~3x slower processing
+```
+
+### Debug Mode
+
+For troubleshooting:
+
+```yaml
+debug:
+  show_frequency_info: true
+  force_plots: true # Generate plots even without detections
+```
 
 ---
 
@@ -155,10 +244,11 @@ Full config options in `config.yaml`.
 - Config changes: No rebuild needed, just re-run
 - Unused volumes create folders: Comment them out in `docker-compose.yml`
 
-**Output modes:**
+**Performance:**
 
-- `save_only_burst: true` → Only BURST candidates (production)
-- `save_only_burst: false` → All detections including NON-BURST (analysis)
+- GPU recommended for large files (>1 GB)
+- CPU version available but significantly slower
+- Adjust `downsampling.time_rate` to balance speed vs. resolution
 
 ---
 

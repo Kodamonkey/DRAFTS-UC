@@ -864,6 +864,8 @@ def save_composite_plot(
                 candidate_times_abs=candidate_times_abs,
                 output_dir=individual_plots_dir,
                 class_probs_linear=class_probs_linear,  # NEW: Pass Linear probs
+                dedisp_block_linear=dedisp_block_linear,  # NEW: Pass Linear polarization block
+                dedisp_block_circular=dedisp_block_circular,  # NEW: Pass Circular polarization block
             )
         except Exception as e:
             logger.warning(f"Could not generate individual plots: {e}")

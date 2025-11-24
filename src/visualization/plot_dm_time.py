@@ -147,7 +147,7 @@ def create_dm_time_plot(
     denom = float(max(n_px - 1, 1))
     time_values_det = slice_start_abs + (time_positions_det / denom) * (slice_end_abs - slice_start_abs)
     ax_det.set_xticks(time_positions_det)
-    ax_det.set_xticklabels([f"{t:.6f}" for t in time_values_det])
+    ax_det.set_xticklabels([f"{t:.6f}" for t in time_values_det], rotation=45)
     ax_det.set_xlabel("Time (s)", fontsize=10, fontweight="bold")
 
                                                                    
@@ -190,11 +190,11 @@ def create_dm_time_plot(
                 is_burst_I = class_prob_I >= config.CLASS_PROB
                 
                 # Check if we have Linear classification (HF pipeline)
+                # Show Linear prob if available, even if it's 0.0 (means classification was performed)
                 is_burst_L = False
                 class_prob_L = 0.0
                 has_linear_classification = (class_probs_linear is not None and 
-                                            idx < len(class_probs_linear) and 
-                                            class_probs_linear[idx] > 0.0)
+                                            idx < len(class_probs_linear))
                 
                 if has_linear_classification:
                     class_prob_L = class_probs_linear[idx]

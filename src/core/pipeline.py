@@ -312,7 +312,7 @@ def _process_block(
             dt_ds,
         )
 
-        composite_dir, detections_dir, patches_dir = create_chunk_directories(
+        composite_dir, detections_dir, patches_dir, summary_dir = create_chunk_directories(
             save_dir, fits_path, chunk_idx
         )
 
@@ -450,7 +450,10 @@ def _process_file_chunked(
     )
     logger.info("Starting streaming processing...")
     
-    csv_file = save_dir / f"{fits_path.stem}.candidates.csv"                       
+    # Create Summary directory structure: Summary/(file_name)/
+    summary_dir = save_dir / "Summary" / fits_path.stem
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    csv_file = summary_dir / f"{fits_path.stem}.candidates.csv"
     ensure_csv_header(csv_file)                                               
     
     t_start = time.time()                                     

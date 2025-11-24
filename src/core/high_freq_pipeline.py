@@ -300,13 +300,24 @@ def snr_detect_and_classify_candidates_in_band(
             snr_val_intensity = snr_peak
 
         from ..detection.model_interface import classify_patch
+        # Classify patch - EXACTLY same logic as classic pipeline (line 145 in detection_engine.py)
         class_prob_intensity, proc_patch_intensity = classify_patch(cls_model, patch_intensity)
         is_burst_intensity = class_prob_intensity >= float(config.CLASS_PROB)
         
+        # Log classification result with patch info for debugging
+        patch_info = f"shape={patch_intensity.shape if patch_intensity is not None else 'None'}, size={patch_intensity.size if patch_intensity is not None else 0}"
         logger.debug(
-            "Phase 3a: Intensity classification - DM=%.2f t_idx=%d class_prob=%.3f is_burst=%s",
-            dm_val, peak_idx, class_prob_intensity, is_burst_intensity
+            "Phase 3a: Intensity classification - DM=%.2f t_idx=%d class_prob=%.3f is_burst=%s patch_info=%s",
+            dm_val, peak_idx, class_prob_intensity, is_burst_intensity, patch_info
         )
+        
+        # Warn if probability is 0.0 but we have a valid patch (this shouldn't happen for valid candidates)
+        if class_prob_intensity == 0.0 and patch_intensity is not None and patch_intensity.size > 0:
+            logger.warning(
+                "WARNING: class_prob_intensity is 0.0 for valid patch at DM=%.2f peak_idx=%d. "
+                "This may indicate a classification error.",
+                dm_val, peak_idx
+            )
         
         # =====================================================================
         # PHASE 3b: ResNet Classification on LINEAR POLARIZATION
@@ -657,6 +668,7 @@ def process_slice_with_multiple_bands_high_freq(
                 absolute_start_time=absolute_start_time,
                 chunk_idx=chunk_idx,
                 force_plots=config.FORCE_PLOTS,
+                candidate_times_abs=result.get("candidate_times_abs"),  # NEW: Pass candidate times for polarization plots
                 # Multi-polarization dedispersed waterfalls for HF pipeline
                 dedisp_block_linear=dedisp_block_linear,
                 dedisp_block_circular=dedisp_block_circular,
@@ -698,7 +710,10 @@ def _process_file_chunked_high_freq(
     from ..input.polarization_utils import extract_polarization_from_raw, has_full_polarization_data
     import time
 
-    csv_file = save_dir / f"{fits_path.stem}.candidates.csv"
+    # Create Summary directory structure: Summary/(file_name)/
+    summary_dir = save_dir / "Summary" / fits_path.stem
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    csv_file = summary_dir / f"{fits_path.stem}.candidates.csv"
     ensure_csv_header(csv_file)
 
     t_start = time.time()
@@ -802,7 +817,7 @@ def _process_file_chunked_high_freq(
 
         # Plan slices.
         slices_to_process = plan_slices(block_ds, slice_len, metadata['chunk_idx'])
-        composite_dir, detections_dir, patches_dir = create_chunk_directories(save_dir, fits_path, metadata['chunk_idx'])
+        composite_dir, detections_dir, patches_dir, summary_dir = create_chunk_directories(save_dir, fits_path, metadata['chunk_idx'])
 
         # Match the classic pipeline's chunk start time computation.
         chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO

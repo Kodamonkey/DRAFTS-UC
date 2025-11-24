@@ -272,7 +272,7 @@ def create_waterfall_dispersed_plot(
         n_time_ticks = 5
         time_tick_positions = np.linspace(burst_start_time_corrected, waterfall_end_time, n_time_ticks)
         ax_wf.set_xticks(time_tick_positions)
-        ax_wf.set_xticklabels([f"{t:.6f}" for t in time_tick_positions])
+        ax_wf.set_xticklabels([f"{t:.6f}" for t in time_tick_positions], rotation=45)
         ax_wf.set_xlabel("Time (s)", fontsize=9)
         ax_wf.set_ylabel("Frequency (MHz)", fontsize=9)
         

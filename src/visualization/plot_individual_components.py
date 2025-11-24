@@ -152,7 +152,7 @@ def save_polarization_waterfall_plot(
         ax_waterfall.set_yticks(freq_tick_positions)
         ax_waterfall.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
         ax_waterfall.set_xticks(time_tick_positions)
-        ax_waterfall.set_xticklabels([f"{t:.6f}" for t in time_tick_positions])
+        ax_waterfall.set_xticklabels([f"{t:.6f}" for t in time_tick_positions], rotation=45)
         ax_waterfall.set_xlabel("Time (s)", fontsize=9)
         ax_waterfall.set_ylabel("Frequency (MHz)", fontsize=9)
         
@@ -403,76 +403,76 @@ def generate_individual_plots(
         else:
             # CLASSIC PIPELINE: Generate traditional 4 plots
             logger.info("Classic mode detected: generating traditional individual plots")
-            
-                                                                                     
-            waterfall_dispersed_path = individual_dir / f"{base_filename}_waterfall_dispersed.png"
-            save_waterfall_dispersed_plot(
-                waterfall_block=waterfall_block,
-                out_path=waterfall_dispersed_path,
-                slice_idx=slice_idx,
-                time_slice=time_slice,
-                band_name=band_name,
-                band_suffix=band_suffix,
-                fits_stem=fits_stem,
-                slice_len=slice_len,
-                normalize=normalize,
-                off_regions=off_regions,
-                thresh_snr=thresh_snr,
-                band_idx=band_idx,
-                absolute_start_time=absolute_start_time,
-                chunk_idx=chunk_idx,
-                slice_samples=slice_samples,
-                dm_value=dm_val,                                            
-            )
-            logger.info(f"✓ Waterfall dispersed plot saved: {waterfall_dispersed_path}")
-            
-                                                                                     
-            waterfall_dedispersed_path = individual_dir / f"{base_filename}_waterfall_dedispersed.png"
-            save_waterfall_dedispersed_plot(
-                dedispersed_block=dedispersed_block,
-                waterfall_block=waterfall_block,
-                top_conf=top_conf,
-                top_boxes=top_boxes,
-                out_path=waterfall_dedispersed_path,
-                slice_idx=slice_idx,
-                time_slice=time_slice,
-                band_name=band_name,
-                band_suffix=band_suffix,
-                fits_stem=fits_stem,
-                slice_len=slice_len,
-                normalize=normalize,
-                off_regions=off_regions,
-                thresh_snr=thresh_snr,
-                band_idx=band_idx,
-                absolute_start_time=absolute_start_time,
-                chunk_idx=chunk_idx,
-                slice_samples=slice_samples,
-            )
-            logger.info(f"✓ Waterfall dedispersed plot saved: {waterfall_dedispersed_path}")
-            
-                                                                                            
-            patches_path = individual_dir / f"{base_filename}_patches.png"
-            save_patches_plot(
-                patch_img=patch_img,
-                patch_start=patch_start,
-                out_path=patches_path,
-                slice_idx=slice_idx,
-                time_slice=time_slice,
-                band_name=band_name,
-                band_suffix=band_suffix,
-                fits_stem=fits_stem,
-                slice_len=slice_len,
-                normalize=normalize,
-                off_regions=off_regions,
-                thresh_snr=thresh_snr,
-                band_idx=band_idx,
-                absolute_start_time=absolute_start_time,
-                chunk_idx=chunk_idx,
-                slice_samples=slice_samples,
-            )
-            logger.info(f"✓ Patches plot saved: {patches_path}")
-            
-            logger.info(f"All classic individual plots generated successfully in: {individual_dir}")
+        
+                                                                                 
+        waterfall_dispersed_path = individual_dir / f"{base_filename}_waterfall_dispersed.png"
+        save_waterfall_dispersed_plot(
+            waterfall_block=waterfall_block,
+            out_path=waterfall_dispersed_path,
+            slice_idx=slice_idx,
+            time_slice=time_slice,
+            band_name=band_name,
+            band_suffix=band_suffix,
+            fits_stem=fits_stem,
+            slice_len=slice_len,
+            normalize=normalize,
+            off_regions=off_regions,
+            thresh_snr=thresh_snr,
+            band_idx=band_idx,
+            absolute_start_time=absolute_start_time,
+            chunk_idx=chunk_idx,
+            slice_samples=slice_samples,
+            dm_value=dm_val,                                            
+        )
+        logger.info(f"✓ Waterfall dispersed plot saved: {waterfall_dispersed_path}")
+        
+                                                                                 
+        waterfall_dedispersed_path = individual_dir / f"{base_filename}_waterfall_dedispersed.png"
+        save_waterfall_dedispersed_plot(
+            dedispersed_block=dedispersed_block,
+            waterfall_block=waterfall_block,
+            top_conf=top_conf,
+            top_boxes=top_boxes,
+            out_path=waterfall_dedispersed_path,
+            slice_idx=slice_idx,
+            time_slice=time_slice,
+            band_name=band_name,
+            band_suffix=band_suffix,
+            fits_stem=fits_stem,
+            slice_len=slice_len,
+            normalize=normalize,
+            off_regions=off_regions,
+            thresh_snr=thresh_snr,
+            band_idx=band_idx,
+            absolute_start_time=absolute_start_time,
+            chunk_idx=chunk_idx,
+            slice_samples=slice_samples,
+        )
+        logger.info(f"✓ Waterfall dedispersed plot saved: {waterfall_dedispersed_path}")
+        
+                                                                                        
+        patches_path = individual_dir / f"{base_filename}_patches.png"
+        save_patches_plot(
+            patch_img=patch_img,
+            patch_start=patch_start,
+            out_path=patches_path,
+            slice_idx=slice_idx,
+            time_slice=time_slice,
+            band_name=band_name,
+            band_suffix=band_suffix,
+            fits_stem=fits_stem,
+            slice_len=slice_len,
+            normalize=normalize,
+            off_regions=off_regions,
+            thresh_snr=thresh_snr,
+            band_idx=band_idx,
+            absolute_start_time=absolute_start_time,
+            chunk_idx=chunk_idx,
+            slice_samples=slice_samples,
+        )
+        logger.info(f"✓ Patches plot saved: {patches_path}")
+        
+        logger.info(f"All classic individual plots generated successfully in: {individual_dir}")
         
     except Exception as e:
         logger.error(f"Error generating individual plots: {e}")

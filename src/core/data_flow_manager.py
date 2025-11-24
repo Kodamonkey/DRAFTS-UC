@@ -113,16 +113,24 @@ def create_chunk_directories(
     save_dir: Path,
     fits_path: Path,
     chunk_idx: int
-) -> tuple[Path, Path, Path]:
-    """Return the directories used to store results for a given chunk."""
+) -> tuple[Path, Path, Path, Path]:
+    """Return the directories used to store results for a given chunk.
+    
+    Returns:
+        composite_dir: Directory for composite plots
+        detections_dir: Directory for detection images
+        patches_dir: Directory for patch images
+        summary_dir: Directory for CSV summary files
+    """
     file_folder_name = fits_path.stem
     chunk_folder_name = f"chunk{chunk_idx:03d}"
     
     composite_dir = save_dir / "Composite" / file_folder_name / chunk_folder_name
     detections_dir = save_dir / "Detections" / file_folder_name / chunk_folder_name
     patches_dir = save_dir / "Patches" / file_folder_name / chunk_folder_name
+    summary_dir = save_dir / "Summary" / file_folder_name
     
-    return composite_dir, detections_dir, patches_dir
+    return composite_dir, detections_dir, patches_dir, summary_dir
 
 
 def get_chunk_processing_parameters(metadata: dict) -> dict:

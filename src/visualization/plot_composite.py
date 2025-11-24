@@ -230,7 +230,7 @@ def create_composite_plot(
     denom = float(max(n_px - 1, 1))
     time_values_det = slice_start_abs + (time_positions_det / denom) * (slice_end_abs - slice_start_abs)
     ax_det.set_xticks(time_positions_det)
-    ax_det.set_xticklabels([f"{t:.6f}" for t in time_values_det])
+    ax_det.set_xticklabels([f"{t:.6f}" for t in time_values_det], rotation=45)
     ax_det.set_xlabel("Time (s)", fontsize=10, fontweight="bold")
 
                                            
@@ -273,11 +273,11 @@ def create_composite_plot(
                 is_burst_I = class_prob_I >= config.CLASS_PROB
                 
                 # Check if we have Linear classification (HF pipeline)
+                # Show Linear prob if available, even if it's 0.0 (means classification was performed)
                 is_burst_L = False
                 class_prob_L = 0.0
                 has_linear_classification = (class_probs_linear is not None and 
-                                            idx < len(class_probs_linear) and 
-                                            class_probs_linear[idx] > 0.0)
+                                            idx < len(class_probs_linear))
                 
                 if has_linear_classification:
                     class_prob_L = class_probs_linear[idx]
@@ -465,7 +465,7 @@ def create_composite_plot(
         n_time_ticks = 5
         time_tick_positions = np.linspace(slice_start_abs, slice_end_abs, n_time_ticks)
         ax_wf.set_xticks(time_tick_positions)
-        ax_wf.set_xticklabels([f"{t:.6f}" for t in time_tick_positions])
+        ax_wf.set_xticklabels([f"{t:.6f}" for t in time_tick_positions], rotation=45)
         ax_wf.set_xlabel("Time (s)", fontsize=9)
         ax_wf.set_ylabel("Frequency (MHz)", fontsize=9)
         
@@ -602,7 +602,7 @@ def create_composite_plot(
         ax_dw.set_yticks(freq_tick_positions)
         ax_dw.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
         ax_dw.set_xticks(time_tick_positions)
-        ax_dw.set_xticklabels([f"{t:.6f}" for t in time_tick_positions])
+        ax_dw.set_xticklabels([f"{t:.6f}" for t in time_tick_positions], rotation=45)
         ax_dw.set_xlabel("Time (s)", fontsize=9)
         ax_dw.set_ylabel("Frequency (MHz)", fontsize=9)
         
@@ -687,7 +687,7 @@ def create_composite_plot(
         n_patch_time_ticks = 5
         patch_tick_positions = np.linspace(patch_time_axis[0], patch_time_axis[-1], n_patch_time_ticks)
         ax_patch.set_xticks(patch_tick_positions)
-        ax_patch.set_xticklabels([f"{t:.6f}" for t in patch_tick_positions])
+        ax_patch.set_xticklabels([f"{t:.6f}" for t in patch_tick_positions], rotation=45)
 
         ax_patch.set_yticks(freq_tick_positions)
         ax_patch.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
@@ -869,4 +869,105 @@ def save_composite_plot(
             )
         except Exception as e:
             logger.warning(f"Could not generate individual plots: {e}")
+    
+    # Generate polarization time series plots for each candidate
+    if candidate_times_abs is not None and len(candidate_times_abs) > 0:
+        try:
+            from .plot_polarization_timeseries import save_polarization_timeseries_plot
+            from ..config import config
+            
+            logger.info(f"Generating polarization time series plots for {len(candidate_times_abs)} candidate(s)")
+            
+            # Calculate frequency array
+            freq_ds = np.mean(
+                config.FREQ.reshape(
+                    config.FREQ_RESO // config.DOWN_FREQ_RATE,
+                    config.DOWN_FREQ_RATE,
+                ),
+                axis=1,
+            )
+            time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+            
+            # Calculate slice time boundaries
+            if absolute_start_time is not None:
+                slice_start_abs = absolute_start_time
+            else:
+                slice_start_abs = slice_idx * slice_len * time_reso_ds
+            
+            real_samples = slice_samples if slice_samples is not None else slice_len
+            slice_end_abs = slice_start_abs + real_samples * time_reso_ds
+            
+            # Determine polarization mode
+            has_multipol = (dedisp_block_linear is not None) or (dedisp_block_circular is not None)
+            pol_mode = "all" if has_multipol else "intensity"
+            
+            # CRITICAL: Prepare normalized blocks EXACTLY as in create_composite_plot (lines 178-204)
+            # This ensures the waterfall data matches exactly what's shown in the composite plot
+            dw_block = dedispersed_block.copy() if dedispersed_block is not None and dedispersed_block.size > 0 else None
+            dw_linear = None
+            dw_circular = None
+            if has_multipol:
+                if dedisp_block_linear is not None and dedisp_block_linear.size > 0:
+                    dw_linear = dedisp_block_linear.copy()
+                if dedisp_block_circular is not None and dedisp_block_circular.size > 0:
+                    dw_circular = dedisp_block_circular.copy()
+            
+            # Apply normalization EXACTLY as in create_composite_plot (lines 192-204)
+            if normalize:
+                blocks_to_norm = [dw_block]
+                if has_multipol:
+                    blocks_to_norm.extend([dw_linear, dw_circular])
+                
+                for block in blocks_to_norm:
+                    if block is not None:
+                        block += 1
+                        block /= np.mean(block, axis=0)
+                        vmin, vmax = np.nanpercentile(block, [5, 95])
+                        block[:] = np.clip(block, vmin, vmax)
+                        block -= block.min()
+                        block /= block.max() - block.min()
+            
+            # Generate plot for each candidate
+            for cand_idx, cand_time_abs in enumerate(candidate_times_abs):
+                # Determine output path - EXACTLY same structure as individual_plots
+                # individual_plots uses: base_out_path.parent / output_dir / f"chunk_{chunk_idx:03d}" / f"slice_{slice_idx:03d}"
+                # where base_out_path is the composite plot path
+                # So polarization_timeseries should be at the same level as individual_plots
+                if chunk_idx is not None:
+                    # Match exact format: chunk_000 (not chunk_0)
+                    pol_dir = out_path.parent / "polarization_timeseries" / f"chunk_{chunk_idx:03d}" / f"slice_{slice_idx:03d}"
+                else:
+                    pol_dir = out_path.parent / "polarization_timeseries" / f"slice_{slice_idx:03d}"
+                
+                pol_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Create filename
+                pol_filename = f"{fits_stem}_slice{slice_idx:03d}_cand{cand_idx:02d}_t{cand_time_abs:.3f}s_pol.png"
+                pol_path = pol_dir / pol_filename
+                
+                # Generate and save plot
+                # IMPORTANT: Pass the normalized blocks (dw_block, dw_linear, dw_circular)
+                # that were prepared above using EXACTLY the same normalization as create_composite_plot
+                # This ensures the waterfall matches exactly what's shown in the composite plot
+                save_polarization_timeseries_plot(
+                    dedisp_intensity=dw_block if dw_block is not None else dedispersed_block,
+                    dedisp_linear=dw_linear,
+                    dedisp_circular=dw_circular,
+                    dm_val=dm_val,
+                    candidate_time_abs=cand_time_abs,
+                    slice_start_abs=slice_start_abs,
+                    slice_end_abs=slice_end_abs,
+                    freq_ds=freq_ds,
+                    time_reso_ds=time_reso_ds,
+                    fits_filename=fits_stem,
+                    slice_idx=slice_idx,
+                    pol_mode=pol_mode,
+                    out_path=pol_path,
+                    normalize=False,  # Data is already normalized above using same logic as create_composite_plot
+                )
+                logger.info(f"✓ Polarization time series plot saved: {pol_path}")
+        except Exception as e:
+            logger.warning(f"Could not generate polarization time series plots: {e}", exc_info=True)
+    else:
+        logger.debug(f"No candidate_times_abs provided or empty (candidate_times_abs={candidate_times_abs})")
                                                                                   

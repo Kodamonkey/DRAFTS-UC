@@ -133,7 +133,7 @@ def create_multi_pol_panels(
             ax_waterfall.set_yticks(freq_tick_positions)
             ax_waterfall.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
             ax_waterfall.set_xticks(time_tick_positions)
-            ax_waterfall.set_xticklabels([f"{t:.6f}" for t in time_tick_positions])
+            ax_waterfall.set_xticklabels([f"{t:.6f}" for t in time_tick_positions], rotation=45)
             ax_waterfall.set_xlabel("Time (s)", fontsize=9)
             ax_waterfall.set_ylabel("Frequency (MHz)", fontsize=9)
             

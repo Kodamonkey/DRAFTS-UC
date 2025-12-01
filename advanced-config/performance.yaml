@@ -1,0 +1,160 @@
+# ==============================================================================
+# ADVANCED PERFORMANCE CONFIGURATION
+# ==============================================================================
+# 
+# This file contains detailed performance optimization settings for DRAFTS++.
+# Most users should NOT modify these settings unless they understand the implications.
+# 
+# For basic performance tuning, use the 'performance' section in config.yaml
+# 
+# ==============================================================================
+
+# =============================================================================
+# MEMORY MANAGEMENT (ADVANCED)
+# =============================================================================
+memory:
+  # Memory overhead safety factor (accounts for temporary allocations)
+  # Higher values are safer but reduce available memory for processing
+  # Recommended values:
+  # - 1.2: Minimal overhead (risky, may cause OOM)
+  # - 1.3: Balanced overhead (default)
+  # - 1.5: High overhead (very safe, reduced performance)
+  overhead_factor: 1.3
+
+  # Maximum VRAM fraction to use for GPU operations (0.5 = 50%, 0.7 = 70%)
+  # Only applies when CUDA is available
+  # Recommended values:
+  # - 0.50: Conservative (leave room for other GPU processes)
+  # - 0.70: Balanced (default)
+  # - 0.85: Aggressive (maximum GPU utilization)
+  max_vram_fraction: 0.70
+
+  # Enable intelligent memory pre-allocation to reduce fragmentation
+  # Pre-allocates buffers based on expected usage patterns
+  enable_preallocation: true
+
+  # Enable memory usage monitoring and warnings
+  # Logs memory usage statistics and warns about potential issues
+  enable_monitoring: true
+
+  # Memory warning threshold (fraction of available memory)
+  # Warns when memory usage exceeds this fraction
+  warning_threshold: 0.80
+
+  # Minimum chunk size in samples (prevents chunks that are too small to be efficient)
+  # Should be at least 2-3 times the slice length for efficiency
+  # Recommended values:
+  # - 10,000: Very small chunks (high overhead but safe)
+  # - 25,000: Small chunks (balanced)
+  # - 50,000: Medium chunks (default, good efficiency)
+  min_chunk_samples: 50000
+
+  # Target slices per chunk for optimal processing efficiency
+  # More slices per chunk = better GPU utilization but higher memory usage
+  # Recommended values:
+  # - 5: Conservative (low memory, may underutilize GPU)
+  # - 10: Balanced (default)
+  # - 20: Aggressive (high memory, maximum GPU utilization)
+  target_slices_per_chunk: 10
+
+# =============================================================================
+# GARBAGE COLLECTION
+# =============================================================================
+garbage_collection:
+  # Enable automatic garbage collection between chunks
+  # Helps prevent memory leaks but adds small processing overhead
+  # Recommended: true for long-running processes, false for short batches
+  enable_auto_gc: true
+
+  # Garbage collection frequency (every N chunks)
+  # Lower values = more frequent cleanup, higher overhead
+  # Higher values = less frequent cleanup, potential memory buildup
+  frequency_chunks: 5
+
+# =============================================================================
+# GPU OPTIMIZATION (CUDA)
+# =============================================================================
+gpu:
+  # Enable automatic GPU memory management
+  # Automatically clears GPU cache between chunks to prevent VRAM buildup
+  enable_memory_management: true
+
+  # GPU memory cleanup frequency (every N chunks)
+  # More frequent = safer but higher overhead
+  cleanup_frequency: 3
+
+  # Enable mixed precision (FP16) for neural network inference
+  # Reduces VRAM usage and increases speed on modern GPUs
+  # Requires GPU with Tensor Cores (RTX series, V100, etc.)
+  # May slightly reduce accuracy
+  enable_mixed_precision: false
+
+  # GPU batch size for neural network inference
+  # Larger batches = better GPU utilization but higher VRAM usage
+  # Recommended values:
+  # - 1: Conservative (lowest VRAM usage)
+  # - 4: Balanced (default)
+  # - 8: Aggressive (high VRAM usage, best performance)
+  batch_size: 4
+
+# =============================================================================
+# I/O OPTIMIZATION
+# =============================================================================
+io:
+  # Enable asynchronous file I/O for better performance
+  # Overlaps file reading with processing to reduce wait times
+  enable_async_io: true
+
+  # I/O buffer size in MB for file reading
+  # Larger buffers = fewer I/O operations but higher memory usage
+  # Recommended values:
+  # - 64: Conservative (64MB buffer)
+  # - 128: Balanced (default)
+  # - 256: Aggressive (high memory usage, best I/O performance)
+  buffer_size_mb: 128
+
+  # Enable file caching for repeated access to the same files
+  # Useful when processing the same file multiple times with different parameters
+  enable_file_caching: false
+
+  # Maximum file cache size in GB
+  # Only used if file caching is enabled
+  max_file_cache_gb: 2.0
+
+# =============================================================================
+# PARALLEL PROCESSING
+# =============================================================================
+parallel:
+  # Number of CPU threads for parallel operations
+  # 0 = auto-detect (recommended)
+  # Positive integer = specific number of threads
+  # Recommended: leave at 0 for automatic optimization
+  cpu_threads: 0
+
+  # Enable parallel chunk processing (experimental)
+  # Processes multiple chunks simultaneously using multiple CPU cores
+  # Requires significantly more memory but can improve throughput
+  # WARNING: Experimental feature, may cause instability
+  enable_parallel_chunks: false
+
+  # Maximum number of parallel chunks (if enabled)
+  # Should not exceed number of CPU cores
+  max_parallel_chunks: 2
+
+# =============================================================================
+# DEBUGGING AND PROFILING
+# =============================================================================
+profiling:
+  # Enable performance profiling
+  # Records detailed timing information for optimization
+  # Adds small overhead but provides valuable performance insights
+  enable_profiling: false
+
+  # Enable memory usage logging
+  # Logs detailed memory usage at each processing stage
+  # Useful for debugging memory issues
+  enable_memory_logging: false
+
+  # Performance log level (0=none, 1=basic, 2=detailed, 3=verbose)
+  # Higher levels provide more information but increase log size
+  performance_log_level: 1

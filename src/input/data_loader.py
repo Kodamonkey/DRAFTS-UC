@@ -33,7 +33,7 @@ from ..logging import (
     log_stream_fits_parameters,
     log_stream_fits_summary
 )
-from ..output.summary_manager import _update_summary_with_file_debug
+# JSON summary functionality disabled - import removed
 from ..preprocessing.data_downsampler import downsample_data
 
                                                   

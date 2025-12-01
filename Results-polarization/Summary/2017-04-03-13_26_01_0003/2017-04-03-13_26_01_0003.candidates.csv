@@ -1,0 +1,5 @@
+file,chunk_id,slice_id,band_id,detection_prob,dm_pc_cm-3,t_sec,t_sample,x1,y1,x2,y2,snr,width_ms,class_prob,is_burst,patch_file
+2017-04-03-13_26_01_0003.fits,0,21,0,0.698,0.00,10.926080,211,434,0,451,16,6.82,4.096,0.995,burst,patch_slice21_band0.png
+2017-04-03-13_26_01_0003.fits,0,82,0,0.990,0.00,41.060352,41,78,0,94,16,11.55,6.144,1.000,burst,patch_slice82_band0.png
+2017-04-03-13_26_01_0003.fits,0,82,0,0.537,0.00,41.046016,34,63,0,80,16,11.46,6.144,1.000,burst,patch_slice82_band0.png
+2017-04-03-13_26_01_0003.fits,0,82,0,0.541,0.00,41.084928,53,103,0,120,16,11.56,6.144,1.000,burst,patch_slice82_band0.png

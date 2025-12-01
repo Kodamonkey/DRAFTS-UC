@@ -1,0 +1,177 @@
+# ==============================================================================
+# ADVANCED MODEL CONFIGURATION
+# ==============================================================================
+# 
+# This file contains detailed neural network model settings for DRAFTS++.
+# Most users should NOT modify these settings unless they are training new models
+# or need specific model behavior customization.
+# 
+# ==============================================================================
+
+# =============================================================================
+# MODEL ARCHITECTURE
+# =============================================================================
+architecture:
+  # Detection model (CenterNet)
+  detection:
+    name: "resnet18"
+    backbone: "resnet18"
+    
+    # Model input specifications
+    input_size: [512, 512]  # [height, width] in pixels
+    input_channels: 3       # RGB channels for DM-time images
+    
+    # Output specifications
+    num_classes: 1          # Single class: FRB candidate
+    max_detections: 100     # Maximum detections per image
+    
+    # Architecture-specific parameters
+    head_conv: 64           # Convolution channels in detection head
+    
+  # Classification model (ResNet)
+  classification:
+    name: "resnet18"
+    backbone: "resnet18"
+    
+    # Model input specifications
+    input_size: [224, 224]  # [height, width] in pixels
+    input_channels: 3       # RGB channels for patches
+    
+    # Output specifications
+    num_classes: 2          # Binary: BURST vs NO_BURST
+    
+    # Architecture-specific parameters
+    dropout_rate: 0.5       # Dropout rate for regularization
+    
+# =============================================================================
+# MODEL PATHS AND FILES
+# =============================================================================
+paths:
+  # Base directory for model files (relative to src/)
+  model_dir: "../models"
+  
+  # Detection model file
+  detection_model: "cent_resnet18.pth"
+  
+  # Classification model file
+  classification_model: "class_resnet18.pth"
+  
+  # Backup model directory (optional)
+  backup_dir: null
+
+# =============================================================================
+# INFERENCE SETTINGS
+# =============================================================================
+inference:
+  # Device selection
+  device:
+    # Preferred device order: cuda > mps > cpu
+    prefer_cuda: true
+    prefer_mps: false  # Apple Metal Performance Shaders
+    fallback_cpu: true
+    
+  # Batch processing
+  batch_size: 4           # Number of samples to process simultaneously
+  max_batch_size: 16      # Maximum batch size (memory permitting)
+  
+  # Precision settings
+  use_mixed_precision: false  # FP16 inference (requires compatible GPU)
+  use_torch_compile: false    # PyTorch 2.0 compilation (experimental)
+  
+  # Memory optimization
+  enable_gradient_checkpointing: false  # Trade compute for memory
+  clear_cache_frequency: 10            # Clear GPU cache every N batches
+
+# =============================================================================
+# DETECTION MODEL SETTINGS (CenterNet)
+# =============================================================================
+detection_model:
+  # Detection thresholds
+  confidence_threshold: 0.3    # Minimum confidence for detections
+  nms_threshold: 0.5          # Non-maximum suppression threshold
+  
+  # Post-processing
+  max_detections_per_image: 100
+  
+  # Heatmap processing
+  heatmap_threshold: 0.1      # Minimum heatmap value to consider
+  peak_threshold: 0.3         # Minimum peak value for detection
+  
+  # Gaussian kernel for heatmap generation
+  gaussian_kernel_size: 7
+  gaussian_sigma: 2.0
+
+# =============================================================================
+# CLASSIFICATION MODEL SETTINGS (ResNet)
+# =============================================================================
+classification_model:
+  # Classification thresholds
+  burst_threshold: 0.5        # Minimum probability to classify as BURST
+  
+  # Data augmentation during inference (usually disabled)
+  enable_tta: false           # Test-time augmentation
+  tta_transforms: []          # List of transforms for TTA
+  
+  # Ensemble settings (if multiple models)
+  enable_ensemble: false
+  ensemble_weights: []        # Weights for model averaging
+
+# =============================================================================
+# MODEL VALIDATION
+# =============================================================================
+validation:
+  # Enable model file validation on startup
+  validate_on_startup: true
+  
+  # Check model architecture compatibility
+  check_architecture: true
+  
+  # Verify model weights integrity
+  check_weights_integrity: true
+  
+  # Test inference on dummy data
+  test_dummy_inference: false
+  
+  # Model performance benchmarking
+  benchmark_inference: false
+  benchmark_iterations: 100
+
+# =============================================================================
+# LOGGING AND DEBUGGING
+# =============================================================================
+logging:
+  # Log model loading details
+  log_model_loading: true
+  
+  # Log inference timing
+  log_inference_timing: false
+  
+  # Log memory usage during inference
+  log_memory_usage: false
+  
+  # Verbose GPU information
+  gpu_verbose: false
+  
+  # Save model outputs for debugging
+  save_debug_outputs: false
+  debug_output_dir: "./debug_outputs"
+
+# =============================================================================
+# EXPERIMENTAL FEATURES
+# =============================================================================
+experimental:
+  # Enable experimental optimizations
+  enable_optimizations: false
+  
+  # Use TensorRT for inference (NVIDIA GPUs only)
+  use_tensorrt: false
+  
+  # Use ONNX runtime for inference
+  use_onnx_runtime: false
+  
+  # Dynamic input shapes
+  dynamic_input_shapes: false
+  
+  # Model quantization
+  enable_quantization: false
+  quantization_backend: "fbgemm"  # Options: fbgemm, qnnpack

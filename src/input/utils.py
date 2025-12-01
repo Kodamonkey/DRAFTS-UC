@@ -10,7 +10,6 @@ import logging
 
 
 from ..config import config
-from ..output.summary_manager import _update_summary_with_file_debug
 
 
 logger = logging.getLogger(__name__)
@@ -79,11 +78,9 @@ def print_debug_frequencies(prefix: str, file_name: str, freq_axis_inverted: boo
 
 
 def save_file_debug_info(file_name: str, debug_info: Dict) -> None:
-    """Persist debug information (FITS or FIL) into ``summary.json`` immediately."""
-    try:
-        results_dir = getattr(config, 'RESULTS_DIR', Path('./Results'))
-        results_dir.mkdir(parents=True, exist_ok=True)
-        filename = Path(file_name).stem
-        _update_summary_with_file_debug(results_dir, filename, debug_info)
-    except Exception as e:
-        logger.warning("Failed to save debug info for %s: %s", file_name, e)
+    """Persist debug information (FITS or FIL) into ``summary.json`` immediately.
+    
+    NOTE: JSON summary functionality has been disabled. This function now does nothing.
+    """
+    # JSON summary functionality disabled - no longer creating summary.json files
+    pass

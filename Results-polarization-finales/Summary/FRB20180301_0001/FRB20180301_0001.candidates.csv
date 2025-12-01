@@ -1,0 +1,2 @@
+file,chunk_id,slice_id,band_id,detection_prob,dm_pc_cm-3,t_sec_dm_time,t_sec_waterfall,t_sample,mjd_utc,mjd_bary_utc,mjd_bary_tdb,mjd_bary_utc_inf,mjd_bary_tdb_inf,x1,y1,x2,y2,snr_waterfall,snr_patch_dedispersed,width_ms,class_prob_intensity,is_burst_intensity,class_prob_linear,is_burst_linear,is_burst,patch_file
+FRB20180301_0001.fits,0,11,0,0.343,513.33,3.356029,3.378039,347,59282.460524711161,59282.460524711161,59282.460524711161,59282.460524711161,59282.460524711161,6,124,108,137,15.03,8.02,2.949,0.986,burst,,,burst,patch_slice11_band2001.png

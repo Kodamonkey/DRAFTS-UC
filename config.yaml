@@ -1,4 +1,18 @@
 # ==============================================================================
+# DRAFTS++ CONFIGURATION - ASTRONOMER ESSENTIALS
+# ==============================================================================
+#
+# This file contains the most commonly used settings for astronomical analysis.
+# For advanced configurations, see the files in the advanced-config/ directory:
+#
+# - advanced-config/performance.yaml  : Advanced performance optimization
+# - advanced-config/visualization.yaml: Detailed plotting and visualization settings
+# - advanced-config/models.yaml       : Neural network model configurations
+# - advanced-config/logging.yaml      : Advanced logging and debugging options
+#
+# ==============================================================================
+
+# ==============================================================================
 # DATA AND FILE PATHS
 # ==============================================================================
 data:
@@ -6,90 +20,41 @@ data:
   input_dir: "./Data/raw/"
 
   # Directory where results will be saved (CSVs, plots, logs)
-  results_dir: "./Results-polarization/"
+  results_dir: "./Results-polarization-finales/"
 
   # List of files to process (search patterns)
   # Can specify full names or partial patterns
   # Pipeline will search for files matching any of these patterns
   targets:
-    - "2017-04-03-08_16_13_142_0006_t10.882_t25.829"
-    - "2017-04-03-08_55_22_153_0006_t23.444"
-    - "2017-04-03-08-16-13_142_0003_t39.977"
-    - "2017-04-03-12_56_05_230_0002_t2.3_t17.395"
-    - "2017-04-03-12_56_05_230_0003_t36.548"
-    - "2017-04-03-13_38_31_242_0005_t44.169"
-    # No0134
-    - "2017-04-03-07-55-05_0007"
-    # No0142
-    - "2017-04-03-08_16_13_0006"
-    - "2017-04-03-08_16_13_0003"
-    - "2017-04-03-08_16_13_0002"
-    - "2017-04-03-08_16_13_0001"
-    - "2017-04-03-08_16_13_0008"
-    # No0143
-    - "2017-04-03-08_25_13_0007"
-    - "2017-04-03-08_25_13_0006"
-    - "2017-04-03-08_25_13_0005"
-    - "2017-04-03-08_25_13_0003"
-    # No0152
-    - "2017-04-03-08_46_22_0007"
-    - "2017-04-03-08_46_22_0006"
-    - "2017-04-03-08_46_22_0005"
-    - "2017-04-03-08_46_22_0004"
-    # No0153
-    - "2017-04-03-08_55_22_0006"
-    # No0220
-    - "2017-04-03-12_26_08_0006"
-    - "2017-04-03-12_26_08_0005"
-    # No0227
-    - "2017-04-03-12_47_05_0008"
-    - "2017-04-03-12_47_05_0007"
-    - "2017-04-03-12_47_05_0005"
-    - "2017-04-03-12_47_05_0003"
-    - "2017-04-03-12_47_05_0002"
-    # No0230
-    - "2017-04-03-12_56_05_0004"
-    - "2017-04-03-12_56_05_0003"
-    - "2017-04-03-12_56_05_0002"
-    - "2017-04-03-12_56_05_0001"
-    # No0240
-    - "2017-04-03-13_26_01_0008"
-    - "2017-04-03-13_26_01_0004"
-    - "2017-04-03-13_26_01_0003"
-    # No0242
-    - "2017-04-03-13-38-31_0006"
-    - "2017-04-03-13_38_31_0005"
-    - "2017-04-03-133831_0008"
-    - "2017-04-03-133831_0007"
-    - "2017-04-03-13_38_31_0004"
-    - "2017-04-03-13_38_31_0003"
-    - "2017-04-03-13_38_31_0002"
-    # No0243
-    - "2017-04-03-13-47-01_0001"
-    - "2017-04-03-134701_0004"
+    - "B0355+54_FB_20220918"
+    # - "FRB20201124_0009"
+    # - "FRB20180301_0002"
+    # - "FRB20180301_0001"
 
 # ==============================================================================
 # TEMPORAL ANALYSIS
 # ==============================================================================
 temporal:
   # Duration of each temporal segment in milliseconds
-  # Common values FRBs: 100-500 ms
-  slice_duration_ms: 500.0
+  # Common values for FRBs: 100-500 ms, Pulsars: 1000-5000 ms
+  slice_duration_ms: 1000.0
 
 # ==============================================================================
-# DOWNSAMPLING
+# DOWNSAMPLING (DATA REDUCTION)
 # ==============================================================================
 downsampling:
   # Frequency reduction factor (1 = no reduction)
+  # Higher values = faster processing, lower frequency resolution
   # Values: 1, 2, 4, 8
   frequency_rate: 1
 
   # Time reduction factor (1 = no reduction)
+  # Higher values = faster processing, lower time resolution
   # Common values: 4, 8, 16, 32
-  time_rate: 320
+  time_rate: 8
 
 # ==============================================================================
-# DISPERSION MEASURE (DM)
+# DISPERSION MEASURE (DM) SEARCH RANGE
 # ==============================================================================
 dispersion:
   # DM search range in pc cm⁻³
@@ -98,7 +63,7 @@ dispersion:
   # - Extragalactic FRBs: 100-2000
   # - General/unknown: 0-1024
   dm_min: 0
-  dm_max: 2000
+  dm_max: 140
 
 # ==============================================================================
 # DETECTION THRESHOLDS
@@ -120,7 +85,6 @@ thresholds:
 
   # SNR threshold for highlighting in visualizations
   # Does not affect detection, only visualization
-  # Only use in High-Frequency Pipeline
   # - Conservative: 5.0-10.0
   # - Balanced: 3.0-7.0
   # - Sensitive: 1.0-5.0
@@ -130,42 +94,31 @@ thresholds:
 # MULTI-BAND ANALYSIS
 # ==============================================================================
 multiband:
-  # Enable multi-band analysis (Full/Low/High)
+  # Enable multi-band analysis (Full/Low/High frequency bands)
   # Useful for:
   # - Detailed frequency characterization
   # - Identifying band-dependent RFI
   # - Scattering studies
-  # Note: Increases processing time ~3xs
+  # Note: Increases processing time ~3x
   enabled: false
 
 # ==============================================================================
-# HIGH-FREQUENCY PIPELINE
+# HIGH-FREQUENCY PIPELINE (>8 GHz)
 # ==============================================================================
 high_frequency:
   # Automatically enable high-frequency pipeline
   # when central frequency exceeds threshold
-  # Useful for: ALMA, mm-wave, observations >8 GHz
+  # Useful for: ALMA, mm-wave observations
   auto_enable: true
 
   # Central frequency threshold in MHz
   # Default: 8000 MHz (8 GHz) for ALMA
   threshold_mhz: 8000.0
 
-  # Enable Phase 2: Linear Polarization SNR validation
-  #
-  # Detection flow in High-Frequency Pipeline:
-  #   Phase 1: Boxcar matching on Intensity → SNR peaks (ALWAYS active)
-  #   Phase 2: Check if those SAME peaks also appear in Linear Polarization
-  #   Phase 3: ResNet classification on Intensity patch
-  #   Phase 4: ResNet classification on Linear patch
-  #
-  # This setting controls Phase 2:
-  # - true  = Peaks must exceed SNR threshold in BOTH Intensity AND Linear
-  #           (Dual-polarization validation, more conservative, filters RFI better)
-  # - false = Skip Phase 2, use only Intensity peaks
-  #           (Faster, less conservative, single-polarization detection)
-  #
-  # Note: Phase 3 and 4 (ResNet classification) always run if peaks are detected
+  # Enable dual-polarization validation
+  # Requires peaks to appear in both Intensity AND Linear polarization
+  # - true: More conservative, better RFI rejection
+  # - false: Faster, single-polarization detection
   enable_linear_validation: false
 
 # ==============================================================================
@@ -177,10 +130,7 @@ polarization:
   # - "intensity"  : Stokes I (total intensity) [DEFAULT]
   # - "linear"     : Linear polarization √(Q² + U²)
   # - "circular"   : Circular polarization |V|
-  # - "pol0"       : First polarization
-  # - "pol1"       : Second polarization
-  # - "pol2"       : Third polarization
-  # - "pol3"       : Fourth polarization
+  # - "pol0/1/2/3" : Individual polarizations
   mode: "intensity"
 
   # Default index when IQUV not available (e.g., AABB)
@@ -188,23 +138,37 @@ polarization:
   default_index: 0
 
 # ==============================================================================
-# DEBUG AND LOGGING
+# BASIC PERFORMANCE SETTINGS
 # ==============================================================================
-debug:
-  # Show detailed frequency and file information
-  # Useful for diagnosing frequency ordering issues
-  show_frequency_info: false
+performance:
+  # Maximum RAM fraction to use (0.1 = 10%, 0.25 = 25%)
+  # Lower values are safer for systems with limited RAM
+  # Recommended values:
+  # - 0.10: Very conservative (4-8GB RAM systems)
+  # - 0.15: Conservative (8-16GB RAM systems) [CURRENT]
+  # - 0.25: Balanced (16GB+ RAM systems)
+  max_ram_fraction: 0.15
 
-  # Force plot generation even without candidates
-  # Plot all slices of the chunk even if no candidates are detected
-  # Useful for:
-  # - Verifying data quality
-  # - Debugging problematic files
-  # - Visual inspection of data without signals
-  force_plots: false
+  # Maximum chunk size in samples
+  # Prevents memory issues with very large files
+  # Recommended values:
+  # - 250,000: Very conservative (~13s chunks)
+  # - 500,000: Conservative (~25s chunks) [CURRENT]
+  # - 1,000,000: Balanced (~51s chunks)
+  max_chunk_samples: 500000
+
+  # DM chunking threshold (GB)
+  # If DM-time cube would exceed this size, automatically split DM range
+  # This is the most important parameter for preventing memory errors
+  # Recommended values:
+  # - 0.5 GB: Systems with 4GB RAM or less
+  # - 1.0 GB: Systems with 8GB RAM [CURRENT]
+  # - 2.0 GB: Systems with 16GB RAM
+  # - 4.0 GB: Systems with 32GB+ RAM
+  dm_chunking_threshold_gb: 2.0
 
 # ==============================================================================
-# CANDIDATE FILTERING AND OUTPUT
+# OUTPUT CONTROL
 # ==============================================================================
 output:
   # Control which candidates to save to CSV
@@ -215,13 +179,52 @@ output:
   #
   # For HIGH-FREQUENCY PIPELINE (≥8 GHz with multi-pol):
   #   true  = Save ONLY if ResNet classifies BURST in BOTH Intensity AND Linear
-  #   false = Save if ResNet classifies BURST in Intensity (regardless of Linear result)
-  #
-  # Summary:
-  #   true  = Strict mode (both polarizations must agree if available)
-  #   false = Permissive mode (Intensity BURST is sufficient)
+  #   false = Save if ResNet classifies BURST in Intensity (regardless of Linear)
   #
   # Recommendation:
-  #   - Use 'true' for production (highest confidence, dual validation)
+  #   - Use 'true' for production (highest confidence)
   #   - Use 'false' for exploratory analysis
   save_only_burst: false
+
+# ==============================================================================
+# DEBUG AND DIAGNOSTICS
+# ==============================================================================
+debug:
+  # Show detailed frequency and file information
+  # Useful for diagnosing frequency ordering issues
+  show_frequency_info: false
+
+  # Force plot generation even without candidates
+  # Useful for verifying data quality and debugging
+  force_plots: false
+# ==============================================================================
+# ADVANCED CONFIGURATIONS
+# ==============================================================================
+#
+# For more detailed control over the pipeline behavior, edit these files:
+#
+# advanced-config/performance.yaml:
+#   - Advanced memory management
+#   - GPU optimization settings
+#   - I/O and parallel processing options
+#   - Profiling and benchmarking tools
+#
+# advanced-config/visualization.yaml:
+#   - Plot styling and colormaps
+#   - SNR visualization settings
+#   - DM range plotting options
+#   - Export formats and quality
+#
+# advanced-config/models.yaml:
+#   - Neural network architecture settings
+#   - Inference optimization options
+#   - Model validation and debugging
+#   - Experimental features
+#
+# advanced-config/logging.yaml:
+#   - Detailed logging configuration
+#   - Component-specific log levels
+#   - Performance monitoring
+#   - Error handling and analysis
+#
+# ==============================================================================

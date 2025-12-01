@@ -1,0 +1,22 @@
+{
+  "created": "2025-11-24 09:46:59",
+  "execution_history": [
+    {
+      "timestamp": "20251124_094659",
+      "datetime": "2025-11-24 09:46:59",
+      "files_processed": 0,
+      "total_candidates": 0,
+      "total_bursts": 0,
+      "total_processing_time": 0.0,
+      "pipeline_config": {},
+      "summary_file": "summary_20251124_094659.json"
+    }
+  ],
+  "cumulative_stats": {
+    "total_executions": 1,
+    "total_files_processed": 0,
+    "total_candidates_detected": 0,
+    "total_bursts_detected": 0,
+    "total_processing_time": 0.0
+  }
+}

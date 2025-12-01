@@ -1197,7 +1197,18 @@ def stream_fits(
 
                                                         
                     out_buf = np.empty((0, 1, nchan), dtype=np.float32)
-                    emitted = 0                     
+                    emitted = 0
+                    
+                    # Memory safety: limit buffer growth to prevent OOM
+                    max_buffer_samples = max(chunk_samples * 2, 10_000_000)  # At least 10M samples or 2x chunk
+                    bytes_per_sample = 4 * nchan  # float32 = 4 bytes
+                    max_buffer_bytes = max_buffer_samples * bytes_per_sample
+                    
+                    logger.debug(
+                        f"Buffer limits: max_samples={max_buffer_samples:,}, "
+                        f"max_bytes={max_buffer_bytes/(1024**3):.2f} GB, "
+                        f"chunk_samples={chunk_samples:,}"
+                    )
 
                                                                                 
 
@@ -1236,18 +1247,51 @@ def stream_fits(
                         block = _row_to_block(row["DATA"], row, subint, nbits, nsblk, npol, nchan, zero_off, pol_type)
                         out_buf = np.concatenate([out_buf, block], axis=0)
                         emitted += block.shape[0]
-
-                                                                        
-                        while out_buf.shape[0] >= (chunk_samples + overlap_samples * 2):
+                        
+                        # CRITICAL: Force chunk emission if buffer grows too large
+                        buffer_too_large = out_buf.shape[0] > max_buffer_samples
+                        has_complete_chunk = out_buf.shape[0] >= (chunk_samples + overlap_samples * 2)
+                        
+                        # Emit chunk if we have a complete chunk OR if buffer is too large
+                        while has_complete_chunk or (buffer_too_large and out_buf.shape[0] >= chunk_samples):
                             chunk_counter += 1
-                            start_with_overlap = 0
-                            end_with_overlap = chunk_samples + overlap_samples * 2
-                            valid_start = overlap_samples
-                            valid_end = valid_start + chunk_samples
+                            
+                            # If buffer is too large, emit a smaller chunk to prevent OOM
+                            if buffer_too_large and out_buf.shape[0] < (chunk_samples + overlap_samples * 2):
+                                # Emergency: emit what we have (at least chunk_samples)
+                                actual_chunk_size = min(chunk_samples, out_buf.shape[0])
+                                start_with_overlap = 0
+                                end_with_overlap = min(actual_chunk_size + overlap_samples * 2, out_buf.shape[0])
+                                valid_start = overlap_samples if end_with_overlap > overlap_samples * 2 else 0
+                                valid_end = valid_start + actual_chunk_size
+                                logger.warning(
+                                    f"Buffer too large ({out_buf.shape[0]:,} samples), "
+                                    f"emitting emergency chunk of {actual_chunk_size:,} samples "
+                                    f"(buffer limit: {max_buffer_samples:,})"
+                                )
+                                # Record buffer event for validation metrics
+                                try:
+                                    from ..core.data_flow_manager import _validation_collector
+                                    if _validation_collector is not None:
+                                        _validation_collector.record_buffer_event(
+                                            buffer_size_samples=out_buf.shape[0],
+                                            event_type="emergency_chunk_emission",
+                                            chunk_emitted=True
+                                        )
+                                except Exception:
+                                    pass  # Don't fail if collector not available
+                            else:
+                                # Normal case: emit full chunk with overlap
+                                start_with_overlap = 0
+                                end_with_overlap = chunk_samples + overlap_samples * 2
+                                valid_start = overlap_samples
+                                valid_end = valid_start + chunk_samples
+                                actual_chunk_size = chunk_samples
+                            
                             block_out = out_buf[start_with_overlap:end_with_overlap].copy()
                                                  
                             start_sample_idx = emitted - out_buf.shape[0] + valid_start
-                            end_sample_idx = start_sample_idx + chunk_samples
+                            end_sample_idx = start_sample_idx + actual_chunk_size
                                          
                             log_stream_fits_block_generation(
                                 chunk_counter,
@@ -1263,7 +1307,7 @@ def stream_fits(
                                 "chunk_idx": start_sample_idx // chunk_samples,
                                 "start_sample": start_sample_idx,
                                 "end_sample": end_sample_idx,
-                                "actual_chunk_size": chunk_samples,
+                                "actual_chunk_size": actual_chunk_size,
                                 "block_start_sample": emitted - out_buf.shape[0],
                                 "block_end_sample": emitted - out_buf.shape[0] + end_with_overlap,
                                 "overlap_left": overlap_samples,
@@ -1285,9 +1329,37 @@ def stream_fits(
                             }
                             yield block_out, metadata
                                                                          
-                            out_buf = out_buf[chunk_samples:]
-
+                            # Remove emitted chunk from buffer (keep overlap for next chunk)
+                            samples_to_remove = actual_chunk_size if not buffer_too_large else end_with_overlap
+                            
+                            # Update buffer: remove emitted samples, keep overlap
+                            # Rebuild buffer_blocks list from remaining data
+                            if samples_to_remove >= out_buf.shape[0]:
+                                # All buffer was emitted
+                                buffer_blocks = []
+                                buffer_total_samples = 0
+                            else:
+                                # Keep tail of buffer (overlap)
+                                remaining_buf = out_buf[samples_to_remove:]
+                                if remaining_buf.shape[0] > 0:
+                                    # Rebuild buffer_blocks with remaining data
+                                    buffer_blocks = [(remaining_buf, emitted - remaining_buf.shape[0])]
+                                    buffer_total_samples = remaining_buf.shape[0]
+                                else:
+                                    buffer_blocks = []
+                                    buffer_total_samples = 0
+                            
+                            out_buf = _concatenate_buffer() if buffer_blocks else np.zeros((0, 1, nchan), dtype=np.float32)
+                            
+                            # Update buffer size check for next iteration
+                            buffer_too_large = out_buf.shape[0] > max_buffer_samples
+                            has_complete_chunk = out_buf.shape[0] >= (chunk_samples + overlap_samples * 2)
+                            check_buffer = True  # Force check on next iteration
+                    
                                             
+                    # Handle remaining buffer at end of file
+                    if buffer_blocks:
+                        out_buf = _concatenate_buffer()
                     if out_buf.shape[0] > 0:
                         chunk_counter += 1
                                                                                      
@@ -1440,9 +1512,32 @@ def stream_fits(
                     log_stream_fits_parameters(total_samples, chunk_samples, overlap_samples, None, nchan, npol, None)
                     
                                                            
-                    out_buf = np.zeros((0, 1, nchan), dtype=np.float32)
+                    # OPTIMIZATION: Use list to accumulate blocks, only concatenate when needed
+                    # This avoids O(N^2) complexity from repeated np.concatenate calls
+                    buffer_blocks = []  # List of (block, emitted_samples) tuples
+                    buffer_total_samples = 0  # Track total samples without concatenating
                     emitted = 0
                     chunk_counter = 0
+                    
+                    # Memory safety: limit buffer growth to prevent OOM
+                    # Buffer should not exceed 2x chunk size to prevent memory exhaustion
+                    max_buffer_samples = max(chunk_samples * 2, 10_000_000)  # At least 10M samples or 2x chunk
+                    bytes_per_sample = 4 * nchan  # float32 = 4 bytes
+                    max_buffer_bytes = max_buffer_samples * bytes_per_sample
+                    
+                    logger.debug(
+                        f"Buffer limits: max_samples={max_buffer_samples:,}, "
+                        f"max_bytes={max_buffer_bytes/(1024**3):.2f} GB, "
+                        f"chunk_samples={chunk_samples:,}"
+                    )
+                    
+                    def _concatenate_buffer():
+                        """Concatenate all blocks in buffer_blocks into a single array."""
+                        if not buffer_blocks:
+                            return np.zeros((0, 1, nchan), dtype=np.float32)
+                        if len(buffer_blocks) == 1:
+                            return buffer_blocks[0][0]
+                        return np.concatenate([block for block, _ in buffer_blocks], axis=0)
                     
                                                
                     for i, row in enumerate(tbl):
@@ -1453,22 +1548,70 @@ def stream_fits(
                         if expected_start > emitted:
                             gap = expected_start - emitted
                             pad = np.zeros((gap, 1, nchan), dtype=np.float32)
-                                                  
-                            out_buf = np.concatenate([out_buf, pad], axis=0)
+                            buffer_blocks.append((pad, emitted))
+                            buffer_total_samples += gap
                             emitted += gap
                         
                                                            
                         block = _row_to_block(row["DATA"], row, subint, nbits, nsblk, npol, nchan, zero_off, pol_type)
-                        out_buf = np.concatenate([out_buf, block], axis=0)
+                        buffer_blocks.append((block, emitted))
+                        buffer_total_samples += block.shape[0]
                         emitted += block.shape[0]
                         
-                                                                        
-                        while out_buf.shape[0] >= (chunk_samples + overlap_samples * 2):
+                        # CRITICAL: Force chunk emission if buffer grows too large
+                        # This prevents OOM for very large files
+                        # Only check buffer size periodically to avoid frequent concatenations
+                        check_buffer = (i % 10 == 0) or (buffer_total_samples > max_buffer_samples) or (buffer_total_samples >= (chunk_samples + overlap_samples * 2))
+                        
+                        if check_buffer:
+                            # Concatenate buffer to check size and emit chunks
+                            out_buf = _concatenate_buffer()
+                            buffer_too_large = out_buf.shape[0] > max_buffer_samples
+                            has_complete_chunk = out_buf.shape[0] >= (chunk_samples + overlap_samples * 2)
+                        else:
+                            buffer_too_large = False
+                            has_complete_chunk = False
+                        
+                        # Emit chunk if we have a complete chunk OR if buffer is too large
+                        while has_complete_chunk or (buffer_too_large and out_buf.shape[0] >= chunk_samples):
                             chunk_counter += 1
-                            start_with_overlap = 0
-                            end_with_overlap = chunk_samples + overlap_samples * 2
-                            valid_start = overlap_samples
-                            valid_end = valid_start + chunk_samples
+                            
+                            # Ensure buffer is concatenated for chunk extraction
+                            if not check_buffer:
+                                out_buf = _concatenate_buffer()
+                            
+                            # If buffer is too large, emit a smaller chunk to prevent OOM
+                            if buffer_too_large and out_buf.shape[0] < (chunk_samples + overlap_samples * 2):
+                                # Emergency: emit what we have (at least chunk_samples)
+                                actual_chunk_size = min(chunk_samples, out_buf.shape[0])
+                                start_with_overlap = 0
+                                end_with_overlap = min(actual_chunk_size + overlap_samples * 2, out_buf.shape[0])
+                                valid_start = overlap_samples if end_with_overlap > overlap_samples * 2 else 0
+                                valid_end = valid_start + actual_chunk_size
+                                logger.warning(
+                                    f"Buffer too large ({out_buf.shape[0]:,} samples), "
+                                    f"emitting emergency chunk of {actual_chunk_size:,} samples "
+                                    f"(buffer limit: {max_buffer_samples:,})"
+                                )
+                                # Record buffer event for validation metrics
+                                try:
+                                    from ..core.data_flow_manager import _validation_collector
+                                    if _validation_collector is not None:
+                                        _validation_collector.record_buffer_event(
+                                            buffer_size_samples=out_buf.shape[0],
+                                            event_type="emergency_chunk_emission",
+                                            chunk_emitted=True
+                                        )
+                                except Exception:
+                                    pass  # Don't fail if collector not available
+                            else:
+                                # Normal case: emit full chunk with overlap
+                                start_with_overlap = 0
+                                end_with_overlap = chunk_samples + overlap_samples * 2
+                                valid_start = overlap_samples
+                                valid_end = valid_start + chunk_samples
+                                actual_chunk_size = chunk_samples
+                            
                             block_out = out_buf[start_with_overlap:end_with_overlap].copy()
                             
                                                                          
@@ -1478,7 +1621,7 @@ def stream_fits(
                                                                                                                  
                                                                            
                             start_sample_idx = emitted - out_buf.shape[0]
-                            end_sample_idx = start_sample_idx + chunk_samples
+                            end_sample_idx = start_sample_idx + actual_chunk_size
                             
                                          
                             log_stream_fits_block_generation(
@@ -1489,13 +1632,13 @@ def stream_fits(
                                 end_sample_idx,
                                 start_with_overlap,
                                 end_with_overlap,
-                                chunk_samples,
+                                actual_chunk_size,
                             )
                             metadata = {
                                 "chunk_idx": start_sample_idx // chunk_samples,
                                 "start_sample": start_sample_idx,
                                 "end_sample": end_sample_idx,
-                                "actual_chunk_size": chunk_samples,
+                                "actual_chunk_size": actual_chunk_size,
                                 "block_start_sample": emitted - out_buf.shape[0],
                                 "block_end_sample": emitted - out_buf.shape[0] + end_with_overlap,
                                 "overlap_left": overlap_samples,
@@ -1517,9 +1660,37 @@ def stream_fits(
                             }
                             yield block_out, metadata
                                                                          
-                            out_buf = out_buf[chunk_samples:]
+                            # Remove emitted chunk from buffer (keep overlap for next chunk)
+                            samples_to_remove = actual_chunk_size if not buffer_too_large else end_with_overlap
+                            
+                            # Update buffer: remove emitted samples, keep overlap
+                            # Rebuild buffer_blocks list from remaining data
+                            if samples_to_remove >= out_buf.shape[0]:
+                                # All buffer was emitted
+                                buffer_blocks = []
+                                buffer_total_samples = 0
+                            else:
+                                # Keep tail of buffer (overlap)
+                                remaining_buf = out_buf[samples_to_remove:]
+                                if remaining_buf.shape[0] > 0:
+                                    # Rebuild buffer_blocks with remaining data
+                                    buffer_blocks = [(remaining_buf, emitted - remaining_buf.shape[0])]
+                                    buffer_total_samples = remaining_buf.shape[0]
+                                else:
+                                    buffer_blocks = []
+                                    buffer_total_samples = 0
+                            
+                            out_buf = _concatenate_buffer() if buffer_blocks else np.zeros((0, 1, nchan), dtype=np.float32)
+                            
+                            # Update buffer size check for next iteration
+                            buffer_too_large = out_buf.shape[0] > max_buffer_samples
+                            has_complete_chunk = out_buf.shape[0] >= (chunk_samples + overlap_samples * 2)
+                            check_buffer = True  # Force check on next iteration
                     
                                             
+                    # Handle remaining buffer at end of file
+                    if buffer_blocks:
+                        out_buf = _concatenate_buffer()
                     if out_buf.shape[0] > 0:
                         chunk_counter += 1
                                                                                      

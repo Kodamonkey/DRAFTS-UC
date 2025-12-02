@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import logging
+import time
 
 # Third-party imports
 import numpy as np
@@ -914,9 +915,31 @@ def _process_file_chunked_high_freq(
         log_streaming_parameters(effective_chunk_samples, overlap_raw, total_samples, effective_chunk_samples, streaming_func, "fits/fil")
 
         # Use multi-polarization streaming for HF pipeline
+        stream_start_time = time.time()
+        chunk_processing_times = []
+        last_chunk_arrival_time = stream_start_time
+        
         for block, block_raw, metadata, pol_type in stream_fits_multi_pol(str(fits_path), effective_chunk_samples, overlap_samples=overlap_raw):
+            chunk_start_time = time.time()
             actual_chunk_count += 1
             log_block_processing(actual_chunk_count, block.shape, str(block.dtype), metadata)
+            
+            # Log time since last chunk arrived from file
+            chunk_arrival_time = time.time()
+            if actual_chunk_count > 1:
+                time_since_last = chunk_arrival_time - last_chunk_arrival_time
+                if time_since_last > 10:
+                    logger.warning(
+                        f"Chunk {metadata['chunk_idx']} took {time_since_last:.1f}s to arrive from file. "
+                        f"This may indicate slow I/O or large buffer concatenation. "
+                        f"Consider reducing chunk size if this is frequent."
+                    )
+                elif time_since_last > 5:
+                    logger.info(
+                        f"Chunk {metadata['chunk_idx']} arrived after {time_since_last:.1f}s. "
+                        f"File I/O is proceeding normally."
+                    )
+            last_chunk_arrival_time = chunk_arrival_time
             
             logger.info(
                 "Processing chunk %03d • samples %s→%s",
@@ -1050,6 +1073,34 @@ def _process_file_chunked_high_freq(
                     n_bursts_total += bursts
                     n_no_bursts_total += nobursts
                     prob_max_total = max(prob_max_total, pmax)
+                
+                # Track chunk processing time
+                chunk_processing_time = time.time() - chunk_start_time
+                chunk_processing_times.append(chunk_processing_time)
+                
+                if chunk_processing_time > 30:
+                    logger.warning(
+                        f"Chunk {metadata['chunk_idx']} processing took {chunk_processing_time:.1f}s. "
+                        f"This is unusually long. Check system resources."
+                    )
+                
+                # Estimate remaining time
+                if actual_chunk_count > 1:
+                    avg_time = sum(chunk_processing_times) / len(chunk_processing_times)
+                    # Estimate total chunks (may not be exact, but gives an idea)
+                    estimated_total_chunks = max(actual_chunk_count, int(total_samples / effective_chunk_samples) + 1)
+                    remaining_chunks = max(0, estimated_total_chunks - actual_chunk_count)
+                    eta_seconds = remaining_chunks * avg_time
+                    if eta_seconds > 60:
+                        logger.info(
+                            f"Chunk {metadata['chunk_idx']} processed in {chunk_processing_time:.1f}s. "
+                            f"Average: {avg_time:.1f}s/chunk. ETA: {eta_seconds/60:.1f} min"
+                        )
+                    else:
+                        logger.debug(
+                            f"Chunk {metadata['chunk_idx']} processed in {chunk_processing_time:.1f}s. "
+                            f"Average: {avg_time:.1f}s/chunk. ETA: {eta_seconds:.1f}s"
+                        )
                 
                 # CRITICAL: Free chunk-level arrays after processing all slices
                 del block_ds, dm_time, block_raw_ds

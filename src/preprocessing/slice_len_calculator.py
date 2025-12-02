@@ -229,13 +229,14 @@ def calculate_memory_safe_chunk_size(
         # If alignment reduced it below minimum, add one block
         safe_chunk_samples += alignment_block
         
-    # Safety: enforce maximum chunk size limit
-    max_chunk_limit = getattr(config, 'MAX_SAMPLES_LIMIT', 50_000_000)
+    # Safety: enforce maximum chunk size limit from config.yaml
+    # Use MAX_CHUNK_SAMPLES from config (default 1M if not set)
+    max_chunk_limit = getattr(config, 'MAX_CHUNK_SAMPLES', 1_000_000)
     if safe_chunk_samples > max_chunk_limit:
         safe_chunk_samples = (max_chunk_limit // slice_len) * slice_len
         logger.warning(
             f"Chunk size limited to {safe_chunk_samples:,} samples "
-            f"(max limit: {max_chunk_limit:,})"
+            f"(max limit from config: {max_chunk_limit:,})"
         )
     
     # Calculate expected cube size (using DECIMATED samples count)
@@ -385,15 +386,32 @@ def calculate_optimal_chunk_size(slice_len: Optional[int] = None) -> int:
     if chunk_samples == 0:
         chunk_samples = slice_len
 
-    # Safety: enforce maximum chunk size limit
-    max_chunk_limit = getattr(config, 'MAX_SAMPLES_LIMIT', 50_000_000)
+    # Safety: enforce maximum chunk size limit from config.yaml
+    # Use MAX_CHUNK_SAMPLES from config (default 1M if not set)
+    max_chunk_limit = getattr(config, 'MAX_CHUNK_SAMPLES', 1_000_000)
     if chunk_samples > max_chunk_limit:
         chunk_samples = (max_chunk_limit // slice_len) * slice_len
         logger.warning(
             f"Chunk size limited to {chunk_samples:,} samples "
-            f"(max limit: {max_chunk_limit:,})"
+            f"(max limit from config: {max_chunk_limit:,})"
         )
     
+    # Additional safety: limit based on DM-time cube size to prevent OOM
+    # Calculate maximum chunk size based on DM cube size limit
+    from ..core.pipeline_parameters import calculate_dm_height
+    height_dm = calculate_dm_height()
+    max_cube_size_gb = getattr(config, 'MAX_DM_CUBE_SIZE_GB', 2.0)  # Default 2 GB
+    max_chunk_by_cube = int((max_cube_size_gb * 1024**3) / (3 * height_dm * 4))
+    max_chunk_by_cube = (max_chunk_by_cube // slice_len) * slice_len  # Align to slice_len
+    
+    if chunk_samples > max_chunk_by_cube:
+        chunk_samples = max_chunk_by_cube
+        logger.warning(
+            f"Chunk size further limited to {chunk_samples:,} samples "
+            f"to keep DM-time cube < {max_cube_size_gb} GB "
+            f"(DM height={height_dm:,}, would be {3 * height_dm * chunk_samples * 4 / (1024**3):.2f} GB)"
+        )
+
     chunk_duration_sec = chunk_samples * config.TIME_RESO * config.DOWN_TIME_RATE
     slices_per_chunk = chunk_samples // slice_len
     chunk_size_gb = (chunk_samples * memory_per_sample) / (1024**3)
@@ -506,7 +524,7 @@ def get_processing_parameters() -> dict:
             logger.warning(
                 f"Adaptive budgeting failed ({e}), falling back to calculate_optimal_chunk_size"
             )
-            chunk_samples = calculate_optimal_chunk_size(slice_len)
+        chunk_samples = calculate_optimal_chunk_size(slice_len)
 
                                                                                    
                                                  

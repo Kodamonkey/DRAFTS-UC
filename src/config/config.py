@@ -54,6 +54,7 @@ try:
         POLARIZATION_INDEX,
         MAX_CHUNK_SAMPLES,
         MAX_RAM_FRACTION_USER,
+        MAX_DM_CUBE_SIZE_GB,
         DM_CHUNKING_THRESHOLD_GB_USER,
         MEMORY_OVERHEAD_FACTOR_USER,
     )
@@ -82,6 +83,7 @@ except ImportError:
             POLARIZATION_INDEX,
             MAX_CHUNK_SAMPLES,
             MAX_RAM_FRACTION_USER,
+            MAX_DM_CUBE_SIZE_GB,
             DM_CHUNKING_THRESHOLD_GB_USER,
             MEMORY_OVERHEAD_FACTOR_USER,
         )
@@ -109,6 +111,7 @@ except ImportError:
         FORCE_PLOTS = False
         MAX_CHUNK_SAMPLES = 1000000
         MAX_RAM_FRACTION_USER = 0.25
+        MAX_DM_CUBE_SIZE_GB = 2.0
         DM_CHUNKING_THRESHOLD_GB_USER = 16.0
         MEMORY_OVERHEAD_FACTOR_USER = 1.3
 
@@ -160,6 +163,7 @@ OVERHEAD_FACTOR: float = MEMORY_OVERHEAD_FACTOR_USER  # Memory overhead factor f
 
 # Performance limits (loaded from config.yaml)
 # These will be overridden by the imported values from user_config.py
+# MAX_DM_CUBE_SIZE_GB is imported from user_config.py above
 DM_CHUNKING_THRESHOLD_GB: float = DM_CHUNKING_THRESHOLD_GB_USER  # DM chunking threshold (from config.yaml)
 
 # ==============================================================================

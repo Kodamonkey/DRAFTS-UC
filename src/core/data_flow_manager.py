@@ -129,15 +129,22 @@ def build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max:
     if cube_size_gb > dm_chunking_threshold_gb:
         # Use DM chunking to avoid memory issues
         logger.info(
-            f"DM-time cube would be {cube_size_gb:.2f} GB (height={height}, width={width:,}). "
-            f"Using DM chunking to reduce memory usage."
+            f"[DEDISPERSION] DM-time cube would be {cube_size_gb:.2f} GB (height={height}, width={width:,}). "
+            f"Using DM chunking (threshold: {dm_chunking_threshold_gb} GB) to reduce memory usage."
         )
         return _build_dm_time_cube_chunked(block_ds, height, dm_min, dm_max, dm_chunking_threshold_gb)
     else:
         # Normal path: build entire cube at once
+        logger.info(
+            f"[DEDISPERSION] Building DM-time cube: {cube_size_gb:.2f} GB (height={height}, width={width:,}, "
+            f"DM range: {dm_min:.1f}-{dm_max:.1f} pc cm⁻³)"
+        )
         validate_memory_allocation(cube_size_bytes, "DM-time cube")
         from ..preprocessing.dedispersion import d_dm_time_g
-        return d_dm_time_g(block_ds, height=height, width=width, dm_min=dm_min, dm_max=dm_max)
+        logger.debug("[DEDISPERSION] Calling d_dm_time_g() to perform dedispersion...")
+        result = d_dm_time_g(block_ds, height=height, width=width, dm_min=dm_min, dm_max=dm_max)
+        logger.debug(f"[DEDISPERSION] Dedispersion complete, cube shape: {result.shape}")
+        return result
 
 
 def _build_dm_time_cube_chunked(
@@ -220,7 +227,12 @@ def _build_dm_time_cube_chunked(
     import gc
     
     # Process each DM chunk
+    import time
+    dm_chunk_start_time = time.time()
+    dm_chunk_times = []
+    
     for chunk_idx in range(num_dm_chunks):
+        chunk_iter_start = time.time()
         start_dm = chunk_idx * dm_chunk_height
         end_dm = min(start_dm + dm_chunk_height, height)
         chunk_height = end_dm - start_dm
@@ -230,9 +242,10 @@ def _build_dm_time_cube_chunked(
         chunk_dm_min = dm_min + (start_dm / height) * dm_range
         chunk_dm_max = dm_min + (end_dm / height) * dm_range
         
-        logger.debug(
-            f"Processing DM chunk {chunk_idx + 1}/{num_dm_chunks}: "
-            f"DM {chunk_dm_min:.1f}-{chunk_dm_max:.1f} (indices {start_dm}-{end_dm})"
+        logger.info(
+            f"[DEDISPERSION] Processing DM chunk {chunk_idx + 1}/{num_dm_chunks}: "
+            f"DM {chunk_dm_min:.1f}-{chunk_dm_max:.1f} pc cm⁻³ (indices {start_dm}-{end_dm}, "
+            f"height={chunk_height})"
         )
         
         # Dedisperse this DM chunk
@@ -251,7 +264,25 @@ def _build_dm_time_cube_chunked(
         del chunk_cube
         gc.collect()
         
-        logger.debug(f"DM chunk {chunk_idx + 1}/{num_dm_chunks} completed and freed")
+        chunk_iter_time = time.time() - chunk_iter_start
+        dm_chunk_times.append(chunk_iter_time)
+        
+        # Log progress with ETA
+        if chunk_idx > 0:
+            avg_time = sum(dm_chunk_times) / len(dm_chunk_times)
+            remaining_chunks = num_dm_chunks - (chunk_idx + 1)
+            eta_seconds = remaining_chunks * avg_time
+            if eta_seconds > 10:
+                logger.info(
+                    f"DM chunk {chunk_idx + 1}/{num_dm_chunks} completed in {chunk_iter_time:.1f}s. "
+                    f"Average: {avg_time:.1f}s/chunk. ETA: {eta_seconds:.1f}s"
+                )
+            else:
+                logger.debug(
+                    f"DM chunk {chunk_idx + 1}/{num_dm_chunks} completed in {chunk_iter_time:.1f}s"
+                )
+        else:
+            logger.info(f"DM chunk {chunk_idx + 1}/{num_dm_chunks} completed in {chunk_iter_time:.1f}s")
     
     logger.info(f"DM chunking complete: full cube assembled ({result.shape})")
     return result

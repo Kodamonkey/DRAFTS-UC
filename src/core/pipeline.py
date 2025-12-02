@@ -216,7 +216,12 @@ def _process_block(
     # PRESTO-style: Build DM-time cube with memory validation
     # For very large chunks, we could use DoubleBufferDedispersion, but for now
     # build_dm_time_cube with immediate trimming provides good memory control
+    logger.info(
+        f"Chunk %03d: Starting dedispersion (DM range: %.1f-%.1f pc cm⁻³, height=%d, width=%d)",
+        chunk_idx, config.DM_min, config.DM_max, height, block.shape[0]
+    )
     dm_time_full = build_dm_time_cube(block, height=height, dm_min=config.DM_min, dm_max=config.DM_max)
+    logger.info(f"Chunk %03d: Dedispersion complete, cube shape: {dm_time_full.shape}", chunk_idx)
     block, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(
         block, dm_time_full, overlap_left_ds, overlap_right_ds
     )
@@ -637,17 +642,44 @@ def _process_file_chunked(
 
         # PRESTO-style: Process each block immediately (read → process → write → free)
         # This ensures we never accumulate multiple chunks in memory
-        for block, metadata in streaming_func(str(fits_path), effective_chunk_samples, overlap_samples=overlap_raw):
-            actual_chunk_count += 1                                               
+        stream_start_time = time.time()
+        chunk_processing_times = []
+        last_chunk_arrival_time = stream_start_time
+        
+        logger.info(
+            f"Starting to read chunks from file. "
+            f"First chunk may take longer due to file I/O initialization. "
+            f"Progress will be logged during streaming."
+        )
+        
+        for chunk_idx, (block, metadata) in enumerate(streaming_func(str(fits_path), effective_chunk_samples, overlap_samples=overlap_raw), 1):
+            chunk_start_time = time.time()
+            actual_chunk_count += 1
             
             log_block_processing(actual_chunk_count, block.shape, str(block.dtype), metadata)
             
             logger.info(
-                "Processing chunk %03d • samples %s→%s",
-                metadata['chunk_idx'],
-                f"{metadata['start_sample']:,}",
-                f"{metadata['end_sample']:,}",
+                f"Processing chunk {chunk_idx}/{chunk_count} ({chunk_idx/chunk_count*100:.1f}%) • "
+                f"samples {metadata['start_sample']:,}→{metadata['end_sample']:,} • "
+                f"shape={block.shape}"
             )
+            
+            # Log time since last chunk arrived from file
+            chunk_arrival_time = time.time()
+            if chunk_idx > 1:
+                time_since_last = chunk_arrival_time - last_chunk_arrival_time
+                if time_since_last > 10:
+                    logger.warning(
+                        f"Chunk {chunk_idx} took {time_since_last:.1f}s to arrive from file. "
+                        f"This may indicate slow I/O or large buffer concatenation. "
+                        f"Consider reducing chunk size if this is frequent."
+                    )
+                elif time_since_last > 5:
+                    logger.info(
+                        f"Chunk {chunk_idx} arrived after {time_since_last:.1f}s. "
+                        f"File I/O is proceeding normally."
+                    )
+            last_chunk_arrival_time = chunk_arrival_time
             
             # PRESTO-style: Process immediately, write results immediately, then free
             # Results (candidates, plots) are written during _process_block via append_candidate()
@@ -672,6 +704,32 @@ def _process_file_chunked(
             except Exception as chunk_error:
                 logger.exception(f"Error processing chunk {metadata['chunk_idx']:03d}: {chunk_error}")
 
+            # Track chunk processing time
+            chunk_processing_time = time.time() - chunk_start_time
+            chunk_processing_times.append(chunk_processing_time)
+            
+            if chunk_processing_time > 30:
+                logger.warning(
+                    f"Chunk {chunk_idx} processing took {chunk_processing_time:.1f}s. "
+                    f"This is unusually long. Check system resources."
+                )
+            
+            # Estimate remaining time
+            if chunk_idx > 1:
+                avg_time = sum(chunk_processing_times) / len(chunk_processing_times)
+                remaining_chunks = chunk_count - chunk_idx
+                eta_seconds = remaining_chunks * avg_time
+                if eta_seconds > 60:
+                    logger.info(
+                        f"Chunk {chunk_idx} processed in {chunk_processing_time:.1f}s. "
+                        f"Average: {avg_time:.1f}s/chunk. ETA: {eta_seconds/60:.1f} min"
+                    )
+                else:
+                    logger.debug(
+                        f"Chunk {chunk_idx} processed in {chunk_processing_time:.1f}s. "
+                        f"Average: {avg_time:.1f}s/chunk. ETA: {eta_seconds:.1f}s"
+                    )
+            
             # CRITICAL: Free block immediately after processing (PRESTO-style)
             # This ensures we never accumulate more than one chunk in memory
             del block                             

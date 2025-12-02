@@ -122,6 +122,7 @@ _performance_advanced = _config.get('performance_advanced', {})
 # Basic Performance Settings (from main config.yaml)
 MAX_RAM_FRACTION_USER = float(_performance_config.get('max_ram_fraction', 0.25))
 MAX_CHUNK_SAMPLES = int(_performance_config.get('max_chunk_samples', 1000000))
+MAX_DM_CUBE_SIZE_GB = float(_performance_config.get('max_dm_cube_size_gb', 2.0))
 DM_CHUNKING_THRESHOLD_GB_USER = float(_performance_config.get('dm_chunking_threshold_gb', 16.0))
 
 # Advanced Performance Settings (from config/performance.yaml)

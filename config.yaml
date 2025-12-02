@@ -63,7 +63,7 @@ dispersion:
   # - Extragalactic FRBs: 100-2000
   # - General/unknown: 0-1024
   dm_min: 0
-  dm_max: 140
+  dm_max: 10000
 
 # ==============================================================================
 # DETECTION THRESHOLDS
@@ -147,6 +147,10 @@ performance:
   # - 0.10: Very conservative (4-8GB RAM systems)
   # - 0.15: Conservative (8-16GB RAM systems) [CURRENT]
   # - 0.25: Balanced (16GB+ RAM systems)
+  #
+  # DEPENDENCY: This value affects dm_chunking_threshold_gb below.
+  # RAM_utilizable = (RAM_total × max_ram_fraction × 0.8) / 1.3
+  # When changing this, adjust dm_chunking_threshold_gb accordingly.
   max_ram_fraction: 0.15
 
   # Maximum chunk size in samples
@@ -157,14 +161,40 @@ performance:
   # - 1,000,000: Balanced (~51s chunks)
   max_chunk_samples: 500000
 
+  # Maximum DM-time cube size (GB)
+  # Limits the size of the DM-time cube directly, regardless of chunk size
+  # This is especially important for high DM ranges (DM > 1000)
+  # The system will automatically reduce chunk size if needed to respect this limit
+  # Recommended values:
+  # - 1.0: Very conservative (for systems with limited RAM/VRAM)
+  # - 2.0: Conservative (good balance) [CURRENT]
+  # - 4.0: Balanced (for systems with more RAM/VRAM)
+  # - 8.0: Aggressive (for high-end systems)
+  #
+  # NOTE: This limit works together with max_chunk_samples above.
+  # The system uses the MORE RESTRICTIVE limit.
+  # Example: With DM=10000, even 500K samples would create a ~56 GB cube.
+  # This limit (2 GB) will automatically reduce chunk to ~16K samples.
+  max_dm_cube_size_gb: 2.0
+
   # DM chunking threshold (GB)
   # If DM-time cube would exceed this size, automatically split DM range
   # This is the most important parameter for preventing memory errors
-  # Recommended values:
-  # - 0.5 GB: Systems with 4GB RAM or less
-  # - 1.0 GB: Systems with 8GB RAM [CURRENT]
-  # - 2.0 GB: Systems with 16GB RAM
-  # - 4.0 GB: Systems with 32GB+ RAM
+  #
+  # DEPENDENCY: This value should be related to max_ram_fraction above.
+  # Formula: RAM_utilizable = (RAM_total × max_ram_fraction × 0.8) / 1.3
+  # Recommended: dm_chunking_threshold_gb = RAM_utilizable × (0.5 to 1.5)
+  #
+  # Examples (assuming 16GB RAM total):
+  # - max_ram_fraction=0.10 → RAM_utilizable=0.98 GB → threshold=0.5-1.5 GB
+  # - max_ram_fraction=0.15 → RAM_utilizable=1.48 GB → threshold=0.7-2.2 GB [CURRENT]
+  # - max_ram_fraction=0.25 → RAM_utilizable=2.46 GB → threshold=1.2-3.7 GB
+  #
+  # Quick reference by RAM total (with max_ram_fraction=0.15):
+  # - 8 GB RAM:  RAM_utilizable=0.74 GB  → threshold=0.5-1.0 GB
+  # - 16 GB RAM: RAM_utilizable=1.48 GB → threshold=1.0-2.0 GB [CURRENT]
+  # - 32 GB RAM: RAM_utilizable=2.95 GB → threshold=2.0-4.0 GB
+  # - 64 GB RAM: RAM_utilizable=5.91 GB → threshold=4.0-8.0 GB
   dm_chunking_threshold_gb: 2.0
 
 # ==============================================================================

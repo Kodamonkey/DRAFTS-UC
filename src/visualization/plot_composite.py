@@ -372,7 +372,7 @@ def create_composite_plot(
     )
     ax_det.set_title(title_det, fontsize=11, fontweight="bold")
 
-                                         
+
     # =============================================================================
     # BOTTOM PANELS LAYOUT
     # =============================================================================
@@ -625,7 +625,7 @@ def create_composite_plot(
         title = f"{fits_stem} - {band_name_with_freq} - Slice {slice_idx:03d}"
 
     fig.suptitle(title, fontsize=14, fontweight="bold", y=0.97)
-    
+
     return fig
 
 

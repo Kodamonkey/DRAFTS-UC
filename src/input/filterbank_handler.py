@@ -193,11 +193,7 @@ def load_fil_file(file_name: str) -> np.ndarray:
             
     except Exception as e:
         logger.error("Error loading filterbank file with numpy: %s", e)
-        try:
-                                        
-            data_array = np.random.rand(1000, 1, 512).astype(np.float32)
-        except Exception:
-            raise ValueError(f"Could not load data from {file_name}")
+        raise ValueError(f"Could not load data from {file_name}: {e}") from e
             
     if data_array is None:
         raise ValueError(f"Could not load data from {file_name}")
@@ -296,11 +292,9 @@ def get_obparams_fil(file_name: str) -> None:
             if config.DEBUG_FREQUENCY_ORDER:
                 logger.debug(f"[DEBUG FILTERBANK] Frequencies detected in descending order!")
         else:
-                                                                                                            
-                                                                 
-            freq_axis_inverted = True
+            freq_axis_inverted = False
             if config.DEBUG_FREQUENCY_ORDER:
-                logger.debug(f"[DEBUG FILTERBANK] Positive foff - inverting for radioastronomy standard!")
+                logger.debug(f"[DEBUG FILTERBANK] Positive foff - keeping ascending frequency order")
         
                                                         
         if freq_axis_inverted:
@@ -521,30 +515,40 @@ def stream_fil(
     Yields:
         Tuple[data_block, metadata]: Data block (time, pol, chan) with metadata
     """
-    
-                             
+
+
     dtype_map: Dict[int, Type] = {
         8: np.uint8,
         16: np.int16,
         32: np.float32,
         64: np.float64
     }
-    
+
     try:
-                     
+
+        if chunk_samples <= 0:
+            raise ValueError("chunk_samples must be a positive integer")
+        if overlap_samples < 0:
+            raise ValueError("overlap_samples must be non-negative")
+        if overlap_samples >= chunk_samples:
+            raise ValueError("overlap_samples must be smaller than chunk_samples")
+
         with open(file_name, "rb") as f:
             header, hdr_len = _read_header(f)
-        
+
         nchans = header.get("nchans", 512)
         nifs = header.get("nifs", 1)
         nbits = header.get("nbits", 8)
         nsamples = header.get("nsamples")
-        
-                                    
+
+
         if nsamples is None:
             bytes_per_sample = nifs * nchans * (nbits // 8)
             file_size = os.path.getsize(file_name) - hdr_len
             nsamples = file_size // bytes_per_sample if bytes_per_sample > 0 else 1000
+
+        if nsamples <= 0:
+            raise ValueError(f"Invalid sample count ({nsamples}) derived from file header")
         
         dtype = dtype_map.get(nbits, np.uint8)
         

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict
 import logging
 
+import numpy as np
 
 from ..config import config
 
@@ -60,20 +61,37 @@ def auto_config_downsampling() -> None:
 def print_debug_frequencies(prefix: str, file_name: str, freq_axis_inverted: bool) -> None:
     """Log a standard frequency debug block with the given prefix."""
 
+    freq_values = getattr(config, "FREQ", None)
+    try:
+        freq_array = np.asarray(freq_values, dtype=float)
+    except Exception:
+        logger.debug("%s Frequency array is unavailable; skipping frequency debug block", prefix)
+        return
+
+    if freq_array.size == 0:
+        logger.debug("%s Frequency array is empty; skipping frequency debug block", prefix)
+        return
+
+    first_values = freq_array[:5] if freq_array.size >= 5 else freq_array
+    last_values = freq_array[-5:] if freq_array.size >= 5 else freq_array
+
     logger.debug("%s File: %s", prefix, file_name)
     logger.debug("%s Detected freq_axis_inverted: %s", prefix, freq_axis_inverted)
-    logger.debug("%s DATA_NEEDS_REVERSAL: %s", prefix, config.DATA_NEEDS_REVERSAL)
-    logger.debug("%s First 5 frequencies: %s", prefix, config.FREQ[:5])
-    logger.debug("%s Last 5 frequencies: %s", prefix, config.FREQ[-5:])
-    logger.debug("%s Minimum frequency: %.2f MHz", prefix, config.FREQ.min())
-    logger.debug("%s Maximum frequency: %.2f MHz", prefix, config.FREQ.max())
+    logger.debug("%s DATA_NEEDS_REVERSAL: %s", prefix, getattr(config, "DATA_NEEDS_REVERSAL", 'N/A'))
+    logger.debug("%s First frequencies: %s", prefix, first_values)
+    logger.debug("%s Last frequencies: %s", prefix, last_values)
+    logger.debug("%s Minimum frequency: %.2f MHz", prefix, float(np.min(freq_array)))
+    logger.debug("%s Maximum frequency: %.2f MHz", prefix, float(np.max(freq_array)))
     logger.debug("%s Expected order: ascending frequencies", prefix)
-    if config.FREQ[0] < config.FREQ[-1]:
-        logger.debug("%s Order CORRECT: %.2f < %.2f", prefix, config.FREQ[0], config.FREQ[-1])
-    else:
-        logger.debug("%s Order INCORRECT: %.2f > %.2f", prefix, config.FREQ[0], config.FREQ[-1])
-    logger.debug("%s DOWN_FREQ_RATE: %s", prefix, config.DOWN_FREQ_RATE)
-    logger.debug("%s DOWN_TIME_RATE: %s", prefix, config.DOWN_TIME_RATE)
+
+    if freq_array.size >= 2:
+        if freq_array[0] < freq_array[-1]:
+            logger.debug("%s Order CORRECT: %.2f < %.2f", prefix, freq_array[0], freq_array[-1])
+        else:
+            logger.debug("%s Order INCORRECT: %.2f > %.2f", prefix, freq_array[0], freq_array[-1])
+
+    logger.debug("%s DOWN_FREQ_RATE: %s", prefix, getattr(config, "DOWN_FREQ_RATE", 'N/A'))
+    logger.debug("%s DOWN_TIME_RATE: %s", prefix, getattr(config, "DOWN_TIME_RATE", 'N/A'))
     logger.debug("%s %s", prefix, "=" * 50)
 
 

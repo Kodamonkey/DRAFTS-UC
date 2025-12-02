@@ -14,24 +14,39 @@ logger = logging.getLogger(__name__)
 
 def get_streaming_function(file_path: Path) -> Tuple[Callable, str]:
     """Return the streaming function and detected file type."""
-                                        
+
     validation = validate_file_compatibility(file_path)
     if not validation['is_compatible']:
         raise ValueError(f"Incompatible file: {', '.join(validation['validation_errors'])}")
-    
-                              
+
+
     file_type = detect_file_type(file_path)
-    
-                                                
+
     if file_type == "fits":
         return stream_fits, "fits"
-    else:
+    if file_type == "filterbank":
         return stream_fil, "filterbank"
+
+    raise ValueError(f"Unsupported file type: {file_type or 'unknown'}")
 
 def get_streaming_info(file_path: Path, chunk_samples: int, overlap_samples: int = 0) -> Dict[str, Any]:
     """Return metadata about the streaming configuration for ``file_path``."""
     try:
-                         
+
+        if chunk_samples <= 0:
+            return {
+                'is_valid': False,
+                'errors': ["chunk_samples must be greater than zero"],
+                'streaming_config': None
+            }
+
+        if overlap_samples < 0:
+            return {
+                'is_valid': False,
+                'errors': ["overlap_samples must be non-negative"],
+                'streaming_config': None
+            }
+
         validation = validate_file_compatibility(file_path)
         if not validation['is_compatible']:
             return {

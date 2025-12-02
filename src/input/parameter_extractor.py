@@ -5,6 +5,9 @@
 from pathlib import Path
 from typing import Dict, Any
 import logging
+from collections.abc import Iterable
+
+import numpy as np
 
 from .file_detector import detect_file_type, validate_file_compatibility
 from .fits_handler import get_obparams
@@ -12,6 +15,41 @@ from .filterbank_handler import get_obparams_fil
 from .utils import auto_config_downsampling
 
 logger = logging.getLogger(__name__)
+
+
+def _format_frequency_range(freq: Any) -> str:
+    """Return a human-readable frequency range or ``'N/A'`` on failure.
+
+    The previous implementation assumed ``freq`` always implemented ``min``/``max``
+    methods (e.g., NumPy arrays). When a plain Python ``list`` was provided the
+    attribute access raised an ``AttributeError`` during validation, masking the
+    real problem. This helper safely handles iterables and guards against empty
+    inputs so validation never crashes.
+    """
+
+    if freq is None:
+        return 'N/A'
+
+    try:
+        if hasattr(freq, 'min') and hasattr(freq, 'max'):
+            # NumPy arrays expose ``min``/``max`` but may be empty.
+            if np.size(freq) == 0:
+                return 'N/A'
+            freq_min = float(np.min(freq))
+            freq_max = float(np.max(freq))
+        elif isinstance(freq, Iterable):
+            values = list(freq)
+            if not values:
+                return 'N/A'
+            freq_min = float(min(values))
+            freq_max = float(max(values))
+        else:
+            return 'N/A'
+
+        return f"{freq_min:.1f} - {freq_max:.1f}"
+    except Exception as exc:  # pragma: no cover - defensive path
+        logger.debug("Failed to format frequency range: %s", exc)
+        return 'N/A'
 
 def extract_parameters_auto(file_path: Path) -> Dict[str, Any]:
     """Extract observation parameters using the appropriate handler for the file type."""
@@ -73,7 +111,7 @@ def extract_parameters_auto(file_path: Path) -> Dict[str, Any]:
         logger.info(f"  - Time resolution: {config.TIME_RESO:.2e} s")
         logger.info(f"  - Frequency channels: {config.FREQ_RESO}")
         logger.info(f"  - Total samples: {config.FILE_LENG:,}")
-        logger.info(f"  - Frequency range: {config.FREQ.min():.1f} - {config.FREQ.max():.1f} MHz")
+        logger.info(f"  - Frequency range: {_format_frequency_range(config.FREQ)} MHz")
         logger.info(f"  - Frequency downsampling: {getattr(config, 'DOWN_FREQ_RATE', 'N/A')}x")
         logger.info(f"  - Time downsampling: {getattr(config, 'DOWN_TIME_RATE', 'N/A')}x")
 
@@ -139,16 +177,24 @@ def validate_extracted_parameters() -> Dict[str, Any]:
                 validation_result['is_valid'] = False
         
                                              
+        freq_reso = getattr(config, 'FREQ_RESO', None)
         if hasattr(config, 'FREQ') and config.FREQ is not None:
-            if len(config.FREQ) != config.FREQ_RESO:
-                validation_result['warnings'].append(
-                    f"Length of FREQ array ({len(config.FREQ)}) does not match FREQ_RESO ({config.FREQ_RESO})"
-                )
-            
-            if len(config.FREQ) > 1:
-                freq_range = config.FREQ.max() - config.FREQ.min()
-                if freq_range <= 0:
-                    validation_result['warnings'].append("Frequency range is invalid or too small")
+            try:
+                freq_values = np.asarray(config.FREQ, dtype=float)
+            except Exception:
+                validation_result['warnings'].append("FREQ could not be coerced to a numeric array; skipping range checks")
+                freq_values = np.array([])
+
+            if freq_values.size:
+                if freq_reso is not None and freq_reso > 0 and len(freq_values) != freq_reso:
+                    validation_result['warnings'].append(
+                        f"Length of FREQ array ({len(freq_values)}) does not match FREQ_RESO ({freq_reso})"
+                    )
+
+                if freq_values.size > 1:
+                    freq_range = float(freq_values.max() - freq_values.min())
+                    if freq_range <= 0:
+                        validation_result['warnings'].append("Frequency range is invalid or too small")
         
                                             
         down_freq = getattr(config, 'DOWN_FREQ_RATE', 1)
@@ -163,7 +209,7 @@ def validate_extracted_parameters() -> Dict[str, Any]:
             'time_resolution_sec': getattr(config, 'TIME_RESO', 'N/A'),
             'frequency_channels': getattr(config, 'FREQ_RESO', 'N/A'),
             'total_samples': getattr(config, 'FILE_LENG', 'N/A'),
-            'frequency_range_mhz': f"{getattr(config, 'FREQ', [0]).min():.1f} - {getattr(config, 'FREQ', [0]).max():.1f}" if hasattr(config, 'FREQ') and config.FREQ is not None else 'N/A',
+          'frequency_range_mhz': _format_frequency_range(getattr(config, 'FREQ', None)),
             'downsampling_freq': down_freq,
             'downsampling_time': down_time
         }

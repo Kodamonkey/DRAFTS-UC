@@ -63,7 +63,7 @@ dispersion:
   # - Extragalactic FRBs: 100-2000
   # - General/unknown: 0-1024
   dm_min: 0
-  dm_max: 10000
+  dm_max: 100
 
 # ==============================================================================
 # DETECTION THRESHOLDS

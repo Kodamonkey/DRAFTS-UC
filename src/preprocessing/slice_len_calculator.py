@@ -233,16 +233,64 @@ def calculate_memory_safe_chunk_size(
     # Use MAX_CHUNK_SAMPLES from config (default 1M if not set)
     max_chunk_limit = getattr(config, 'MAX_CHUNK_SAMPLES', 1_000_000)
     if safe_chunk_samples > max_chunk_limit:
-        safe_chunk_samples = (max_chunk_limit // slice_len) * slice_len
+        safe_chunk_samples = (max_chunk_limit // alignment_block) * alignment_block
         logger.warning(
             f"Chunk size limited to {safe_chunk_samples:,} samples "
             f"(max limit from config: {max_chunk_limit:,})"
         )
     
+    # CRITICAL: Additional safety limit based on DM-time cube size to prevent OOM
+    # The chunk that arrives at build_dm_time_cube includes overlap on both sides
+    # We must ensure the resulting cube (with overlap) doesn't exceed max_dm_cube_size_gb
+    max_cube_size_gb = getattr(config, 'MAX_DM_CUBE_SIZE_GB', 2.0)  # Default 2 GB
+    max_result_size_gb = max_cube_size_gb * 4  # Allow up to 4x threshold for result array
+    
+    # Calculate max decimated samples that fit in the result array limit
+    # The chunk that arrives includes: chunk_samples_decimated + overlap_total_decimated
+    max_decimated_with_overlap = int((max_result_size_gb * 1024**3) / (3 * height_dm * 4))
+    
+    # The overlap_total_decimated is 2 * overlap_decimated (left + right)
+    overlap_total_decimated = 2 * overlap_decimated
+    
+    # Calculate max chunk size (valid samples, without overlap)
+    max_chunk_decimated = max_decimated_with_overlap - overlap_total_decimated
+    
+    # Ensure minimum size (must be at least slice_len)
+    if max_chunk_decimated < slice_len:
+        logger.warning(
+            f"DM cube size limit ({max_cube_size_gb} GB) is too restrictive. "
+            f"Minimum chunk size ({slice_len} decimated) would exceed limit. "
+            f"Consider increasing max_dm_cube_size_gb or reducing DM range."
+        )
+        max_chunk_decimated = slice_len
+    else:
+        max_chunk_decimated = (max_chunk_decimated // slice_len) * slice_len  # Align to slice_len
+    
+    # Convert to RAW samples
+    max_chunk_by_cube_raw = max_chunk_decimated * max(1, config.DOWN_TIME_RATE)
+    max_chunk_by_cube_raw = (max_chunk_by_cube_raw // alignment_block) * alignment_block  # Align
+    
+    # Apply the cube size limit
+    if safe_chunk_samples > max_chunk_by_cube_raw:
+        safe_chunk_samples = max_chunk_by_cube_raw
+        # Calculate expected cube size for logging
+        expected_decimated = safe_chunk_samples // max(1, config.DOWN_TIME_RATE)
+        expected_decimated_with_overlap = expected_decimated + overlap_total_decimated
+        expected_cube_gb = (3 * height_dm * expected_decimated_with_overlap * 4) / (1024**3)
+        logger.warning(
+            f"Chunk size further limited to {safe_chunk_samples:,} RAW samples "
+            f"({expected_decimated:,} decimated, ~{expected_decimated_with_overlap:,} with overlap) "
+            f"to keep DM-time cube result array < {max_result_size_gb:.1f} GB "
+            f"(DM height={height_dm:,}, overlap_total={overlap_total_decimated:,}, expected cube={expected_cube_gb:.2f} GB, "
+            f"max_dm_cube_size_gb={max_cube_size_gb:.1f} GB)"
+        )
+    
     # Calculate expected cube size (using DECIMATED samples count)
     # safe_chunk_samples is RAW, so divide by down_rate
     safe_samples_decimated = safe_chunk_samples // max(1, config.DOWN_TIME_RATE)
-    expected_cube_gb = (safe_samples_decimated * cost_per_sample_bytes) / (1024**3)
+    # Account for overlap in expected size (chunk arrives with overlap)
+    expected_decimated_with_overlap = safe_samples_decimated + overlap_total_decimated
+    expected_cube_gb = (expected_decimated_with_overlap * cost_per_sample_bytes) / (1024**3)
     dm_chunking_threshold_gb = getattr(config, 'DM_CHUNKING_THRESHOLD_GB', 16.0)
     will_use_dm_chunking = expected_cube_gb > dm_chunking_threshold_gb
     
@@ -254,10 +302,14 @@ def calculate_memory_safe_chunk_size(
         "max_samples": max_samples, # This is decimated capacity
         "required_min_size": required_min_size, # This is decimated requirement
         "overlap_decimated": overlap_decimated,
+        "overlap_total_decimated": overlap_total_decimated,
         "slice_len": slice_len,
         "height_dm": height_dm,
         "cost_per_sample_bytes": cost_per_sample_bytes,
         "expected_cube_gb": expected_cube_gb,
+        "max_cube_size_gb": max_cube_size_gb,
+        "max_result_size_gb": max_result_size_gb,
+        "max_chunk_by_cube_raw": max_chunk_by_cube_raw,
         "will_use_dm_chunking": will_use_dm_chunking,
         "available_ram_gb": available_ram_bytes / (1024**3),
         "available_vram_gb": available_vram_bytes / (1024**3) if gpu_available else 0,
@@ -398,18 +450,58 @@ def calculate_optimal_chunk_size(slice_len: Optional[int] = None) -> int:
     
     # Additional safety: limit based on DM-time cube size to prevent OOM
     # Calculate maximum chunk size based on DM cube size limit
+    # IMPORTANT: The limit must be calculated for DECIMATED samples, not RAW
+    # because the DM-time cube is built from the decimated block
+    # CRITICAL: The chunk that arrives includes overlap, so we must account for that
     from ..core.pipeline_parameters import calculate_dm_height
     height_dm = calculate_dm_height()
     max_cube_size_gb = getattr(config, 'MAX_DM_CUBE_SIZE_GB', 2.0)  # Default 2 GB
-    max_chunk_by_cube = int((max_cube_size_gb * 1024**3) / (3 * height_dm * 4))
-    max_chunk_by_cube = (max_chunk_by_cube // slice_len) * slice_len  # Align to slice_len
     
-    if chunk_samples > max_chunk_by_cube:
-        chunk_samples = max_chunk_by_cube
+    # The result array can be up to 4x the threshold, so we need to be more conservative
+    # Limit to ensure result array stays within 4x threshold
+    max_result_size_gb = max_cube_size_gb * 4
+    
+    # Calculate max decimated samples that fit in the result array limit
+    # CRITICAL: The chunk that arrives at build_dm_time_cube includes overlap on both sides
+    # The block emitted has: chunk_samples_raw + overlap_left_raw + overlap_right_raw
+    # After downsampling: (chunk_samples_raw + overlap_total_raw) / DOWN_TIME_RATE
+    #                    = chunk_samples_decimated + overlap_total_decimated
+    # 
+    # We need: (chunk_samples_decimated + overlap_total_decimated) <= max_decimated_with_overlap
+    # Therefore: chunk_samples_decimated <= max_decimated_with_overlap - overlap_total_decimated
+    
+    # Calculate max decimated samples including overlap
+    max_decimated_with_overlap = int((max_result_size_gb * 1024**3) / (3 * height_dm * 4))
+    
+    # The overlap_total_decimated is approximately 2 * overlap_decimated (left + right)
+    # But be conservative and use the actual calculated overlap
+    overlap_total_decimated = 2 * overlap_decimated  # Left + right overlap
+    
+    # Calculate max chunk size (valid samples, without overlap)
+    max_chunk_decimated = max_decimated_with_overlap - overlap_total_decimated
+    
+    # Ensure minimum size (must be at least slice_len)
+    max_chunk_decimated = max(max_chunk_decimated, slice_len)
+    max_chunk_decimated = (max_chunk_decimated // slice_len) * slice_len  # Align to slice_len
+    
+    # Convert to RAW samples (multiply by downsampling rate)
+    max_chunk_by_cube_raw = max_chunk_decimated * max(1, config.DOWN_TIME_RATE)
+    alignment = slice_len * max(1, config.DOWN_TIME_RATE)
+    max_chunk_by_cube_raw = (max_chunk_by_cube_raw // alignment) * alignment  # Align
+    
+    if chunk_samples > max_chunk_by_cube_raw:
+        chunk_samples = max_chunk_by_cube_raw
+        # Calculate expected cube size in decimated domain for logging
+        expected_decimated = chunk_samples // max(1, config.DOWN_TIME_RATE)
+        # Account for overlap in expected size (chunk arrives with overlap)
+        expected_decimated_with_overlap = expected_decimated + overlap_total_decimated
+        expected_cube_gb = (3 * height_dm * expected_decimated_with_overlap * 4) / (1024**3)
         logger.warning(
-            f"Chunk size further limited to {chunk_samples:,} samples "
-            f"to keep DM-time cube < {max_cube_size_gb} GB "
-            f"(DM height={height_dm:,}, would be {3 * height_dm * chunk_samples * 4 / (1024**3):.2f} GB)"
+            f"Chunk size further limited to {chunk_samples:,} RAW samples "
+            f"({expected_decimated:,} decimated, ~{expected_decimated_with_overlap:,} with overlap) "
+            f"to keep DM-time cube result array < {max_result_size_gb:.1f} GB "
+            f"(DM height={height_dm:,}, overlap_total={overlap_total_decimated:,}, expected cube={expected_cube_gb:.2f} GB, "
+            f"max_dm_cube_size_gb={max_cube_size_gb:.1f} GB)"
         )
 
     chunk_duration_sec = chunk_samples * config.TIME_RESO * config.DOWN_TIME_RATE

@@ -654,7 +654,7 @@ def _process_file_chunked(
         
         for chunk_idx, (block, metadata) in enumerate(streaming_func(str(fits_path), effective_chunk_samples, overlap_samples=overlap_raw), 1):
             chunk_start_time = time.time()
-            actual_chunk_count += 1
+            actual_chunk_count += 1                                               
             
             log_block_processing(actual_chunk_count, block.shape, str(block.dtype), metadata)
             
@@ -922,7 +922,7 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
                     "status": "ERROR"
                 }
                 summary[fits_path.name] = error_results
-
+                
     logger.pipeline_end(summary)
 
 if __name__ == "__main__":

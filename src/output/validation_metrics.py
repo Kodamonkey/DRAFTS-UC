@@ -105,12 +105,17 @@ class ValidationMetricsCollector:
         nu_max = self.metrics["data_characteristics"].get("freq_max_mhz", 2000)
         delta_t_max = 4.148808e3 * config.DM_max * (nu_min**-2 - nu_max**-2)
         
+        max_cube_size_gb = getattr(config, 'MAX_DM_CUBE_SIZE_GB', 2.0)
+        max_result_size_gb = max_cube_size_gb * 4
+        
         self.metrics["dm_cube"] = {
             "dm_min": config.DM_min,
             "dm_max": config.DM_max,
             "dm_height": height_dm,
             "cost_per_sample_bytes": budget_diagnostics.get("cost_per_sample_bytes", 0),
             "expected_cube_size_gb": budget_diagnostics.get("expected_cube_gb", 0),
+            "max_dm_cube_size_gb": max_cube_size_gb,
+            "max_result_size_gb": max_result_size_gb,
             "delta_t_max_seconds": delta_t_max,
         }
         
@@ -124,6 +129,17 @@ class ValidationMetricsCollector:
         delta_t_max = self.metrics["dm_cube"].get("delta_t_max_seconds", 0)
         overlap_raw = max(0, int(math.ceil(delta_t_max / config.TIME_RESO)))
         overlap_decimated = overlap_raw // max(1, config.DOWN_TIME_RATE)
+        overlap_total_decimated = budget_diagnostics.get("overlap_total_decimated", 2 * overlap_decimated)
+        
+        max_cube_size_gb = getattr(config, 'MAX_DM_CUBE_SIZE_GB', 2.0)
+        max_result_size_gb = max_cube_size_gb * 4
+        max_chunk_by_cube_raw = budget_diagnostics.get("max_chunk_by_cube_raw", 0)
+        safe_chunk_samples = budget_diagnostics.get("safe_chunk_samples", 0)
+        
+        # Calcular tamaño esperado del cubo con overlap
+        safe_samples_decimated = safe_chunk_samples // max(1, config.DOWN_TIME_RATE)
+        expected_decimated_with_overlap = budget_diagnostics.get("expected_decimated_with_overlap", 
+                                                                 safe_samples_decimated + overlap_total_decimated)
         
         self.metrics["chunk_calculation"] = {
             "phase_a": {
@@ -136,13 +152,21 @@ class ValidationMetricsCollector:
             },
             "phase_c": {
                 "overlap_decimated": overlap_decimated,
+                "overlap_total_decimated": overlap_total_decimated,
                 "slice_len": slice_len,
                 "required_min_size": budget_diagnostics.get("required_min_size", 0),
                 "description": "O_d + L_s",
             },
+            "cube_size_limit": {
+                "max_dm_cube_size_gb": max_cube_size_gb,
+                "max_result_size_gb": max_result_size_gb,
+                "max_chunk_by_cube_raw": max_chunk_by_cube_raw,
+                "chunk_limited_by_cube_size": max_chunk_by_cube_raw > 0 and safe_chunk_samples <= max_chunk_by_cube_raw,
+                "expected_decimated_with_overlap": expected_decimated_with_overlap,
+            },
             "scenario": budget_diagnostics.get("scenario", "unknown"),
             "reason": budget_diagnostics.get("reason", ""),
-            "final_chunk_samples": budget_diagnostics.get("safe_chunk_samples", 0),
+            "final_chunk_samples": safe_chunk_samples,
             "aligned_to_slice": True,
         }
         
@@ -254,6 +278,22 @@ class ValidationMetricsCollector:
     def record_oom_error(self):
         """Registra un error OOM."""
         self.metrics["actual_processing"]["oom_errors"] += 1
+    
+    def record_temporal_chunking(self, activated: bool, num_sub_chunks: Optional[int] = None,
+                                 sub_chunk_width: Optional[int] = None):
+        """Registra información de chunking temporal (recuperación resiliente)."""
+        if "resilience" not in self.metrics:
+            self.metrics["resilience"] = {}
+        
+        self.metrics["resilience"]["temporal_chunking_activated"] = activated
+        if activated:
+            self.metrics["resilience"]["num_temporal_sub_chunks"] = num_sub_chunks
+            self.metrics["resilience"]["sub_chunk_width"] = sub_chunk_width
+            self.metrics["resilience"]["trigger_reason"] = "cube_size_exceeded_max_result_size"
+        else:
+            self.metrics["resilience"]["num_temporal_sub_chunks"] = None
+            self.metrics["resilience"]["sub_chunk_width"] = None
+            self.metrics["resilience"]["trigger_reason"] = None
         
     def validate_continuity(self):
         """Valida la continuidad temporal entre chunks."""

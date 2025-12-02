@@ -123,6 +123,21 @@ def build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max:
     cube_size_bytes = 3 * height * width * 4  # 3 bands, float32 = 4 bytes
     cube_size_gb = cube_size_bytes / (1024**3)
     
+    # Validate against max_dm_cube_size_gb BEFORE attempting to build
+    # The result array can be up to 4x the threshold, so we validate against that
+    max_cube_size_gb = getattr(config, 'MAX_DM_CUBE_SIZE_GB', 2.0)
+    max_result_size_gb = max_cube_size_gb * 4  # Result array can be up to 4x threshold
+    
+    if cube_size_gb > max_result_size_gb:
+        # RESILIENT RECOVERY: Instead of failing, automatically split the temporal chunk
+        # into smaller sub-chunks and process them sequentially
+        logger.warning(
+            f"[RESILIENCE] DM-time cube would be {cube_size_gb:.2f} GB (shape: (3, {height}, {width})), "
+            f"exceeding maximum allowed size of {max_result_size_gb:.1f} GB. "
+            f"Automatically splitting temporal chunk into smaller sub-chunks for processing."
+        )
+        return _build_dm_time_cube_temporal_chunking(block_ds, height, dm_min, dm_max, max_result_size_gb)
+    
     # Threshold for DM chunking (configurable, default 16 GB)
     dm_chunking_threshold_gb = getattr(config, 'DM_CHUNKING_THRESHOLD_GB', 16.0)
     
@@ -211,6 +226,25 @@ def _build_dm_time_cube_chunked(
     result_size_bytes = 3 * height * width * 4
     result_size_gb = result_size_bytes / (1024**3)
     
+    # Check if we can actually allocate the full result array
+    # The result array can be larger than individual DM chunks, but should still be reasonable
+    max_result_size_gb = getattr(config, 'MAX_DM_CUBE_SIZE_GB', 2.0) * 4  # Allow up to 4x threshold for result array
+    if result_size_gb > max_result_size_gb:
+        error_msg = (
+            f"Cannot allocate result array of {result_size_gb:.2f} GB for DM-time cube "
+            f"(shape: (3, {height}, {width})). "
+            f"This exceeds the maximum allowed size of {max_result_size_gb:.1f} GB "
+            f"(max_dm_cube_size_gb × 4). "
+            f"The temporal chunk size ({width:,} decimated samples) is too large for DM range {dm_min:.1f}-{dm_max:.1f}. "
+            f"Consider reducing max_chunk_samples or max_dm_cube_size_gb in config.yaml, "
+            f"or reducing the DM range."
+        )
+        logger.error(error_msg)
+        validate_memory_allocation(result_size_bytes, "DM-time cube result array", 
+                                   warn_threshold_gb=max_result_size_gb * 0.5, 
+                                   error_threshold_gb=max_result_size_gb)
+        raise MemoryError(error_msg)
+    
     # Warn if result array is very large (but allow it since we process in chunks)
     if result_size_gb > threshold_gb * 2:
         logger.warning(
@@ -221,6 +255,7 @@ def _build_dm_time_cube_chunked(
     
     # Allocate full result array (required to combine DM chunks)
     # This is necessary because the rest of the pipeline expects the complete cube
+    validate_memory_allocation(result_size_bytes, "DM-time cube result array")
     result = np.zeros((3, height, width), dtype=np.float32)
     
     from ..preprocessing.dedispersion import d_dm_time_g
@@ -285,6 +320,124 @@ def _build_dm_time_cube_chunked(
             logger.info(f"DM chunk {chunk_idx + 1}/{num_dm_chunks} completed in {chunk_iter_time:.1f}s")
     
     logger.info(f"DM chunking complete: full cube assembled ({result.shape})")
+    return result
+
+
+def _build_dm_time_cube_temporal_chunking(
+    block_ds: np.ndarray,
+    height: int,
+    dm_min: float,
+    dm_max: float,
+    max_result_size_gb: float
+) -> np.ndarray:
+    """
+    Build DM-time cube by processing temporal dimension in chunks (resilient recovery).
+    
+    This is used when the full cube would exceed max_result_size_gb.
+    The temporal chunk is automatically split into smaller sub-chunks that fit in memory.
+    
+    Args:
+        block_ds: Decimated block (time, freq)
+        height: DM height (number of DM values)
+        dm_min: Minimum DM value
+        dm_max: Maximum DM value
+        max_result_size_gb: Maximum allowed result array size in GB
+    
+    Returns:
+        Complete DM-time cube (3, height, width)
+    """
+    global _validation_collector
+    
+    width = block_ds.shape[0]
+    
+    # Calculate optimal temporal sub-chunk size
+    # Target: each sub-chunk cube should be < max_result_size_gb
+    # cube_size = 3 * height * sub_chunk_width * 4 bytes
+    # sub_chunk_width = (max_result_size_gb * 1024^3) / (3 * height * 4)
+    max_sub_chunk_width = int((max_result_size_gb * (1024**3)) / (3 * height * 4))
+    
+    # Ensure minimum sub-chunk size (at least 1000 samples for efficiency)
+    min_sub_chunk_width = 1000
+    sub_chunk_width = max(min_sub_chunk_width, max_sub_chunk_width)
+    
+    # Calculate number of temporal sub-chunks needed
+    num_temporal_chunks = (width + sub_chunk_width - 1) // sub_chunk_width
+    
+    logger.info(
+        f"[RESILIENCE] Splitting temporal chunk into {num_temporal_chunks} sub-chunks "
+        f"of ~{sub_chunk_width:,} samples each (total width={width:,}, "
+        f"target cube size <{max_result_size_gb:.1f} GB per sub-chunk)"
+    )
+    
+    # Record temporal chunking activation in validation metrics
+    if _validation_collector is not None:
+        _validation_collector.record_temporal_chunking(
+            activated=True,
+            num_sub_chunks=num_temporal_chunks,
+            sub_chunk_width=sub_chunk_width
+        )
+    
+    # Allocate full result array
+    result = np.zeros((3, height, width), dtype=np.float32)
+    
+    from ..preprocessing.dedispersion import d_dm_time_g
+    import gc
+    import time
+    
+    temporal_chunk_start_time = time.time()
+    temporal_chunk_times = []
+    
+    # Process each temporal sub-chunk
+    for chunk_idx in range(num_temporal_chunks):
+        chunk_iter_start = time.time()
+        start_time = chunk_idx * sub_chunk_width
+        end_time = min(start_time + sub_chunk_width, width)
+        chunk_width = end_time - start_time
+        
+        logger.info(
+            f"[RESILIENCE] Processing temporal sub-chunk {chunk_idx + 1}/{num_temporal_chunks}: "
+            f"samples {start_time:,}-{end_time:,} (width={chunk_width:,})"
+        )
+        
+        # Extract temporal sub-chunk
+        sub_block = block_ds[start_time:end_time, :]
+        
+        # Dedisperse this temporal sub-chunk (full DM range)
+        sub_cube = d_dm_time_g(
+            sub_block,
+            height=height,
+            width=chunk_width,
+            dm_min=dm_min,
+            dm_max=dm_max
+        )
+        
+        # Copy into result array
+        result[:, :, start_time:end_time] = sub_cube
+        
+        # Free sub-chunk immediately
+        del sub_cube, sub_block
+        gc.collect()
+        
+        chunk_iter_time = time.time() - chunk_iter_start
+        temporal_chunk_times.append(chunk_iter_time)
+        
+        # Log progress with ETA
+        if chunk_idx > 0:
+            avg_time = sum(temporal_chunk_times) / len(temporal_chunk_times)
+            remaining_chunks = num_temporal_chunks - (chunk_idx + 1)
+            eta_seconds = remaining_chunks * avg_time
+            logger.info(
+                f"[RESILIENCE] Temporal sub-chunk {chunk_idx + 1}/{num_temporal_chunks} completed "
+                f"in {chunk_iter_time:.1f}s. ETA: {eta_seconds:.1f}s "
+                f"({remaining_chunks} sub-chunks remaining)"
+            )
+    
+    total_time = time.time() - temporal_chunk_start_time
+    logger.info(
+        f"[RESILIENCE] Temporal chunking complete: {num_temporal_chunks} sub-chunks processed "
+        f"in {total_time:.1f}s (avg: {total_time/num_temporal_chunks:.1f}s per sub-chunk)"
+    )
+    
     return result
 
 

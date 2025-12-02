@@ -1337,11 +1337,6 @@ def stream_fits(
                         if isub % buffer_check_interval == 0:
                             current_time = time.time()
                             if current_time - last_progress_log >= progress_interval:
-                            progress_pct = (isub + 1) / nsubint * 100
-                            rows_processed = isub + 1 - last_progress_row
-                            rate = rows_processed / (current_time - last_progress_log)
-                            remaining = (nsubint - isub - 1) / max(rate, 0.001)
-                            
                                 progress_pct = (isub + 1) / nsubint * 100
                                 rows_processed = isub + 1 - last_progress_row
                                 rate = rows_processed / (current_time - last_progress_log)

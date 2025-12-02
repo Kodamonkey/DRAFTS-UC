@@ -1,0 +1,246 @@
+{
+  "file_name": "B0355+54_FB_20220918.fits",
+  "timestamp": "2025-12-01T22:00:50.508439",
+  "memory_budget": {
+    "timestamp": "2025-12-01T22:00:50.515148",
+    "available_ram_gb": 5.839031219482422,
+    "available_vram_gb": 5.83160400390625,
+    "max_ram_fraction": 0.15,
+    "max_vram_fraction": 0.7,
+    "safety_margin": 0.8,
+    "overhead_factor": 1.3,
+    "usable_ram_gb": 0.898312495304988,
+    "usable_vram_gb": 2.5120755709134617,
+    "total_usable_gb": 3.0510630680964543
+  },
+  "data_characteristics": {
+    "file_length_samples": 2289664,
+    "freq_resolution": 512,
+    "time_resolution_s": 5.12e-05,
+    "down_time_rate": 8,
+    "down_freq_rate": 1,
+    "decimated_samples": 286208,
+    "decimated_channels": 512,
+    "bytes_per_sample": 2048,
+    "freq_min_mhz": 1200.390625,
+    "freq_max_mhz": 1599.609375
+  },
+  "dm_cube": {
+    "dm_min": 0,
+    "dm_max": 100,
+    "dm_height": 101,
+    "cost_per_sample_bytes": 1212,
+    "expected_cube_size_gb": 0.07004425674676895,
+    "delta_t_max_seconds": 0.12578221179431914
+  },
+  "chunk_calculation": {
+    "phase_a": {
+      "cost_per_sample_bytes": 1212,
+      "description": "3 * H_DM * 4 bytes"
+    },
+    "phase_b": {
+      "max_samples": 2703014,
+      "description": "floor(M_util / C_s)"
+    },
+    "phase_c": {
+      "overlap_decimated": 307,
+      "slice_len": 2048,
+      "required_min_size": 2355,
+      "description": "O_d + L_s"
+    },
+    "scenario": "ideal",
+    "reason": "Memory allows 2,703,014 decimated samples (>2,355 required). DM-time cube will fit in RAM.",
+    "final_chunk_samples": 491520,
+    "aligned_to_slice": true
+  },
+  "actual_processing": {
+    "chunks_processed": 5,
+    "peak_memory_usage_gb": 5.743743896484375,
+    "peak_memory_timestamp": "2025-12-01T22:05:21.159720",
+    "oom_errors": 0,
+    "dm_chunking_activated": false,
+    "dm_chunks_used": null
+  },
+  "overlap_validation": {
+    "delta_t_max_seconds": 0.12578221179431914,
+    "overlap_decimated": 307,
+    "overlap_sufficient": false,
+    "average_overlap_ratio": 0.8026058631921824,
+    "min_overlap_ratio": 0.0,
+    "no_edge_losses": true
+  },
+  "buffer_control": {
+    "max_buffer_samples": 0,
+    "emergency_chunks_emitted": 0,
+    "buffer_events": []
+  },
+  "memory_validations": [
+    {
+      "operation": "DM-time cube",
+      "requested_bytes": 75209448,
+      "requested_gb": 0.07004425674676895,
+      "threshold_warn_gb": 8.0,
+      "threshold_error_gb": 16.0,
+      "validation_result": "allowed",
+      "timestamp": "2025-12-01T22:00:56.374473"
+    },
+    {
+      "operation": "DM-time cube",
+      "requested_bytes": 75209448,
+      "requested_gb": 0.07004425674676895,
+      "threshold_warn_gb": 8.0,
+      "threshold_error_gb": 16.0,
+      "validation_result": "allowed",
+      "timestamp": "2025-12-01T22:05:17.555756"
+    },
+    {
+      "operation": "DM-time cube",
+      "requested_bytes": 75209448,
+      "requested_gb": 0.07004425674676895,
+      "threshold_warn_gb": 8.0,
+      "threshold_error_gb": 16.0,
+      "validation_result": "allowed",
+      "timestamp": "2025-12-01T22:09:23.198263"
+    },
+    {
+      "operation": "DM-time cube",
+      "requested_bytes": 75209448,
+      "requested_gb": 0.07004425674676895,
+      "threshold_warn_gb": 8.0,
+      "threshold_error_gb": 16.0,
+      "validation_result": "allowed",
+      "timestamp": "2025-12-01T22:13:25.669817"
+    },
+    {
+      "operation": "DM-time cube",
+      "requested_bytes": 49022976,
+      "requested_gb": 0.04565620422363281,
+      "threshold_warn_gb": 8.0,
+      "threshold_error_gb": 16.0,
+      "validation_result": "allowed",
+      "timestamp": "2025-12-01T22:17:25.850200"
+    }
+  ],
+  "chunks": [
+    {
+      "chunk_idx": 0,
+      "temporal_info": {
+        "chunk_samples": 61746,
+        "overlap_left_decimated": 308,
+        "overlap_right_decimated": 308,
+        "valid_start_decimated": 308,
+        "valid_end_decimated": 62054,
+        "valid_samples": 61746
+      },
+      "dispersion_delay": {
+        "dm_max": 100,
+        "freq_min_mhz": 1200.390625,
+        "freq_max_mhz": 1599.609375,
+        "delta_t_max_seconds": 0.12578221179431914,
+        "delta_t_max_samples_decimated": 307
+      },
+      "validation": {
+        "overlap_sufficient": true,
+        "overlap_vs_delay_ratio": 1.003257328990228,
+        "no_edge_losses": true,
+        "continuity_with_previous": true
+      }
+    },
+    {
+      "chunk_idx": 1,
+      "temporal_info": {
+        "chunk_samples": 61746,
+        "overlap_left_decimated": 308,
+        "overlap_right_decimated": 308,
+        "valid_start_decimated": 308,
+        "valid_end_decimated": 62054,
+        "valid_samples": 61746
+      },
+      "dispersion_delay": {
+        "dm_max": 100,
+        "freq_min_mhz": 1200.390625,
+        "freq_max_mhz": 1599.609375,
+        "delta_t_max_seconds": 0.12578221179431914,
+        "delta_t_max_samples_decimated": 307
+      },
+      "validation": {
+        "overlap_sufficient": true,
+        "overlap_vs_delay_ratio": 1.003257328990228,
+        "no_edge_losses": true,
+        "continuity_with_previous": true
+      }
+    },
+    {
+      "chunk_idx": 2,
+      "temporal_info": {
+        "chunk_samples": 61746,
+        "overlap_left_decimated": 308,
+        "overlap_right_decimated": 308,
+        "valid_start_decimated": 308,
+        "valid_end_decimated": 62054,
+        "valid_samples": 61746
+      },
+      "dispersion_delay": {
+        "dm_max": 100,
+        "freq_min_mhz": 1200.390625,
+        "freq_max_mhz": 1599.609375,
+        "delta_t_max_seconds": 0.12578221179431914,
+        "delta_t_max_samples_decimated": 307
+      },
+      "validation": {
+        "overlap_sufficient": true,
+        "overlap_vs_delay_ratio": 1.003257328990228,
+        "no_edge_losses": true,
+        "continuity_with_previous": true
+      }
+    },
+    {
+      "chunk_idx": 3,
+      "temporal_info": {
+        "chunk_samples": 61746,
+        "overlap_left_decimated": 308,
+        "overlap_right_decimated": 308,
+        "valid_start_decimated": 308,
+        "valid_end_decimated": 62054,
+        "valid_samples": 61746
+      },
+      "dispersion_delay": {
+        "dm_max": 100,
+        "freq_min_mhz": 1200.390625,
+        "freq_max_mhz": 1599.609375,
+        "delta_t_max_seconds": 0.12578221179431914,
+        "delta_t_max_samples_decimated": 307
+      },
+      "validation": {
+        "overlap_sufficient": true,
+        "overlap_vs_delay_ratio": 1.003257328990228,
+        "no_edge_losses": true,
+        "continuity_with_previous": true
+      }
+    },
+    {
+      "chunk_idx": 4,
+      "temporal_info": {
+        "chunk_samples": 40448,
+        "overlap_left_decimated": 0,
+        "overlap_right_decimated": 0,
+        "valid_start_decimated": 0,
+        "valid_end_decimated": 40448,
+        "valid_samples": 40448
+      },
+      "dispersion_delay": {
+        "dm_max": 100,
+        "freq_min_mhz": 1200.390625,
+        "freq_max_mhz": 1599.609375,
+        "delta_t_max_seconds": 0.12578221179431914,
+        "delta_t_max_samples_decimated": 307
+      },
+      "validation": {
+        "overlap_sufficient": false,
+        "overlap_vs_delay_ratio": 0.0,
+        "no_edge_losses": true,
+        "continuity_with_previous": true
+      }
+    }
+  ]
+}

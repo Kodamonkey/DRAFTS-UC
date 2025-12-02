@@ -200,14 +200,18 @@ def create_dm_time_plot(
                     class_prob_L = class_probs_linear[idx]
                     is_burst_L = class_prob_L >= config.CLASS_PROB
                     
-                    # HF Mode: Verde solo si AMBAS clasifican BURST
-                    color = "lime" if (is_burst_I and is_burst_L) else "orange"
-                    
+                    # HF Mode: Lógica de colores mejorada
+                    # Verde (lime): Ambas clasificaciones pasan (I y L)
+                    # Morado (purple): I pasa pero L NO pasa
+                    # Naranja (orange): Ninguna pasa (ni I ni L)
                     if is_burst_I and is_burst_L:
+                        color = "lime"
                         burst_status = "BURST (I+L)"
                     elif is_burst_I and not is_burst_L:
+                        color = "purple"
                         burst_status = "I:BURST L:NO"
-                    else:
+                    else:  # not is_burst_I (y posiblemente not is_burst_L)
+                        color = "orange"
                         burst_status = "NO BURST"
                     
                     label = (

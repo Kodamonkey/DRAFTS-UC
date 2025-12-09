@@ -1,0 +1,114 @@
+{
+  "file_name": "FRB20201124_0009.fits",
+  "timestamp": "2025-12-01T00:48:25.793118",
+  "memory_budget": {
+    "timestamp": "2025-12-01T00:48:25.818125",
+    "available_ram_gb": 3.5562820434570312,
+    "available_vram_gb": 5.83160400390625,
+    "max_ram_fraction": 0.25,
+    "max_vram_fraction": 0.7,
+    "safety_margin": 0.8,
+    "overhead_factor": 1.3,
+    "usable_ram_gb": 0.5471203143780048,
+    "usable_vram_gb": 2.5120755709134617,
+    "total_usable_gb": 3.0591958852914667
+  },
+  "data_characteristics": {
+    "file_length_samples": 122880,
+    "freq_resolution": 4096,
+    "time_resolution_s": 4.9152e-05,
+    "down_time_rate": 2,
+    "down_freq_rate": 8,
+    "decimated_samples": 61440,
+    "decimated_channels": 512,
+    "bytes_per_sample": 2048,
+    "freq_min_mhz": 1000.42724609375,
+    "freq_max_mhz": 1499.45068359375
+  },
+  "dm_cube": {
+    "dm_min": 0,
+    "dm_max": 2000,
+    "dm_height": 2001,
+    "cost_per_sample_bytes": 24012,
+    "expected_cube_size_gb": 3.0227508544921875,
+    "delta_t_max_seconds": 4.599998428624677
+  },
+  "chunk_calculation": {
+    "phase_a": {
+      "cost_per_sample_bytes": 24012,
+      "description": "3 * H_DM * 4 bytes"
+    },
+    "phase_b": {
+      "max_samples": 136797,
+      "description": "floor(M_util / C_s)"
+    },
+    "phase_c": {
+      "overlap_decimated": 46794,
+      "slice_len": 2048,
+      "required_min_size": 48842,
+      "description": "O_d + L_s"
+    },
+    "scenario": "ideal",
+    "reason": "Memory allows 136,797 samples (>48,842 required). DM-time cube will fit in RAM (~3.06 GB).",
+    "final_chunk_samples": 135168,
+    "aligned_to_slice": true
+  },
+  "actual_processing": {
+    "chunks_processed": 1,
+    "peak_memory_usage_gb": 3.064239501953125,
+    "peak_memory_timestamp": "2025-12-01T00:49:36.094191",
+    "oom_errors": 0,
+    "dm_chunking_activated": false,
+    "dm_chunks_used": null
+  },
+  "overlap_validation": {
+    "delta_t_max_seconds": 4.599998428624677,
+    "overlap_decimated": 46794,
+    "overlap_sufficient": false,
+    "average_overlap_ratio": 0.0,
+    "min_overlap_ratio": 0.0,
+    "no_edge_losses": true
+  },
+  "buffer_control": {
+    "max_buffer_samples": 0,
+    "emergency_chunks_emitted": 0,
+    "buffer_events": []
+  },
+  "memory_validations": [
+    {
+      "operation": "DM-time cube",
+      "requested_bytes": 1475297280,
+      "requested_gb": 1.3739776611328125,
+      "threshold_warn_gb": 8.0,
+      "threshold_error_gb": 16.0,
+      "validation_result": "allowed",
+      "timestamp": "2025-12-01T00:48:42.252183"
+    }
+  ],
+  "chunks": [
+    {
+      "chunk_idx": 0,
+      "temporal_info": {
+        "chunk_samples": 61440,
+        "overlap_left_decimated": 0,
+        "overlap_right_decimated": 0,
+        "valid_start_decimated": 0,
+        "valid_end_decimated": 61440,
+        "valid_samples": 61440
+      },
+      "dispersion_delay": {
+        "dm_max": 2000,
+        "freq_min_mhz": 1000.42724609375,
+        "freq_max_mhz": 1499.45068359375,
+        "delta_t_max_seconds": 4.599998428624677,
+        "delta_t_max_samples_decimated": 46794
+      },
+      "validation": {
+        "overlap_sufficient": false,
+        "overlap_vs_delay_ratio": 0.0,
+        "no_edge_losses": true,
+        "continuity_with_previous": true
+      }
+    }
+  ]
+}

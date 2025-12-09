@@ -164,7 +164,7 @@ def create_patches_plot(
         n_patch_time_ticks = 5
         patch_tick_positions = np.linspace(patch_time_axis[0], patch_time_axis[-1], n_patch_time_ticks)
         ax_patch.set_xticks(patch_tick_positions)
-        ax_patch.set_xticklabels([f"{t:.6f}" for t in patch_tick_positions])
+        ax_patch.set_xticklabels([f"{t:.6f}" for t in patch_tick_positions], rotation=45)
 
         n_freq_ticks = 6
         freq_tick_positions = np.linspace(freq_ds.min(), freq_ds.max(), n_freq_ticks)

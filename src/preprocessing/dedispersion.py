@@ -23,6 +23,50 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
+def delay_from_dm(dm: float, freq_mhz: float) -> float:
+    """
+    Calculate dispersion delay in seconds for a given DM and frequency.
+    
+    Based on PRESTO's delay_from_dm() function.
+    
+    Args:
+        dm: Dispersion Measure in pc cm^-3
+        freq_mhz: Frequency in MHz
+    
+    Returns:
+        Delay in seconds
+    """
+    if freq_mhz == 0.0:
+        return 0.0
+    # Formula: delay = DM / (0.000241 * freq^2)
+    # 0.000241 = 1 / (2.41e-4) = constant for dispersion
+    return dm / (0.000241 * freq_mhz * freq_mhz)
+
+
+def calculate_dispersion_bandwidth_delay(
+    dm_max: float,
+    freq_low_mhz: float,
+    freq_high_mhz: float
+) -> float:
+    """
+    Calculate the maximum dispersion delay across the bandwidth.
+    
+    Based on PRESTO's BW_ddelay calculation.
+    This is the difference in delay between the lowest and highest frequencies.
+    
+    Args:
+        dm_max: Maximum DM to consider
+        freq_low_mhz: Lowest frequency in MHz
+        freq_high_mhz: Highest frequency in MHz
+    
+    Returns:
+        Maximum delay difference in seconds
+    """
+    delay_low = delay_from_dm(dm_max, freq_low_mhz)
+    delay_high = delay_from_dm(dm_max, freq_high_mhz)
+    return delay_low - delay_high
+
+
 def _de_disp_gpu(dm_time, data, freq, index, dm_values, mid_channel):
     x, y = cuda.grid(2)
     if x < dm_time.shape[1] and y < dm_time.shape[2]:
@@ -131,6 +175,17 @@ def _d_dm_time_cpu(
 
 
 def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128, dm_min: float = None, dm_max: float = None) -> np.ndarray:
+    # CRITICAL: Validate memory before creating full result array
+    # This cube can be HUGE: 3 × height × width × 4 bytes
+    cube_size_bytes = 3 * height * width * 4
+    cube_size_gb = cube_size_bytes / (1024**3)
+    if cube_size_gb > 4.0:  # Warn if > 4GB
+        logger.warning(
+            f"Creating large DM-time cube: {cube_size_gb:.2f} GB "
+            f"(height={height}, width={width:,}). "
+            f"This will use significant GPU/CPU memory."
+        )
+    
     result = np.zeros((3, height, width), dtype=np.float32)
     
                                                         
@@ -180,6 +235,9 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
         index_gpu = cuda.to_device(index_values)
         data_gpu = cuda.to_device(data)
         
+        # Use default chunk_size (128) - don't modify dynamically to avoid breaking detection
+        # The chunking is already optimized in the GPU kernels
+        
         for start_dm in range(0, height, chunk_size):
             end_dm = min(start_dm + chunk_size, height)
             current_height = end_dm - start_dm
@@ -197,10 +255,23 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
             cuda.synchronize()
             result[:, start_dm:end_dm, :] = dm_time_gpu.copy_to_host()
             del dm_time_gpu, dm_values_gpu
+            cuda.synchronize()
+        
+        # CRITICAL: Free GPU arrays after processing
+        del freq_gpu, index_gpu, data_gpu
+        cuda.synchronize()
+        
         logger.info("GPU dedispersion completed successfully")
         return result
     except (cuda.cudadrv.driver.CudaAPIError, Exception) as e:
         logger.warning("GPU dedispersion failed (%s); falling back to CPU", e)
+        # CRITICAL: Clean up GPU memory on failure
+        try:
+            if torch is not None and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+        except Exception:
+            pass
         return _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values)
 
 
@@ -230,7 +301,10 @@ def _d_dm_time_torch_gpu(
     base = torch.arange(width, device=device, dtype=torch.int64)       
 
                                                     
+    # Use default chunk size (64) - don't modify dynamically to avoid breaking detection
+    # The chunking is already optimized in the GPU kernels
     dm_chunk = 64
+    
     for start in range(0, height, dm_chunk):
         end = min(start + dm_chunk, height)
         dms = dm_values[start:end]       
@@ -273,6 +347,11 @@ def _d_dm_time_torch_gpu(
 
                                                  
     result = torch.stack([out0, out1, out2], dim=0).detach().cpu().numpy().astype(np.float32)
+    
+    # CRITICAL: Free GPU tensors immediately after copying to CPU
+    del data_t, freq_ds, dm_values, out0, out1, out2, base
+    torch.cuda.empty_cache()
+    
     return result
 
 def dedisperse_patch(
@@ -288,9 +367,14 @@ def dedisperse_patch(
     -------
     patch : np.ndarray
         Dedispersed patch of shape (patch_len, n_freq).
+        If data is smaller than patch_len, the patch will be padded with zeros.
     start : int
         Start sample used on the original data array.
     """
+    if data.shape[0] == 0:
+        # Return zero patch if no data
+        return np.zeros((patch_len, freq_down.size), dtype=np.float32), 0
+    
     delays = (
         4.15
         * dm
@@ -300,15 +384,57 @@ def dedisperse_patch(
         / config.DOWN_TIME_RATE
     ).astype(np.int64)
     max_delay = int(delays.max())
-    start = sample - patch_len // 2
+    
+    # CRITICAL: Adapt patch_len if data is too small (edge cases at chunk boundaries)
+    # With the new slice_len calculation, this should rarely happen, but we keep it
+    # as a safety measure for edge cases at chunk boundaries
+    available_samples = data.shape[0] - max_delay
+    if available_samples < patch_len:
+        # Use available samples, but ensure minimum size
+        actual_patch_len = max(32, available_samples)  # Minimum 32 samples
+        if actual_patch_len < patch_len:
+            logger.warning(
+                f"WARNING: Data insufficient for full patch. Adapting patch_len from {patch_len} "
+                f"to {actual_patch_len} (data has {data.shape[0]} samples, max_delay={max_delay}). "
+                f"This may occur at chunk boundaries. Consider increasing chunk overlap or slice_len."
+            )
+    else:
+        actual_patch_len = patch_len
+    
+    start = sample - actual_patch_len // 2
     if start < 0:
         start = 0
-    if start + patch_len + max_delay > data.shape[0]:
-        start = max(0, data.shape[0] - (patch_len + max_delay))
-    segment = data[start : start + patch_len + max_delay]
+    if start + actual_patch_len + max_delay > data.shape[0]:
+        start = max(0, data.shape[0] - (actual_patch_len + max_delay))
+    
+    # Extract segment (may be smaller than needed)
+    segment_end = min(start + actual_patch_len + max_delay, data.shape[0])
+    segment = data[start : segment_end]
+    
+    # Create patch - will pad if segment is too small
     patch = np.zeros((patch_len, freq_down.size), dtype=np.float32)
-    for idx in range(freq_down.size):
-        patch[:, idx] = segment[delays[idx] : delays[idx] + patch_len, idx]
+    
+    # Calculate how much we can actually fill
+    if segment.shape[0] > max_delay:
+        segment_available = segment.shape[0] - max_delay
+        fill_len = min(actual_patch_len, segment_available, patch_len)
+        
+        if fill_len > 0:
+            # Fill what we can, centered in the patch
+            for idx in range(freq_down.size):
+                delay = delays[idx]
+                src_start = delay
+                src_end = min(src_start + fill_len, segment.shape[0])
+                
+                if src_end > src_start and src_start < segment.shape[0]:
+                    # Center the available data in the patch
+                    dst_start = max(0, (patch_len - fill_len) // 2)
+                    actual_fill = src_end - src_start
+                    dst_end = dst_start + actual_fill
+                    
+                    if dst_end <= patch_len and src_end <= segment.shape[0]:
+                        patch[dst_start:dst_end, idx] = segment[src_start:src_end, idx]
+    
     return patch, start
 
 def dedisperse_block(

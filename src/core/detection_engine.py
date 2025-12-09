@@ -10,12 +10,13 @@ import logging
 import numpy as np
 
 # Local imports
-from ..analysis.snr_utils import compute_snr_profile
+from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..detection.model_interface import classify_patch, detect
 from ..logging.logging_config import Colors, get_global_logger
 from ..output.candidate_manager import Candidate, append_candidate
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
 from ..preprocessing.dedispersion import dedisperse_block, dedisperse_patch
+from .mjd_utils import calculate_candidate_mjd
 
 from ..visualization.visualization_unified import (
     postprocess_img,
@@ -44,7 +45,10 @@ def detect_and_classify_candidates_in_band(
     patches_dir=None,
     chunk_idx=None,                
     band_idx=None,                  
-    slice_start_idx: int | None = None,                                                  
+    slice_start_idx: int | None = None,
+    waterfall_block=None,  # time x frequency slice block for waterfall SNR calculation
+    slice_samples: int | None = None,  # actual slice samples (may differ from slice_len)
+    off_regions=None,  # off-pulse regions for SNR calculation
 ):
     """Run detection and classification for a specific frequency band.
 
@@ -95,10 +99,33 @@ def detect_and_classify_candidates_in_band(
     best_start = None
     best_dm = None
     best_is_burst = False
-    first_patch = None                                                   
+    first_patch = None
     first_start = None
     first_dm = None
     
+    # Calculate waterfall SNR values (same as in plot_composite.py)
+    # This ensures consistency between CSV and plots
+    snr_waterfall = None
+    peak_time_waterfall = None
+    if waterfall_block is not None and waterfall_block.size > 0:
+        try:
+            snr_wf, _, _ = compute_snr_profile(waterfall_block, off_regions)
+            if snr_wf.size > 0:
+                peak_snr_wf, _, peak_idx_wf = find_snr_peak(snr_wf)
+                snr_waterfall = float(peak_snr_wf)
+                # Calculate absolute time for waterfall peak (same method as plot)
+                if absolute_start_time is not None:
+                    slice_start_abs = absolute_start_time
+                else:
+                    slice_start_abs = j * slice_len * time_reso_ds
+                real_samples = slice_samples if slice_samples is not None else slice_len
+                slice_end_abs = slice_start_abs + real_samples * time_reso_ds
+                time_axis_wf = np.linspace(slice_start_abs, slice_end_abs, len(snr_wf))
+                peak_time_waterfall = float(time_axis_wf[peak_idx_wf])
+        except Exception as e:
+            logger.debug(f"Could not calculate waterfall SNR: {e}")
+            snr_waterfall = None
+            peak_time_waterfall = None
                                                           
     all_candidates = []
     
@@ -185,20 +212,24 @@ def detect_and_classify_candidates_in_band(
         
                                                                      
         dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+        # Calculate detection time from DM-time plot (same as plot_composite.py line 264-269)
+        # This is the time shown in the plot label
+        if absolute_start_time is not None:
+            detection_time_dm_time = absolute_start_time + t_sec
+        else:
+            detection_time_dm_time = j * slice_len * time_reso_ds + t_sec
+        
         if peak_idx_patch is not None:
                                                                     
             slice_offset_samples = (start_sample - (slice_start_idx if slice_start_idx is not None else 0))
             patch_start_abs = (absolute_start_time if absolute_start_time is not None else 0.0) + slice_offset_samples * dt_ds
             absolute_candidate_time = patch_start_abs + peak_idx_patch * dt_ds
         else:
-                                                             
-            if absolute_start_time is not None:
-                absolute_candidate_time = absolute_start_time + t_sec
-            else:
-                absolute_candidate_time = t_sec
+            # Use DM-time detection time as fallback
+            absolute_candidate_time = detection_time_dm_time
 
         
-        candidate_times_abs.append(float(absolute_candidate_time))
+        candidate_times_abs.append(float(detection_time_dm_time))
         
         # Assemble a candidate record with optional width estimates.
         width_ms = None
@@ -209,21 +240,38 @@ def detect_and_classify_candidates_in_band(
         except Exception:
             width_ms = None
 
+        # Calculate MJD values for the candidate (using DM-time detection time, same as plot)
+        mjd_data = calculate_candidate_mjd(
+            t_sec=float(detection_time_dm_time),
+            compute_bary=True,
+            dm=float(dm_val),
+        )
+
         cand = Candidate(
             fits_path.name,
             chunk_idx if chunk_idx is not None else 0,                
             j,            
             band_idx if band_idx is not None else 0,                  
             float(conf),
-            dm_val,
-            absolute_candidate_time,                                 
+            dm_val,  # DM calculated with extract_candidate_dm (same as plot)
+            float(detection_time_dm_time),  # Time from DM-time plot (same as plot label)
+            peak_time_waterfall,  # Time from waterfall SNR peak (different method)
             t_sample,
             tuple(map(int, box)),
-            snr_val,                              
-            class_prob,
-            is_burst,
-            patch_path.name,
+            snr_waterfall,  # SNR from waterfall raw (peak_snr_wf)
+            float(snr_val),  # SNR from dedispersed patch
             width_ms,
+            class_prob,  # Classification probability in Intensity (I) - classic pipeline
+            is_burst,  # BURST classification in Intensity (I) - classic pipeline
+            None,  # class_prob_linear - not available in classic pipeline
+            None,  # is_burst_linear - not available in classic pipeline
+            is_burst,  # Final classification (same as Intensity for classic)
+            patch_path.name,
+            mjd_utc=mjd_data.get('mjd_utc'),
+            mjd_bary_utc=mjd_data.get('mjd_bary_utc'),
+            mjd_bary_tdb=mjd_data.get('mjd_bary_tdb'),
+            mjd_bary_utc_inf=mjd_data.get('mjd_bary_utc_inf'),
+            mjd_bary_tdb_inf=mjd_data.get('mjd_bary_tdb_inf'),
         )
         cand_counter += 1
         if is_burst:
@@ -419,7 +467,10 @@ def process_slice_with_multiple_bands(
             patches_dir=patches_dir,                                   
             chunk_idx=chunk_idx,                
             band_idx=band_idx,                  
-            slice_start_idx=start_idx,                         
+            slice_start_idx=start_idx,
+            waterfall_block=waterfall_block,  # Pass waterfall block for SNR calculation
+            slice_samples=end_idx - start_idx,  # Actual slice samples
+            off_regions=None,  # Can be passed if available
         )
         cand_counter += band_result["cand_counter"]
         n_bursts += band_result["n_bursts"]

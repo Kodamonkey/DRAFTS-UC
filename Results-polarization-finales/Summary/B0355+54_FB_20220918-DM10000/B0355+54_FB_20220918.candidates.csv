@@ -1,0 +1,2 @@
+file,chunk_id,slice_id,band_id,detection_prob,dm_pc_cm-3,t_sec_dm_time,t_sec_waterfall,t_sample,mjd_utc,mjd_bary_utc,mjd_bary_tdb,mjd_bary_utc_inf,mjd_bary_tdb_inf,x1,y1,x2,y2,snr_waterfall,snr_patch_dedispersed,width_ms,class_prob_intensity,is_burst_intensity,class_prob_linear,is_burst_linear,is_burst,patch_file
+B0355+54_FB_20220918.fits,0,4,0,0.369,1208.76,4.237496,4.300111,617,59840.415443652411,59840.415443652411,59840.415443652411,59840.415443652411,59840.415443652411,104,46,155,77,436.80,3.40,0.819,0.030,no_burst,,,no_burst,patch_slice4_band10001.png

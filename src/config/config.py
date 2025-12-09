@@ -52,6 +52,11 @@ try:
         ENABLE_LINEAR_VALIDATION,
         POLARIZATION_MODE,
         POLARIZATION_INDEX,
+        MAX_CHUNK_SAMPLES,
+        MAX_RAM_FRACTION_USER,
+        MAX_DM_CUBE_SIZE_GB,
+        DM_CHUNKING_THRESHOLD_GB_USER,
+        MEMORY_OVERHEAD_FACTOR_USER,
     )
 except ImportError:
     try:
@@ -76,6 +81,11 @@ except ImportError:
             ENABLE_LINEAR_VALIDATION,
             POLARIZATION_MODE,
             POLARIZATION_INDEX,
+            MAX_CHUNK_SAMPLES,
+            MAX_RAM_FRACTION_USER,
+            MAX_DM_CUBE_SIZE_GB,
+            DM_CHUNKING_THRESHOLD_GB_USER,
+            MEMORY_OVERHEAD_FACTOR_USER,
         )
     except:
         # Default values when user_config cannot be imported
@@ -99,6 +109,11 @@ except ImportError:
         POLARIZATION_INDEX = 0
         DEBUG_FREQUENCY_ORDER = False
         FORCE_PLOTS = False
+        MAX_CHUNK_SAMPLES = 1000000
+        MAX_RAM_FRACTION_USER = 0.25
+        MAX_DM_CUBE_SIZE_GB = 2.0
+        DM_CHUNKING_THRESHOLD_GB_USER = 16.0
+        MEMORY_OVERHEAD_FACTOR_USER = 1.3
 
 # ==============================================================================
 # MODEL CONFIGURATION
@@ -143,8 +158,13 @@ TIME_TOL_MS: float = 0.1          # Time tolerance for slice alignment (ms)
 USE_PLANNED_CHUNKING: bool = True       # Enable intelligent chunking
 MAX_SAMPLES_LIMIT: int = 10_000_000     # Maximum samples to process at once
 MAX_CHUNK_BYTES: int | None = None      # Maximum chunk size in bytes (None = auto)
-MAX_RAM_FRACTION: float = 0.25          # Fraction of available RAM to use
-OVERHEAD_FACTOR: float = 1.3            # Memory overhead factor for safety
+MAX_RAM_FRACTION: float = MAX_RAM_FRACTION_USER  # Fraction of available RAM to use (from config.yaml)
+OVERHEAD_FACTOR: float = MEMORY_OVERHEAD_FACTOR_USER  # Memory overhead factor for safety (from config.yaml)
+
+# Performance limits (loaded from config.yaml)
+# These will be overridden by the imported values from user_config.py
+# MAX_DM_CUBE_SIZE_GB is imported from user_config.py above
+DM_CHUNKING_THRESHOLD_GB: float = DM_CHUNKING_THRESHOLD_GB_USER  # DM chunking threshold (from config.yaml)
 
 # ==============================================================================
 # DM (DISPERSION MEASURE) CONFIGURATION

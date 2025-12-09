@@ -17,6 +17,7 @@ from matplotlib import gridspec
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..config import config
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
+from ..core.mjd_utils import calculate_candidate_mjd
 from .visualization_ranges import get_dynamic_dm_range_for_candidate
 
               
@@ -230,7 +231,7 @@ def create_composite_plot(
     denom = float(max(n_px - 1, 1))
     time_values_det = slice_start_abs + (time_positions_det / denom) * (slice_end_abs - slice_start_abs)
     ax_det.set_xticks(time_positions_det)
-    ax_det.set_xticklabels([f"{t:.6f}" for t in time_values_det])
+    ax_det.set_xticklabels([f"{t:.6f}" for t in time_values_det], rotation=45)
     ax_det.set_xlabel("Time (s)", fontsize=10, fontweight="bold")
 
                                            
@@ -267,17 +268,26 @@ def create_composite_plot(
                 else:
                     detection_time = slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE + t_sec_real
             
+            # Calculate MJD for the label
+            mjd_data = calculate_candidate_mjd(
+                t_sec=detection_time,
+                compute_bary=True,
+                dm=dm_val_cand,
+            )
+            mjd_utc = mjd_data.get('mjd_utc', 0.0)
+            mjd_bary_utc_inf = mjd_data.get('mjd_bary_utc_inf')
+            
             # Dual-polarization classification color logic (HF pipeline)
             if class_probs is not None and idx < len(class_probs):
                 class_prob_I = class_probs[idx]
                 is_burst_I = class_prob_I >= config.CLASS_PROB
                 
                 # Check if we have Linear classification (HF pipeline)
+                # Show Linear prob if available, even if it's 0.0 (means classification was performed)
                 is_burst_L = False
                 class_prob_L = 0.0
                 has_linear_classification = (class_probs_linear is not None and 
-                                            idx < len(class_probs_linear) and 
-                                            class_probs_linear[idx] > 0.0)
+                                            idx < len(class_probs_linear))
                 
                 if has_linear_classification:
                     class_prob_L = class_probs_linear[idx]
@@ -293,10 +303,14 @@ def create_composite_plot(
                     else:
                         burst_status = "NO BURST"
                     
+                    mjd_str = f"MJD_topo: {mjd_utc:.8f}"
+                    if mjd_bary_utc_inf is not None:
+                        mjd_str += f"\nMJD_bary_inf: {mjd_bary_utc_inf:.8f}"
                     label = (
                         f"#{idx+1}\n"
                         f"DM: {dm_val_cand:.1f}\n"
                         f"Time: {detection_time:.3f}s\n"
+                        f"{mjd_str}\n"
                         f"I: {class_prob_I:.2f}\n"
                         f"L: {class_prob_L:.2f}\n"
                         f"{burst_status}"
@@ -306,17 +320,24 @@ def create_composite_plot(
                     color = "lime" if is_burst_I else "orange"
                     burst_status = "BURST" if is_burst_I else "NO BURST"
                     
+                    mjd_str = f"MJD_topo: {mjd_utc:.8f}"
+                    if mjd_bary_utc_inf is not None:
+                        mjd_str += f"\nMJD_bary_inf: {mjd_bary_utc_inf:.8f}"
                     label = (
                         f"#{idx+1}\n"
                         f"DM: {dm_val_cand:.1f}\n"
                         f"Time: {detection_time:.3f}s\n"
+                        f"{mjd_str}\n"
                         f"Det: {conf:.2f}\n"
                         f"Cls: {class_prob_I:.2f}\n"
                         f"{burst_status}"
                     )
             else:
                 color = "lime"
-                label = f"#{idx+1}\nDM: {dm_val_cand:.1f}\nTime: {detection_time:.3f}s\nDet: {conf:.2f}"
+                mjd_str = f"MJD_topo: {mjd_utc:.8f}"
+                if mjd_bary_utc_inf is not None:
+                    mjd_str += f"\nMJD_bary_inf: {mjd_bary_utc_inf:.8f}"
+                label = f"#{idx+1}\nDM: {dm_val_cand:.1f}\nTime: {detection_time:.3f}s\n{mjd_str}\nDet: {conf:.2f}"
             
                                       
             rect = plt.Rectangle(
@@ -351,17 +372,24 @@ def create_composite_plot(
     )
     ax_det.set_title(title_det, fontsize=11, fontweight="bold")
 
-                                         
-    gs_bottom_row = gridspec.GridSpecFromSubplotSpec(
-        1, 3, subplot_spec=gs_main[1, 0], width_ratios=[1, 1, 1], wspace=0.3
-    )
 
     # =============================================================================
     # BOTTOM PANELS LAYOUT
     # =============================================================================
     # Multi-pol mode (HF pipeline): Show 3 dedispersed waterfalls (I, L, V)
-    # Standard mode: Show dispersed, dedispersed, patch
+    # Standard mode (classic pipeline): Show only dispersed and dedispersed waterfalls (NO patch)
     # =============================================================================
+    
+    if multi_pol_mode:
+        # HF pipeline: 3 panels for I, L, V
+        gs_bottom_row = gridspec.GridSpecFromSubplotSpec(
+            1, 3, subplot_spec=gs_main[1, 0], width_ratios=[1, 1, 1], wspace=0.3
+        )
+    else:
+        # Classic pipeline: 2 panels for raw and dedispersed waterfalls only
+        gs_bottom_row = gridspec.GridSpecFromSubplotSpec(
+            1, 2, subplot_spec=gs_main[1, 0], width_ratios=[1, 1], wspace=0.3
+        )
     
     if multi_pol_mode:
         # Use multi-polarization panel layout
@@ -407,31 +435,24 @@ def create_composite_plot(
                              linestyle='--', alpha=0.7, linewidth=1)
         
         ax_prof_wf.plot(time_axis_wf[peak_idx_wf], peak_snr_wf, 'ro', markersize=5)
-        ax_prof_wf.text(time_axis_wf[peak_idx_wf], peak_snr_wf + 0.1 * (ax_prof_wf.get_ylim()[1] - ax_prof_wf.get_ylim()[0]), 
-                       f'{peak_snr_wf:.1f}σ', ha='center', va='bottom', fontsize=8, fontweight='bold')
+        
+        # Position SNR text to the right of the peak to avoid collision with title
+        # Calculate text position: slightly to the right and above the peak
+        y_range = ax_prof_wf.get_ylim()[1] - ax_prof_wf.get_ylim()[0]
+        x_range = ax_prof_wf.get_xlim()[1] - ax_prof_wf.get_xlim()[0]
+        text_x = time_axis_wf[peak_idx_wf] + 0.02 * x_range  # 2% to the right
+        text_y = peak_snr_wf + 0.15 * y_range  # 15% above peak (increased from 10% to avoid title)
+        ax_prof_wf.text(text_x, text_y, 
+                       f'{peak_snr_wf:.1f}σ', ha='left', va='bottom', fontsize=8, fontweight='bold',
+                       bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.8, edgecolor='red', linewidth=0.5))
         
         ax_prof_wf.set_xlim(time_axis_wf[0], time_axis_wf[-1])
         ax_prof_wf.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
         ax_prof_wf.grid(True, alpha=0.3)
         ax_prof_wf.set_xticks([])
         
-        width_ms_wf = float(best_w_wf[int(peak_idx_wf)]) * time_reso_ds * 1000.0 if len(best_w_wf) == len(snr_wf) else None
-        if peak_time_wf_abs is not None:
-            if width_ms_wf is not None:
-                ax_prof_wf.set_title(
-                    f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ (w≈{width_ms_wf:.3f} ms) -> {peak_time_wf_abs:.6f}s",
-                    fontsize=9, fontweight="bold",
-                )
-            else:
-                ax_prof_wf.set_title(
-                    f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ -> {peak_time_wf_abs:.6f}s",
-                    fontsize=9, fontweight="bold",
-                )
-        else:
-            if width_ms_wf is not None:
-                ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ (w≈{width_ms_wf:.3f} ms)", fontsize=9, fontweight="bold")
-            else:
-                ax_prof_wf.set_title(f"Raw Waterfall SNR\nPeak={peak_snr_wf:.1f}σ", fontsize=9, fontweight="bold")
+        # Simplified title: only peak SNR
+        ax_prof_wf.set_title(f"Raw Waterfall\nPeak SNR: {peak_snr_wf:.1f}σ", fontsize=9, fontweight="bold", pad=12)
     elif not _skip_standard_panels:
         ax_prof_wf.text(0.5, 0.5, 'No waterfall data\navailable', 
                        transform=ax_prof_wf.transAxes, 
@@ -465,7 +486,7 @@ def create_composite_plot(
         n_time_ticks = 5
         time_tick_positions = np.linspace(slice_start_abs, slice_end_abs, n_time_ticks)
         ax_wf.set_xticks(time_tick_positions)
-        ax_wf.set_xticklabels([f"{t:.6f}" for t in time_tick_positions])
+        ax_wf.set_xticklabels([f"{t:.6f}" for t in time_tick_positions], rotation=45)
         ax_wf.set_xlabel("Time (s)", fontsize=9)
         ax_wf.set_ylabel("Frequency (MHz)", fontsize=9)
         
@@ -524,55 +545,23 @@ def create_composite_plot(
                               linestyle='--', alpha=0.7, linewidth=1)
         
         ax_prof_dw.plot(time_axis_dw[peak_idx_dw], peak_snr_dw, 'ro', markersize=5)
-        ax_prof_dw.text(time_axis_dw[peak_idx_dw], peak_snr_dw + 0.1 * (ax_prof_dw.get_ylim()[1] - ax_prof_dw.get_ylim()[0]), 
-                       f'{peak_snr_dw:.1f}σ', ha='center', va='bottom', fontsize=8, fontweight='bold')
+        
+        # Position SNR text to the right of the peak to avoid collision with title
+        y_range_dw = ax_prof_dw.get_ylim()[1] - ax_prof_dw.get_ylim()[0]
+        x_range_dw = ax_prof_dw.get_xlim()[1] - ax_prof_dw.get_xlim()[0]
+        text_x_dw = time_axis_dw[peak_idx_dw] + 0.02 * x_range_dw  # 2% to the right
+        text_y_dw = peak_snr_dw + 0.15 * y_range_dw  # 15% above peak (increased from 10% to avoid title)
+        ax_prof_dw.text(text_x_dw, text_y_dw, 
+                       f'{peak_snr_dw:.1f}σ', ha='left', va='bottom', fontsize=8, fontweight='bold',
+                       bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.8, edgecolor='red', linewidth=0.5))
         
         ax_prof_dw.set_xlim(slice_start_abs, slice_end_abs)
         ax_prof_dw.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
         ax_prof_dw.grid(True, alpha=0.3)
         ax_prof_dw.set_xticks([])
         
-        if snr_val_candidate > 0:
-            if peak_time_dw_abs is not None:
-                if width_ms_dw is not None:
-                    title_text = (
-                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                        f"Peak={peak_snr_dw:.1f}σ (w≈{width_ms_dw:.3f} ms) -> {peak_time_dw_abs:.6f}s (block) / {snr_val_candidate:.1f}σ (candidate)"
-                    )
-                else:
-                    title_text = (
-                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                        f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s (block) / {snr_val_candidate:.1f}σ (candidate)"
-                    )
-            else:
-                if width_ms_dw is not None:
-                    title_text = (
-                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                        f"Peak={peak_snr_dw:.1f}σ (w≈{width_ms_dw:.3f} ms) (block) / {snr_val_candidate:.1f}σ (candidate)"
-                    )
-                else:
-                    title_text = (
-                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                        f"Peak={peak_snr_dw:.1f}σ (block) / {snr_val_candidate:.1f}σ (candidate)"
-                    )
-        else:
-            if peak_time_dw_abs is not None:
-                if width_ms_dw is not None:
-                    title_text = (
-                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                        f"Peak={peak_snr_dw:.1f}σ (w≈{width_ms_dw:.3f} ms) -> {peak_time_dw_abs:.6f}s"
-                    )
-                else:
-                    title_text = (
-                        f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\n"
-                        f"Peak={peak_snr_dw:.1f}σ -> {peak_time_dw_abs:.6f}s"
-                    )
-            else:
-                if width_ms_dw is not None:
-                    title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ (w≈{width_ms_dw:.3f} ms)"
-                else:
-                    title_text = f"Dedispersed SNR DM={dm_val_consistent:.2f} pc cm⁻³\nPeak={peak_snr_dw:.1f}σ"
-        ax_prof_dw.set_title(title_text, fontsize=9, fontweight="bold")
+        # Simplified title: only peak SNR
+        ax_prof_dw.set_title(f"Dedispersed Waterfall\nPeak SNR: {peak_snr_dw:.1f}σ", fontsize=9, fontweight="bold", pad=12)
     elif not _skip_standard_panels:
         ax_prof_dw.text(0.5, 0.5, 'No dedispersed\ndata available', 
                        transform=ax_prof_dw.transAxes, 
@@ -602,7 +591,7 @@ def create_composite_plot(
         ax_dw.set_yticks(freq_tick_positions)
         ax_dw.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
         ax_dw.set_xticks(time_tick_positions)
-        ax_dw.set_xticklabels([f"{t:.6f}" for t in time_tick_positions])
+        ax_dw.set_xticklabels([f"{t:.6f}" for t in time_tick_positions], rotation=45)
         ax_dw.set_xlabel("Time (s)", fontsize=9)
         ax_dw.set_ylabel("Frequency (MHz)", fontsize=9)
         
@@ -619,93 +608,9 @@ def create_composite_plot(
         ax_dw.set_xlabel("Time (s)", fontsize=9)
         ax_dw.set_ylabel("Frequency (MHz)", fontsize=9)
 
-    if not _skip_standard_panels:                                   
-        gs_patch_nested = gridspec.GridSpecFromSubplotSpec(
-            2, 1, subplot_spec=gs_bottom_row[0, 2], height_ratios=[1, 4], hspace=0.05
-        )
-        ax_patch_prof = fig.add_subplot(gs_patch_nested[0, 0])
-    
-    if not _skip_standard_panels and patch_img is not None and patch_img.size > 0:
-        snr_patch, sigma_patch, best_w_patch = compute_snr_profile(patch_img, off_regions)
-        peak_snr_patch, peak_time_patch, peak_idx_patch = find_snr_peak(snr_patch)
-        width_ms_patch = float(best_w_patch[int(peak_idx_patch)]) * time_reso_ds * 1000.0 if len(best_w_patch) == len(snr_patch) else None
-        
-        if absolute_start_time is not None:
-            patch_start_abs = absolute_start_time + (patch_start - (slice_idx * slice_len * config.TIME_RESO * config.DOWN_TIME_RATE))
-        else:
-            patch_start_abs = patch_start
-        
-        patch_time_axis = np.linspace(patch_start_abs, patch_start_abs + len(snr_patch) * time_reso_ds, len(snr_patch))
-        ax_patch_prof.plot(patch_time_axis, snr_patch, color="orange", alpha=0.8, lw=1.5, label='Candidate SNR')
-        
-        if thresh_snr is not None and config.SNR_SHOW_PEAK_LINES:
-            above_thresh_patch = snr_patch >= thresh_snr
-            if np.any(above_thresh_patch):
-                ax_patch_prof.plot(patch_time_axis[above_thresh_patch], snr_patch[above_thresh_patch], 
-                                color=config.SNR_HIGHLIGHT_COLOR, lw=2, alpha=0.9)
-            ax_patch_prof.axhline(y=thresh_snr, color=config.SNR_HIGHLIGHT_COLOR, 
-                                 linestyle='--', alpha=0.7, linewidth=1)
-        
-        ax_patch_prof.plot(patch_time_axis[peak_idx_patch], peak_snr_patch, 'ro', markersize=5)
-        ax_patch_prof.text(patch_time_axis[peak_idx_patch], peak_snr_patch + 0.1 * (ax_patch_prof.get_ylim()[1] - ax_patch_prof.get_ylim()[0]), 
-                          f'{peak_snr_patch:.1f}σ', ha='center', va='bottom', fontsize=8, fontweight='bold')
-        
-        ax_patch_prof.set_xlim(patch_time_axis[0], patch_time_axis[-1])
-        ax_patch_prof.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
-        ax_patch_prof.grid(True, alpha=0.3)
-        ax_patch_prof.set_xticks([])
-        if width_ms_patch is not None:
-            ax_patch_prof.set_title(f"Candidate Patch SNR\nPeak={peak_snr_patch:.1f}σ (w≈{width_ms_patch:.3f} ms)", fontsize=9, fontweight="bold")
-        else:
-            ax_patch_prof.set_title(f"Candidate Patch SNR\nPeak={peak_snr_patch:.1f}σ", fontsize=9, fontweight="bold")
-    elif not _skip_standard_panels:
-        ax_patch_prof.text(0.5, 0.5, 'No candidate patch\navailable', 
-                          transform=ax_patch_prof.transAxes, 
-                          ha='center', va='center', fontsize=10, 
-                          bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgray", alpha=0.7))
-        ax_patch_prof.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
-        ax_patch_prof.grid(True, alpha=0.3)
-        ax_patch_prof.set_xticks([])
-        ax_patch_prof.set_title("No Candidate Patch", fontsize=9, fontweight="bold")
-
-    if not _skip_standard_panels:                       
-        ax_patch = fig.add_subplot(gs_patch_nested[1, 0])
-    
-    if not _skip_standard_panels and patch_img is not None and patch_img.size > 0:
-        ax_patch.imshow(
-            patch_img.T,
-            origin="lower",
-            aspect="auto",
-            cmap="mako",
-            vmin=np.nanpercentile(patch_img, 1),
-            vmax=np.nanpercentile(patch_img, 99),
-            extent=[patch_time_axis[0], patch_time_axis[-1], freq_ds.min(), freq_ds.max()],
-        )
-        ax_patch.set_xlim(patch_time_axis[0], patch_time_axis[-1])
-        ax_patch.set_ylim(freq_ds.min(), freq_ds.max())
-
-        n_patch_time_ticks = 5
-        patch_tick_positions = np.linspace(patch_time_axis[0], patch_time_axis[-1], n_patch_time_ticks)
-        ax_patch.set_xticks(patch_tick_positions)
-        ax_patch.set_xticklabels([f"{t:.6f}" for t in patch_tick_positions])
-
-        ax_patch.set_yticks(freq_tick_positions)
-        ax_patch.set_yticklabels([f"{f:.0f}" for f in freq_tick_positions])
-        ax_patch.set_xlabel("Time (s)", fontsize=9)
-        ax_patch.set_ylabel("Frequency (MHz)", fontsize=9)
-        
-        if 'peak_snr_patch' in locals() and config.SNR_SHOW_PEAK_LINES:
-            ax_patch.axvline(x=patch_time_axis[peak_idx_patch], color=config.SNR_HIGHLIGHT_COLOR, 
-                           linestyle='-', alpha=0.8, linewidth=2)
-    elif not _skip_standard_panels:
-        ax_patch.text(0.5, 0.5, 'No candidate patch available', 
-                     transform=ax_patch.transAxes, 
-                     ha='center', va='center', fontsize=12, 
-                     bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgray", alpha=0.7))
-        ax_patch.set_xticks([])
-        ax_patch.set_yticks([])
-        ax_patch.set_xlabel("Time (s)", fontsize=9)
-        ax_patch.set_ylabel("Frequency (MHz)", fontsize=9)
+    # NOTE: Candidate Patch SNR plot removed for classic pipeline
+    # Only HF pipeline (multi_pol_mode) uses the third panel
+    # Classic pipeline now shows only raw and dedispersed waterfalls (2 panels)
 
                     
     idx_start_ds = int(round(slice_start_abs / (config.TIME_RESO * config.DOWN_TIME_RATE)))
@@ -713,43 +618,13 @@ def create_composite_plot(
     start_center = slice_start_abs
     end_center = slice_end_abs
     
+    # Simplified title: only essential information
     if chunk_idx is not None:
-        title = (
-            f"Composite: {fits_stem} - {band_name_with_freq} - Chunk {chunk_idx:03d} - Slice {slice_idx:03d} | "
-            f"start={start_center:.6f}s end={end_center:.6f}s Δt={(config.TIME_RESO * config.DOWN_TIME_RATE):.9f}s "
-            f"| [idx {idx_start_ds}→{idx_end_ds}]"
-        )
+        title = f"{fits_stem} - {band_name_with_freq} - Chunk {chunk_idx:03d} - Slice {slice_idx:03d}"
     else:
-        title = (
-            f"Composite: {fits_stem} - {band_name_with_freq} - Slice {slice_idx:03d} | "
-            f"start={start_center:.6f}s end={end_center:.6f}s Δt={(config.TIME_RESO * config.DOWN_TIME_RATE):.9f}s "
-            f"| [idx {idx_start_ds}→{idx_end_ds}]"
-        )
+        title = f"{fits_stem} - {band_name_with_freq} - Slice {slice_idx:03d}"
 
     fig.suptitle(title, fontsize=14, fontweight="bold", y=0.97)
-    
-                              
-    try:
-        dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
-        global_start_sample = int(round(slice_start_abs / dt_ds))
-        global_end_sample = global_start_sample + real_samples - 1
-
-        info_lines = [
-            f"Samples (decimated): {global_start_sample} → {global_end_sample} (N={real_samples})",
-            f"Δt (effective): {dt_ds:.9f} s",
-            f"Time span (centers): {start_center:.6f}s → {end_center:.6f}s (Δ={(real_samples - 1) * dt_ds:.6f}s)",
-        ]
-        fig.text(
-            0.01,
-            0.01,
-            "\n".join(info_lines),
-            ha="left",
-            va="bottom",
-            fontsize=9,
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8),
-        )
-    except Exception:
-        pass
 
     return fig
 
@@ -864,7 +739,110 @@ def save_composite_plot(
                 candidate_times_abs=candidate_times_abs,
                 output_dir=individual_plots_dir,
                 class_probs_linear=class_probs_linear,  # NEW: Pass Linear probs
+                dedisp_block_linear=dedisp_block_linear,  # NEW: Pass Linear polarization block
+                dedisp_block_circular=dedisp_block_circular,  # NEW: Pass Circular polarization block
             )
         except Exception as e:
             logger.warning(f"Could not generate individual plots: {e}")
+    
+    # Generate polarization time series plots for each candidate
+    if candidate_times_abs is not None and len(candidate_times_abs) > 0:
+        try:
+            from .plot_polarization_timeseries import save_polarization_timeseries_plot
+            from ..config import config
+            
+            logger.info(f"Generating polarization time series plots for {len(candidate_times_abs)} candidate(s)")
+            
+            # Calculate frequency array
+            freq_ds = np.mean(
+                config.FREQ.reshape(
+                    config.FREQ_RESO // config.DOWN_FREQ_RATE,
+                    config.DOWN_FREQ_RATE,
+                ),
+                axis=1,
+            )
+            time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+            
+            # Calculate slice time boundaries
+            if absolute_start_time is not None:
+                slice_start_abs = absolute_start_time
+            else:
+                slice_start_abs = slice_idx * slice_len * time_reso_ds
+            
+            real_samples = slice_samples if slice_samples is not None else slice_len
+            slice_end_abs = slice_start_abs + real_samples * time_reso_ds
+            
+            # Determine polarization mode
+            has_multipol = (dedisp_block_linear is not None) or (dedisp_block_circular is not None)
+            pol_mode = "all" if has_multipol else "intensity"
+            
+            # CRITICAL: Prepare normalized blocks EXACTLY as in create_composite_plot (lines 178-204)
+            # This ensures the waterfall data matches exactly what's shown in the composite plot
+            dw_block = dedispersed_block.copy() if dedispersed_block is not None and dedispersed_block.size > 0 else None
+            dw_linear = None
+            dw_circular = None
+            if has_multipol:
+                if dedisp_block_linear is not None and dedisp_block_linear.size > 0:
+                    dw_linear = dedisp_block_linear.copy()
+                if dedisp_block_circular is not None and dedisp_block_circular.size > 0:
+                    dw_circular = dedisp_block_circular.copy()
+            
+            # Apply normalization EXACTLY as in create_composite_plot (lines 192-204)
+            if normalize:
+                blocks_to_norm = [dw_block]
+                if has_multipol:
+                    blocks_to_norm.extend([dw_linear, dw_circular])
+                
+                for block in blocks_to_norm:
+                    if block is not None:
+                        block += 1
+                        block /= np.mean(block, axis=0)
+                        vmin, vmax = np.nanpercentile(block, [5, 95])
+                        block[:] = np.clip(block, vmin, vmax)
+                        block -= block.min()
+                        block /= block.max() - block.min()
+            
+            # Generate plot for each candidate
+            for cand_idx, cand_time_abs in enumerate(candidate_times_abs):
+                # Determine output path - EXACTLY same structure as individual_plots
+                # individual_plots uses: base_out_path.parent / output_dir / f"chunk_{chunk_idx:03d}" / f"slice_{slice_idx:03d}"
+                # where base_out_path is the composite plot path
+                # So polarization_timeseries should be at the same level as individual_plots
+                if chunk_idx is not None:
+                    # Match exact format: chunk_000 (not chunk_0)
+                    pol_dir = out_path.parent / "polarization_timeseries" / f"chunk_{chunk_idx:03d}" / f"slice_{slice_idx:03d}"
+                else:
+                    pol_dir = out_path.parent / "polarization_timeseries" / f"slice_{slice_idx:03d}"
+                
+                pol_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Create filename
+                pol_filename = f"{fits_stem}_slice{slice_idx:03d}_cand{cand_idx:02d}_t{cand_time_abs:.3f}s_pol.png"
+                pol_path = pol_dir / pol_filename
+                
+                # Generate and save plot
+                # IMPORTANT: Pass the normalized blocks (dw_block, dw_linear, dw_circular)
+                # that were prepared above using EXACTLY the same normalization as create_composite_plot
+                # This ensures the waterfall matches exactly what's shown in the composite plot
+                save_polarization_timeseries_plot(
+                    dedisp_intensity=dw_block if dw_block is not None else dedispersed_block,
+                    dedisp_linear=dw_linear,
+                    dedisp_circular=dw_circular,
+                    dm_val=dm_val,
+                    candidate_time_abs=cand_time_abs,
+                    slice_start_abs=slice_start_abs,
+                    slice_end_abs=slice_end_abs,
+                    freq_ds=freq_ds,
+                    time_reso_ds=time_reso_ds,
+                    fits_filename=fits_stem,
+                    slice_idx=slice_idx,
+                    pol_mode=pol_mode,
+                    out_path=pol_path,
+                    normalize=False,  # Data is already normalized above using same logic as create_composite_plot
+                )
+                logger.info(f"✓ Polarization time series plot saved: {pol_path}")
+        except Exception as e:
+            logger.warning(f"Could not generate polarization time series plots: {e}", exc_info=True)
+    else:
+        logger.debug(f"No candidate_times_abs provided or empty (candidate_times_abs={candidate_times_abs})")
                                                                                   

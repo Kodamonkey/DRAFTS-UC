@@ -1,0 +1,3 @@
+file,chunk_id,slice_id,band_id,detection_prob,dm_pc_cm-3,t_sec,t_sample,x1,y1,x2,y2,snr,width_ms,class_prob,is_burst,patch_file
+2017-04-03-08_25_13_0003.fits,0,1,0,0.756,0.00,0.942080,216,445,0,462,16,8.09,8.192,1.000,burst,patch_slice1_band0.png
+2017-04-03-08_25_13_0003.fits,0,24,0,0.799,0.00,12.066816,36,67,0,84,16,8.14,2.048,0.523,burst,patch_slice24_band0.png

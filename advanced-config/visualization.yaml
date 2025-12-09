@@ -1,0 +1,176 @@
+# ==============================================================================
+# ADVANCED VISUALIZATION CONFIGURATION
+# ==============================================================================
+# 
+# This file contains detailed visualization and plotting settings for DRAFTS++.
+# Most users should NOT modify these settings unless they need specific customization.
+# 
+# For basic visualization control, use the 'debug' section in config.yaml
+# 
+# ==============================================================================
+
+# =============================================================================
+# SNR VISUALIZATION
+# =============================================================================
+snr:
+  # SNR off-pulse regions (for noise estimation)
+  # Format: [(start_ms, end_ms), ...]
+  # These regions are used to estimate background noise levels
+  off_pulse_regions:
+    - [-250, -150]
+    - [-100, -50]
+    - [50, 100]
+    - [150, 250]
+
+  # Color for highlighting SNR peaks and regions
+  highlight_color: "red"
+
+  # Show vertical lines at SNR peak positions
+  show_peak_lines: false
+
+  # Colormap for SNR visualizations
+  # Options: viridis, plasma, inferno, magma, jet, hot, cool, etc.
+  colormap: "viridis"
+
+# =============================================================================
+# DM PLOTTING RANGES
+# =============================================================================
+dm_plotting:
+  # DM plot margin factor (adds padding around detected DM range)
+  # Higher values = more padding, lower values = tighter zoom
+  margin_factor: 0.25
+
+  # Minimum DM range to display (pc cm⁻³)
+  # Even if detected range is smaller, plot will show at least this range
+  min_range: 120.0
+
+  # Maximum DM range to display (pc cm⁻³)
+  # Plot will not exceed this range even if detections span wider
+  max_range: 400.0
+
+  # Default DM range when no detections are found (pc cm⁻³)
+  default_range: 250.0
+
+  # Default visualization mode for DM ranges
+  # Options: "detailed", "overview", "adaptive"
+  default_visualization: "detailed"
+
+# =============================================================================
+# PREPROCESSING VISUALIZATION
+# =============================================================================
+preprocessing:
+  # Apply prewhitening before dedispersion in visualizations
+  # This affects how the data appears in plots, not the actual processing
+  prewhiten_before_dm: true
+
+  # Shade invalid tail regions in plots
+  # Shows regions where dispersion delay causes data loss
+  shade_invalid_tail: true
+
+# =============================================================================
+# SLICE CONFIGURATION (VISUALIZATION)
+# =============================================================================
+slices:
+  # Temporal slice length limits for visualization
+  # These don't affect processing, only how slices are displayed
+  len_min: 32           # Minimum slice length for plots
+  len_max: 2048         # Maximum slice length for plots
+  
+  # Maximum number of slices to show in overview plots
+  max_slice_count: 5000
+  
+  # Time tolerance for slice alignment in plots (ms)
+  time_tolerance_ms: 0.1
+
+# =============================================================================
+# ADAPTIVE DM RANGE (VISUALIZATION)
+# =============================================================================
+adaptive_dm:
+  # Enable adaptive DM range based on detections
+  # Automatically adjusts DM plot range based on detected candidates
+  enable: false
+  
+  # Minimum and maximum width for adaptive DM ranges
+  range_min_width: 80.0   # pc cm⁻³
+  range_max_width: 300.0  # pc cm⁻³
+  
+  # Factor for expanding DM range around detections
+  range_factor: 0.3
+  
+  # Enable dynamic range adjustment during processing
+  dynamic_range_enable: false
+
+# =============================================================================
+# BAND CONFIGURATION (MULTI-BAND VISUALIZATION)
+# =============================================================================
+bands:
+  # Configuration for multi-band visualizations
+  # Each band gets its own color scheme and labeling
+  configs:
+    - id: 0
+      name: "fullband"
+      label: "Full Band"
+      color: "#1f77b4"  # Blue
+    - id: 1
+      name: "lowband"
+      label: "Low Band"
+      color: "#ff7f0e"  # Orange
+    - id: 2
+      name: "highband"
+      label: "High Band"
+      color: "#2ca02c"  # Green
+
+# =============================================================================
+# PLOT STYLING
+# =============================================================================
+styling:
+  # Default figure size (width, height) in inches
+  figure_size: [12, 8]
+  
+  # DPI for saved plots
+  dpi: 300
+  
+  # Font sizes
+  title_fontsize: 14
+  label_fontsize: 12
+  tick_fontsize: 10
+  legend_fontsize: 10
+  
+  # Color schemes for different plot types
+  colors:
+    waterfall: "viridis"
+    dm_time: "hot"
+    time_series: "plasma"
+    
+  # Grid settings
+  grid:
+    enable: true
+    alpha: 0.3
+    linestyle: "--"
+    
+  # Margin settings (fraction of plot area)
+  margins:
+    left: 0.1
+    right: 0.9
+    top: 0.9
+    bottom: 0.1
+
+# =============================================================================
+# EXPORT SETTINGS
+# =============================================================================
+export:
+  # Default format for saved plots
+  # Options: png, pdf, svg, eps, jpg
+  format: "png"
+  
+  # Quality for raster formats (0-100)
+  quality: 95
+  
+  # Transparent background for saved plots
+  transparent: false
+  
+  # Bbox inches setting for tight layout
+  bbox_inches: "tight"
+  
+  # Pad inches around the figure when bbox_inches is 'tight'
+  pad_inches: 0.1

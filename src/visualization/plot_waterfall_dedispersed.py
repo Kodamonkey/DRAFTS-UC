@@ -238,7 +238,7 @@ def create_waterfall_dedispersed_plot(
         n_time_ticks = 5
         time_tick_positions = np.linspace(slice_start_abs, slice_end_abs, n_time_ticks)
         ax_dw.set_xticks(time_tick_positions)
-        ax_dw.set_xticklabels([f"{t:.6f}" for t in time_tick_positions])
+        ax_dw.set_xticklabels([f"{t:.6f}" for t in time_tick_positions], rotation=45)
         ax_dw.set_xlabel("Time (s)", fontsize=9)
         ax_dw.set_ylabel("Frequency (MHz)", fontsize=9)
         

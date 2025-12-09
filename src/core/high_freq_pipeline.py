@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import logging
+import time
 
 # Third-party imports
 import numpy as np
@@ -14,7 +15,10 @@ from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..logging.logging_config import Colors, get_global_logger
 from ..output.candidate_manager import Candidate, append_candidate
 from ..preprocessing.dedispersion import dedisperse_block, dedisperse_patch
+from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
 from ..visualization.visualization_unified import preprocess_img, postprocess_img
+from .mjd_utils import calculate_candidate_mjd
+from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +77,7 @@ def snr_detect_and_classify_candidates_in_band(
     waterfall_block_raw: np.ndarray | None = None,  # RAW multi-pol data (time, npol, chan) - SLICE
     data_block_raw: np.ndarray | None = None,  # RAW multi-pol data (time, npol, chan) - FULL CHUNK
     pol_type: str = "IQUV",
+    slice_samples: int | None = None,  # actual slice samples (may differ from slice_len)
 ) -> dict:
     """Detect candidates from SNR peaks with multi-polarization validation.
     
@@ -262,15 +267,48 @@ def snr_detect_and_classify_candidates_in_band(
     # =========================================================================
     logger.info("Phase 3: ResNet classification on Intensity and Linear Polarization patches")
     
+    # Calculate waterfall SNR values (same as in plot_composite.py)
+    # This ensures consistency between CSV and plots
+    snr_waterfall = None
+    peak_time_waterfall = None
+    if waterfall_block is not None and waterfall_block.size > 0:
+        try:
+            snr_wf, _, _ = compute_snr_profile(waterfall_block, off_regions)
+            if snr_wf.size > 0:
+                peak_snr_wf, _, peak_idx_wf = find_snr_peak(snr_wf)
+                snr_waterfall = float(peak_snr_wf)
+                # Calculate absolute time for waterfall peak (same method as plot)
+                if absolute_start_time is not None:
+                    slice_start_abs = absolute_start_time
+                else:
+                    slice_start_abs = j * slice_len * time_reso_ds
+                real_samples = slice_samples if slice_samples is not None else slice_len
+                slice_end_abs = slice_start_abs + real_samples * time_reso_ds
+                time_axis_wf = np.linspace(slice_start_abs, slice_end_abs, len(snr_wf))
+                peak_time_waterfall = float(time_axis_wf[peak_idx_wf])
+        except Exception as e:
+            logger.debug(f"Could not calculate waterfall SNR: {e}")
+            snr_waterfall = None
+            peak_time_waterfall = None
+    
     for peak_idx in peaks:
         # Create a box centred on the peak.
         cx = int(max(0, min(img_w - 1, peak_idx)))
-        dm_val = _dm_from_image_at_time(band_img, cx)
-        cy_row = int(round((dm_val - float(config.DM_min)) / max(float(config.DM_max - config.DM_min), 1e-6) * (img_h - 1)))
+        # First get approximate DM to calculate box position
+        dm_val_approx = _dm_from_image_at_time(band_img, cx)
+        cy_row = int(round((dm_val_approx - float(config.DM_min)) / max(float(config.DM_max - config.DM_min), 1e-6) * (img_h - 1)))
         x1_raw = max(0, cx - half_w)
         x2_raw = min(img_w - 1, cx + half_w)
         y1_raw = max(0, cy_row - half_h)
         y2_raw = min(img_h - 1, cy_row + half_h)
+        
+        # CRITICAL: Use extract_candidate_dm with box center (same as plot_composite.py line 260)
+        # This ensures DM in CSV matches exactly what's shown in plot label
+        center_x = (x1_raw + x2_raw) / 2.0
+        center_y = (y1_raw + y2_raw) / 2.0
+        effective_len_det = slice_samples if slice_samples is not None else slice_len
+        dm_val, t_sec_real, t_sample_real = extract_candidate_dm(center_x, center_y, effective_len_det)
+        
         # Transform the box to 512x512 coordinates to match img_rgb.
         x1 = int(round(x1_raw * scale_x))
         x2 = int(round(x2_raw * scale_x))
@@ -300,13 +338,24 @@ def snr_detect_and_classify_candidates_in_band(
             snr_val_intensity = snr_peak
 
         from ..detection.model_interface import classify_patch
+        # Classify patch - EXACTLY same logic as classic pipeline (line 145 in detection_engine.py)
         class_prob_intensity, proc_patch_intensity = classify_patch(cls_model, patch_intensity)
         is_burst_intensity = class_prob_intensity >= float(config.CLASS_PROB)
         
+        # Log classification result with patch info for debugging
+        patch_info = f"shape={patch_intensity.shape if patch_intensity is not None else 'None'}, size={patch_intensity.size if patch_intensity is not None else 0}"
         logger.debug(
-            "Phase 3a: Intensity classification - DM=%.2f t_idx=%d class_prob=%.3f is_burst=%s",
-            dm_val, peak_idx, class_prob_intensity, is_burst_intensity
+            "Phase 3a: Intensity classification - DM=%.2f t_idx=%d class_prob=%.3f is_burst=%s patch_info=%s",
+            dm_val, peak_idx, class_prob_intensity, is_burst_intensity, patch_info
         )
+        
+        # Warn if probability is 0.0 but we have a valid patch (this shouldn't happen for valid candidates)
+        if class_prob_intensity == 0.0 and patch_intensity is not None and patch_intensity.size > 0:
+            logger.warning(
+                "WARNING: class_prob_intensity is 0.0 for valid patch at DM=%.2f peak_idx=%d. "
+                "This may indicate a classification error.",
+                dm_val, peak_idx
+            )
         
         # =====================================================================
         # PHASE 3b: ResNet Classification on LINEAR POLARIZATION
@@ -360,7 +409,14 @@ def snr_detect_and_classify_candidates_in_band(
         # Use Intensity classification as primary for is_burst flag
         is_burst = is_burst_intensity
         
-        # Force the candidate time to align with the waterfall SNR peak.
+        # Calculate detection time from DM-time plot (same as plot_composite.py line 264-269)
+        # This is the time shown in the plot label
+        if absolute_start_time is not None:
+            detection_time_dm_time = absolute_start_time + t_sec_real
+        else:
+            detection_time_dm_time = j * slice_len * time_reso_ds + t_sec_real
+        
+        # Force the candidate time to align with the waterfall SNR peak (for backward compatibility)
         absolute_candidate_time = (absolute_start_time or 0.0) + (peak_idx * time_reso_ds)
 
         # Record outputs.
@@ -386,21 +442,38 @@ def snr_detect_and_classify_candidates_in_band(
         except Exception:
             width_ms = None
 
+        # Calculate MJD values for the candidate (using DM-time detection time, same as plot)
+        mjd_data = calculate_candidate_mjd(
+            t_sec=float(detection_time_dm_time),
+            compute_bary=True,
+            dm=float(dm_val),
+        )
+
         cand = Candidate(
             fits_path.name,
             chunk_idx if chunk_idx is not None else 0,
             j,
             band_idx,
             float(conf),
-            float(dm_val),
-            float(absolute_candidate_time),
-            int(peak_idx),
+            float(dm_val),  # DM calculated with extract_candidate_dm (same as plot)
+            float(detection_time_dm_time),  # Time from DM-time plot (same as plot label)
+            peak_time_waterfall,  # Time from waterfall SNR peak (different method)
+            int(t_sample_real),  # Sample index
             tuple(map(int, box)),
-            float(snr_val_intensity),
-            float(class_prob_intensity),
-            bool(is_burst),
-            patch_path.name,
+            snr_waterfall,  # SNR from waterfall raw (peak_snr_wf)
+            float(snr_val_intensity),  # SNR from dedispersed patch
             width_ms,
+            float(class_prob_intensity),  # Classification probability in Intensity (I)
+            bool(is_burst_intensity),  # BURST classification in Intensity (I)
+            float(class_prob_linear),  # Classification probability in Linear (L) - HF only
+            bool(is_burst_linear) if data_block_linear is not None else None,  # BURST classification in Linear (L) - HF only
+            bool(is_burst),  # Final classification (I+L when SAVE_ONLY_BURST=True)
+            patch_path.name,
+            mjd_utc=mjd_data.get('mjd_utc'),
+            mjd_bary_utc=mjd_data.get('mjd_bary_utc'),
+            mjd_bary_tdb=mjd_data.get('mjd_bary_tdb'),
+            mjd_bary_utc_inf=mjd_data.get('mjd_bary_utc_inf'),
+            mjd_bary_tdb_inf=mjd_data.get('mjd_bary_tdb_inf'),
         )
         cand_counter += 1
         if is_burst:
@@ -584,6 +657,7 @@ def process_slice_with_multiple_bands_high_freq(
             waterfall_block_raw=waterfall_block_raw,
             data_block_raw=block_raw,  # Pass full chunk RAW data
             pol_type=pol_type,
+            slice_samples=end_idx - start_idx,  # Actual slice samples
         )
         cand_counter += result["cand_counter"]
         n_bursts += result["n_bursts"]
@@ -657,6 +731,7 @@ def process_slice_with_multiple_bands_high_freq(
                 absolute_start_time=absolute_start_time,
                 chunk_idx=chunk_idx,
                 force_plots=config.FORCE_PLOTS,
+                candidate_times_abs=result.get("candidate_times_abs"),  # NEW: Pass candidate times for polarization plots
                 # Multi-polarization dedispersed waterfalls for HF pipeline
                 dedisp_block_linear=dedisp_block_linear,
                 dedisp_block_circular=dedisp_block_circular,
@@ -698,7 +773,99 @@ def _process_file_chunked_high_freq(
     from ..input.polarization_utils import extract_polarization_from_raw, has_full_polarization_data
     import time
 
-    csv_file = save_dir / f"{fits_path.stem}.candidates.csv"
+    if chunk_samples <= 0:
+        raise ValueError("chunk_samples must be greater than zero")
+
+    # ===== VALIDATION METRICS COLLECTOR =====
+    from ..output.validation_metrics import ValidationMetricsCollector
+    from ..core.data_flow_manager import set_validation_collector
+    collector = ValidationMetricsCollector(fits_path.name)
+    collector.record_data_characteristics()
+    set_validation_collector(collector)  # Set global collector for memory validations
+
+    # Streaming parameters reused from the main pipeline.
+    total_samples = config.FILE_LENG
+    
+    # ===== ADAPTIVE MEMORY BUDGETING: Calculate memory-safe chunk size =====
+    # This ensures we never exceed available RAM, even with large DM ranges
+    from ..preprocessing.slice_len_calculator import calculate_memory_safe_chunk_size
+    
+    try:
+        safe_chunk_samples, budget_diagnostics = calculate_memory_safe_chunk_size()
+        
+        # Record budget diagnostics
+        collector.record_memory_budget(budget_diagnostics)
+        collector.record_dm_cube(budget_diagnostics)
+        collector.record_chunk_calculation(budget_diagnostics)
+        
+        # Calculate physical lower bound
+        min_required_raw = budget_diagnostics.get('required_min_size', 0) * max(1, config.DOWN_TIME_RATE)
+        
+        # Logic to determine final chunk_samples:
+        if chunk_samples < min_required_raw:
+            logger.warning(
+                f"[HF Pipeline] Requested chunk size ({chunk_samples:,}) is too small for physical constraints "
+                f"(overlap + slice_len requires {min_required_raw:,} raw samples). "
+                f"Upgrading to memory-safe calculated size: {safe_chunk_samples:,}."
+            )
+            chunk_samples = safe_chunk_samples
+        elif chunk_samples > safe_chunk_samples:
+            logger.info(
+                f"[HF Pipeline] Adaptive budgeting: Reducing chunk size from {chunk_samples:,} to {safe_chunk_samples:,} samples "
+                f"to fit in available memory ({budget_diagnostics['usable_bytes_gb']:.2f} GB usable). "
+                f"Scenario: {budget_diagnostics['scenario']}."
+            )
+            if budget_diagnostics['will_use_dm_chunking']:
+                logger.info(
+                    f"Expected DM-time cube size: {budget_diagnostics['expected_cube_gb']:.2f} GB. "
+                    f"DM chunking will activate automatically."
+                )
+            chunk_samples = safe_chunk_samples
+        else:
+            logger.debug(
+                f"[HF Pipeline] Requested chunk size ({chunk_samples:,}) is within safe limits "
+                f"(min={min_required_raw:,}, safe={safe_chunk_samples:,}). Proceeding with requested size."
+            )
+    except Exception as e:
+        logger.warning(
+            f"[HF Pipeline] Failed to calculate memory-safe chunk size: {e}. "
+            f"Using requested chunk_samples={chunk_samples:,} (may cause OOM with large DM ranges)."
+        )
+
+    if total_samples <= chunk_samples:
+        logger.info(
+            "Small file detected (%s samples); running in a single optimised chunk",
+            f"{total_samples:,}",
+        )
+        effective_chunk_samples = total_samples
+        chunk_count = 1
+        logger.info(
+            "Using single chunk optimisation • chunk_samples=%s (entire file)",
+            f"{effective_chunk_samples:,}",
+        )
+    else:
+        effective_chunk_samples = chunk_samples
+        chunk_count = (total_samples + chunk_samples - 1) // chunk_samples
+        logger.info("Standard chunking • estimated chunks=%d", chunk_count)
+
+    total_duration_sec = total_samples * config.TIME_RESO
+    chunk_duration_sec = effective_chunk_samples * config.TIME_RESO
+
+    logger.info(
+        "File summary • chunks=%d • samples=%s • duration=%.2fs (%.1f min) • chunk_size=%s (%.2fs)",
+        chunk_count,
+        f"{total_samples:,}",
+        total_duration_sec,
+        total_duration_sec / 60,
+        f"{effective_chunk_samples:,}",
+        chunk_duration_sec,
+    )
+    logger.info("Starting streaming processing...")
+    
+    # Create Summary directory structure: Summary/(file_name)/
+    summary_dir = save_dir / "Summary" / fits_path.stem
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    csv_file = summary_dir / f"{fits_path.stem}.candidates.csv"
     ensure_csv_header(csv_file)
 
     t_start = time.time()
@@ -709,134 +876,259 @@ def _process_file_chunked_high_freq(
     snr_list_total: list[float] = []
     actual_chunk_count = 0
 
-    # Streaming parameters reused from the main pipeline.
-    total_samples = config.FILE_LENG
-    # FIX: Use calculate_frequency_downsampled, which safely trims channels
-    freq_ds = calculate_frequency_downsampled()
-    nu_min = float(freq_ds.min())
-    nu_max = float(freq_ds.max())
-    dt_max_sec = 4.1488e3 * config.DM_max * (nu_min ** -2 - nu_max ** -2)
-    overlap_raw = int(np.ceil(dt_max_sec / config.TIME_RESO))
-    
-    logger.info("High-frequency pipeline: Multi-polarization detection enabled")
-    logger.info("Detection flow: Intensity → Linear → ResNet (if both pass)")
-    
-    log_streaming_parameters(chunk_samples, overlap_raw, total_samples, chunk_samples, streaming_func, "fits/fil")
-
-    # Use multi-polarization streaming for HF pipeline
-    for block, block_raw, metadata, pol_type in stream_fits_multi_pol(str(fits_path), chunk_samples, overlap_samples=overlap_raw):
-        actual_chunk_count += 1
-        log_block_processing(actual_chunk_count, block.shape, str(block.dtype), metadata)
-        
-        # DIAGNOSTIC: Log block_raw shape before downsampling
-        if block_raw is not None:
-            logger.info("Received block_raw from stream: shape=%s, ndim=%d, dtype=%s", 
-                       block_raw.shape, block_raw.ndim, block_raw.dtype)
-        else:
-            logger.warning("Received block_raw=None from stream")
-
-        # Downsample and extract the valid window.
-        block_ds, dt_ds = downsample_chunk(block)
-        chunk_params = get_chunk_processing_parameters(metadata)
-        freq_down = chunk_params['freq_down']
-        slice_len = chunk_params['slice_len']
-        time_slice = chunk_params['time_slice']
-        overlap_left_ds = chunk_params['overlap_left_ds']
-        overlap_right_ds = chunk_params['overlap_right_ds']
-
-        dm_time_full = build_dm_time_cube(block_ds, height=chunk_params['height'], dm_min=config.DM_min, dm_max=config.DM_max)
-        block_ds, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(block_ds, dm_time_full, overlap_left_ds, overlap_right_ds)
-
-        # Also downsample the RAW multi-pol block for polarization extraction
-        block_raw_ds = None
-        if block_raw is not None:
-            # Check if block_raw is 3D multi-pol data
-            if block_raw.ndim == 3 and block_raw.shape[1] >= 4:
-                try:
-                    # Downsample multi-pol block preserving all polarizations
-                    logger.debug("Downsampling multi-pol block: input shape=%s", block_raw.shape)
-                    
-                    # Manual downsampling that preserves polarization dimension
-                    n_time = (block_raw.shape[0] // config.DOWN_TIME_RATE) * config.DOWN_TIME_RATE
-                    n_pol = block_raw.shape[1]
-                    n_freq = (block_raw.shape[2] // config.DOWN_FREQ_RATE) * config.DOWN_FREQ_RATE
-                    
-                    # Trim to divisible sizes
-                    block_trimmed = block_raw[:n_time, :, :n_freq]
-                    
-                    # Reshape to separate downsample axes
-                    block_reshaped = block_trimmed.reshape(
-                        n_time // config.DOWN_TIME_RATE,
-                        config.DOWN_TIME_RATE,
-                        n_pol,
-                        n_freq // config.DOWN_FREQ_RATE,
-                        config.DOWN_FREQ_RATE,
-                    )
-                    # Shape: (n_time_ds, DOWN_TIME_RATE, n_pol, n_freq_ds, DOWN_FREQ_RATE)
-                    
-                    # Sum over time axis (PRESTO style)
-                    block_ds_time = block_reshaped.sum(axis=1)
-                    # Shape: (n_time_ds, n_pol, n_freq_ds, DOWN_FREQ_RATE)
-                    
-                    # Average over frequency axis
-                    block_raw_ds = block_ds_time.mean(axis=3)
-                    # Shape: (n_time_ds, n_pol, n_freq_ds) ✅
-                    
-                    block_raw_ds = block_raw_ds.astype(np.float32)
-                    
-                    logger.debug("Downsampled multi-pol block: output shape=%s", block_raw_ds.shape)
-                    
-                    # Apply same trimming as the main block
-                    if valid_start_ds >= 0 and valid_end_ds <= block_raw_ds.shape[0]:
-                        block_raw_ds = block_raw_ds[valid_start_ds:valid_end_ds]
-                    logger.info("Multi-pol RAW block downsampled: shape=%s (time, npol=%d, chan), pol_type=%s", 
-                               block_raw_ds.shape, block_raw_ds.shape[1], pol_type)
-                except Exception as e:
-                    logger.error("Failed to downsample multi-pol block: %s", e, exc_info=True)
-                    block_raw_ds = None
-            else:
-                logger.warning("block_raw is not 3D multi-pol data: ndim=%d, shape=%s", 
-                             block_raw.ndim, block_raw.shape)
-        else:
-            logger.warning("No multi-pol data available (block_raw is None)")
-
-        # Plan slices.
-        slices_to_process = plan_slices(block_ds, slice_len, metadata['chunk_idx'])
-        composite_dir, detections_dir, patches_dir = create_chunk_directories(save_dir, fits_path, metadata['chunk_idx'])
-
-        # Match the classic pipeline's chunk start time computation.
-        chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO
-
-        for j, start_idx, end_idx in slices_to_process:
-            cands, bursts, nobursts, pmax = process_slice_with_multiple_bands_high_freq(
-                j=j,
-                dm_time=dm_time,
-                block=block_ds,
-                slice_len=slice_len,
-                cls_model=cls_model,
-                fits_path=fits_path,
-                save_dir=save_dir,
-                freq_down=freq_down,
-                csv_file=csv_file,
-                time_reso_ds=dt_ds,
-                band_configs=config.get_band_configs(),
-                snr_list=snr_list_total,
-                absolute_start_time=chunk_start_time_sec + start_idx * dt_ds,
-                composite_dir=composite_dir,
-                detections_dir=detections_dir,
-                patches_dir=patches_dir,
-                chunk_idx=metadata['chunk_idx'],
-                slice_start_idx=start_idx,
-                slice_end_idx=end_idx,
-                block_raw=block_raw_ds,
-                pol_type=pol_type,
+    try:
+        if total_samples <= 0:
+            raise ValueError(f"Invalid file length: {total_samples} samples")
+        if total_samples > 1_000_000_000:
+            logger.warning(
+                "Large file detected (%s samples); processing may take longer",
+                f"{total_samples:,}",
             )
-            cand_counter_total += cands
-            n_bursts_total += bursts
-            n_no_bursts_total += nobursts
-            prob_max_total = max(prob_max_total, pmax)
+        
+        try:
+            freq_ds = calculate_frequency_downsampled()
+        except ValueError as exc:
+            logger.warning(
+                "Failed to compute frequency downsampling (%s); using original axis.",
+                exc,
+            )
+            if config.FREQ is None or len(config.FREQ) == 0:
+                raise
+            freq_ds = config.FREQ
+        nu_min = float(freq_ds.min())
+        nu_max = float(freq_ds.max())
+        dt_max_sec = 4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)
 
-    runtime = time.time() - t_start
+        if config.TIME_RESO <= 0:
+            logger.warning(
+                "Invalid TIME_RESO (%s); using default overlap window",
+                config.TIME_RESO,
+            )
+            overlap_raw = 1024
+        else:
+            overlap_raw = max(0, int(np.ceil(dt_max_sec / config.TIME_RESO)))
+        
+        logger.info("High-frequency pipeline: Multi-polarization detection enabled")
+        logger.info("Detection flow: Intensity → Linear → ResNet (if both pass)")
+        
+        # Log streaming parameters with the adjusted chunk size (after adaptive budgeting)
+        log_streaming_parameters(effective_chunk_samples, overlap_raw, total_samples, effective_chunk_samples, streaming_func, "fits/fil")
+
+        # Use multi-polarization streaming for HF pipeline
+        stream_start_time = time.time()
+        chunk_processing_times = []
+        last_chunk_arrival_time = stream_start_time
+        
+        for block, block_raw, metadata, pol_type in stream_fits_multi_pol(str(fits_path), effective_chunk_samples, overlap_samples=overlap_raw):
+            chunk_start_time = time.time()
+            actual_chunk_count += 1
+            log_block_processing(actual_chunk_count, block.shape, str(block.dtype), metadata)
+            
+            # Log time since last chunk arrived from file
+            chunk_arrival_time = time.time()
+            if actual_chunk_count > 1:
+                time_since_last = chunk_arrival_time - last_chunk_arrival_time
+                if time_since_last > 10:
+                    logger.warning(
+                        f"Chunk {metadata['chunk_idx']} took {time_since_last:.1f}s to arrive from file. "
+                        f"This may indicate slow I/O or large buffer concatenation. "
+                        f"Consider reducing chunk size if this is frequent."
+                    )
+                elif time_since_last > 5:
+                    logger.info(
+                        f"Chunk {metadata['chunk_idx']} arrived after {time_since_last:.1f}s. "
+                        f"File I/O is proceeding normally."
+                    )
+            last_chunk_arrival_time = chunk_arrival_time
+            
+            logger.info(
+                "Processing chunk %03d • samples %s→%s",
+                metadata['chunk_idx'],
+                f"{metadata['start_sample']:,}",
+                f"{metadata['end_sample']:,}",
+            )
+            
+            try:
+                # DIAGNOSTIC: Log block_raw shape before downsampling
+                if block_raw is not None:
+                    logger.info("Received block_raw from stream: shape=%s, ndim=%d, dtype=%s", 
+                               block_raw.shape, block_raw.ndim, block_raw.dtype)
+                else:
+                    logger.warning("Received block_raw=None from stream")
+
+                # Downsample and extract the valid window.
+                block_ds, dt_ds = downsample_chunk(block)
+                chunk_params = get_chunk_processing_parameters(metadata, collector=collector)
+                freq_down = chunk_params['freq_down']
+                slice_len = chunk_params['slice_len']
+                time_slice = chunk_params['time_slice']
+                overlap_left_ds = chunk_params['overlap_left_ds']
+                overlap_right_ds = chunk_params['overlap_right_ds']
+
+                # Memory validation is now done inside build_dm_time_cube (PRESTO-style)
+                height = chunk_params['height']
+                dm_time_full = build_dm_time_cube(block_ds, height=height, dm_min=config.DM_min, dm_max=config.DM_max, collector=collector)
+                block_ds, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(block_ds, dm_time_full, overlap_left_ds, overlap_right_ds)
+                
+                # Record chunk processing for validation metrics
+                collector.record_chunk_processing(
+                    chunk_idx=metadata['chunk_idx'],
+                    overlap_left=overlap_left_ds,
+                    overlap_right=overlap_right_ds,
+                    valid_start=valid_start_ds,
+                    valid_end=valid_end_ds,
+                    chunk_samples=block_ds.shape[0]
+                )
+                
+                # CRITICAL: Free the full cube immediately after trimming
+                del dm_time_full
+                import gc
+                gc.collect()
+
+                # Also downsample the RAW multi-pol block for polarization extraction
+                block_raw_ds = None
+                if block_raw is not None:
+                    # Check if block_raw is 3D multi-pol data
+                    if block_raw.ndim == 3 and block_raw.shape[1] >= 4:
+                        try:
+                            # Downsample multi-pol block preserving all polarizations
+                            logger.debug("Downsampling multi-pol block: input shape=%s", block_raw.shape)
+                            
+                            # Manual downsampling that preserves polarization dimension
+                            n_time = (block_raw.shape[0] // config.DOWN_TIME_RATE) * config.DOWN_TIME_RATE
+                            n_pol = block_raw.shape[1]
+                            n_freq = (block_raw.shape[2] // config.DOWN_FREQ_RATE) * config.DOWN_FREQ_RATE
+                            
+                            # Trim to divisible sizes
+                            block_trimmed = block_raw[:n_time, :, :n_freq]
+                            
+                            # Reshape to separate downsample axes
+                            block_reshaped = block_trimmed.reshape(
+                                n_time // config.DOWN_TIME_RATE,
+                                config.DOWN_TIME_RATE,
+                                n_pol,
+                                n_freq // config.DOWN_FREQ_RATE,
+                                config.DOWN_FREQ_RATE,
+                            )
+                            # Shape: (n_time_ds, DOWN_TIME_RATE, n_pol, n_freq_ds, DOWN_FREQ_RATE)
+                            
+                            # Sum over time axis (PRESTO style)
+                            block_ds_time = block_reshaped.sum(axis=1)
+                            # Shape: (n_time_ds, n_pol, n_freq_ds, DOWN_FREQ_RATE)
+                            
+                            # Average over frequency axis
+                            block_raw_ds = block_ds_time.mean(axis=3)
+                            # Shape: (n_time_ds, n_pol, n_freq_ds) ✅
+                            
+                            block_raw_ds = block_raw_ds.astype(np.float32)
+                            
+                            logger.debug("Downsampled multi-pol block: output shape=%s", block_raw_ds.shape)
+                            
+                            # Apply same trimming as the main block
+                            if valid_start_ds >= 0 and valid_end_ds <= block_raw_ds.shape[0]:
+                                block_raw_ds = block_raw_ds[valid_start_ds:valid_end_ds]
+                            logger.info("Multi-pol RAW block downsampled: shape=%s (time, npol=%d, chan), pol_type=%s", 
+                                       block_raw_ds.shape, block_raw_ds.shape[1], pol_type)
+                        except Exception as e:
+                            logger.error("Failed to downsample multi-pol block: %s", e, exc_info=True)
+                            block_raw_ds = None
+                    else:
+                        logger.warning("block_raw is not 3D multi-pol data: ndim=%d, shape=%s", 
+                                     block_raw.ndim, block_raw.shape)
+                else:
+                    logger.warning("No multi-pol data available (block_raw is None)")
+
+                # Plan slices.
+                slices_to_process = plan_slices(block_ds, slice_len, metadata['chunk_idx'])
+                composite_dir, detections_dir, patches_dir, summary_dir = create_chunk_directories(save_dir, fits_path, metadata['chunk_idx'])
+
+                # Match the classic pipeline's chunk start time computation.
+                chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO
+
+                for j, start_idx, end_idx in slices_to_process:
+                    cands, bursts, nobursts, pmax = process_slice_with_multiple_bands_high_freq(
+                        j=j,
+                        dm_time=dm_time,
+                        block=block_ds,
+                        slice_len=slice_len,
+                        cls_model=cls_model,
+                        fits_path=fits_path,
+                        save_dir=save_dir,
+                        freq_down=freq_down,
+                        csv_file=csv_file,
+                        time_reso_ds=dt_ds,
+                        band_configs=config.get_band_configs(),
+                        snr_list=snr_list_total,
+                        absolute_start_time=chunk_start_time_sec + start_idx * dt_ds,
+                        composite_dir=composite_dir,
+                        detections_dir=detections_dir,
+                        patches_dir=patches_dir,
+                        chunk_idx=metadata['chunk_idx'],
+                        slice_start_idx=start_idx,
+                        slice_end_idx=end_idx,
+                        block_raw=block_raw_ds,
+                        pol_type=pol_type,
+                    )
+                    cand_counter_total += cands
+                    n_bursts_total += bursts
+                    n_no_bursts_total += nobursts
+                    prob_max_total = max(prob_max_total, pmax)
+                
+                # Track chunk processing time
+                chunk_processing_time = time.time() - chunk_start_time
+                chunk_processing_times.append(chunk_processing_time)
+                
+                if chunk_processing_time > 30:
+                    logger.warning(
+                        f"Chunk {metadata['chunk_idx']} processing took {chunk_processing_time:.1f}s. "
+                        f"This is unusually long. Check system resources."
+                    )
+                
+                # Estimate remaining time
+                if actual_chunk_count > 1:
+                    avg_time = sum(chunk_processing_times) / len(chunk_processing_times)
+                    # Estimate total chunks (may not be exact, but gives an idea)
+                    estimated_total_chunks = max(actual_chunk_count, int(total_samples / effective_chunk_samples) + 1)
+                    remaining_chunks = max(0, estimated_total_chunks - actual_chunk_count)
+                    eta_seconds = remaining_chunks * avg_time
+                    if eta_seconds > 60:
+                        logger.info(
+                            f"Chunk {metadata['chunk_idx']} processed in {chunk_processing_time:.1f}s. "
+                            f"Average: {avg_time:.1f}s/chunk. ETA: {eta_seconds/60:.1f} min"
+                        )
+                    else:
+                        logger.debug(
+                            f"Chunk {metadata['chunk_idx']} processed in {chunk_processing_time:.1f}s. "
+                            f"Average: {avg_time:.1f}s/chunk. ETA: {eta_seconds:.1f}s"
+                        )
+                
+                # CRITICAL: Free chunk-level arrays after processing all slices
+                del block_ds, dm_time, block_raw_ds
+                from ..core.pipeline import _optimize_memory
+                _optimize_memory(aggressive=(actual_chunk_count % 5 == 0))
+            except MemoryError as mem_error:
+                collector.record_oom_error()
+                logger.exception(f"Out of memory processing chunk {metadata['chunk_idx']:03d}: {mem_error}")
+                raise
+            except Exception as chunk_error:
+                logger.exception(f"Error processing chunk {metadata['chunk_idx']:03d}: {chunk_error}")
+
+        from ..logging import log_processing_summary
+        log_processing_summary(actual_chunk_count, chunk_count, cand_counter_total, n_bursts_total)
+
+        # Export validation metrics
+        try:
+            validation_dir = save_dir / "Validation" / fits_path.stem
+            collector.export_to_json(validation_dir)
+            logger.info(f"Validation metrics exported to: {validation_dir}")
+        except Exception as e:
+            logger.warning(f"Failed to export validation metrics: {e}")
+
+        runtime = time.time() - t_start
+    except Exception as e:
+        logger.exception(f"Error in high-frequency pipeline: {e}")
+        raise
+    
     if config.SAVE_ONLY_BURST:
         effective_cand_counter_total = n_bursts_total
         effective_n_bursts_total = n_bursts_total

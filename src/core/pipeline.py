@@ -49,7 +49,6 @@ from ..logging import (
     log_streaming_parameters,
 )
 from ..output.candidate_manager import ensure_csv_header
-from ..output.summary_manager import _update_summary_with_results, _write_summary_with_timestamp
 
               
 logger = logging.getLogger(__name__)
@@ -160,6 +159,7 @@ def _process_block(
     save_dir: Path,
     chunk_idx: int,
     csv_file: Path,
+    collector=None,  # ValidationMetricsCollector
 ) -> DetectionStats:
     """Process a data block and return aggregated detection statistics."""
 
@@ -213,10 +213,36 @@ def _process_block(
         overlap_right_ds,
     )
 
+    # PRESTO-style: Build DM-time cube with memory validation
+    # For very large chunks, we could use DoubleBufferDedispersion, but for now
+    # build_dm_time_cube with immediate trimming provides good memory control
+    logger.info(
+        f"Chunk %03d: Starting dedispersion (DM range: %.1f-%.1f pc cm⁻³, height=%d, width=%d)",
+        chunk_idx, config.DM_min, config.DM_max, height, block.shape[0]
+    )
     dm_time_full = build_dm_time_cube(block, height=height, dm_min=config.DM_min, dm_max=config.DM_max)
+    logger.info(f"Chunk %03d: Dedispersion complete, cube shape: {dm_time_full.shape}", chunk_idx)
     block, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(
         block, dm_time_full, overlap_left_ds, overlap_right_ds
     )
+    
+    # Record chunk processing for validation metrics
+    if collector is not None:
+        collector.record_chunk_processing(
+            chunk_idx=chunk_idx,
+            overlap_left=overlap_left_ds,
+            overlap_right=overlap_right_ds,
+            valid_start=valid_start_ds,
+            valid_end=valid_end_ds,
+            chunk_samples=block.shape[0],
+        )
+    
+    # CRITICAL: Free the full cube immediately after trimming (PRESTO-style)
+    # This ensures we never keep more than the trimmed cube in memory
+    # We only keep what we need for processing slices
+    del dm_time_full
+    import gc
+    gc.collect()
 
     _trace_info(
         "[TRACE] Chunk %03d: valid_start_ds=%d valid_end_ds=%d (N_valid=%d)",
@@ -312,10 +338,13 @@ def _process_block(
             dt_ds,
         )
 
-        composite_dir, detections_dir, patches_dir = create_chunk_directories(
+        composite_dir, detections_dir, patches_dir, summary_dir = create_chunk_directories(
             save_dir, fits_path, chunk_idx
         )
 
+        # PRESTO-style: Process and write immediately (no accumulation)
+        # Candidates are written immediately via append_candidate() in process_slice_with_multiple_bands
+        # Plots are saved immediately during processing
         cands, bursts, no_bursts, max_prob = process_slice_with_multiple_bands(
             j,
             dm_time,
@@ -341,7 +370,12 @@ def _process_block(
             slice_end_idx=end_idx,
         )
 
+        # Update stats immediately (PRESTO-style: process → write → update stats)
         chunk_stats.update(cands, bursts, no_bursts, max_prob)
+
+        # CRITICAL: Explicitly free slice arrays immediately after processing (PRESTO-style)
+        # This ensures we never accumulate more than necessary
+        del slice_cube, waterfall_block
 
         if j % 10 == 0:
             _optimize_memory(aggressive=False)
@@ -349,6 +383,10 @@ def _process_block(
             if plt is not None:
                 plt.close('all')
             gc.collect()
+
+    # CRITICAL: Free all chunk-level arrays after processing all slices
+    del block, dm_time
+    _optimize_memory(aggressive=True)
 
     try:
         from ..logging.logging_config import get_global_logger
@@ -418,8 +456,68 @@ def _process_file_chunked(
     if chunk_samples <= 0:
         raise ValueError("chunk_samples must be greater than zero")
 
+    # ===== VALIDATION METRICS COLLECTOR =====
+    from ..output.validation_metrics import ValidationMetricsCollector
+    from ..core.data_flow_manager import set_validation_collector
+    collector = ValidationMetricsCollector(fits_path.name)
+    collector.record_data_characteristics()
+    set_validation_collector(collector)  # Set global collector for memory validations
 
-    if total_samples <= chunk_samples:
+    # ===== ADAPTIVE MEMORY BUDGETING: Calculate memory-safe chunk size =====
+    # This ensures we never exceed available RAM, even with large DM ranges
+    from ..preprocessing.slice_len_calculator import calculate_memory_safe_chunk_size
+    
+    try:
+        safe_chunk_samples, budget_diagnostics = calculate_memory_safe_chunk_size()
+        
+        # Record budget diagnostics
+        collector.record_memory_budget(budget_diagnostics)
+        collector.record_dm_cube(budget_diagnostics)
+        collector.record_chunk_calculation(budget_diagnostics)
+        
+        # Calculate physical lower bound (minimum samples required for overlap/decimation)
+        # budget_diagnostics['required_min_size'] is in DECIMATED domain
+        min_required_raw = budget_diagnostics.get('required_min_size', 0) * max(1, config.DOWN_TIME_RATE)
+        
+        # Logic to determine final chunk_samples:
+        # 1. Upper Bound: Must not exceed available RAM (safe_chunk_samples)
+        # 2. Lower Bound: Must meet physical constraints (min_required_raw)
+        
+        if chunk_samples < min_required_raw:
+            logger.warning(
+                f"Requested chunk size ({chunk_samples:,}) is too small for physical constraints "
+                f"(overlap + slice_len requires {min_required_raw:,} raw samples). "
+                f"Upgrading to memory-safe calculated size: {safe_chunk_samples:,}."
+            )
+            chunk_samples = safe_chunk_samples
+            
+        elif chunk_samples > safe_chunk_samples:
+            logger.info(
+                f"Adaptive budgeting: Reducing chunk size from {chunk_samples:,} to {safe_chunk_samples:,} samples "
+                f"to fit in available memory ({budget_diagnostics['usable_bytes_gb']:.2f} GB usable). "
+                f"Scenario: {budget_diagnostics['scenario']}."
+            )
+            if budget_diagnostics['will_use_dm_chunking']:
+                logger.info(
+                    f"Expected DM-time cube size: {budget_diagnostics['expected_cube_gb']:.2f} GB. "
+                    f"DM chunking will activate automatically."
+                )
+            chunk_samples = safe_chunk_samples
+        else:
+            logger.debug(
+                f"Requested chunk size ({chunk_samples:,}) is within safe limits "
+                f"(min={min_required_raw:,}, max={safe_chunk_samples:,}). Proceeding with requested size."
+            )
+    except Exception as e:
+        logger.warning(
+            f"Failed to calculate memory-safe chunk size: {e}. "
+            f"Using requested chunk_samples={chunk_samples:,} (may cause OOM with large DM ranges)."
+        )
+
+    # Check performance limits to prevent system hangs
+    max_chunk_limit = getattr(config, 'MAX_CHUNK_SAMPLES', 1000000)  # Default 1M samples
+    
+    if total_samples <= chunk_samples and total_samples <= max_chunk_limit:
         logger.info(
             "Small file detected (%s samples); running in a single optimised chunk",
             f"{total_samples:,}",
@@ -431,6 +529,14 @@ def _process_file_chunked(
             "Using single chunk optimisation • chunk_samples=%s (entire file)",
             f"{effective_chunk_samples:,}",
         )
+    elif total_samples <= chunk_samples and total_samples > max_chunk_limit:
+        logger.info(
+            "File size (%s samples) exceeds maximum chunk limit (%s samples); using chunked processing",
+            f"{total_samples:,}",
+            f"{max_chunk_limit:,}",
+        )
+        effective_chunk_samples = min(chunk_samples, max_chunk_limit)
+        chunk_count = (total_samples + effective_chunk_samples - 1) // effective_chunk_samples
     else:
         effective_chunk_samples = chunk_samples
         chunk_count = (total_samples + chunk_samples - 1) // chunk_samples
@@ -450,7 +556,10 @@ def _process_file_chunked(
     )
     logger.info("Starting streaming processing...")
     
-    csv_file = save_dir / f"{fits_path.stem}.candidates.csv"                       
+    # Create Summary directory structure: Summary/(file_name)/
+    summary_dir = save_dir / "Summary" / fits_path.stem
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    csv_file = summary_dir / f"{fits_path.stem}.candidates.csv"
     ensure_csv_header(csv_file)                                               
     
     t_start = time.time()                                     
@@ -489,6 +598,9 @@ def _process_file_chunked(
             overlap_raw = 1024
         else:
             overlap_raw = max(0, int(np.ceil(dt_max_sec / config.TIME_RESO)))
+        
+        # PRESTO-style: Calculate optimal chunk size based on dispersion delay
+        # This ensures we read enough data for dedispersion without reading too much
 
                                                                         
         streaming_func, file_type = get_streaming_function(fits_path) 
@@ -498,7 +610,8 @@ def _process_file_chunked(
             streaming_func.__name__,
         )
         
-        log_streaming_parameters(effective_chunk_samples, overlap_raw, total_samples, chunk_samples, streaming_func, file_type)
+        # Log streaming parameters with the adjusted chunk size (after adaptive budgeting)
+        log_streaming_parameters(effective_chunk_samples, overlap_raw, total_samples, effective_chunk_samples, streaming_func, file_type)
         
         # Switch to the high-frequency pipeline when the configuration allows it
         try:
@@ -527,20 +640,49 @@ def _process_file_chunked(
                 streaming_func=streaming_func,
             )
 
-        # Process each block with overlap
-        for block, metadata in streaming_func(str(fits_path), effective_chunk_samples, overlap_samples=overlap_raw):
+        # PRESTO-style: Process each block immediately (read → process → write → free)
+        # This ensures we never accumulate multiple chunks in memory
+        stream_start_time = time.time()
+        chunk_processing_times = []
+        last_chunk_arrival_time = stream_start_time
+        
+        logger.info(
+            f"Starting to read chunks from file. "
+            f"First chunk may take longer due to file I/O initialization. "
+            f"Progress will be logged during streaming."
+        )
+        
+        for chunk_idx, (block, metadata) in enumerate(streaming_func(str(fits_path), effective_chunk_samples, overlap_samples=overlap_raw), 1):
+            chunk_start_time = time.time()
             actual_chunk_count += 1                                               
             
             log_block_processing(actual_chunk_count, block.shape, str(block.dtype), metadata)
             
             logger.info(
-                "Processing chunk %03d • samples %s→%s",
-                metadata['chunk_idx'],
-                f"{metadata['start_sample']:,}",
-                f"{metadata['end_sample']:,}",
+                f"Processing chunk {chunk_idx}/{chunk_count} ({chunk_idx/chunk_count*100:.1f}%) • "
+                f"samples {metadata['start_sample']:,}→{metadata['end_sample']:,} • "
+                f"shape={block.shape}"
             )
             
-                                                           
+            # Log time since last chunk arrived from file
+            chunk_arrival_time = time.time()
+            if chunk_idx > 1:
+                time_since_last = chunk_arrival_time - last_chunk_arrival_time
+                if time_since_last > 10:
+                    logger.warning(
+                        f"Chunk {chunk_idx} took {time_since_last:.1f}s to arrive from file. "
+                        f"This may indicate slow I/O or large buffer concatenation. "
+                        f"Consider reducing chunk size if this is frequent."
+                    )
+                elif time_since_last > 5:
+                    logger.info(
+                        f"Chunk {chunk_idx} arrived after {time_since_last:.1f}s. "
+                        f"File I/O is proceeding normally."
+                    )
+            last_chunk_arrival_time = chunk_arrival_time
+            
+            # PRESTO-style: Process immediately, write results immediately, then free
+            # Results (candidates, plots) are written during _process_block via append_candidate()
             try:
                 block_stats = _process_block(
                     det_model,
@@ -551,17 +693,58 @@ def _process_file_chunked(
                     save_dir,
                     metadata['chunk_idx'],
                     csv_file,
+                    collector=collector,  # Pass collector for validation metrics
                 )
+                # Merge stats immediately (results already written to CSV/plots)
                 file_stats.merge(block_stats)
+            except MemoryError as mem_error:
+                collector.record_oom_error()
+                logger.exception(f"Out of memory processing chunk {metadata['chunk_idx']:03d}: {mem_error}")
+                raise
             except Exception as chunk_error:
                 logger.exception(f"Error processing chunk {metadata['chunk_idx']:03d}: {chunk_error}")
 
-                                          
+            # Track chunk processing time
+            chunk_processing_time = time.time() - chunk_start_time
+            chunk_processing_times.append(chunk_processing_time)
+            
+            if chunk_processing_time > 30:
+                logger.warning(
+                    f"Chunk {chunk_idx} processing took {chunk_processing_time:.1f}s. "
+                    f"This is unusually long. Check system resources."
+                )
+            
+            # Estimate remaining time
+            if chunk_idx > 1:
+                avg_time = sum(chunk_processing_times) / len(chunk_processing_times)
+                remaining_chunks = chunk_count - chunk_idx
+                eta_seconds = remaining_chunks * avg_time
+                if eta_seconds > 60:
+                    logger.info(
+                        f"Chunk {chunk_idx} processed in {chunk_processing_time:.1f}s. "
+                        f"Average: {avg_time:.1f}s/chunk. ETA: {eta_seconds/60:.1f} min"
+                    )
+                else:
+                    logger.debug(
+                        f"Chunk {chunk_idx} processed in {chunk_processing_time:.1f}s. "
+                        f"Average: {avg_time:.1f}s/chunk. ETA: {eta_seconds:.1f}s"
+                    )
+            
+            # CRITICAL: Free block immediately after processing (PRESTO-style)
+            # This ensures we never accumulate more than one chunk in memory
             del block                             
             _optimize_memory(aggressive=(actual_chunk_count % 5 == 0))                                   
 
                                                         
         log_processing_summary(actual_chunk_count, chunk_count, file_stats.n_candidates, file_stats.n_bursts)
+
+        # Export validation metrics
+        try:
+            validation_dir = save_dir / "Validation" / fits_path.stem
+            collector.export_to_json(validation_dir)
+            logger.info(f"Validation metrics exported to: {validation_dir}")
+        except Exception as e:
+            logger.warning(f"Failed to export validation metrics: {e}")
 
         runtime = time.time() - t_start                      
         logger.info(
@@ -726,17 +909,6 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
                 
                 log_pipeline_file_completion(fits_path.name, results)
                 
-                                                                           
-                _update_summary_with_results(save_dir, fits_path.stem, {
-                    "n_candidates": results.get("n_candidates", 0),
-                    "n_bursts": results.get("n_bursts", 0),
-                    "n_no_bursts": results.get("n_no_bursts", 0),
-                    "processing_time": results.get("runtime_s", 0.0),
-                    "max_detection_prob": results.get("max_prob", 0.0),
-                    "mean_snr": results.get("mean_snr", 0.0),
-                    "status": "completed"
-                })
-                
                 logger.file_processing_end(fits_path.name, results)
             except Exception as e:
                 logger.logger.error("Error processing %s: %s", fits_path.name, e)
@@ -751,20 +923,6 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
                 }
                 summary[fits_path.name] = error_results
                 
-                                                                    
-                _update_summary_with_results(save_dir, fits_path.stem, {
-                    "n_candidates": 0,
-                    "n_bursts": 0,
-                    "n_no_bursts": 0,
-                    "processing_time": 0.0,
-                    "max_detection_prob": 0.0,
-                    "mean_snr": 0.0,
-                    "status": "ERROR",
-                    "error_message": str(e)
-                })
-
-    logger.logger.info("Writing final summary...")
-    _write_summary_with_timestamp(summary, save_dir)
     logger.pipeline_end(summary)
 
 if __name__ == "__main__":

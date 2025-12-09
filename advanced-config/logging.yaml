@@ -1,0 +1,226 @@
+# ==============================================================================
+# ADVANCED LOGGING CONFIGURATION
+# ==============================================================================
+# 
+# This file contains detailed logging settings for DRAFTS++.
+# Most users should NOT modify these settings unless they need specific
+# logging behavior or are debugging issues.
+# 
+# ==============================================================================
+
+# =============================================================================
+# GENERAL LOGGING
+# =============================================================================
+general:
+  # Log level for the entire application
+  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  
+  # Enable colored output in terminal
+  colors: true
+  
+  # Enable file logging
+  enable_file_logging: false
+  
+  # Log file path (relative to project root)
+  log_file: "logs/drafts.log"
+  
+  # Log file rotation
+  max_file_size_mb: 10    # Maximum size before rotation
+  backup_count: 5         # Number of backup files to keep
+  
+  # Date format for log entries
+  date_format: "%Y-%m-%d %H:%M:%S"
+  
+  # Log message format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# =============================================================================
+# COMPONENT-SPECIFIC LOGGING
+# =============================================================================
+components:
+  # Core pipeline logging
+  pipeline:
+    level: "INFO"
+    enable_timing: true
+    enable_memory_tracking: false
+    
+  # Data loading and preprocessing
+  data_processing:
+    level: "INFO"
+    log_file_operations: false
+    log_chunk_details: false
+    
+  # Neural network inference
+  models:
+    level: "INFO"
+    log_model_loading: true
+    log_inference_timing: false
+    log_batch_processing: false
+    
+  # Visualization and plotting
+  visualization:
+    level: "WARNING"  # Usually quiet unless errors
+    log_plot_generation: false
+    log_save_operations: false
+    
+  # Memory management
+  memory:
+    level: "INFO"
+    log_allocations: false
+    log_gc_events: false
+    log_oom_warnings: true
+
+# =============================================================================
+# PERFORMANCE LOGGING
+# =============================================================================
+performance:
+  # Enable performance monitoring
+  enable_monitoring: false
+  
+  # Log processing times for each stage
+  log_stage_timing: false
+  
+  # Log memory usage at key points
+  log_memory_usage: false
+  
+  # Log GPU utilization (if available)
+  log_gpu_usage: false
+  
+  # Performance log file (separate from main log)
+  performance_log_file: "logs/performance.log"
+  
+  # Sampling interval for continuous monitoring (seconds)
+  monitoring_interval: 5.0
+
+# =============================================================================
+# DEBUG LOGGING
+# =============================================================================
+debug:
+  # Enable debug mode (very verbose)
+  enable_debug_mode: false
+  
+  # Log function entry/exit
+  trace_function_calls: false
+  
+  # Log variable values at key points
+  log_variable_values: false
+  
+  # Save intermediate processing results
+  save_intermediate_results: false
+  intermediate_results_dir: "debug/intermediate"
+  
+  # Log detailed error information
+  detailed_error_logging: true
+  
+  # Include stack traces in error logs
+  include_stack_traces: true
+
+# =============================================================================
+# PROGRESS REPORTING
+# =============================================================================
+progress:
+  # Show progress bars in terminal
+  show_progress_bars: true
+  
+  # Progress bar style
+  # Options: tqdm, simple, none
+  progress_style: "tqdm"
+  
+  # Update frequency for progress bars (seconds)
+  update_frequency: 1.0
+  
+  # Show ETA (estimated time of arrival)
+  show_eta: true
+  
+  # Show processing rate (items/second)
+  show_rate: true
+
+# =============================================================================
+# VALIDATION AND METRICS LOGGING
+# =============================================================================
+validation:
+  # Log validation metrics collection
+  log_metrics_collection: true
+  
+  # Log validation results
+  log_validation_results: true
+  
+  # Validation log file
+  validation_log_file: "logs/validation.log"
+  
+  # Log detailed validation steps
+  log_validation_steps: false
+
+# =============================================================================
+# ERROR HANDLING
+# =============================================================================
+error_handling:
+  # Log all exceptions (even if handled)
+  log_all_exceptions: true
+  
+  # Log warnings as errors (strict mode)
+  warnings_as_errors: false
+  
+  # Maximum number of similar errors to log
+  max_similar_errors: 10
+  
+  # Error suppression patterns (regex)
+  suppress_patterns: []
+  
+  # Critical error notification
+  notify_critical_errors: false
+  notification_email: null
+
+# =============================================================================
+# EXTERNAL LIBRARY LOGGING
+# =============================================================================
+external_libraries:
+  # Control logging from external libraries
+  
+  # NumPy warnings
+  numpy:
+    level: "WARNING"
+    suppress_warnings: ["divide", "invalid"]
+    
+  # Matplotlib warnings
+  matplotlib:
+    level: "ERROR"  # Usually quiet
+    
+  # PyTorch warnings
+  torch:
+    level: "WARNING"
+    suppress_cuda_warnings: false
+    
+  # Astropy warnings (ERFA, etc.)
+  astropy:
+    level: "ERROR"  # Suppress ERFA warnings
+    suppress_erfa_warnings: true
+    
+  # FITS file warnings
+  fits:
+    level: "WARNING"
+    suppress_header_warnings: true
+
+# =============================================================================
+# LOG ANALYSIS AND MONITORING
+# =============================================================================
+analysis:
+  # Enable log analysis features
+  enable_analysis: false
+  
+  # Automatically detect performance bottlenecks
+  detect_bottlenecks: false
+  
+  # Monitor for memory leaks
+  monitor_memory_leaks: false
+  
+  # Generate performance reports
+  generate_reports: false
+  report_interval_hours: 24
+  
+  # Alert thresholds
+  alerts:
+    memory_usage_threshold: 0.9    # Alert if >90% memory used
+    processing_time_threshold: 300  # Alert if processing >5 minutes
+    error_rate_threshold: 0.1      # Alert if >10% error rate

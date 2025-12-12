@@ -6,7 +6,8 @@ from . import plot_composite
 from . import plot_dm_time
 from . import plot_waterfall_dispersed
 from . import plot_waterfall_dedispersed
-from . import plot_patches
+# Patch plots disabled
+# from . import plot_patches
 from . import plot_individual_components
 from . import visualization_ranges
 from . import visualization_unified

@@ -1186,6 +1186,15 @@ def stream_fits(
                         except Exception:
                             pass
                                             
+                    # Assign TSTART_MJD to config for MJD calculations in candidate detection
+                    if tstart_mjd > 0:
+                        config.TSTART_MJD = tstart_mjd
+                        config.TSTART_MJD_CORR = tstart_mjd + (nsuboffs * tsub) / 86400.0
+                    else:
+                        logger.warning("TSTART_MJD not calculated correctly from STT_IMJD/STT_SMJD/STT_OFFS")
+                        config.TSTART_MJD = None
+                        config.TSTART_MJD_CORR = None
+                                            
                     total_samples = nsubint * nsblk
                     logger.info(
                         "FITS data detected: samples=%d, polarisations=%d, channels=%d",
@@ -1689,6 +1698,15 @@ def stream_fits(
                     primary = hdul["PRIMARY"].header if "PRIMARY" in [h.name for h in hdul] else {}
                     tstart_mjd = safe_float(primary.get("TSTART", 0.0))
                     nsuboffs = safe_int(primary.get("NSUBOFFS", 0))
+                    
+                    # Assign TSTART_MJD to config for MJD calculations in candidate detection
+                    if tstart_mjd > 0:
+                        config.TSTART_MJD = tstart_mjd
+                        config.TSTART_MJD_CORR = tstart_mjd + (nsuboffs * tsub) / 86400.0
+                    else:
+                        logger.warning("TSTART not found or zero in FITS PRIMARY header")
+                        config.TSTART_MJD = None
+                        config.TSTART_MJD_CORR = None
                     
                     logger.info(
                         "Streaming PSRFITS (astropy fallback): nsubint=%d, nchan=%d, npol=%d, tbin=%s",

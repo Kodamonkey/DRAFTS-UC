@@ -132,6 +132,10 @@ def save_all_plots(
     dedisp_block_linear: Optional[np.ndarray] = None,
     dedisp_block_circular: Optional[np.ndarray] = None,
     class_probs_linear_list: Optional[Iterable[float]] = None,  # NEW: Linear classification probs
+    snr_waterfall_linear_list: Optional[Iterable[float | None]] = None,  # NEW: SNR from Linear waterfall
+    snr_patch_linear_list: Optional[Iterable[float | None]] = None,  # NEW: SNR from dedispersed Linear patch
+    snr_waterfall_intensity_list: Optional[Iterable[float | None]] = None,  # NEW: SNR from Intensity waterfall
+    snr_patch_intensity_list: Optional[Iterable[float | None]] = None,  # NEW: SNR from dedispersed Intensity patch
 ):
 
     if comp_path is not None:
@@ -173,6 +177,10 @@ def save_all_plots(
             dedisp_block_linear=dedisp_block_linear,
             dedisp_block_circular=dedisp_block_circular,
             class_probs_linear=class_probs_linear_list,  # NEW: Pass Linear probs
+            snr_waterfall_linear=snr_waterfall_linear_list,  # NEW: Pass SNR from Linear waterfall
+            snr_patch_linear=snr_patch_linear_list,  # NEW: Pass SNR from dedispersed Linear patch
+            snr_waterfall_intensity=snr_waterfall_intensity_list,  # NEW: Pass SNR from Intensity waterfall
+            snr_patch_intensity=snr_patch_intensity_list,  # NEW: Pass SNR from dedispersed Intensity patch
         )
         
         logger.info(f"Composite plot generated at: {comp_path}")
@@ -229,6 +237,10 @@ def save_slice_summary(
     dedisp_block_linear: Optional[np.ndarray] = None,
     dedisp_block_circular: Optional[np.ndarray] = None,
     class_probs_linear: Optional[Iterable[float]] = None,  # NEW: Linear classification probs
+    snr_waterfall_linear: Optional[Iterable[float | None]] = None,  # NEW: SNR from Linear waterfall
+    snr_patch_linear: Optional[Iterable[float | None]] = None,  # NEW: SNR from dedispersed Linear patch
+    snr_waterfall_intensity: Optional[Iterable[float | None]] = None,  # NEW: SNR from Intensity waterfall
+    snr_patch_intensity: Optional[Iterable[float | None]] = None,  # NEW: SNR from dedispersed Intensity patch
 ) -> None:
     
     save_composite_plot(
@@ -259,5 +271,9 @@ def save_slice_summary(
         dedisp_block_linear=dedisp_block_linear,
         dedisp_block_circular=dedisp_block_circular,
         class_probs_linear=class_probs_linear,  # NEW: Pass Linear probs
+        snr_waterfall_linear=snr_waterfall_linear,  # NEW: Pass SNR from Linear waterfall
+        snr_patch_linear=snr_patch_linear,  # NEW: Pass SNR from dedispersed Linear patch
+        snr_waterfall_intensity=snr_waterfall_intensity,  # NEW: Pass SNR from Intensity waterfall
+        snr_patch_intensity=snr_patch_intensity,  # NEW: Pass SNR from dedispersed Intensity patch
     )
 

@@ -49,6 +49,7 @@ from ..logging import (
     log_streaming_parameters,
 )
 from ..output.candidate_manager import ensure_csv_header
+from ..output.phase_metrics import PhaseMetricsTracker
 
               
 logger = logging.getLogger(__name__)
@@ -632,13 +633,15 @@ def _process_file_chunked(
                 center_mhz,
                 float(getattr(config, 'HIGH_FREQ_THRESHOLD_MHZ', 8000.0)),
             )
-            return _process_file_chunked_high_freq(
+            result = _process_file_chunked_high_freq(
                 cls_model=cls_model,
                 fits_path=fits_path,
                 save_dir=save_dir,
                 chunk_samples=effective_chunk_samples,
                 streaming_func=streaming_func,
             )
+            # Add phase_metrics to result if available
+            return result
 
         # PRESTO-style: Process each block immediately (read → process → write → free)
         # This ensures we never accumulate multiple chunks in memory
@@ -821,22 +824,30 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
     
     logger.pipeline_start(pipeline_config) 
 
-    # Log candidate filtering mode
-    enable_linear = getattr(config, 'ENABLE_LINEAR_VALIDATION', True)
+    # Log High-Frequency Pipeline Configuration
+    enable_phase2_snr = getattr(config, 'ENABLE_LINEAR_VALIDATION', False)
+    enable_intensity_class = getattr(config, 'ENABLE_INTENSITY_CLASSIFICATION', True)
+    enable_linear_class = getattr(config, 'ENABLE_LINEAR_CLASSIFICATION', True)
     
+    logger.logger.info("=" * 80)
+    logger.logger.info("HF PIPELINE CONTROL (for files ≥ %.0f MHz):", getattr(config, 'HIGH_FREQ_THRESHOLD_MHZ', 8000))
+    logger.logger.info("  Phase 1 (SNR Detection - I): ALWAYS ENABLED (threshold=%.1f)", config.SNR_THRESH)
+    logger.logger.info("  Phase 2 (SNR Validation - L): %s%s", 
+                      "ENABLED" if enable_phase2_snr else "DISABLED",
+                      f" (threshold={getattr(config, 'SNR_THRESH_LINEAR', config.SNR_THRESH):.1f})" if enable_phase2_snr else "")
+    logger.logger.info("  Phase 3a (Classification - I): %s%s",
+                      "ENABLED" if enable_intensity_class else "DISABLED",
+                      f" (threshold={config.CLASS_PROB:.2f})" if enable_intensity_class else "")
+    logger.logger.info("  Phase 3b (Classification - L): %s%s",
+                      "ENABLED" if enable_linear_class else "DISABLED",
+                      f" (threshold={getattr(config, 'CLASS_PROB_LINEAR', config.CLASS_PROB):.2f})" if enable_linear_class else "")
+    logger.logger.info("=" * 80)
+    
+    # Log output mode
     if config.SAVE_ONLY_BURST:
-        logger.logger.info("Output mode: STRICT - Dual validation enabled")
-        if enable_linear:
-            logger.logger.info("  → High-freq: BOTH Intensity AND Linear must classify as BURST")
-        logger.logger.info("  → Standard: Only ResNet BURST classifications saved")
+        logger.logger.info("Output mode: STRICT - Save only if ALL enabled phases classify as BURST")
     else:
-        logger.logger.info("Output mode: PERMISSIVE - Intensity-based saving")
-        if enable_linear:
-            logger.logger.info("  → High-freq: Intensity BURST sufficient (Linear can disagree)")
-        logger.logger.info("  → Standard: All CenterNet detections saved (BURST + NON-BURST)")
-    
-    if hasattr(config, 'ENABLE_LINEAR_VALIDATION'):
-        logger.logger.info(f"Linear Polarization validation (Phase 2): {'ENABLED' if enable_linear else 'DISABLED'}")
+        logger.logger.info("Output mode: PERMISSIVE - Save if ANY enabled phase classifies as BURST")
 
     save_dir = config.RESULTS_DIR
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -847,6 +858,9 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
     logger.logger.info("Models loaded successfully")
 
     summary: dict[str, dict] = {}
+    # Dictionary to store phase metrics trackers by filename
+    phase_metrics_by_file: dict[str, 'PhaseMetricsTracker'] = {}
+    
     for frb in config.FRB_TARGETS:                                 
         logger.logger.info("Searching files for target: %s", frb)
         file_list = find_data_files(frb)
@@ -905,8 +919,12 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
                 log_pipeline_file_processing(fits_path.name, fits_path.suffix.lower(), config.FILE_LENG, chunk_samples) 
                 
                 results = _process_file_chunked(det_model, cls_model, fits_path, save_dir, chunk_samples)                               
-                summary[fits_path.name] = results                                       
+                summary[fits_path.name] = results
                 
+                # Capture phase metrics tracker if available (from high-freq pipeline)
+                if "phase_metrics" in results and results["phase_metrics"] is not None:
+                    phase_metrics_by_file[fits_path.name] = results["phase_metrics"]
+                                       
                 log_pipeline_file_completion(fits_path.name, results)
                 
                 logger.file_processing_end(fits_path.name, results)
@@ -924,6 +942,15 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
                 summary[fits_path.name] = error_results
                 
     logger.pipeline_end(summary)
+    
+    # Generate execution summary with phase metrics
+    if phase_metrics_by_file:
+        from ..output.execution_summary import generate_execution_summary
+        try:
+            generate_execution_summary(phase_metrics_by_file, save_dir, summary)
+            logger.logger.info("Execution summary with phase metrics generated successfully")
+        except Exception as e:
+            logger.logger.warning(f"Failed to generate execution summary: {e}", exc_info=True)
 
 if __name__ == "__main__":
                                                      

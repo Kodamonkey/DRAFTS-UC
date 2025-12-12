@@ -157,25 +157,32 @@ def create_waterfall_dispersed_plot(
     real_samples = slice_samples if slice_samples is not None else slice_len
     slice_end_abs = slice_start_abs + real_samples * config.TIME_RESO * config.DOWN_TIME_RATE
 
-                                                           
-                                                                             
+    # Calculate dispersion-corrected time axis for raw waterfall
+    # This shifts the time axis backwards by Δt_max to show the parabolic shape
     burst_start_time_corrected = slice_start_abs
+    delta_t_max_correction = 0.0
+    
     if dm_value is not None and dm_value > 0:
         freq_min, freq_max = get_band_frequency_range(band_idx)
                                                     
-        burst_start_time_corrected = calculate_undispersed_burst_time(
-            observed_time=slice_start_abs,
-            dm=dm_value,
-            freq_low=freq_min,
-            freq_high=freq_max
-        )
-        logger.info(
-            f"[INFO] [BURST CORRECTION] Original burst time: {burst_start_time_corrected:.6f}s"
-        )
-        logger.info(f"[INFO] [BURST CORRECTION] Observed time: {slice_start_abs:.6f}s")
-        logger.info(
-            "[INFO] [BURST CORRECTION] Correction applied to show the natural parabola"
-        )
+        # Calculate maximum dispersion delay using precise formula
+        K_DM = 4.148808e3  # s MHz^2 pc^-1 cm^3
+        delta_t_max = K_DM * dm_value * (1.0/(freq_min**2) - 1.0/(freq_max**2))
+        
+        # Add small margin (10%) to ensure we capture the full sweep
+        margin = 0.1 * delta_t_max
+        delta_t_max_correction = delta_t_max + margin
+        
+        # Shift time axis backwards to show the dispersed burst's parabolic shape
+        burst_start_time_corrected = slice_start_abs - delta_t_max_correction
+        
+        logger.info(f"[RAW WATERFALL CORRECTION] DM: {dm_value:.2f} pc cm⁻³")
+        logger.info(f"[RAW WATERFALL CORRECTION] Frequencies: {freq_min:.1f} - {freq_max:.1f} MHz")
+        logger.info(f"[RAW WATERFALL CORRECTION] Δt_max: {delta_t_max:.6f} s")
+        logger.info(f"[RAW WATERFALL CORRECTION] Total shift (with margin): {delta_t_max_correction:.6f} s")
+        logger.info(f"[RAW WATERFALL CORRECTION] Original start: {slice_start_abs:.6f} s")
+        logger.info(f"[RAW WATERFALL CORRECTION] Corrected start: {burst_start_time_corrected:.6f} s")
+        logger.info("[RAW WATERFALL CORRECTION] Time axis shifted to show parabolic dispersion sweep")
 
                                                         
     fig = plt.figure(figsize=(8, 10))

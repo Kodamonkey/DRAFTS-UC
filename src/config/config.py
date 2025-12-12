@@ -40,16 +40,20 @@ try:
         DOWN_TIME_RATE,
         DET_PROB,
         CLASS_PROB,
+        CLASS_PROB_LINEAR,
         FORCE_PLOTS,
         FRB_TARGETS,
         RESULTS_DIR,
         SLICE_DURATION_MS,
         SNR_THRESH,
+        SNR_THRESH_LINEAR,
         USE_MULTI_BAND,
         SAVE_ONLY_BURST,
         AUTO_HIGH_FREQ_PIPELINE,
         HIGH_FREQ_THRESHOLD_MHZ,
         ENABLE_LINEAR_VALIDATION,
+        ENABLE_INTENSITY_CLASSIFICATION,
+        ENABLE_LINEAR_CLASSIFICATION,
         POLARIZATION_MODE,
         POLARIZATION_INDEX,
         MAX_CHUNK_SAMPLES,
@@ -69,16 +73,20 @@ except ImportError:
             DOWN_TIME_RATE,
             DET_PROB,
             CLASS_PROB,
+            CLASS_PROB_LINEAR,
             FORCE_PLOTS,
             FRB_TARGETS,
             RESULTS_DIR,
             SLICE_DURATION_MS,
             SNR_THRESH,
+            SNR_THRESH_LINEAR,
             USE_MULTI_BAND,
             SAVE_ONLY_BURST,
             AUTO_HIGH_FREQ_PIPELINE,
             HIGH_FREQ_THRESHOLD_MHZ,
             ENABLE_LINEAR_VALIDATION,
+            ENABLE_INTENSITY_CLASSIFICATION,
+            ENABLE_LINEAR_CLASSIFICATION,
             POLARIZATION_MODE,
             POLARIZATION_INDEX,
             MAX_CHUNK_SAMPLES,
@@ -99,12 +107,16 @@ except ImportError:
         DM_max = 1024
         DET_PROB = 0.3
         CLASS_PROB = 0.5
+        CLASS_PROB_LINEAR = 0.6
         SNR_THRESH = 5.0
+        SNR_THRESH_LINEAR = 5.0
         USE_MULTI_BAND = False
         SAVE_ONLY_BURST = True
         AUTO_HIGH_FREQ_PIPELINE = True
         HIGH_FREQ_THRESHOLD_MHZ = 8000.0
-        ENABLE_LINEAR_VALIDATION = True
+        ENABLE_LINEAR_VALIDATION = False
+        ENABLE_INTENSITY_CLASSIFICATION = True
+        ENABLE_LINEAR_CLASSIFICATION = True
         POLARIZATION_MODE = "intensity"
         POLARIZATION_INDEX = 0
         DEBUG_FREQUENCY_ORDER = False

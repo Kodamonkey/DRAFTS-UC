@@ -318,6 +318,20 @@ def get_obparams_fil(file_name: str) -> None:
     config.TIME_RESO = tsamp
     config.FREQ_RESO = nchans
     config.FILE_LENG = nsamples
+    
+    # Extract and store TSTART_MJD from filterbank header
+    tstart = header.get("tstart", None)
+    if tstart is not None:
+        config.TSTART_MJD = float(tstart)
+        # For filterbank files, TSTART_MJD_CORR is the same as TSTART_MJD
+        # (no subintegration offset like in PSRFITS)
+        config.TSTART_MJD_CORR = float(tstart)
+        if config.DEBUG_FREQUENCY_ORDER:
+            logger.debug(f"[DEBUG FILTERBANK] MJD start time (tstart): {tstart}")
+    else:
+        logger.warning(f"TSTART not found in filterbank header for {file_name}")
+        config.TSTART_MJD = None
+        config.TSTART_MJD_CORR = None
 
                                                                                     
     auto_config_downsampling()

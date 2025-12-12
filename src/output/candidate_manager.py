@@ -33,8 +33,10 @@ CANDIDATE_HEADER = [
     "y1",
     "x2",
     "y2",
-    "snr_waterfall",  # SNR from waterfall raw (peak_snr_wf from plot)
-    "snr_patch_dedispersed",  # SNR from dedispersed patch (what was previously "snr")
+    "snr_waterfall",  # SNR from waterfall raw (peak_snr_wf from plot) - Intensity
+    "snr_patch_dedispersed",  # SNR from dedispersed patch (what was previously "snr") - Intensity
+    "snr_waterfall_linear",  # SNR from waterfall raw in Linear polarization - HF pipeline only
+    "snr_patch_dedispersed_linear",  # SNR from dedispersed patch in Linear polarization - HF pipeline only
     "width_ms",
     "class_prob_intensity",  # Classification probability in Intensity (I) - always present
     "is_burst_intensity",  # BURST classification in Intensity (I) - always present
@@ -84,8 +86,10 @@ class Candidate:
     t_sec_waterfall: float | None = None  # Time from waterfall SNR peak (different method)
     t_sample: int = 0
     box: Tuple[int, int, int, int] = (0, 0, 0, 0)
-    snr_waterfall: float | None = None  # SNR from waterfall raw (peak_snr_wf)
-    snr_patch_dedispersed: float = 0.0  # SNR from dedispersed patch
+    snr_waterfall: float | None = None  # SNR from waterfall raw (peak_snr_wf) - Intensity
+    snr_patch_dedispersed: float = 0.0  # SNR from dedispersed patch - Intensity
+    snr_waterfall_linear: float | None = None  # SNR from waterfall raw in Linear - HF pipeline only
+    snr_patch_dedispersed_linear: float | None = None  # SNR from dedispersed patch in Linear - HF pipeline only
     width_ms: float | None = None
     class_prob_intensity: float | None = None  # Classification probability in Intensity (I)
     is_burst_intensity: bool | None = None  # BURST classification in Intensity (I)
@@ -120,9 +124,12 @@ class Candidate:
         row.append(f"{self.mjd_bary_tdb_inf:.12f}" if self.mjd_bary_tdb_inf is not None else "")
         # Add box coordinates
         row.extend(self.box)
-        # Add SNR values
-        row.append(f"{self.snr_waterfall:.2f}" if self.snr_waterfall is not None else "")  # SNR from waterfall
-        row.append(f"{self.snr_patch_dedispersed:.2f}")  # SNR from dedispersed patch
+        # Add SNR values (Intensity)
+        row.append(f"{self.snr_waterfall:.2f}" if self.snr_waterfall is not None else "")  # SNR from waterfall - Intensity
+        row.append(f"{self.snr_patch_dedispersed:.2f}")  # SNR from dedispersed patch - Intensity
+        # Add SNR values (Linear - HF pipeline only)
+        row.append(f"{self.snr_waterfall_linear:.2f}" if self.snr_waterfall_linear is not None else "")  # SNR from waterfall - Linear
+        row.append(f"{self.snr_patch_dedispersed_linear:.2f}" if self.snr_patch_dedispersed_linear is not None else "")  # SNR from dedispersed patch - Linear
         if self.width_ms is not None:
             row.append(f"{self.width_ms:.3f}")
         else:

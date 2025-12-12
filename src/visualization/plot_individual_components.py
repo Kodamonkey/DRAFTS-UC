@@ -16,7 +16,8 @@ from matplotlib import gridspec
 from .plot_dm_time import save_dm_time_plot
 from .plot_waterfall_dispersed import save_waterfall_dispersed_plot
 from .plot_waterfall_dedispersed import save_waterfall_dedispersed_plot
-from .plot_patches import save_patches_plot
+# Patch plots removed - not needed
+# from .plot_patches import save_patches_plot
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..config import config
 
@@ -451,26 +452,10 @@ def generate_individual_plots(
         logger.info(f"✓ Waterfall dedispersed plot saved: {waterfall_dedispersed_path}")
         
                                                                                         
-        patches_path = individual_dir / f"{base_filename}_patches.png"
-        save_patches_plot(
-            patch_img=patch_img,
-            patch_start=patch_start,
-            out_path=patches_path,
-            slice_idx=slice_idx,
-            time_slice=time_slice,
-            band_name=band_name,
-            band_suffix=band_suffix,
-            fits_stem=fits_stem,
-            slice_len=slice_len,
-            normalize=normalize,
-            off_regions=off_regions,
-            thresh_snr=thresh_snr,
-            band_idx=band_idx,
-            absolute_start_time=absolute_start_time,
-            chunk_idx=chunk_idx,
-            slice_samples=slice_samples,
-        )
-        logger.info(f"✓ Patches plot saved: {patches_path}")
+        # Patch plots completely disabled - not needed for thesis validation
+        # patches_path = individual_dir / f"{base_filename}_patches.png"
+        # save_patches_plot(...)
+        # logger.info(f"✓ Patches plot saved: {patches_path}")
         
         logger.info(f"All classic individual plots generated successfully in: {individual_dir}")
         

@@ -35,6 +35,10 @@ def create_multi_pol_panels(
     time_reso_ds: float,
     thresh_snr: Optional[float],
     off_regions: Optional[list] = None,
+    candidate_time_abs: Optional[float] = None,  # Absolute time of candidate for marking position (Linear)
+    candidate_time_intensity: Optional[float] = None,  # Absolute time of candidate for marking position (Intensity)
+    candidate_snr_intensity_wf: Optional[float] = None,  # SNR from detection (PRESTO-style) for Intensity waterfall title
+    candidate_snr_linear_wf: Optional[float] = None,  # SNR from detection (PRESTO-style) for Linear waterfall title
 ) -> None:
     """Create three bottom panels showing dedispersed waterfalls in different polarizations.
     
@@ -62,12 +66,12 @@ def create_multi_pol_panels(
     freq_tick_positions = np.linspace(freq_ds.min(), freq_ds.max(), n_freq_ticks)
     
     polarizations = [
-        (dedisp_intensity, "Intensity (I)", "green", 0),
-        (dedisp_linear, "Linear (√(Q²+U²))", "purple", 1),
-        (dedisp_circular, "Circular (|V|)", "orange", 2),
+        (dedisp_intensity, "Intensity", "green", 0, candidate_snr_intensity_wf, None),  # Intensity uses SNR from detection (PRESTO-style)
+        (dedisp_linear, "Linear Polarization", "purple", 1, candidate_snr_linear_wf, None),  # Linear uses SNR from detection (PRESTO-style)
+        (dedisp_circular, "Circular Polarization", "orange", 2, None, None),  # Circular uses global peak
     ]
     
-    for pol_data, pol_label, pol_color, panel_idx in polarizations:
+    for pol_data, pol_label, pol_color, panel_idx, candidate_snr_wf, candidate_snr_patch in polarizations:
         # Create nested grid for SNR profile + waterfall
         gs_nested = gridspec.GridSpecFromSubplotSpec(
             2, 1, subplot_spec=gs_bottom_row[0, panel_idx], height_ratios=[1, 4], hspace=0.05
@@ -86,7 +90,41 @@ def create_multi_pol_panels(
             
             time_axis = np.linspace(slice_start_abs, slice_end_abs, len(snr_prof))
             peak_time_abs = float(time_axis[peak_idx]) if len(snr_prof) > 0 else None
-            width_ms = float(best_w[int(peak_idx)]) * time_reso_ds * 1000.0 if len(best_w) == len(snr_prof) else None
+            
+            # CRITICAL: Use SNR from detection (PRESTO-style) - NOT recalculated from waterfall
+            # This ensures consistency with PRESTO methodology and between waterfall title, DM-time label, and red box
+            # Determine position to mark: use candidate time if available, otherwise use global peak
+            if candidate_time_abs is not None and panel_idx == 1:  # Linear polarization with candidate time
+                # Find closest time index to candidate time for marking position
+                candidate_idx = np.argmin(np.abs(time_axis - candidate_time_abs))
+                if 0 <= candidate_idx < len(snr_prof):
+                    mark_idx = candidate_idx
+                    mark_time = float(time_axis[candidate_idx])
+                else:
+                    # Fallback to global peak
+                    mark_idx = peak_idx
+                    mark_time = peak_time_abs
+                # ALWAYS use SNR from detection (PRESTO-style) - this is the correct SNR value
+                # This ensures consistency with DM-time labels
+                display_snr = candidate_snr_linear_wf if candidate_snr_linear_wf is not None else peak_snr
+            else:
+                # For Intensity and Circular: use candidate time if available, otherwise global peak
+                if candidate_time_intensity is not None and panel_idx == 0:  # Intensity with candidate time
+                    candidate_idx = np.argmin(np.abs(time_axis - candidate_time_intensity))
+                    if 0 <= candidate_idx < len(snr_prof):
+                        mark_idx = candidate_idx
+                        mark_time = float(time_axis[candidate_idx])
+                    else:
+                        mark_idx = peak_idx
+                        mark_time = peak_time_abs
+                    # ALWAYS use SNR from detection (PRESTO-style) - this is the correct SNR value
+                    # This ensures consistency with DM-time labels
+                    display_snr = candidate_snr_intensity_wf if candidate_snr_intensity_wf is not None else peak_snr
+                else:
+                    # Use global peak for Circular, or if no candidate time
+                    mark_idx = peak_idx
+                    mark_time = peak_time_abs
+                    display_snr = peak_snr
             
             # Plot SNR profile
             ax_prof.plot(time_axis, snr_prof, color=pol_color, alpha=0.8, lw=1.5)
@@ -99,23 +137,40 @@ def create_multi_pol_panels(
                 ax_prof.axhline(y=thresh_snr, color=config.SNR_HIGHLIGHT_COLOR,
                               linestyle='--', alpha=0.7, linewidth=1)
             
-            ax_prof.plot(time_axis[peak_idx], peak_snr, 'ro', markersize=5)
-            ax_prof.text(time_axis[peak_idx], peak_snr + 0.1 * (ax_prof.get_ylim()[1] - ax_prof.get_ylim()[0]),
-                        f'{peak_snr:.1f}σ', ha='center', va='bottom', fontsize=8, fontweight='bold')
+            # Mark position with red dot and show display_snr in red box (consistent with classic pipeline)
+            # CRITICAL: Use display_snr (SNR from detection, PRESTO-style) for BOTH the dot position and the text
+            # This ensures consistency with DM-time labels - they MUST be the same value
+            ax_prof.plot(mark_time, display_snr, 'ro', markersize=5)
+            # Calculate text position: slightly to the right and above the peak (like classic pipeline)
+            y_range = ax_prof.get_ylim()[1] - ax_prof.get_ylim()[0]
+            x_range = ax_prof.get_xlim()[1] - ax_prof.get_xlim()[0]
+            text_x = mark_time + 0.02 * x_range  # 2% to the right
+            text_y = display_snr + 0.15 * y_range  # 15% above peak
+            # Use display_snr (SNR from detection, PRESTO-style) - MUST match DM-time label
+            ax_prof.text(text_x, text_y, 
+                       f'{display_snr:.1f}σ', ha='left', va='bottom', fontsize=8, fontweight='bold',
+                       bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.8, edgecolor='red', linewidth=0.5))
             
             ax_prof.set_xlim(time_axis[0], time_axis[-1])
             ax_prof.set_ylabel('SNR (σ)', fontsize=8, fontweight='bold')
             ax_prof.grid(True, alpha=0.3)
             ax_prof.set_xticks([])
             
-            # Title with peak info
-            if peak_time_abs is not None and width_ms is not None:
-                title = f"Dedispersed {pol_label} (DM={dm_val:.1f})\nPeak={peak_snr:.1f}σ (w≈{width_ms:.3f} ms) @ {peak_time_abs:.6f}s"
-            elif peak_time_abs is not None:
-                title = f"Dedispersed {pol_label} (DM={dm_val:.1f})\nPeak={peak_snr:.1f}σ @ {peak_time_abs:.6f}s"
-            else:
-                title = f"Dedispersed {pol_label} (DM={dm_val:.1f})\nPeak={peak_snr:.1f}σ"
-            ax_prof.set_title(title, fontsize=9, fontweight="bold")
+            # Simplified title: polarization name + candidate time (if available)
+            # SNR is shown in red box in the time series profile (below)
+            if panel_idx == 0:  # Intensity
+                if candidate_time_intensity is not None:
+                    title = f"Intensity Waterfall\nTime: {candidate_time_intensity:.6f}s"
+                else:
+                    title = "Intensity Waterfall"
+            elif panel_idx == 1:  # Linear
+                if candidate_time_abs is not None:
+                    title = f"Linear Polarization\nTime: {candidate_time_abs:.6f}s"
+                else:
+                    title = "Linear Polarization"
+            else:  # Circular
+                title = "Circular Polarization"
+            ax_prof.set_title(title, fontsize=9, fontweight="bold", pad=12)
             
             # Plot waterfall
             ax_waterfall.imshow(
@@ -137,9 +192,10 @@ def create_multi_pol_panels(
             ax_waterfall.set_xlabel("Time (s)", fontsize=9)
             ax_waterfall.set_ylabel("Frequency (MHz)", fontsize=9)
             
-            # Mark peak time
-            if config.SNR_SHOW_PEAK_LINES and peak_time_abs is not None:
-                ax_waterfall.axvline(x=peak_time_abs, color=config.SNR_HIGHLIGHT_COLOR,
+            # Mark peak time (use candidate time for Linear if available, otherwise global peak)
+            mark_time_for_line = candidate_time_abs if (candidate_time_abs is not None and panel_idx == 1) else peak_time_abs
+            if config.SNR_SHOW_PEAK_LINES and mark_time_for_line is not None:
+                ax_waterfall.axvline(x=mark_time_for_line, color=config.SNR_HIGHLIGHT_COLOR,
                                    linestyle='-', alpha=0.8, linewidth=2)
         
         else:

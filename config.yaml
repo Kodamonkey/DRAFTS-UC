@@ -20,16 +20,85 @@ data:
   input_dir: "./Data/raw/"
 
   # Directory where results will be saved (CSVs, plots, logs)
-  results_dir: "./Results-polarization-finales/"
+  results_dir: "./ResultsThesis/ALMA-4phases/no-phase2-no-classification-linear/"
 
   # List of files to process (search patterns)
   # Can specify full names or partial patterns
   # Pipeline will search for files matching any of these patterns
   targets:
-    - "B0355+54_FB_20220918"
-    # - "FRB20201124_0009"
-    # - "FRB20180301_0002"
-    # - "FRB20180301_0001"
+    # Caso 1: FAST-FREX (Validación cuantitativa completa)
+    # - "FRB20180301_0001" # Caso 1: FAST-FREX - Archivo válido para validación
+    #- "3100_0001_00_8bit" # Caso 1: FAST-FREX - Archivo válido para validación
+
+    # Caso 2: B0355+54 (Robustez temporal - YA EJECUTADO)
+    # - "B0355+54_FB_20220918" # Caso 2: B0355+54 - Robustez Temporal
+
+    # Caso 3: FRB 121102 (Escalabilidad y descubrimiento científico)
+    #- "3096_0001_00_8bit" # FRB 121102 - Effelsberg 1.4 GHz (32.2 GB)
+    # - "3097_0001_00_8bit" # FRB 121102 - Effelsberg 1.4 GHz (32.2 GB)
+    # - "3098_0001_00_8bit" # FRB 121102 - Effelsberg 1.4 GHz (32.2 GB)
+    # - "3099_0001_00_8bit" # FRB 121102 - Effelsberg 1.4 GHz (32.2 GB)
+    # - "3100_0001_00_8bit" # FRB 121102 - Effelsberg 1.4 GHz (32.2 GB)
+    # - "3101_0001_00_8bit" # FRB 121102 - Effelsberg 1.4 GHz (32.2 GB)
+    # - "3102_0001_00_8bit" # FRB 121102 - Effelsberg 1.4 GHz (32.2 GB)
+
+    # Caso 4: ALMA
+
+    - "2017-04-03-08_16_13_142_0006_t10.882_t25.829"
+    - "2017-04-03-08_55_22_153_0006_t23.444"
+    - "2017-04-03-08-16-13_142_0003_t39.977"
+    - "2017-04-03-12_56_05_230_0002_t2.3_t17.395"
+    - "2017-04-03-12_56_05_230_0003_t36.548"
+    - "2017-04-03-13_38_31_242_0005_t44.169"
+    # No0134
+    - "2017-04-03-07-55-05_0007"
+    # No0142
+    - "2017-04-03-08_16_13_0006"
+    - "2017-04-03-08_16_13_0003"
+    - "2017-04-03-08_16_13_0002"
+    - "2017-04-03-08_16_13_0001"
+    - "2017-04-03-08_16_13_0008"
+    # No0143
+    - "2017-04-03-08_25_13_0007"
+    - "2017-04-03-08_25_13_0006"
+    - "2017-04-03-08_25_13_0005"
+    - "2017-04-03-08_25_13_0003"
+    # No0152
+    - "2017-04-03-08_46_22_0007"
+    - "2017-04-03-08_46_22_0006"
+    - "2017-04-03-08_46_22_0005"
+    - "2017-04-03-08_46_22_0004"
+    # No0153
+    - "2017-04-03-08_55_22_0006"
+    # No0220
+    - "2017-04-03-12_26_08_0006"
+    - "2017-04-03-12_26_08_0005"
+    # No0227
+    - "2017-04-03-12_47_05_0008"
+    - "2017-04-03-12_47_05_0007"
+    - "2017-04-03-12_47_05_0005"
+    - "2017-04-03-12_47_05_0003"
+    - "2017-04-03-12_47_05_0002"
+    # No0230
+    - "2017-04-03-12_56_05_0004"
+    - "2017-04-03-12_56_05_0003"
+    - "2017-04-03-12_56_05_0002"
+    - "2017-04-03-12_56_05_0001"
+    # No0240
+    - "2017-04-03-13_26_01_0008"
+    - "2017-04-03-13_26_01_0004"
+    - "2017-04-03-13_26_01_0003"
+    # No0242
+    - "2017-04-03-13-38-31_0006"
+    - "2017-04-03-13_38_31_0005"
+    - "2017-04-03-133831_0008"
+    - "2017-04-03-133831_0007"
+    - "2017-04-03-13_38_31_0004"
+    - "2017-04-03-13_38_31_0003"
+    - "2017-04-03-13_38_31_0002"
+    # No0243
+    - "2017-04-03-13-47-01_0001"
+    - "2017-04-03-134701_0004"
 
 # ==============================================================================
 # TEMPORAL ANALYSIS
@@ -37,7 +106,8 @@ data:
 temporal:
   # Duration of each temporal segment in milliseconds
   # Common values for FRBs: 100-500 ms, Pulsars: 1000-5000 ms
-  slice_duration_ms: 1000.0
+  # Caso 3: FRB 121102 - Configuración según plan de validación
+  slice_duration_ms: 300.0
 
 # ==============================================================================
 # DOWNSAMPLING (DATA REDUCTION)
@@ -46,12 +116,14 @@ downsampling:
   # Frequency reduction factor (1 = no reduction)
   # Higher values = faster processing, lower frequency resolution
   # Values: 1, 2, 4, 8
+  # Caso 3: FRB 121102 - Decimación agresiva para archivos grandes (32.2 GB cada uno)
   frequency_rate: 1
 
   # Time reduction factor (1 = no reduction)
   # Higher values = faster processing, lower time resolution
   # Common values: 4, 8, 16, 32
-  time_rate: 8
+  # Caso 3: FRB 121102 - Decimación agresiva 8x8 según plan de validación
+  time_rate: 72
 
 # ==============================================================================
 # DISPERSION MEASURE (DM) SEARCH RANGE
@@ -62,8 +134,9 @@ dispersion:
   # - Nearby pulsars: 0-100
   # - Extragalactic FRBs: 100-2000
   # - General/unknown: 0-1024
+  # Caso 3: FRB 121102 - DM conocido ~560 pc cm⁻³, amplio rango para detección
   dm_min: 0
-  dm_max: 100
+  dm_max: 3540
 
 # ==============================================================================
 # DETECTION THRESHOLDS
@@ -76,19 +149,36 @@ thresholds:
   # - Sensitive: 0.1-0.2
   detection_probability: 0.3
 
-  # Minimum probability to classify as burst (ResNet)
+  # Minimum probability to classify as burst (ResNet) in INTENSITY
+  # For HF pipeline: Controls Phase 3a (Intensity classification)
   # Higher values = more conservative classification
   # - Conservative: 0.7-0.9
   # - Balanced: 0.5 (default)
   # - Sensitive: 0.3-0.4
   classification_probability: 0.5
 
-  # SNR threshold for highlighting in visualizations
-  # Does not affect detection, only visualization
-  # - Conservative: 5.0-10.0
-  # - Balanced: 3.0-7.0
-  # - Sensitive: 1.0-5.0
+  # Minimum probability to classify as burst (ResNet) in LINEAR POLARIZATION
+  # For HF pipeline: Controls Phase 3b (Linear classification)
+  # Independent threshold for Linear polarization morphology
+  # - Conservative: 0.7-0.9
+  # - Balanced: 0.5-0.6 (default)
+  # - Sensitive: 0.3-0.4
+  classification_probability_linear: 0.3
+
+  # SNR threshold for matched filtering in INTENSITY
+  # For HF pipeline: Controls Phase 1 (Matched Filtering detection)
+  # - Conservative: 5.0-7.0
+  # - Balanced: 5.0 (default)
+  # - Sensitive: 3.0-5.0
   snr_threshold: 5.0
+
+  # SNR threshold for matched filtering in LINEAR POLARIZATION
+  # For HF pipeline: Controls Phase 2 (Linear SNR validation)
+  # Independent threshold for Linear polarization SNR
+  # - Conservative: 5.0-7.0
+  # - Balanced: 5.0 (default)
+  # - Sensitive: 3.0-5.0
+  snr_threshold_linear: 3.0
 
 # ==============================================================================
 # MULTI-BAND ANALYSIS
@@ -115,11 +205,31 @@ high_frequency:
   # Default: 8000 MHz (8 GHz) for ALMA
   threshold_mhz: 8000.0
 
-  # Enable dual-polarization validation
-  # Requires peaks to appear in both Intensity AND Linear polarization
-  # - true: More conservative, better RFI rejection
-  # - false: Faster, single-polarization detection
+  # ============================================================================
+  # PHASE 2: LINEAR POLARIZATION SNR VALIDATION
+  # ============================================================================
+  # Enable Phase 2: Re-evaluate peaks detected in Intensity using SNR in Linear
+  # This filters RFI that has high SNR in I but low SNR in L (non-polarized RFI)
+  # - true: More conservative, better RFI rejection (requires SNR_L >= threshold)
+  # - false: Skip Phase 2, all peaks from Phase 1 go to Phase 3
   enable_linear_validation: false
+
+  # ============================================================================
+  # PHASE 3: RESNET18 CLASSIFICATION CONTROL
+  # ============================================================================
+  # Enable Phase 3a: ResNet18 classification on INTENSITY patches
+  # Controls whether Intensity morphology is validated via CNN
+  # - true: Validate morphology in Intensity (standard)
+  # - false: Skip Intensity classification (NOT RECOMMENDED)
+  # NOTE: At least ONE of (intensity OR linear) must be enabled
+  enable_intensity_classification: true
+
+  # Enable Phase 3b: ResNet18 classification on LINEAR POLARIZATION patches
+  # Controls whether Linear morphology is validated via CNN
+  # - true: Validate morphology in Linear (dual validation, STRICT mode)
+  # - false: Skip Linear classification (PERMISSIVE mode, only Intensity)
+  # NOTE: Requires multi-pol data (IQUV). At least ONE of (intensity OR linear) must be enabled
+  enable_linear_classification: false
 
 # ==============================================================================
 # POLARIZATION (PSRFITS)
@@ -151,7 +261,7 @@ performance:
   # DEPENDENCY: This value affects dm_chunking_threshold_gb below.
   # RAM_utilizable = (RAM_total × max_ram_fraction × 0.8) / 1.3
   # When changing this, adjust dm_chunking_threshold_gb accordingly.
-  max_ram_fraction: 0.15
+  max_ram_fraction: 0.10
 
   # Maximum chunk size in samples
   # Prevents memory issues with very large files
@@ -175,7 +285,7 @@ performance:
   # The system uses the MORE RESTRICTIVE limit.
   # Example: With DM=10000, even 500K samples would create a ~56 GB cube.
   # This limit (2 GB) will automatically reduce chunk to ~16K samples.
-  max_dm_cube_size_gb: 2.0
+  max_dm_cube_size_gb: 0.5
 
   # DM chunking threshold (GB)
   # If DM-time cube would exceed this size, automatically split DM range

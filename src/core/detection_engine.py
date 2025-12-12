@@ -89,6 +89,8 @@ def detect_and_classify_candidates_in_band(
         patch_path = patch_dir / f"patch_slice{j}_band{band_img.shape[0] if hasattr(band_img, 'shape') else 0}.png"
     class_probs_list = []
     candidate_times_abs: list[float] = []
+    snr_waterfall_intensity_list: list[float | None] = []  # NEW: SNR from Intensity waterfall per candidate
+    snr_patch_intensity_list: list[float | None] = []  # NEW: SNR from dedispersed Intensity patch per candidate
     cand_counter = 0
     n_bursts = 0
     n_no_bursts = 0
@@ -103,28 +105,37 @@ def detect_and_classify_candidates_in_band(
     first_start = None
     first_dm = None
     
-    # Calculate waterfall SNR values (same as in plot_composite.py)
+    # Calculate waterfall SNR profile once (will be reused for each candidate)
     # This ensures consistency between CSV and plots
-    snr_waterfall = None
+    snr_wf_profile = None
+    snr_waterfall_global = None  # Global peak (for backward compatibility)
     peak_time_waterfall = None
     if waterfall_block is not None and waterfall_block.size > 0:
         try:
             snr_wf, _, _ = compute_snr_profile(waterfall_block, off_regions)
+            snr_wf_profile = snr_wf  # Store profile for per-candidate SNR calculation
             if snr_wf.size > 0:
                 peak_snr_wf, _, peak_idx_wf = find_snr_peak(snr_wf)
-                snr_waterfall = float(peak_snr_wf)
+                snr_waterfall_global = float(peak_snr_wf)  # Global peak (for backward compatibility)
                 # Calculate absolute time for waterfall peak (same method as plot)
                 if absolute_start_time is not None:
                     slice_start_abs = absolute_start_time
                 else:
                     slice_start_abs = j * slice_len * time_reso_ds
-                real_samples = slice_samples if slice_samples is not None else slice_len
-                slice_end_abs = slice_start_abs + real_samples * time_reso_ds
-                time_axis_wf = np.linspace(slice_start_abs, slice_end_abs, len(snr_wf))
-                peak_time_waterfall = float(time_axis_wf[peak_idx_wf])
+                # CRITICAL: Use len(snr_wf) for both slice_end_abs and time_axis_wf
+                # to ensure they match exactly and avoid broadcasting errors
+                snr_samples = len(snr_wf)
+                slice_end_abs = slice_start_abs + snr_samples * time_reso_ds
+                time_axis_wf = np.linspace(slice_start_abs, slice_end_abs, snr_samples)
+                if peak_idx_wf < len(time_axis_wf):
+                    peak_time_waterfall = float(time_axis_wf[peak_idx_wf])
+                else:
+                    # Fallback: calculate directly from peak index
+                    peak_time_waterfall = slice_start_abs + peak_idx_wf * time_reso_ds
         except Exception as e:
             logger.debug(f"Could not calculate waterfall SNR: {e}")
-            snr_waterfall = None
+            snr_wf_profile = None
+            snr_waterfall_global = None
             peak_time_waterfall = None
                                                           
     all_candidates = []
@@ -231,6 +242,37 @@ def detect_and_classify_candidates_in_band(
         
         candidate_times_abs.append(float(detection_time_dm_time))
         
+        # Calculate SNR from waterfall at candidate position (similar to HF pipeline)
+        # Map candidate time to index in waterfall SNR profile
+        snr_intensity_at_peak = None
+        if snr_wf_profile is not None and snr_wf_profile.size > 0:
+            try:
+                # Use detection_time_dm_time (already calculated above, same as shown in plot label)
+                candidate_time_abs = detection_time_dm_time
+                
+                # Calculate time axis for SNR profile (same as in waterfall calculation above)
+                if absolute_start_time is not None:
+                    slice_start_abs = absolute_start_time
+                else:
+                    slice_start_abs = j * slice_len * time_reso_ds
+                snr_samples = len(snr_wf_profile)
+                slice_end_abs = slice_start_abs + snr_samples * time_reso_ds
+                time_axis_wf = np.linspace(slice_start_abs, slice_end_abs, snr_samples)
+                
+                # Find closest index in SNR profile to candidate time
+                candidate_idx_in_wf = np.argmin(np.abs(time_axis_wf - candidate_time_abs))
+                if 0 <= candidate_idx_in_wf < len(snr_wf_profile):
+                    snr_intensity_at_peak = float(snr_wf_profile[candidate_idx_in_wf])
+                    logger.info(f"Candidate at t={candidate_time_abs:.6f}s -> SNR profile idx={candidate_idx_in_wf}/{len(snr_wf_profile)}, SNR={snr_intensity_at_peak:.2f} (time_axis range: {time_axis_wf[0]:.6f} to {time_axis_wf[-1]:.6f})")
+                else:
+                    logger.warning(f"Candidate idx {candidate_idx_in_wf} out of range [0, {len(snr_wf_profile)})")
+            except (IndexError, ValueError, TypeError) as e:
+                logger.warning(f"Could not get SNR at candidate position: {e}")
+        else:
+            logger.warning(f"snr_wf_profile is None or empty (size={snr_wf_profile.size if snr_wf_profile is not None else 0})")
+        snr_waterfall_intensity_list.append(snr_intensity_at_peak)
+        snr_patch_intensity_list.append(float(snr_val) if snr_val is not None else None)
+        
         # Assemble a candidate record with optional width estimates.
         width_ms = None
         try:
@@ -258,7 +300,7 @@ def detect_and_classify_candidates_in_band(
             peak_time_waterfall,  # Time from waterfall SNR peak (different method)
             t_sample,
             tuple(map(int, box)),
-            snr_waterfall,  # SNR from waterfall raw (peak_snr_wf)
+            snr_intensity_at_peak if snr_intensity_at_peak is not None else snr_waterfall_global,  # SNR from waterfall at candidate position (or global peak as fallback)
             float(snr_val),  # SNR from dedispersed patch
             width_ms,
             class_prob,  # Classification probability in Intensity (I) - classic pipeline
@@ -324,6 +366,8 @@ def detect_and_classify_candidates_in_band(
         "top_conf": top_conf,
         "top_boxes": top_boxes,
         "class_probs_list": class_probs_list,
+        "snr_waterfall_intensity_list": snr_waterfall_intensity_list,  # NEW: SNR from Intensity waterfall per candidate
+        "snr_patch_intensity_list": snr_patch_intensity_list,  # NEW: SNR from dedispersed Intensity patch per candidate
         "first_patch": final_patch,                                
         "first_start": final_start,                                
         "first_dm": final_dm,                                      
@@ -499,6 +543,7 @@ def process_slice_with_multiple_bands(
             start = start_idx
             block_len = end_idx - start_idx
             dedisp_block = dedisperse_block(block, freq_down, dm_to_use, start, block_len)
+            
             if global_logger:
                 global_logger.creating_waterfall("dedispersed", j, dm_to_use)
                 global_logger.generating_plots()
@@ -528,6 +573,8 @@ def process_slice_with_multiple_bands(
                 absolute_start_time=absolute_start_time,
                 chunk_idx=chunk_idx, 
                 force_plots=force_plots,
+                snr_waterfall_intensity_list=band_result.get("snr_waterfall_intensity_list"),  # NEW: SNR from Intensity waterfall
+                snr_patch_intensity_list=band_result.get("snr_patch_intensity_list"),  # NEW: SNR from dedispersed Intensity patch
             )
         else:
             if global_logger:

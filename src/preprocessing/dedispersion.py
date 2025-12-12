@@ -494,11 +494,26 @@ def dedisperse_block(
         logger.debug("[DEBUG DEDISPERSION] " + "="*60)
 
     max_delay = int(delays.max())
+    
+    # Ensure we have enough data for the requested block
     if start + block_len + max_delay > data.shape[0]:
+        # Adjust start to fit within bounds, but keep original block_len
         start = max(0, data.shape[0] - (block_len + max_delay))
+        # If still not enough data, we'll handle it in the loop below
 
-    segment = data[start : start + block_len + max_delay]
+    # Extract segment with safety bounds
+    segment_end = min(start + block_len + max_delay, data.shape[0])
+    segment = data[start:segment_end]
+
+    # Always create block with the requested size (maintain expected structure)
     block = np.zeros((block_len, freq_down.size), dtype=np.float32)
+    
     for idx in range(freq_down.size):
-        block[:, idx] = segment[delays[idx] : delays[idx] + block_len, idx]
+        delay = delays[idx]
+        # Calculate how much data we can actually copy
+        if delay < segment.shape[0]:
+            available_samples = min(block_len, segment.shape[0] - delay)
+            if available_samples > 0:
+                block[:available_samples, idx] = segment[delay:delay + available_samples, idx]
+        # Remaining samples stay as zeros (padding)
     return block

@@ -219,8 +219,10 @@ class ValidationMetricsCollector:
         self.metrics["actual_processing"]["chunks_processed"] += 1
         
     def record_dm_chunking(self, activated: bool, num_chunks: Optional[int] = None, 
-                          chunk_info: Optional[List[Dict]] = None):
-        """Registra información de chunking DM."""
+                          chunk_info: Optional[List[Dict]] = None,
+                          height_per_chunk: Optional[int] = None,
+                          full_cube_size_gb: Optional[float] = None):
+        """Registra información de chunking DM jerárquico."""
         self.metrics["actual_processing"]["dm_chunking_activated"] = activated
         if activated and num_chunks is not None:
             self.metrics["actual_processing"]["dm_chunks_used"] = num_chunks
@@ -228,9 +230,24 @@ class ValidationMetricsCollector:
                 "activated": True,
                 "trigger_reason": "cube_size_exceeded_threshold",
                 "threshold_gb": getattr(config, 'DM_CHUNKING_THRESHOLD_GB', 16.0),
-                "actual_cube_size_gb": self.metrics["dm_cube"].get("expected_cube_size_gb", 0),
+                "actual_cube_size_gb": full_cube_size_gb or self.metrics["dm_cube"].get("expected_cube_size_gb", 0),
                 "num_chunks": num_chunks,
+                "height_per_chunk": height_per_chunk,
+                "dm_range_per_chunk": (config.DM_max - config.DM_min) / num_chunks if num_chunks > 0 else 0,
                 "chunks_processed": chunk_info or [],
+                "formula_validation": {
+                    "H_c_DM_calculated": height_per_chunk,
+                    "N_c_DM_calculated": num_chunks,
+                    "description": "H_c_DM = max(100, floor(threshold_GB * 2^30 / (3 * N_c * 4)))",
+                }
+            }
+        else:
+            # Registrar por qué NO se activó
+            self.metrics["dm_chunking"] = {
+                "activated": False,
+                "threshold_gb": getattr(config, 'DM_CHUNKING_THRESHOLD_GB', 16.0),
+                "actual_cube_size_gb": self.metrics["dm_cube"].get("expected_cube_size_gb", 0),
+                "reason_not_activated": "cube_size_below_threshold",
             }
             
     def record_buffer_event(self, buffer_size_samples: int, event_type: str, chunk_emitted: bool = False):
@@ -240,18 +257,37 @@ class ValidationMetricsCollector:
         
         self.metrics["buffer_control"]["max_buffer_samples"] = max_buffer
         
+        # SIEMPRE registrar el tamaño máximo del buffer alcanzado
+        if "max_buffer_size_reached" not in self.metrics["buffer_control"]:
+            self.metrics["buffer_control"]["max_buffer_size_reached"] = 0
+        
+        if buffer_size_samples > self.metrics["buffer_control"]["max_buffer_size_reached"]:
+            self.metrics["buffer_control"]["max_buffer_size_reached"] = buffer_size_samples
+            self.metrics["buffer_control"]["max_buffer_size_gb"] = buffer_size_samples * self.metrics["data_characteristics"].get("bytes_per_sample", 2048) / (1024**3)
+        
         if buffer_size_samples > max_buffer * 0.95:  # 95% del límite
             event = {
                 "timestamp": datetime.now().isoformat(),
                 "buffer_size_samples": buffer_size_samples,
-                "buffer_size_gb": buffer_size_samples * self.metrics["data_characteristics"].get("bytes_per_sample", 16384) / (1024**3),
+                "buffer_size_gb": buffer_size_samples * self.metrics["data_characteristics"].get("bytes_per_sample", 2048) / (1024**3),
                 "event_type": event_type,
                 "chunk_emitted": chunk_emitted,
+                "buffer_utilization": buffer_size_samples / max_buffer,
             }
             self.metrics["buffer_control"]["buffer_events"].append(event)
             
             if event_type == "emergency_chunk_emission":
                 self.metrics["buffer_control"]["emergency_chunks_emitted"] += 1
+    
+    def record_buffer_limit(self, chunk_samples: int):
+        """Registra el límite calculado del buffer."""
+        max_buffer = max(2 * chunk_samples, 10_000_000)
+        self.metrics["buffer_control"]["max_buffer_samples_calculated"] = max_buffer
+        self.metrics["buffer_control"]["formula_validation"] = {
+            "N_c": chunk_samples,
+            "N_b_max_calculated": max_buffer,
+            "description": "N_b_max = max(2 * N_c, 10^7)",
+        }
                 
     def record_memory_validation(self, operation: str, requested_bytes: int, 
                                 validation_result: str, error_message: Optional[str] = None):
@@ -280,7 +316,10 @@ class ValidationMetricsCollector:
         self.metrics["actual_processing"]["oom_errors"] += 1
     
     def record_temporal_chunking(self, activated: bool, num_sub_chunks: Optional[int] = None,
-                                 sub_chunk_width: Optional[int] = None):
+                                 sub_chunk_width: Optional[int] = None,
+                                 original_chunk_size: Optional[int] = None,
+                                 cube_size_gb: Optional[float] = None,
+                                 max_result_size_gb: Optional[float] = None):
         """Registra información de chunking temporal (recuperación resiliente)."""
         if "resilience" not in self.metrics:
             self.metrics["resilience"] = {}
@@ -289,11 +328,20 @@ class ValidationMetricsCollector:
         if activated:
             self.metrics["resilience"]["num_temporal_sub_chunks"] = num_sub_chunks
             self.metrics["resilience"]["sub_chunk_width"] = sub_chunk_width
+            self.metrics["resilience"]["original_chunk_size"] = original_chunk_size
             self.metrics["resilience"]["trigger_reason"] = "cube_size_exceeded_max_result_size"
+            self.metrics["resilience"]["cube_size_before_split_gb"] = cube_size_gb
+            self.metrics["resilience"]["max_result_size_gb"] = max_result_size_gb
+            self.metrics["resilience"]["formula_validation"] = {
+                "W_c_temp_calculated": sub_chunk_width,
+                "N_c_temp_calculated": num_sub_chunks,
+                "description": "W_c_temp = max(1000, floor(S_max / (3 * H_DM * 4)))",
+            }
         else:
             self.metrics["resilience"]["num_temporal_sub_chunks"] = None
             self.metrics["resilience"]["sub_chunk_width"] = None
             self.metrics["resilience"]["trigger_reason"] = None
+            self.metrics["resilience"]["reason_not_activated"] = "cube_size_below_max_result_size"
         
     def validate_continuity(self):
         """Valida la continuidad temporal entre chunks."""
@@ -316,6 +364,7 @@ class ValidationMetricsCollector:
         if chunks:
             avg_overlap_ratio = sum(c["validation"]["overlap_vs_delay_ratio"] for c in chunks) / len(chunks)
             min_overlap_ratio = min(c["validation"]["overlap_vs_delay_ratio"] for c in chunks)
+            max_overlap_ratio = max(c["validation"]["overlap_vs_delay_ratio"] for c in chunks)
             
             self.metrics["overlap_validation"] = {
                 "delta_t_max_seconds": self.metrics["dm_cube"].get("delta_t_max_seconds", 0),
@@ -323,7 +372,24 @@ class ValidationMetricsCollector:
                 "overlap_sufficient": all(c["validation"]["overlap_sufficient"] for c in chunks),
                 "average_overlap_ratio": avg_overlap_ratio,
                 "min_overlap_ratio": min_overlap_ratio,
+                "max_overlap_ratio": max_overlap_ratio,
                 "no_edge_losses": all(c["validation"]["no_edge_losses"] for c in chunks),
+                "total_chunks": len(chunks),
+                "chunks_with_sufficient_overlap": sum(1 for c in chunks if c["validation"]["overlap_sufficient"]),
+            }
+        
+        # Agregar resumen ejecutivo de validación completa
+        self.metrics["validation_summary"] = {
+            "timestamp": datetime.now().isoformat(),
+            "total_chunks_processed": self.metrics["actual_processing"]["chunks_processed"],
+            "oom_errors": self.metrics["actual_processing"]["oom_errors"],
+            "peak_memory_usage_gb": self.metrics["actual_processing"]["peak_memory_usage_gb"],
+            "memory_utilizable_gb": self.metrics["memory_budget"].get("total_usable_gb", 0),
+            "memory_usage_ratio": self.metrics["actual_processing"]["peak_memory_usage_gb"] / self.metrics["memory_budget"].get("total_usable_gb", 1) if self.metrics["memory_budget"].get("total_usable_gb", 0) > 0 else 0,
+            "dm_chunking_activated": self.metrics["actual_processing"]["dm_chunking_activated"],
+            "temporal_chunking_activated": self.metrics.get("resilience", {}).get("temporal_chunking_activated", False),
+            "emergency_chunks_emitted": self.metrics["buffer_control"]["emergency_chunks_emitted"],
+            "validation_status": "COMPLETE" if self.metrics["actual_processing"]["oom_errors"] == 0 else "FAILED",
             }
         
         # Generar nombre de archivo
@@ -337,5 +403,12 @@ class ValidationMetricsCollector:
             json.dump(self.metrics, f, indent=2, ensure_ascii=False)
             
         logger.info(f"Validation metrics exported to: {output_file}")
+        logger.info(f"  - Chunks: {self.metrics['actual_processing']['chunks_processed']}")
+        logger.info(f"  - Peak memory: {self.metrics['actual_processing']['peak_memory_usage_gb']:.2f} GB")
+        logger.info(f"  - DM chunking: {'ACTIVATED' if self.metrics['actual_processing']['dm_chunking_activated'] else 'NOT ACTIVATED'}")
+        logger.info(f"  - Temporal chunking: {'ACTIVATED' if self.metrics.get('resilience', {}).get('temporal_chunking_activated', False) else 'NOT ACTIVATED'}")
+        logger.info(f"  - Emergency chunks: {self.metrics['buffer_control']['emergency_chunks_emitted']}")
+        logger.info(f"  - OOM errors: {self.metrics['actual_processing']['oom_errors']}")
+        
         return output_file
 

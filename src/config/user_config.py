@@ -82,7 +82,9 @@ DM_max = int(_config['dispersion']['dm_max'])
 # =============================================================================
 DET_PROB = float(_config['thresholds']['detection_probability'])
 CLASS_PROB = float(_config['thresholds']['classification_probability'])
+CLASS_PROB_LINEAR = float(_config['thresholds'].get('classification_probability_linear', 0.6))
 SNR_THRESH = float(_config['thresholds']['snr_threshold'])
+SNR_THRESH_LINEAR = float(_config['thresholds'].get('snr_threshold_linear', 5.0))
 
 # =============================================================================
 # MULTI-BAND ANALYSIS CONFIGURATION
@@ -94,7 +96,20 @@ USE_MULTI_BAND = bool(_config['multiband']['enabled'])
 # =============================================================================
 AUTO_HIGH_FREQ_PIPELINE = bool(_config['high_frequency']['auto_enable'])
 HIGH_FREQ_THRESHOLD_MHZ = float(_config['high_frequency']['threshold_mhz'])
-ENABLE_LINEAR_VALIDATION = bool(_config['high_frequency'].get('enable_linear_validation', True))
+
+# Phase 2: Linear Polarization SNR Validation
+ENABLE_LINEAR_VALIDATION = bool(_config['high_frequency'].get('enable_linear_validation', False))
+
+# Phase 3: ResNet18 Classification Control
+ENABLE_INTENSITY_CLASSIFICATION = bool(_config['high_frequency'].get('enable_intensity_classification', True))
+ENABLE_LINEAR_CLASSIFICATION = bool(_config['high_frequency'].get('enable_linear_classification', True))
+
+# Validation: At least one classification phase must be enabled
+if not ENABLE_INTENSITY_CLASSIFICATION and not ENABLE_LINEAR_CLASSIFICATION:
+    raise ValueError(
+        "Invalid configuration: At least one classification phase must be enabled. "
+        "Set enable_intensity_classification=true OR enable_linear_classification=true in config.yaml"
+    )
 
 # =============================================================================
 # POLARIZATION CONFIGURATION (PSRFITS INPUT)

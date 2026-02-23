@@ -10,13 +10,15 @@
 
 ![DRAFTS WorkFlow](WorkFlow.png)
 
+![High-frequency pipeline: frequency integration and ResNet18 classification](Frequency integration.png)
+
+*Above: general pipeline (WorkFlow); below: high-frequency (≥8 GHz) pipeline — two execution modes.*
+
 ## What is DRAFTS++?
 
 **DRAFTS++** is a deep learning pipeline for detecting Fast Radio Bursts (FRBs) in radio astronomy data. It uses two stages: **CenterNet** localizes burst candidates in time–DM space from dedispersed dynamic spectra, and **ResNet** classifies them as BURST vs non-BURST (RFI/noise). Input: `.fits` or `.fil` files; output: candidates with DM, time, SNR, and classification probability.
 
-For high-frequency observations (≥8 GHz), the pipeline uses matched-filter detection, frequency integration, and ResNet18 to classify candidates from SNR peaks. The flow is summarized below:
-
-![High-frequency pipeline: frequency integration and ResNet18 classification](Frequency integration.png)
+For high-frequency observations (≥8 GHz), the pipeline uses matched-filter detection, frequency integration, and ResNet18 to classify candidates from SNR peaks.
 
 > Based on [DRAFTS](https://github.com/SukiYume/DRAFTS) by Zhang et al. | [Paper](https://arxiv.org/abs/2410.03200)
 

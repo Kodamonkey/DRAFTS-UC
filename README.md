@@ -8,11 +8,11 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![arXiv](https://img.shields.io/badge/arXiv-2410.03200-b31b1b.svg)](https://arxiv.org/abs/2410.03200)
 
-![DRAFTS WorkFlow](WorkFlow.png)
+![DRAFTS WorkFlow (LF)](WorkFlow-LF.png)
 
-![High-frequency pipeline: frequency integration and ResNet18 classification](Frequency integration.png)
+![High-frequency pipeline: frequency integration and ResNet18 classification](Workflow-HF.png)
 
-*Above: general pipeline (WorkFlow); below: high-frequency (≥8 GHz) pipeline — two execution modes.*
+*Above: low-frequency / general pipeline (LF); below: high-frequency (≥8 GHz) pipeline (HF) — two execution modes.*
 
 ## What is DRAFTS++?
 

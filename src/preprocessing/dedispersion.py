@@ -8,7 +8,11 @@ import logging
 
                      
 import numpy as np
-from numba import cuda, njit, prange
+
+try:
+    from numba import cuda
+except ImportError:
+    cuda = None
 
                
 from ..config import config
@@ -16,7 +20,7 @@ from ..config import config
                               
 try:
     import torch
-except Exception:
+except ImportError:
     torch = None
 
               
@@ -67,41 +71,39 @@ def calculate_dispersion_bandwidth_delay(
     return delay_low - delay_high
 
 
-def _de_disp_gpu(dm_time, data, freq, index, dm_values, mid_channel):
-    x, y = cuda.grid(2)
-    if x < dm_time.shape[1] and y < dm_time.shape[2]:
-                                                                                        
-        total_val = 0.0
-        total_cnt = 0
+if cuda is not None:
+    @cuda.jit
+    def _de_disp_gpu(dm_time, data, freq, index, dm_values, mid_channel):
+        x, y = cuda.grid(2)
+        if x < dm_time.shape[1] and y < dm_time.shape[2]:
+            total_val = 0.0
+            total_cnt = 0
+            mid_val = 0.0
+            DM = dm_values[x]
 
-                                                    
-        mid_val = 0.0
-        DM = dm_values[x] 
+            for idx in index:
+                delay = (
+                    4.15
+                    * DM
+                    * ((freq[idx]) ** -2 - (freq[-1] ** -2))
+                    * 1e3
+                    / config.TIME_RESO
+                    / config.DOWN_TIME_RATE
+                )
+                pos = int(delay + y)
+                if 0 <= pos < data.shape[0]:
+                    total_val += data[pos, idx]
+                    total_cnt += 1
+                    if idx == mid_channel:
+                        mid_val = data[pos, idx]
 
-        for idx in index:
-            delay = (
-                4.15
-                * DM
-                * ((freq[idx]) ** -2 - (freq[-1] ** -2))
-                * 1e3
-                / config.TIME_RESO
-                / config.DOWN_TIME_RATE
-            )
-            pos = int(delay + y)
-            if 0 <= pos < data.shape[0]:
-                total_val += data[pos, idx]
-                total_cnt += 1
-                if idx == mid_channel:
-                    mid_val = data[pos, idx]
+            if total_cnt > 0:
+                dm_time[0, x, y] = total_val / total_cnt
+            else:
+                dm_time[0, x, y] = 0.0
 
-                                                             
-        if total_cnt > 0:
-            dm_time[0, x, y] = total_val / total_cnt
-        else:
-            dm_time[0, x, y] = 0.0
-
-        dm_time[1, x, y] = mid_val
-        dm_time[2, x, y] = dm_time[0, x, y] - mid_val
+            dm_time[1, x, y] = mid_val
+            dm_time[2, x, y] = dm_time[0, x, y] - mid_val
 
 
 def _d_dm_time_cpu(
@@ -112,66 +114,132 @@ def _d_dm_time_cpu(
     dm_max: float,
     freq_ds: np.ndarray,
 ) -> np.ndarray:
-    """CPU fallback for dedispersion with exposure normalization and edge handling.
+    """CPU dedispersion with exposure normalization and edge handling.
 
-    Implements summation with edge handling per channel and normalizes each
-    point (DM,t) by the number of channels that contributed.
+    Uses Numba prange for parallel execution across DM values when available,
+    falling back to sequential NumPy otherwise.
     """
-    out = np.zeros((3, height, width), dtype=np.float32)
-    nchan_ds = freq_ds.shape[0]
-    mid_channel = nchan_ds // 2
+    time_reso = float(config.TIME_RESO)
+    down_time_rate = int(config.DOWN_TIME_RATE)
+    return _d_dm_time_cpu_core(
+        data, height, width, dm_min, dm_max, freq_ds,
+        time_reso, down_time_rate,
+    )
 
-                                                    
-    dm_values = np.linspace(dm_min, dm_max, height).astype(np.float32)
 
-    for i in range(height):
-        DM = dm_values[i]
-        delays = (
-            4.15
-            * DM
-            * (freq_ds ** -2 - freq_ds.max() ** -2)
-            * 1e3
-            / config.TIME_RESO
-            / config.DOWN_TIME_RATE
-        ).astype(np.int64)
+try:
+    from numba import njit, prange as _prange
 
-        total_series = np.zeros(width, dtype=np.float32)
-        count_series = np.zeros(width, dtype=np.int32)
-        mid_series = np.zeros(width, dtype=np.float32)
+    @njit(parallel=True, cache=True, fastmath=True)
+    def _d_dm_time_cpu_core(
+        data, height, width, dm_min, dm_max, freq_ds,
+        time_reso, down_time_rate,
+    ):
+        out = np.zeros((3, height, width), dtype=np.float32)
+        nchan_ds = freq_ds.shape[0]
+        mid_channel = nchan_ds // 2
+        n_time = data.shape[0]
+        n_chan = data.shape[1]
+        freq_max = freq_ds.max()
+        dm_step = (dm_max - dm_min) / max(1, height - 1) if height > 1 else np.float32(0.0)
+        inv_tr_dt = np.float32(1e3 / (time_reso * down_time_rate))
 
-        for j in range(nchan_ds):
-            d = delays[j]
-                                                         
-            if d >= 0:
-                src_lo = d
-                dst_lo = 0
-            else:
-                src_lo = 0
-                dst_lo = -d
-            src_hi = d + width
-            if src_hi > data.shape[0]:
-                src_hi = data.shape[0]
-            if src_hi <= src_lo or j >= data.shape[1]:
-                continue
-            length = src_hi - src_lo
-            dst_hi = dst_lo + length
+        for i in _prange(height):
+            DM = np.float32(dm_min + i * dm_step)
 
-            total_series[dst_lo:dst_hi] += data[src_lo:src_hi, j]
-            count_series[dst_lo:dst_hi] += 1
+            total_series = np.zeros(width, dtype=np.float32)
+            count_series = np.zeros(width, dtype=np.int32)
+            mid_series = np.zeros(width, dtype=np.float32)
 
-            if j == mid_channel:
-                mid_series[dst_lo:dst_hi] = data[src_lo:src_hi, j]
+            for j in range(nchan_ds):
+                if j >= n_chan:
+                    continue
+                delay = int(np.float64(4.15) * np.float64(DM)
+                            * (np.float64(freq_ds[j]) ** -2 - np.float64(freq_max) ** -2)
+                            * np.float64(inv_tr_dt))
 
-                                            
-        norm = count_series.astype(np.float32)
-        for k in range(width):
-            if norm[k] <= 0.0:
-                norm[k] = 1.0
-        out[0, i] = total_series / norm
-        out[1, i] = mid_series
-        out[2, i] = out[0, i] - out[1, i]
+                if delay >= 0:
+                    src_lo = delay
+                    dst_lo = 0
+                else:
+                    src_lo = 0
+                    dst_lo = -delay
+                src_hi = delay + width
+                if src_hi > n_time:
+                    src_hi = n_time
+                if src_hi <= src_lo:
+                    continue
+                length = src_hi - src_lo
+                dst_hi = dst_lo + length
 
-    return out
+                for k in range(length):
+                    total_series[dst_lo + k] += data[src_lo + k, j]
+                    count_series[dst_lo + k] += 1
+
+                if j == mid_channel:
+                    for k in range(length):
+                        mid_series[dst_lo + k] = data[src_lo + k, j]
+
+            for k in range(width):
+                norm = np.float32(count_series[k]) if count_series[k] > 0 else np.float32(1.0)
+                out[0, i, k] = total_series[k] / norm
+                out[1, i, k] = mid_series[k]
+                out[2, i, k] = out[0, i, k] - mid_series[k]
+
+        return out
+
+except ImportError:
+    def _d_dm_time_cpu_core(
+        data, height, width, dm_min, dm_max, freq_ds,
+        time_reso, down_time_rate,
+    ):
+        """Pure-NumPy fallback (sequential) when Numba is not installed."""
+        out = np.zeros((3, height, width), dtype=np.float32)
+        nchan_ds = freq_ds.shape[0]
+        mid_channel = nchan_ds // 2
+        dm_values = np.linspace(dm_min, dm_max, height).astype(np.float32)
+
+        for i in range(height):
+            DM = dm_values[i]
+            delays = (
+                4.15 * DM
+                * (freq_ds ** -2 - freq_ds.max() ** -2)
+                * 1e3 / time_reso / down_time_rate
+            ).astype(np.int64)
+
+            total_series = np.zeros(width, dtype=np.float32)
+            count_series = np.zeros(width, dtype=np.int32)
+            mid_series = np.zeros(width, dtype=np.float32)
+
+            for j in range(nchan_ds):
+                d = delays[j]
+                if d >= 0:
+                    src_lo = d
+                    dst_lo = 0
+                else:
+                    src_lo = 0
+                    dst_lo = -d
+                src_hi = d + width
+                if src_hi > data.shape[0]:
+                    src_hi = data.shape[0]
+                if src_hi <= src_lo or j >= data.shape[1]:
+                    continue
+                length = src_hi - src_lo
+                dst_hi = dst_lo + length
+
+                total_series[dst_lo:dst_hi] += data[src_lo:src_hi, j]
+                count_series[dst_lo:dst_hi] += 1
+
+                if j == mid_channel:
+                    mid_series[dst_lo:dst_hi] = data[src_lo:src_hi, j]
+
+            norm = count_series.astype(np.float32)
+            norm[norm <= 0] = 1.0
+            out[0, i] = total_series / norm
+            out[1, i] = mid_series
+            out[2, i] = out[0, i] - out[1, i]
+
+        return out
 
 
 def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128, dm_min: float = None, dm_max: float = None) -> np.ndarray:
@@ -197,12 +265,16 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
                                                                      
     try:
         if getattr(config, 'PREWHITEN_BEFORE_DM', False):
-                                                
-            eps = 1e-6
+            eps = np.float32(1e-6)
+            # Ensure data is writable float32 for in-place ops
+            if not data.flags.writeable or data.dtype != np.float32:
+                data = data.astype(np.float32)
             mean_ch = np.mean(data, axis=0)
             std_ch = np.std(data, axis=0)
-            std_ch = np.where(std_ch < eps, 1.0, std_ch)
-            data = (data - mean_ch) / std_ch
+            std_ch = np.where(std_ch < eps, np.float32(1.0), std_ch)
+            # In-place operations: 0 extra copies (was 3x peak with broadcast)
+            data -= mean_ch
+            data /= std_ch
     except Exception as e:
         logger.warning("Prewhitening failed: %s", e)
     
@@ -225,9 +297,12 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
         except Exception as e:
             logger.warning("Torch GPU dedispersion failed (%s); attempting Numba GPU...", e)
 
+    if cuda is None:
+        return _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values)
+
     try:
         logger.info("Attempting GPU dedispersion...")
-        
+
         freq_gpu = cuda.to_device(freq_values)
         nchan_ds = config.FREQ_RESO // config.DOWN_FREQ_RATE
         index_values = np.arange(0, nchan_ds)
@@ -270,8 +345,8 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
             if torch is not None and torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("GPU cleanup after failure: %s", e)
         return _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values)
 
 
@@ -283,75 +358,99 @@ def _d_dm_time_torch_gpu(
     dm_max: float,
     freq_ds_np: np.ndarray,
 ) -> np.ndarray:
-    """GPU dedispersion using PyTorch (more compatible on Windows than Numba)."""
+    """GPU dedispersion using PyTorch with vectorized channel batching.
+
+    Instead of iterating per-channel (for j in range(C)), processes channels
+    in batches of ``chan_batch`` to maximise GPU parallelism while controlling
+    VRAM usage.
+    """
     device = torch.device('cuda')
-                   
-    data_t = torch.from_numpy(data_np).to(device=device, dtype=torch.float32)          
+    data_t = torch.from_numpy(data_np).to(device=device, dtype=torch.float32)
     T, C = data_t.shape
     freq_ds = torch.from_numpy(freq_ds_np.astype(np.float32)).to(device)
     dm_values = torch.linspace(float(dm_min), float(dm_max), steps=height, device=device, dtype=torch.float32)
     time_reso = float(config.TIME_RESO * config.DOWN_TIME_RATE)
 
-                       
     out0 = torch.zeros((height, width), device=device, dtype=torch.float32)
     out1 = torch.zeros((height, width), device=device, dtype=torch.float32)
     out2 = torch.zeros((height, width), device=device, dtype=torch.float32)
 
     mid_channel = C // 2
-    base = torch.arange(width, device=device, dtype=torch.int64)       
+    base = torch.arange(width, device=device, dtype=torch.int64)
 
-                                                    
-    # Use default chunk size (64) - don't modify dynamically to avoid breaking detection
-    # The chunking is already optimized in the GPU kernels
-    dm_chunk = 64
-    
+    # Adaptive DM chunk size based on available VRAM
+    vram_free = torch.cuda.mem_get_info(0)[0]
+    # Each DM-chunk of size D×C×W needs ~D*C*W*4 bytes for index/val tensors
+    bytes_per_dm = C * width * 4 * 3  # idx + vals + valid masks
+    dm_chunk = max(16, min(256, int(vram_free * 0.3 / max(1, bytes_per_dm))))
+
+    # Channel batch size: process multiple channels at once
+    chan_batch = min(C, 32)
+
     for start in range(0, height, dm_chunk):
         end = min(start + dm_chunk, height)
-        dms = dm_values[start:end]       
-                                                        
+        D = end - start
+        dms = dm_values[start:end]
+
+        # Compute all delays: (D, C)
         delays = (4.15 * dms[:, None] * (freq_ds[None, :] ** -2 - freq_ds.max() ** -2) * 1e3 / time_reso)
         delays = delays.to(dtype=torch.int64)
 
-                                             
-        acc = torch.zeros((end - start, width), device=device, dtype=torch.float32)
-        cnt = torch.zeros((end - start, width), device=device, dtype=torch.int32)
-        mid_vals = torch.zeros((end - start, width), device=device, dtype=torch.float32)
+        acc = torch.zeros((D, width), device=device, dtype=torch.float32)
+        cnt = torch.zeros((D, width), device=device, dtype=torch.int32)
+        mid_vals = torch.zeros((D, width), device=device, dtype=torch.float32)
 
-                                                                  
-        for j in range(C):
-            idx = delays[:, j][:, None] + base[None, :]          
-            valid = (idx >= 0) & (idx < T)
+        for j0 in range(0, C, chan_batch):
+            j1 = min(j0 + chan_batch, C)
+            B = j1 - j0
+
+            # idx shape: (D, B, width) — gather indices for this channel batch
+            ch_delays = delays[:, j0:j1]  # (D, B)
+            idx = ch_delays[:, :, None] + base[None, None, :]  # (D, B, W)
+            valid = (idx >= 0) & (idx < T)  # (D, B, W)
             safe_idx = idx.clamp(0, max(T - 1, 0))
-                                             
-            ch_ts = data_t[:, j]
-                                                         
-            vals_flat = ch_ts.index_select(0, safe_idx.reshape(-1))         
-            vals = vals_flat.reshape(end - start, width)
-                                  
-            vals = torch.where(valid, vals, torch.zeros_like(vals))
-            acc += vals
-            cnt += valid.to(torch.int32)
-            if j == mid_channel:
-                mid_vals = vals
 
-                    
+            # Gather channel data for the batch: data_t[:, j0:j1] is (T, B)
+            ch_data = data_t[:, j0:j1]  # (T, B)
+            # Flatten and gather: safe_idx -> (D*B*W,)
+            flat_idx = safe_idx.reshape(-1)
+            # For each channel in the batch, gather independently
+            # ch_data.T is (B, T), we need vals (D, B, W)
+            vals = ch_data.T[:, None, :].expand(B, D, T)  # not memory-efficient
+            # Better approach: use advanced indexing
+            # vals[d, b, w] = ch_data[safe_idx[d, b, w], b]
+            # Reshape for gather: index into T dimension
+            vals = torch.zeros((D, B, width), device=device, dtype=torch.float32)
+            for bi in range(B):
+                ch_ts = ch_data[:, bi]  # (T,)
+                bi_idx = safe_idx[:, bi, :]  # (D, W)
+                vals[:, bi, :] = ch_ts[bi_idx]
+
+            vals = torch.where(valid, vals, torch.zeros_like(vals))
+
+            # Sum over the batch dimension (channels)
+            acc += vals.sum(dim=1)  # (D, W)
+            cnt += valid.to(torch.int32).sum(dim=1)  # (D, W)
+
+            # Check if mid_channel is in this batch
+            if j0 <= mid_channel < j1:
+                bi = mid_channel - j0
+                mid_vals = vals[:, bi, :]
+
+            del idx, valid, safe_idx, vals, ch_data
+
         cnt_f = cnt.to(torch.float32)
         cnt_f = torch.where(cnt_f <= 0, torch.ones_like(cnt_f), cnt_f)
         block0 = acc / cnt_f
-        block1 = mid_vals
-        block2 = block0 - block1
-
         out0[start:end] = block0
-        out1[start:end] = block1
-        out2[start:end] = block2
+        out1[start:end] = mid_vals
+        out2[start:end] = block0 - mid_vals
 
-                                                 
     result = torch.stack([out0, out1, out2], dim=0).detach().cpu().numpy().astype(np.float32)
-    
-    # CRITICAL: Free GPU tensors immediately after copying to CPU
+
     del data_t, freq_ds, dm_values, out0, out1, out2, base
     torch.cuda.empty_cache()
-    
+
     return result
 
 def dedisperse_patch(

@@ -120,11 +120,7 @@ def _optimize_memory(aggressive: bool = False) -> None:
             torch.cuda.synchronize()
             torch.cuda.reset_peak_memory_stats()
     
-                                                     
-    if aggressive:
-        time.sleep(0.05)                               
-    else:
-        time.sleep(0.01)                             
+    # No sleep — gc.collect() and torch.cuda.empty_cache() are synchronous.
 
 
 def _load_detection_model() -> torch.nn.Module:
@@ -221,7 +217,7 @@ def _process_block(
         f"Chunk %03d: Starting dedispersion (DM range: %.1f-%.1f pc cm⁻³, height=%d, width=%d)",
         chunk_idx, config.DM_min, config.DM_max, height, block.shape[0]
     )
-    dm_time_full = build_dm_time_cube(block, height=height, dm_min=config.DM_min, dm_max=config.DM_max)
+    dm_time_full = build_dm_time_cube(block, height=height, dm_min=config.DM_min, dm_max=config.DM_max, collector=collector)
     logger.info(f"Chunk %03d: Dedispersion complete, cube shape: {dm_time_full.shape}", chunk_idx)
     block, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(
         block, dm_time_full, overlap_left_ds, overlap_right_ds
@@ -459,10 +455,8 @@ def _process_file_chunked(
 
     # ===== VALIDATION METRICS COLLECTOR =====
     from ..output.validation_metrics import ValidationMetricsCollector
-    from ..core.data_flow_manager import set_validation_collector
     collector = ValidationMetricsCollector(fits_path.name)
     collector.record_data_characteristics()
-    set_validation_collector(collector)  # Set global collector for memory validations
 
     # ===== ADAPTIVE MEMORY BUDGETING: Calculate memory-safe chunk size =====
     # This ensures we never exceed available RAM, even with large DM ranges
@@ -648,14 +642,20 @@ def _process_file_chunked(
         stream_start_time = time.time()
         chunk_processing_times = []
         last_chunk_arrival_time = stream_start_time
-        
+
+        # Checkpoint/resume: skip already-completed chunks
+        from ..core.checkpoint import save_checkpoint, load_checkpoint, clear_checkpoint
+        resume_after = load_checkpoint(save_dir, fits_path.stem)
+
         logger.info(
-            f"Starting to read chunks from file. "
-            f"First chunk may take longer due to file I/O initialization. "
-            f"Progress will be logged during streaming."
+            "Starting to read chunks from file.%s",
+            f" Resuming after chunk {resume_after + 1}." if resume_after >= 0 else ""
         )
-        
+
         for chunk_idx, (block, metadata) in enumerate(streaming_func(str(fits_path), effective_chunk_samples, overlap_samples=overlap_raw), 1):
+            if chunk_idx <= resume_after + 1:
+                logger.debug("Skipping chunk %d (already completed)", chunk_idx)
+                continue
             chunk_start_time = time.time()
             actual_chunk_count += 1                                               
             
@@ -733,13 +733,22 @@ def _process_file_chunked(
                         f"Average: {avg_time:.1f}s/chunk. ETA: {eta_seconds:.1f}s"
                     )
             
+            # Checkpoint after successful chunk processing
+            save_checkpoint(save_dir, fits_path.stem, chunk_idx, chunk_count)
+
             # CRITICAL: Free block immediately after processing (PRESTO-style)
-            # This ensures we never accumulate more than one chunk in memory
-            del block                             
-            _optimize_memory(aggressive=(actual_chunk_count % 5 == 0))                                   
+            del block
+            _optimize_memory(aggressive=(actual_chunk_count % 5 == 0))
 
                                                         
         log_processing_summary(actual_chunk_count, chunk_count, file_stats.n_candidates, file_stats.n_bursts)
+
+        # Flush any buffered CSV rows
+        from ..output.candidate_manager import CandidateWriter
+        CandidateWriter.flush_all()
+
+        # Clear checkpoint on successful completion
+        clear_checkpoint(save_dir, fits_path.stem)
 
         # Export validation metrics
         try:
@@ -774,55 +783,88 @@ def _process_file_chunked(
             "processing_mode": "small_file_optimized" if total_samples <= chunk_samples else "standard_chunking"
         }
         
-    except Exception as e:
-                                                         
-        error_msg = str(e).lower()
-        if "corrupted" in error_msg or "invalid" in error_msg or "corrupt" in error_msg:
-            status = "ERROR_CORRUPTED_FILE"
-            logger.error("Corrupted file detected: %s - %s", fits_path.name, e)
-        elif "memory" in error_msg or "out of memory" in error_msg or "oom" in error_msg:
-            status = "ERROR_MEMORY"
-            logger.error("Memory error while processing %s: %s", fits_path.name, e)
-        elif "file not found" in error_msg or "no such file" in error_msg:
-            status = "ERROR_FILE_NOT_FOUND"
-            logger.error("File not found: %s - %s", fits_path.name, e)
-        elif "permission" in error_msg or "access denied" in error_msg:
-            status = "ERROR_PERMISSION"
-            logger.error("Permission error processing %s: %s", fits_path.name, e)
-        else:
-            status = "ERROR_CHUNKED"
-            logger.error("Unhandled error processing %s: %s", fits_path.name, e)
-        
+    except MemoryError as e:
+        logger.error("Memory error while processing %s: %s", fits_path.name, e)
+        status = "ERROR_MEMORY"
         return {
-            "n_candidates": 0,
-            "n_bursts": 0,
-            "n_no_bursts": 0,
+            "n_candidates": 0, "n_bursts": 0, "n_no_bursts": 0,
             "runtime_s": time.time() - t_start,
-            "max_prob": 0.0,
-            "mean_snr": 0.0,
-            "status": status,
-            "error_details": str(e)
+            "max_prob": 0.0, "mean_snr": 0.0,
+            "status": status, "error_details": str(e),
+        }
+    except FileNotFoundError as e:
+        logger.error("File not found: %s - %s", fits_path.name, e)
+        status = "ERROR_FILE_NOT_FOUND"
+        return {
+            "n_candidates": 0, "n_bursts": 0, "n_no_bursts": 0,
+            "runtime_s": time.time() - t_start,
+            "max_prob": 0.0, "mean_snr": 0.0,
+            "status": status, "error_details": str(e),
+        }
+    except PermissionError as e:
+        logger.error("Permission error processing %s: %s", fits_path.name, e)
+        status = "ERROR_PERMISSION"
+        return {
+            "n_candidates": 0, "n_bursts": 0, "n_no_bursts": 0,
+            "runtime_s": time.time() - t_start,
+            "max_prob": 0.0, "mean_snr": 0.0,
+            "status": status, "error_details": str(e),
+        }
+    except ValueError as e:
+        logger.error("Invalid/corrupted file %s: %s", fits_path.name, e)
+        status = "ERROR_CORRUPTED_FILE"
+        return {
+            "n_candidates": 0, "n_bursts": 0, "n_no_bursts": 0,
+            "runtime_s": time.time() - t_start,
+            "max_prob": 0.0, "mean_snr": 0.0,
+            "status": status, "error_details": str(e),
+        }
+    except Exception as e:
+        logger.error("Unhandled error processing %s: %s", fits_path.name, e)
+        status = "ERROR_CHUNKED"
+        return {
+            "n_candidates": 0, "n_bursts": 0, "n_no_bursts": 0,
+            "runtime_s": time.time() - t_start,
+            "max_prob": 0.0, "mean_snr": 0.0,
+            "status": status, "error_details": str(e),
         }
 
 def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> None:
     # Inject configuration if provided
     if config_dict is not None:
         config.inject_config(config_dict)
-    
+
     from ..logging.logging_config import setup_logging, set_global_logger
-    
-    logger = setup_logging(level="INFO", use_colors=True)                     
-    set_global_logger(logger)                              
-    
-                                
+
+    logger = setup_logging(level="INFO", use_colors=True)
+    set_global_logger(logger)
+
+    # ===== HARDWARE DETECTION & STARTUP VALIDATION =====
+    from ..core.hardware_profile import detect_hardware
+    from ..core.system_validator import SystemRequirements
+
+    hw = detect_hardware()
+    config.inject_config({"_hardware_profile": hw})
+    hw.apply_thread_settings()
+    logger.logger.info(
+        "Hardware: %s, %d cores, %.1f GB RAM (%.1f GB free), GPU: %s",
+        hw.platform_system, hw.cpu_cores_physical,
+        hw.ram_total_gb, hw.ram_available_gb,
+        hw.gpu_name or "none",
+    )
+
+    issues = SystemRequirements.validate(hw, config)
+    for issue in issues:
+        logger.logger.warning("System check: %s", issue)
+
     pipeline_config = {
-        'data_dir': str(config.DATA_DIR),                      
-        'results_dir': str(config.RESULTS_DIR),                           
-        'targets': config.FRB_TARGETS,                     
-        'chunk_samples': chunk_samples                                                   
+        'data_dir': str(config.DATA_DIR),
+        'results_dir': str(config.RESULTS_DIR),
+        'targets': config.FRB_TARGETS,
+        'chunk_samples': chunk_samples
     }
-    
-    logger.pipeline_start(pipeline_config) 
+
+    logger.pipeline_start(pipeline_config)
 
     # Log High-Frequency Pipeline Configuration
     enable_phase2_snr = getattr(config, 'ENABLE_LINEAR_VALIDATION', False)

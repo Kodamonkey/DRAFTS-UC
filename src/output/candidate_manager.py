@@ -62,10 +62,67 @@ def ensure_csv_header(csv_path: Path) -> None:
 
 
 def append_candidate(csv_path: Path, candidate_row: list) -> None:
-    """Append a candidate row to the CSV file."""
-    with csv_path.open("a", newline="") as f_csv:
-        writer = csv.writer(f_csv)
-        writer.writerow(candidate_row)
+    """Append a candidate row to the CSV file.
+
+    Uses a global ``CandidateWriter`` per path to buffer writes and avoid
+    opening/closing the file for every single candidate.
+    """
+    CandidateWriter.get(csv_path).write(candidate_row)
+
+
+class CandidateWriter:
+    """Buffered CSV writer that batches candidate rows.
+
+    Keeps the file handle open and flushes every ``flush_interval`` rows
+    or when explicitly flushed / closed.
+    """
+
+    _instances: dict[Path, "CandidateWriter"] = {}
+
+    def __init__(self, csv_path: Path, flush_interval: int = 50):
+        self._path = csv_path
+        self._flush_interval = flush_interval
+        self._buffer: list[list] = []
+        self._fh = None
+        self._writer = None
+
+    @classmethod
+    def get(cls, csv_path: Path) -> "CandidateWriter":
+        resolved = csv_path.resolve()
+        if resolved not in cls._instances:
+            cls._instances[resolved] = cls(csv_path)
+        return cls._instances[resolved]
+
+    @classmethod
+    def flush_all(cls) -> None:
+        """Flush and close all open writers (call at pipeline end)."""
+        for w in list(cls._instances.values()):
+            w.close()
+        cls._instances.clear()
+
+    def _ensure_open(self):
+        if self._fh is None or self._fh.closed:
+            self._fh = self._path.open("a", newline="")
+            self._writer = csv.writer(self._fh)
+
+    def write(self, row: list) -> None:
+        self._buffer.append(row)
+        if len(self._buffer) >= self._flush_interval:
+            self.flush()
+
+    def flush(self) -> None:
+        if not self._buffer:
+            return
+        self._ensure_open()
+        self._writer.writerows(self._buffer)
+        self._fh.flush()
+        self._buffer.clear()
+
+    def close(self) -> None:
+        self.flush()
+        if self._fh is not None and not self._fh.closed:
+            self._fh.close()
+            self._fh = None
 
 
 @dataclass(slots=True)

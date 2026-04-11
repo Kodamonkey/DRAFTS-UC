@@ -45,7 +45,6 @@ from .utils import (
     save_file_debug_info
 )
 from .fits_handler import (
-    load_fits_file,
     get_obparams,
     stream_fits
 )
@@ -55,7 +54,6 @@ from .filterbank_handler import (
     _read_string,
     _read_header,
     _read_non_standard_header,
-    load_fil_file,
     get_obparams_fil,
     stream_fil
 )
@@ -68,29 +66,13 @@ from .streaming_orchestrator import get_streaming_function
 logger = logging.getLogger(__name__)
 
 
-def _safe_float(value, default=0.0):
-    """Return ``value`` as ``float`` or ``default`` if conversion fails."""
-    return safe_float(value, default)
 
-
-def _safe_int(value, default=0):
-    """Return ``value`` as ``int`` or ``default`` if conversion fails."""
-    return safe_int(value, default)
-
-
-def _auto_config_downsampling() -> None:
-    """Configure ``DOWN_FREQ_RATE`` and ``DOWN_TIME_RATE`` when not provided."""
-    auto_config_downsampling()
-
-
-def _print_debug_frequencies(prefix: str, file_name: str, freq_axis_inverted: bool) -> None:
-    """Print the standard frequency debug block with a prefixed label."""
-    print_debug_frequencies(prefix, file_name, freq_axis_inverted)
-
-
-def _save_file_debug_info(file_name: str, debug_info: dict) -> None:
-    """Persist file debug information in ``summary.json`` immediately."""
-    save_file_debug_info(file_name, debug_info)
+# Legacy aliases — use the canonical versions from .utils directly
+_safe_float = safe_float
+_safe_int = safe_int
+_auto_config_downsampling = auto_config_downsampling
+_print_debug_frequencies = print_debug_frequencies
+_save_file_debug_info = save_file_debug_info
 
                                                                                
                                  

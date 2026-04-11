@@ -25,42 +25,37 @@ from .pipeline_parameters import (
 logger = logging.getLogger(__name__)
 
 
-# Global collector for validation metrics (set by pipeline)
-_validation_collector = None
 
-def set_validation_collector(collector):
-    """Set the global validation metrics collector."""
-    global _validation_collector
-    _validation_collector = collector
+def validate_memory_allocation(
+    size_bytes: int,
+    operation_name: str,
+    warn_threshold_gb: float = 8.0,
+    error_threshold_gb: float = 16.0,
+    collector=None,
+) -> None:
+    """Validate memory allocation before attempting to allocate large arrays.
 
-def validate_memory_allocation(size_bytes: int, operation_name: str, warn_threshold_gb: float = 8.0, error_threshold_gb: float = 16.0) -> None:
-    """
-    Validate memory allocation before attempting to allocate large arrays.
-    
-    Based on PRESTO's memory validation strategy.
-    
     Args:
-        size_bytes: Size in bytes to allocate
-        operation_name: Name of the operation (for logging)
-        warn_threshold_gb: Warn if allocation exceeds this (GB)
-        error_threshold_gb: Raise error if allocation exceeds this (GB)
-    
+        size_bytes: Size in bytes to allocate.
+        operation_name: Name of the operation (for logging).
+        warn_threshold_gb: Warn if allocation exceeds this (GB).
+        error_threshold_gb: Raise error if allocation exceeds this (GB).
+        collector: Optional ``ValidationMetricsCollector`` instance.
+
     Raises:
-        MemoryError: If allocation would exceed error_threshold_gb
+        MemoryError: If allocation would exceed *error_threshold_gb*.
     """
-    global _validation_collector
-    
     size_gb = size_bytes / (1024**3)
     if size_gb > error_threshold_gb:
         error_msg = (
             f"Cannot allocate {size_gb:.2f} GB for {operation_name}. "
             f"This exceeds the safety threshold of {error_threshold_gb:.2f} GB. "
             f"Is the dispersive delay across the band longer than "
-            f"(or comparable to) the duration of the input file??"
+            f"(or comparable to) the duration of the input file?"
         )
         logger.error(error_msg)
-        if _validation_collector is not None:
-            _validation_collector.record_memory_validation(
+        if collector is not None:
+            collector.record_memory_validation(
                 operation=operation_name,
                 requested_bytes=size_bytes,
                 validation_result="rejected",
@@ -73,15 +68,15 @@ def validate_memory_allocation(size_bytes: int, operation_name: str, warn_thresh
             f"This may cause memory pressure. "
             f"Consider reducing chunk size or downsampling rate."
         )
-        if _validation_collector is not None:
-            _validation_collector.record_memory_validation(
+        if collector is not None:
+            collector.record_memory_validation(
                 operation=operation_name,
                 requested_bytes=size_bytes,
                 validation_result="allowed_with_warning",
             )
     else:
-        if _validation_collector is not None:
-            _validation_collector.record_memory_validation(
+        if collector is not None:
+            collector.record_memory_validation(
                 operation=operation_name,
                 requested_bytes=size_bytes,
                 validation_result="allowed",
@@ -109,7 +104,7 @@ def downsample_chunk(block: np.ndarray) -> tuple[np.ndarray, float]:
     return block_ds, dt_ds
 
 
-def build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max: float) -> np.ndarray:
+def build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max: float, collector=None) -> np.ndarray:
     """
     Build the DM–time cube for the decimated block.
     
@@ -136,7 +131,7 @@ def build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max:
             f"exceeding maximum allowed size of {max_result_size_gb:.1f} GB. "
             f"Automatically splitting temporal chunk into smaller sub-chunks for processing."
         )
-        return _build_dm_time_cube_temporal_chunking(block_ds, height, dm_min, dm_max, max_result_size_gb)
+        return _build_dm_time_cube_temporal_chunking(block_ds, height, dm_min, dm_max, max_result_size_gb, collector=collector)
     
     # Threshold for DM chunking (configurable, default 16 GB)
     dm_chunking_threshold_gb = getattr(config, 'DM_CHUNKING_THRESHOLD_GB', 16.0)
@@ -147,14 +142,14 @@ def build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max:
             f"[DEDISPERSION] DM-time cube would be {cube_size_gb:.2f} GB (height={height}, width={width:,}). "
             f"Using DM chunking (threshold: {dm_chunking_threshold_gb} GB) to reduce memory usage."
         )
-        return _build_dm_time_cube_chunked(block_ds, height, dm_min, dm_max, dm_chunking_threshold_gb)
+        return _build_dm_time_cube_chunked(block_ds, height, dm_min, dm_max, dm_chunking_threshold_gb, collector=collector)
     else:
         # Normal path: build entire cube at once
         logger.info(
             f"[DEDISPERSION] Building DM-time cube: {cube_size_gb:.2f} GB (height={height}, width={width:,}, "
             f"DM range: {dm_min:.1f}-{dm_max:.1f} pc cm⁻³)"
         )
-        validate_memory_allocation(cube_size_bytes, "DM-time cube")
+        validate_memory_allocation(cube_size_bytes, "DM-time cube", collector=collector)
         from ..preprocessing.dedispersion import d_dm_time_g
         logger.debug("[DEDISPERSION] Calling d_dm_time_g() to perform dedispersion...")
         result = d_dm_time_g(block_ds, height=height, width=width, dm_min=dm_min, dm_max=dm_max)
@@ -163,19 +158,17 @@ def build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max:
 
 
 def _build_dm_time_cube_chunked(
-    block_ds: np.ndarray, 
-    height: int, 
-    dm_min: float, 
+    block_ds: np.ndarray,
+    height: int,
+    dm_min: float,
     dm_max: float,
-    threshold_gb: float
+    threshold_gb: float,
+    collector=None,
 ) -> np.ndarray:
-    """
-    Build DM-time cube by processing DM range in chunks.
-    
+    """Build DM-time cube by processing DM range in chunks.
+
     This prevents memory exhaustion when DM range is very large.
     """
-    global _validation_collector
-    
     width = block_ds.shape[0]
     
     # Calculate optimal DM chunk size
@@ -197,7 +190,7 @@ def _build_dm_time_cube_chunked(
     )
     
     # Record DM chunking activation
-    if _validation_collector is not None:
+    if collector is not None:
         chunk_info = []
         for chunk_idx in range(num_dm_chunks):
             start_dm = chunk_idx * dm_chunk_height
@@ -215,7 +208,7 @@ def _build_dm_time_cube_chunked(
                 "cube_size_gb": chunk_size_gb,
             })
         
-        _validation_collector.record_dm_chunking(
+        collector.record_dm_chunking(
             activated=True,
             num_chunks=num_dm_chunks,
             chunk_info=chunk_info,
@@ -240,9 +233,10 @@ def _build_dm_time_cube_chunked(
             f"or reducing the DM range."
         )
         logger.error(error_msg)
-        validate_memory_allocation(result_size_bytes, "DM-time cube result array", 
-                                   warn_threshold_gb=max_result_size_gb * 0.5, 
-                                   error_threshold_gb=max_result_size_gb)
+        validate_memory_allocation(result_size_bytes, "DM-time cube result array",
+                                   warn_threshold_gb=max_result_size_gb * 0.5,
+                                   error_threshold_gb=max_result_size_gb,
+                                   collector=collector)
         raise MemoryError(error_msg)
     
     # Warn if result array is very large (but allow it since we process in chunks)
@@ -255,9 +249,9 @@ def _build_dm_time_cube_chunked(
     
     # Allocate full result array (required to combine DM chunks)
     # This is necessary because the rest of the pipeline expects the complete cube
-    validate_memory_allocation(result_size_bytes, "DM-time cube result array")
+    validate_memory_allocation(result_size_bytes, "DM-time cube result array", collector=collector)
     result = np.zeros((3, height, width), dtype=np.float32)
-    
+
     from ..preprocessing.dedispersion import d_dm_time_g
     import gc
     
@@ -328,26 +322,13 @@ def _build_dm_time_cube_temporal_chunking(
     height: int,
     dm_min: float,
     dm_max: float,
-    max_result_size_gb: float
+    max_result_size_gb: float,
+    collector=None,
 ) -> np.ndarray:
+    """Build DM-time cube by processing temporal dimension in chunks (resilient recovery).
+
+    Used when the full cube would exceed *max_result_size_gb*.
     """
-    Build DM-time cube by processing temporal dimension in chunks (resilient recovery).
-    
-    This is used when the full cube would exceed max_result_size_gb.
-    The temporal chunk is automatically split into smaller sub-chunks that fit in memory.
-    
-    Args:
-        block_ds: Decimated block (time, freq)
-        height: DM height (number of DM values)
-        dm_min: Minimum DM value
-        dm_max: Maximum DM value
-        max_result_size_gb: Maximum allowed result array size in GB
-    
-    Returns:
-        Complete DM-time cube (3, height, width)
-    """
-    global _validation_collector
-    
     width = block_ds.shape[0]
     
     # Calculate optimal temporal sub-chunk size
@@ -370,8 +351,8 @@ def _build_dm_time_cube_temporal_chunking(
     )
     
     # Record temporal chunking activation in validation metrics
-    if _validation_collector is not None:
-        _validation_collector.record_temporal_chunking(
+    if collector is not None:
+        collector.record_temporal_chunking(
             activated=True,
             num_sub_chunks=num_temporal_chunks,
             sub_chunk_width=sub_chunk_width
@@ -441,116 +422,6 @@ def _build_dm_time_cube_temporal_chunking(
     return result
 
 
-class DoubleBufferDedispersion:
-    """
-    Double-buffer system for incremental dedispersion (PRESTO-style).
-    
-    Maintains only 2 blocks in memory at a time:
-    - current_block: Currently being processed
-    - last_block: Previous block (for overlap/delays that cross boundaries)
-    
-    This prevents memory accumulation and allows processing of arbitrarily large files.
-    """
-    
-    def __init__(self, height: int, dm_min: float, dm_max: float):
-        self.height = height
-        self.dm_min = dm_min
-        self.dm_max = dm_max
-        self.last_block = None
-        self.last_dm_time = None
-        self.first_block = True
-        
-    def process_block(self, block_ds: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Process a block with double-buffering.
-        
-        Args:
-            block_ds: Downsampled block to process (time, freq)
-        
-        Returns:
-            Tuple of (dm_time_cube, block_ds)
-            - dm_time_cube: DM-time cube for this block
-            - block_ds: The input block (for consistency)
-        
-        Strategy (PRESTO-style):
-        1. First block: Store in last_block, return empty/placeholder
-        2. Subsequent blocks: Dedisperse using current + last, then swap
-        """
-        from ..preprocessing.dedispersion import d_dm_time_g
-        
-        if self.first_block:
-            # First block: just store it, we need the next block for proper dedispersion
-            # (delays can cross block boundaries)
-            self.last_block = block_ds.copy()
-            width = block_ds.shape[0]
-            
-            # Validate memory
-            cube_size_bytes = 3 * self.height * width * 4
-            validate_memory_allocation(cube_size_bytes, "DM-time cube (first block)")
-            
-            # Create DM-time cube for first block
-            self.last_dm_time = d_dm_time_g(
-                self.last_block, 
-                height=self.height, 
-                width=width, 
-                dm_min=self.dm_min, 
-                dm_max=self.dm_max
-            )
-            self.first_block = False
-            
-            # Return the first block's cube
-            return self.last_dm_time, block_ds
-        
-        else:
-            # Subsequent blocks: process current block
-            width = block_ds.shape[0]
-            
-            # Validate memory
-            cube_size_bytes = 3 * self.height * width * 4
-            validate_memory_allocation(cube_size_bytes, "DM-time cube (subsequent block)")
-            
-            # Create DM-time cube for current block
-            current_dm_time = d_dm_time_g(
-                block_ds,
-                height=self.height,
-                width=width,
-                dm_min=self.dm_min,
-                dm_max=self.dm_max
-            )
-            
-            # SWAP: Move current to last (PRESTO-style)
-            # Free old last_block immediately
-            del self.last_block, self.last_dm_time
-            import gc
-            gc.collect()
-            
-            # Update for next iteration
-            self.last_block = block_ds.copy()
-            self.last_dm_time = current_dm_time
-            
-            return current_dm_time, block_ds
-    
-    def get_final_block(self) -> tuple[np.ndarray, np.ndarray] | None:
-        """
-        Get the final block if there's one remaining in the buffer.
-        
-        Returns:
-            Tuple of (dm_time_cube, block_ds) or None if no final block
-        """
-        if self.last_dm_time is not None and self.last_block is not None:
-            return self.last_dm_time, self.last_block
-        return None
-    
-    def cleanup(self):
-        """Free all buffers (PRESTO-style cleanup)."""
-        del self.last_block, self.last_dm_time
-        self.last_block = None
-        self.last_dm_time = None
-        self.first_block = True
-        import gc
-        gc.collect()
-
-
 def trim_valid_window(
     block_ds: np.ndarray,
     dm_time_full: np.ndarray,
@@ -564,7 +435,10 @@ def trim_valid_window(
     if valid_end_ds <= valid_start_ds:
         valid_start_ds, valid_end_ds = 0, block_ds.shape[0]
     
-    dm_time = dm_time_full[:, :, valid_start_ds:valid_end_ds]
+    # .copy() is critical: a view would keep the full cube alive in memory
+    # even after `del dm_time_full` in the caller, because the view holds
+    # a reference to the underlying buffer.
+    dm_time = dm_time_full[:, :, valid_start_ds:valid_end_ds].copy()
     block_valid = block_ds[valid_start_ds:valid_end_ds]
     return block_valid, dm_time, valid_start_ds, valid_end_ds
 

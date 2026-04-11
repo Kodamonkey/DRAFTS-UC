@@ -1209,10 +1209,8 @@ def _process_file_chunked_high_freq(
 
     # ===== VALIDATION METRICS COLLECTOR =====
     from ..output.validation_metrics import ValidationMetricsCollector
-    from ..core.data_flow_manager import set_validation_collector
     collector = ValidationMetricsCollector(fits_path.name)
     collector.record_data_characteristics()
-    set_validation_collector(collector)  # Set global collector for memory validations
     
     # ===== PHASE METRICS TRACKER =====
     phase_metrics_tracker = PhaseMetricsTracker()
@@ -1401,7 +1399,7 @@ def _process_file_chunked_high_freq(
 
                 # Memory validation is now done inside build_dm_time_cube (PRESTO-style)
                 height = chunk_params['height']
-                dm_time_full = build_dm_time_cube(block_ds, height=height, dm_min=config.DM_min, dm_max=config.DM_max)
+                dm_time_full = build_dm_time_cube(block_ds, height=height, dm_min=config.DM_min, dm_max=config.DM_max, collector=collector)
                 block_ds, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(block_ds, dm_time_full, overlap_left_ds, overlap_right_ds)
                 
                 # Record chunk processing for validation metrics

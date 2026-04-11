@@ -140,46 +140,69 @@ def calculate_memory_safe_chunk_size(
     overlap_raw = max(0, int(np.ceil(dt_max_sec / config.TIME_RESO)))
     overlap_decimated = overlap_raw // max(1, config.DOWN_TIME_RATE)
     
-    # Calculate cost per temporal sample
-    # DM-time cube: (3, height_dm, width) where width = chunk_samples
-    # Cost = 3 * height_dm * 4 bytes per sample
-    cost_per_sample_bytes = 3 * height_dm * 4  # float32 = 4 bytes
-    
+    # ===== TRUE PEAK MEMORY CALCULATION =====
+    # Account for ALL memory consumers, not just the DM cube.
+    # Peak memory occurs at two distinct phases:
+    #
+    # Phase 1 (Downsampling): raw_block + decimated_output coexist
+    #   Per raw sample: nchan * 4 (raw) + nchan_ds * 4 / down_time (decimated)
+    #
+    # Phase 2 (DM cube building): decimated_block + prewhitening + DM_cube
+    #   Per raw sample: (nchan_ds * 4 + nchan_ds * 4 * 2 + 3 * height_dm * 4) / down_time
+    #
+    # The budget uses the MAX of both phases.
+    nchan = max(1, config.FREQ_RESO)
+    down_freq = max(1, config.DOWN_FREQ_RATE)
+    down_time = max(1, config.DOWN_TIME_RATE)
+    nchan_ds = nchan // down_freq
+    prewhiten = bool(getattr(config, 'PREWHITEN_BEFORE_DM', True))
+
+    # Phase 1 peak: raw block + decimated output (per raw sample)
+    phase1_per_raw = nchan * 4 + (nchan_ds * 4) / down_time
+
+    # Phase 2 peak: decimated block + prewhitening intermediates + DM cube
+    prewhiten_factor = 2 if prewhiten else 0  # in-place ops still need mean/std temps
+    phase2_per_raw = (nchan_ds * 4 * (1 + prewhiten_factor) + 3 * height_dm * 4) / down_time
+
+    cost_per_raw_sample = max(phase1_per_raw, phase2_per_raw)
+
+    logger.debug(
+        "Memory cost per raw sample: %.1f bytes "
+        "(phase1=%.1f, phase2=%.1f, nchan=%d, nchan_ds=%d, height_dm=%d)",
+        cost_per_raw_sample, phase1_per_raw, phase2_per_raw,
+        nchan, nchan_ds, height_dm,
+    )
+
+    # Legacy alias used later in diagnostics
+    cost_per_sample_bytes = int(3 * height_dm * 4)  # DM-cube-only cost (for logging)
+
     # ===== PHASE B: Determine Optimal Time Chunk =====
-    # Get available system RAM
-    vm = psutil.virtual_memory()
-    available_ram_bytes = vm.available
-    
-    # Get available GPU VRAM if available
-    available_vram_bytes = 0
-    gpu_available = False
-    try:
-        import torch
-        if torch is not None and torch.cuda.is_available():
-            gpu_available = True
-            vram_total = torch.cuda.get_device_properties(0).total_memory
-            vram_reserved = torch.cuda.memory_reserved(0)
-            available_vram_bytes = vram_total - vram_reserved
-    except Exception:
-        pass
-    
+    from ..core.hardware_profile import detect_hardware
+    hw = detect_hardware()
+    available_ram_bytes = hw.ram_available_bytes
+
+    gpu_available = hw.gpu_available
+    available_vram_bytes = hw.gpu_vram_available_bytes if gpu_available else 0
+
     # Calculate usable memory with safety margin
     max_ram_fraction = getattr(config, 'MAX_RAM_FRACTION', 0.25)
     overhead_factor = getattr(config, 'OVERHEAD_FACTOR', 1.3)
-    
+
     if gpu_available and available_vram_bytes > 0:
         usable_ram = (available_ram_bytes * max_ram_fraction * safety_margin) / overhead_factor
         usable_vram = (available_vram_bytes * 0.7 * safety_margin) / overhead_factor
         usable_bytes = usable_ram + usable_vram
     else:
         usable_bytes = (available_ram_bytes * max_ram_fraction * safety_margin) / overhead_factor
-    
-    # Calculate maximum samples that fit in available memory
-    if cost_per_sample_bytes <= 0:
+
+    # Calculate maximum RAW samples that fit in available memory
+    if cost_per_raw_sample <= 0:
         logger.warning("Invalid cost per sample, using fallback")
         max_samples = slice_len * 100
     else:
-        max_samples = int(usable_bytes / cost_per_sample_bytes)
+        # max_samples here is in RAW domain; convert to decimated for comparison
+        max_raw_samples = int(usable_bytes / cost_per_raw_sample)
+        max_samples = max_raw_samples // down_time  # decimated capacity
     
     # ===== PHASE C: Validate Against Physical Constraints =====
     # Required minimum size = overlap + slice_len

@@ -77,11 +77,17 @@ def plan_slices_for_chunk(
         slices.append(SlicePlan(start_idx=s0, end_idx=s1, length=length, duration_ms=duration_ms))
         s0 = s1
 
-                                             
-    assert slices[0].start_idx == 0
-    assert slices[-1].end_idx == num_samples_decimated
+    if slices[0].start_idx != 0:
+        raise ValueError(f"First slice must start at 0, got {slices[0].start_idx}")
+    if slices[-1].end_idx != num_samples_decimated:
+        raise ValueError(
+            f"Last slice must end at {num_samples_decimated}, got {slices[-1].end_idx}"
+        )
     for a, b in zip(slices, slices[1:]):
-        assert a.end_idx == b.start_idx
+        if a.end_idx != b.start_idx:
+            raise ValueError(
+                f"Slice gap: slice ending at {a.end_idx} followed by slice starting at {b.start_idx}"
+            )
 
     avg_ms = sum(sl.duration_ms for sl in slices) / len(slices)
     delta_ms = avg_ms - target_duration_ms

@@ -161,302 +161,49 @@ def _select_polarization(
     return data[:, default_index:default_index + 1, :]
 
 
-def load_fits_file(file_name: str) -> np.ndarray:
-    """Load a FITS file and return the data array in shape (time, pol, channel)."""
-    global_vars = config
-    data_array = None
+def _load_fits_non_subint(file_name: str) -> np.ndarray:
+    """Load a non-SUBINT FITS file into memory.
+
+    Only used as a last-resort fallback for FITS files that lack a SUBINT table
+    (simple IMAGE/BINTABLE formats).  PSRFITS files with SUBINT tables are
+    handled by the streaming path in ``stream_fits()``.
+    """
+    if fitsio is None:
+        raise ImportError("fitsio is not installed. Install with: pip install fitsio")
+
+    logger.warning(
+        "Loading non-SUBINT FITS via fitsio (entire file in RAM): %s", file_name
+    )
+
+    temp_data, h = fitsio.read(file_name, header=True)
+    total_samples = safe_int(h.get("NAXIS2", 1)) * safe_int(h.get("NSBLK", 1))
+    num_pols = safe_int(h.get("NPOL", 2))
+    num_chans = safe_int(h.get("NCHAN", 512))
+
+    if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
+        raise ValueError(
+            f"Invalid FITS dimensions: samples={total_samples}, "
+            f"pols={num_pols}, chans={num_chans}"
+        )
+
+    has_data_field = hasattr(temp_data, "dtype") and hasattr(temp_data.dtype, "names") and temp_data.dtype.names and "DATA" in temp_data.dtype.names
+    raw = temp_data["DATA"] if has_data_field else temp_data
+
     try:
-                                                                               
-        if your_psrfits is not None:
-            try:
-                pf = your_psrfits.PsrfitsFile([file_name])
-                nspec = int(pf.nspectra())
-                npol = int(pf.npol)
-                nchan = int(pf.nchans)
-                                                      
-                data = pf.get_data(0, nspec, npoln=npol)                                        
-                if data.ndim != 3:
-                    raise ValueError("Forma inesperada en 'your' get_data")
-                                                        
-                pol_type = getattr(pf, 'pol_type', 'IQUV') if hasattr(pf, 'pol_type') else 'IQUV'
-                data = _select_polarization(data, pol_type, getattr(config, 'POLARIZATION_MODE', 'intensity'), getattr(config, 'POLARIZATION_INDEX', 0))
-                                                                                              
-                try:
-                    if getattr(pf, 'foff', 0.0) > 0:
-                        data = data[:, :, ::-1]
-                except Exception:
-                    pass
-                if data.dtype != np.float32:
-                    data = data.astype(np.float32)
-                return data
-            except Exception:
-                                                        
-                pass
-        with fits.open(file_name, memmap=True) as hdul:
-            if "SUBINT" in [hdu.name for hdu in hdul] and "DATA" in hdul["SUBINT"].columns.names:
-                subint = hdul["SUBINT"]
-                hdr = subint.header
-                                                                                         
-                try:
-                    tbl = subint.data
-                except (TypeError, ValueError, OSError) as e:
-                    if "buffer is too small" in str(e) or "truncated" in str(e).lower():
-                        logger.warning(
-                            "Truncated FITS file detected (%s): %s. Skipping.",
-                            file_name,
-                            e,
-                        )
-                        raise ValueError(f"Truncated FITS file: {file_name}") from e
-                    else:
-                        raise
-                nsubint = safe_int(hdr.get("NAXIS2", 0))
-                nchan = safe_int(hdr.get("NCHAN", 0))
-                npol = safe_int(hdr.get("NPOL", 0))
-                nsblk = safe_int(hdr.get("NSBLK", 1))
-                nbits = safe_int(hdr.get("NBITS", 8))
-                zero_off = safe_float(hdr.get("ZERO_OFF", 0.0))
-                                                       
-                if any(x <= 0 for x in [nsubint, nchan, npol, nsblk]):
-                    raise ValueError(
-                        f"Invalid dimensions in FITS header: NAXIS2={nsubint}, NCHAN={nchan}, NPOL={npol}, NSBLK={nsblk} (cannot be <= 0)"
-                    )
-
-                                                             
-                out = np.empty((nsubint * nsblk, 1, nchan), dtype=np.float32)
-
-                                                                                    
-                use_pol_idx = 0
-                pol_type = str(hdr.get("POL_TYPE", "")).upper() if hdr.get("POL_TYPE") is not None else ""
-                                                                       
-                write_ptr = 0
-                for isub in range(nsubint):
-                    row = tbl[isub]
-                    raw = row["DATA"]
-                                                
-                    if nbits < 8:
-                        if nbits == 4:
-                            unpacked = _unpack_4bit(raw)
-                        elif nbits == 2:
-                            unpacked = _unpack_2bit(raw)
-                        elif nbits == 1:
-                            unpacked = _unpack_1bit(raw)
-                        else:
-                            raise ValueError(f"NBITS={nbits} not supported")
-                                                                              
-                                                                     
-                        try:
-                            tmp = unpacked.reshape(nsblk, npol, nchan)
-                        except Exception:
-                                                                                    
-                            tmp = unpacked.reshape(nsblk, nchan, npol).swapaxes(1, 2)
-                        tmp = tmp.astype(np.float32, copy=False)
-                    else:
-                                                                   
-                        arr = np.asarray(raw)
-                                                                                        
-                        try:
-                            tmp = arr.reshape(nsblk, npol, nchan)
-                        except Exception:
-                            tmp = arr.reshape(nsblk, nchan, npol).swapaxes(1, 2)
-                        if tmp.dtype != np.float32:
-                            tmp = tmp.astype(np.float32, copy=False)
-
-                                                   
-                    dat_wts = None
-                    if "DAT_WTS" in subint.columns.names:
-                        dat_wts = row["DAT_WTS"].astype(np.float32, copy=False)
-                    dat_scl = None
-                    if "DAT_SCL" in subint.columns.names:
-                        dat_scl = row["DAT_SCL"].astype(np.float32, copy=False)
-                    dat_offs = None
-                    if "DAT_OFFS" in subint.columns.names:
-                        dat_offs = row["DAT_OFFS"].astype(np.float32, copy=False)
-
-                                                                    
-                    tmp = _apply_calibration(tmp, dat_wts, dat_scl, dat_offs, zero_off)
-
-                    if npol >= 1:
-                                                                 
-                        out_block = tmp[:, use_pol_idx:use_pol_idx + 1, :]
-                    else:
-                        out_block = tmp.reshape(tmp.shape[0], 1, tmp.shape[-1])
-
-                    out[write_ptr:write_ptr + nsblk, :, :] = out_block
-                    write_ptr += nsblk
-
-                data_array = out
-            else:
-                if fitsio is None:
-                    raise ImportError("fitsio is not installed. Install with: pip install fitsio")
-                temp_data, h = fitsio.read(file_name, header=True)
-                if "DATA" in temp_data.dtype.names:
-                    total_samples = safe_int(h.get("NAXIS2", 1)) * safe_int(h.get("NSBLK", 1))
-                    num_pols = safe_int(h.get("NPOL", 2))
-                    num_chans = safe_int(h.get("NCHAN", 512))
-                    if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
-                                                                  
-                        error_details = []
-                        if total_samples <= 0:
-                            error_details.append(f"total_samples={total_samples} (NAXIS2={h.get('NAXIS2', 1)} × NSBLK={h.get('NSBLK', 1)})")
-                        if num_pols <= 0:
-                            error_details.append(f"num_pols={num_pols}")
-                        if num_chans <= 0:
-                            error_details.append(f"num_chans={num_chans}")
-                        
-                        error_msg = f"Invalid dimensions in FITS header: {', '.join(error_details)}"
-                        if total_samples <= 0:
-                            error_msg += f"\n  → NSBLK={h.get('NSBLK', 1)} is 0 or negative, making it impossible to calculate the number of temporal samples"
-                            error_msg += f"\n  → The pipeline needs data in (time, polarization, channel) format but cannot determine the temporal dimension"
-                        if num_pols <= 0:
-                            error_msg += f"\n  → NPOL={num_pols} is 0 or negative, making it impossible to process polarizations"
-                        if num_chans <= 0:
-                            error_msg += f"\n  → NCHAN={num_chans} is 0 or negative, making it impossible to process frequency channels"
-                        
-                        raise ValueError(error_msg)
-                    try:
-                        data_array = temp_data["DATA"].reshape(total_samples, num_pols, num_chans)
-                                                                    
-                        pol_type = str(h.get("POL_TYPE", "")).upper() if h.get("POL_TYPE") is not None else ""
-                        if num_pols >= 1:
-                            if "IQUV" in pol_type:
-                                data_array = data_array[:, 0:1, :]
-                            else:
-                                data_array = data_array[:, 0:1, :]
-                        else:
-                            data_array = data_array.reshape(data_array.shape[0], 1, data_array.shape[-1])
-                    except Exception as e:
-                        raise ValueError(f"Error reshaping data (fitsio): {e}\n  → Data cannot be reorganized into expected format (time={total_samples}, pol={num_pols}, channel={num_chans})")
-                else:
-                    total_samples = safe_int(h.get("NAXIS2", 1)) * safe_int(h.get("NSBLK", 1))
-                    num_pols = safe_int(h.get("NPOL", 2))
-                    num_chans = safe_int(h.get("NCHAN", 512))
-                    if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
-                                                                  
-                        error_details = []
-                        if total_samples <= 0:
-                            error_details.append(f"total_samples={total_samples} (NAXIS2={h.get('NAXIS2', 1)} × NSBLK={h.get('NSBLK', 1)})")
-                        if num_pols <= 0:
-                            error_details.append(f"num_pols={num_pols}")
-                        if num_chans <= 0:
-                            error_details.append(f"num_chans={num_chans}")
-                        
-                        error_msg = f"Invalid dimensions in FITS header: {', '.join(error_details)}"
-                        if total_samples <= 0:
-                            error_msg += f"\n  → NSBLK={h.get('NSBLK', 1)} is 0 or negative, making it impossible to calculate the number of temporal samples"
-                            error_msg += f"\n  → The pipeline needs data in (time, polarization, channel) format but cannot determine the temporal dimension"
-                        if num_pols <= 0:
-                            error_msg += f"\n  → NPOL={num_pols} is 0 or negative, making it impossible to process polarizations"
-                        if num_chans <= 0:
-                            error_msg += f"\n  → NCHAN={num_chans} is 0 or negative, making it impossible to process frequency channels"
-                        
-                        raise ValueError(error_msg)
-                    try:
-                        data_array = temp_data.reshape(total_samples, num_pols, num_chans)
-                                                                                                   
-                        data_array = data_array[:, 0:1, :]
-                    except Exception as e:
-                        raise ValueError(f"Error reshaping data (fitsio): {e}\n  → Data cannot be reorganized into expected format (time={total_samples}, pol={num_pols}, channel={num_chans})")
-    except (ValueError, fits.verify.VerifyError) as e:
-
-        if "NSBLK" in str(e) and "0" in str(e):
-            raise ValueError(
-                f"Corrupted FITS file: {file_name}\n  → The file has NSBLK=0 in the header, indicating it is malformed or corrupted\n  → NSBLK must be > 0 to define the number of temporal samples per block\n  → Recommendation: Verify the file source or obtain a correct version"
-            ) from e
-        elif "Invalid dimensions" in str(e):
-            raise ValueError(
-                f"Corrupted FITS file: {file_name}\n  → {str(e)}\n  → The file cannot be processed due to invalid dimensions in the header\n  → Recommendation: Verify the file integrity or use a different file"
-            ) from e
-        else:
-            raise ValueError(
-                f"Corrupted FITS file: {file_name}\n  → {str(e)}\n  → The file cannot be read correctly\n  → Recommendation: Ensure the file is not damaged"
-            ) from e
+        data_array = raw.reshape(total_samples, num_pols, num_chans)
     except Exception as e:
-        logger.error("Error loading FITS with fitsio/astropy: %s", e)
-        try:
-                                                         
-            with fits.open(file_name, memmap=False) as f:
-                data_hdu = None
-                for hdu_item in f:
-                    try:
-                        if (hdu_item.data is not None and 
-                            isinstance(hdu_item.data, np.ndarray) and 
-                            hdu_item.data.ndim >= 3):
-                            data_hdu = hdu_item
-                            break
-                    except (TypeError, ValueError):
-                        continue
-                if data_hdu is None and len(f) > 1:
-                    data_hdu = f[1]
-                elif data_hdu is None:
-                    data_hdu = f[0]
-                h = data_hdu.header
-                try:
-                    raw_data = data_hdu.data
-                    if raw_data is not None:
-                        total_samples = safe_int(h.get("NAXIS2", 1)) * safe_int(h.get("NSBLK", 1))
-                        num_pols = safe_int(h.get("NPOL", 2))
-                        num_chans = safe_int(h.get("NCHAN", raw_data.shape[-1]))
-                        if any(x <= 0 for x in [total_samples, num_pols, num_chans]):
-                                                                        
-                            error_details = []
-                            if total_samples <= 0:
-                                error_details.append(f"total_samples={total_samples} (NAXIS2={h.get('NAXIS2', 1)} × NSBLK={h.get('NSBLK', 1)})")
-                            if num_pols <= 0:
-                                error_details.append(f"num_pols={num_pols}")
-                            if num_chans <= 0:
-                                error_details.append(f"num_chans={num_chans}")
-                            
-                            error_msg = f"Invalid dimensions in fallback header: {', '.join(error_details)}"
-                            if total_samples <= 0:
-                                error_msg += f"\n  → NSBLK={h.get('NSBLK', 1)} is 0 or negative, making it impossible to calculate the number of temporal samples"
-                                error_msg += f"\n  → The pipeline needs data in (time, polarization, channel) format but cannot determine the temporal dimension"
-                            if num_pols <= 0:
-                                error_msg += f"\n  → NPOL={num_pols} is 0 or negative, making it impossible to process polarizations"
-                            if num_chans <= 0:
-                                error_msg += f"\n  → NCHAN={num_chans} is 0 or negative, making it impossible to process frequency channels"
-                            
-                            raise ValueError(error_msg)
-                        try:
-                            data_array = raw_data.reshape(total_samples, num_pols, num_chans)
-                            pol_type = str(h.get("POL_TYPE", "")).upper() if h.get("POL_TYPE") is not None else ""
-                            if num_pols >= 1:
-                                if "IQUV" in pol_type:
-                                    data_array = data_array[:, 0:1, :]
-                                else:
-                                    data_array = data_array[:, 0:1, :]
-                            else:
-                                data_array = data_array.reshape(data_array.shape[0], 1, data_array.shape[-1])
-                        except Exception as e:
-                            raise ValueError(f"Error reshaping data (fallback): {e}\n  → Data cannot be reorganized into expected format (time={total_samples}, pol={num_pols}, channel={num_chans})\n  → File may be corrupted or have incompatible format")
-                    else:
-                        raise ValueError("No valid data in HDU\n  → FITS file does not contain processable data\n  → Verify that the file is not empty or corrupted")
-                except (TypeError, ValueError) as e_data:
-                    logger.debug(f"Error accessing HDU data: {e_data}")
-                    raise ValueError(f"Corrupted FITS file: {file_name}\n  → Error accessing file data: {e_data}\n  → File may be damaged or have unrecognized format")
-        except Exception as e_astropy:
-            logger.debug(f"Final failure loading with astropy: {e_astropy}")
-            raise ValueError(f"Corrupted FITS file: {file_name}\n  → Failure in astropy fallback method: {e_astropy}\n  → File cannot be read by any available method\n  → Recommendation: Verify file integrity or use a different file") from e_astropy
-            
-    if data_array is None:
-        raise ValueError(f"Corrupted FITS file: {file_name}\n  → Could not load valid data from file\n  → File may be empty, corrupted or have incompatible format\n  → Recommendation: Verify file integrity or use a different file")
+        raise ValueError(
+            f"Cannot reshape data to ({total_samples}, {num_pols}, {num_chans}): {e}"
+        ) from e
 
-    if global_vars.DATA_NEEDS_REVERSAL:
-        logger.debug(f">> Reversing frequency axis of loaded data for {file_name}")
+    data_array = data_array[:, 0:1, :]
+
+    if data_array.dtype != np.float32:
+        data_array = data_array.astype(np.float32)
+
+    if config.DATA_NEEDS_REVERSAL:
         data_array = np.ascontiguousarray(data_array[:, :, ::-1])
-    
-                                              
-    if config.DEBUG_FREQUENCY_ORDER:
-        logger.debug(f"[DEBUG LOADED DATA] File: {file_name}")
-        logger.debug(f"[DEBUG LOADED DATA] Data shape: {data_array.shape}")
-        logger.debug(f"[DEBUG LOADED DATA] Dimensions: (time={data_array.shape[0]}, pol={data_array.shape[1]}, freq={data_array.shape[2]})")
-        logger.debug(f"[DEBUG LOADED DATA] Data type: {data_array.dtype}")
-        logger.debug(f"[DEBUG LOADED DATA] Memory size: {data_array.nbytes / (1024**3):.2f} GB")
-        logger.debug(f"[DEBUG LOADED DATA] Reversal applied: {global_vars.DATA_NEEDS_REVERSAL}")
-        logger.debug(f"[DEBUG LOADED DATA] Value range: [{data_array.min():.3f}, {data_array.max():.3f}]")
-        logger.debug(f"[DEBUG LOADED DATA] Mean value: {data_array.mean():.3f}")
-        logger.debug(f"[DEBUG LOADED DATA] Standard deviation: {data_array.std():.3f}")
-        logger.debug("[DEBUG LOADED DATA] " + "="*50)
-    
+
     return data_array
 
 
@@ -976,29 +723,10 @@ def stream_fits_multi_pol(
         except Exception as e:
             logger.debug("'your' library streaming failed (%s), falling back", e)
         
-        # Fallback: load entire file (not streaming, but returns same format)
-        logger.warning("Multi-pol streaming not available, loading entire file")
-        data_full = load_fits_file(file_name)
-        
-        # Try to reload with all polarizations
-        # This is a simplified fallback - in production you'd need full FITS reading
-        metadata = {
-            "chunk_idx": 0,
-            "start_sample": 0,
-            "end_sample": data_full.shape[0],
-            "actual_chunk_size": data_full.shape[0],
-            "block_start_sample": 0,
-            "block_end_sample": data_full.shape[0],
-            "overlap_left": 0,
-            "overlap_right": 0,
-            "total_samples": data_full.shape[0],
-            "nchans": data_full.shape[2],
-            "npol": 1,
-            "file_type": "fits",
-        }
-        
-        # Return data twice (same block) since we don't have multi-pol in fallback
-        yield data_full, data_full, metadata, "UNKNOWN"
+        raise RuntimeError(
+            "Multi-polarisation streaming requires the 'your_psrfits' library. "
+            "Install it or use the standard single-polarisation pipeline via stream_fits()."
+        )
         
     except Exception as e:
         logger.error("Error in multi-pol streaming: %s", e)
@@ -1459,17 +1187,7 @@ def stream_fits(
                                         f"(buffer limit: {max_buffer_samples:,})"
                                     )
                                 
-                                # Record buffer event for validation metrics
-                                try:
-                                    from ..core.data_flow_manager import _validation_collector
-                                    if _validation_collector is not None:
-                                        _validation_collector.record_buffer_event(
-                                            buffer_size_samples=out_buf.shape[0],
-                                            event_type="emergency_chunk_emission",
-                                            chunk_emitted=True
-                                        )
-                                except Exception:
-                                    pass  # Don't fail if collector not available
+                                # Buffer event recorded at pipeline level via collector parameter
                             else:
                                 # Normal case: emit full chunk with overlap
                                 start_with_overlap = 0
@@ -1622,7 +1340,7 @@ def stream_fits(
                     nchans,
                 )
                 log_stream_fits_parameters(nsamples, chunk_samples, overlap_samples, None, nchans, npols, None)
-                data_array = load_fits_file(file_name)
+                data_array = _load_fits_non_subint(file_name)
                 use_memmap = False
                                                            
                 chunk_counter = 0
@@ -1972,17 +1690,7 @@ def stream_fits(
                                         f"(buffer limit: {max_buffer_samples:,})"
                                     )
                                 
-                                # Record buffer event for validation metrics
-                                try:
-                                    from ..core.data_flow_manager import _validation_collector
-                                    if _validation_collector is not None:
-                                        _validation_collector.record_buffer_event(
-                                            buffer_size_samples=out_buf.shape[0],
-                                            event_type="emergency_chunk_emission",
-                                            chunk_emitted=True
-                                        )
-                                except Exception:
-                                    pass  # Don't fail if collector not available
+                                # Buffer event recorded at pipeline level via collector parameter
                             else:
                                 # Normal case: emit full chunk with overlap
                                 start_with_overlap = 0

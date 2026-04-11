@@ -141,44 +141,16 @@ MAX_DM_CUBE_SIZE_GB = float(_performance_config.get('max_dm_cube_size_gb', 2.0))
 DM_CHUNKING_THRESHOLD_GB_USER = float(_performance_config.get('dm_chunking_threshold_gb', 16.0))
 
 # Advanced Performance Settings (from config/performance.yaml)
-# Memory Management
 _memory_config = _performance_advanced.get('memory', {})
-MAX_VRAM_FRACTION = float(_memory_config.get('max_vram_fraction', 0.70))
 MEMORY_OVERHEAD_FACTOR_USER = float(_memory_config.get('overhead_factor', 1.3))
-MIN_CHUNK_SAMPLES = int(_memory_config.get('min_chunk_samples', 50000))
-TARGET_SLICES_PER_CHUNK = int(_memory_config.get('target_slices_per_chunk', 10))
-ENABLE_MEMORY_PREALLOCATION = bool(_memory_config.get('enable_preallocation', True))
-ENABLE_MEMORY_MONITORING = bool(_memory_config.get('enable_monitoring', True))
-MEMORY_WARNING_THRESHOLD = float(_memory_config.get('warning_threshold', 0.80))
 
-# Garbage Collection
-_gc_config = _performance_advanced.get('garbage_collection', {})
-ENABLE_AUTO_GC = bool(_gc_config.get('enable_auto_gc', True))
-GC_FREQUENCY_CHUNKS = int(_gc_config.get('frequency_chunks', 5))
-
-# GPU Optimization
+# Settings kept for Phase 2/3 implementation
 _gpu_config = _performance_advanced.get('gpu', {})
-ENABLE_GPU_MEMORY_MANAGEMENT = bool(_gpu_config.get('enable_memory_management', True))
-GPU_CLEANUP_FREQUENCY = int(_gpu_config.get('cleanup_frequency', 3))
 ENABLE_MIXED_PRECISION = bool(_gpu_config.get('enable_mixed_precision', False))
-GPU_BATCH_SIZE = int(_gpu_config.get('batch_size', 4))
 
-# I/O Optimization
 _io_config = _performance_advanced.get('io', {})
 ENABLE_ASYNC_IO = bool(_io_config.get('enable_async_io', True))
-IO_BUFFER_SIZE_MB = int(_io_config.get('buffer_size_mb', 128))
-ENABLE_FILE_CACHING = bool(_io_config.get('enable_file_caching', False))
-MAX_FILE_CACHE_GB = float(_io_config.get('max_file_cache_gb', 2.0))
 
-# Parallel Processing
 _parallel_config = _performance_advanced.get('parallel', {})
 CPU_THREADS = int(_parallel_config.get('cpu_threads', 0))
-ENABLE_PARALLEL_CHUNKS = bool(_parallel_config.get('enable_parallel_chunks', False))
-MAX_PARALLEL_CHUNKS = int(_parallel_config.get('max_parallel_chunks', 2))
-
-# Debugging and Profiling
-_profiling_config = _performance_advanced.get('profiling', {})
-ENABLE_PROFILING = bool(_profiling_config.get('enable_profiling', False))
-ENABLE_MEMORY_LOGGING = bool(_profiling_config.get('enable_memory_logging', False))
-PERFORMANCE_LOG_LEVEL = int(_profiling_config.get('performance_log_level', 1))
 

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest src/tests/test_scientific_physics.py -v)",
+      "Bash(python -m pytest src/tests/ -v)"
+    ]
+  }
+}

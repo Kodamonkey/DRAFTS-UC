@@ -34,8 +34,11 @@ try:
         DEBUG_FREQUENCY_ORDER,
         DM_max,
         DM_min,
+        DM_GRID_MODE,
+        MAX_DM_SMEARING_MS,
         DOWN_FREQ_RATE,
         DOWN_TIME_RATE,
+        TEMPORAL_DOWNSAMPLING_MODE,
         DET_PROB,
         CLASS_PROB,
         CLASS_PROB_LINEAR,
@@ -45,15 +48,19 @@ try:
         SLICE_DURATION_MS,
         SNR_THRESH,
         SNR_THRESH_LINEAR,
+        DETECTION_WIDTHS_MS,
+        TRIAL_CORRECTION,
         USE_MULTI_BAND,
         SAVE_ONLY_BURST,
         AUTO_HIGH_FREQ_PIPELINE,
-        HIGH_FREQ_THRESHOLD_MHZ,
+        BOWTIE_COLLAPSE_RATIO,
+        HIGH_FREQ_DM_POLICY,
         ENABLE_LINEAR_VALIDATION,
         ENABLE_INTENSITY_CLASSIFICATION,
         ENABLE_LINEAR_CLASSIFICATION,
         POLARIZATION_MODE,
         POLARIZATION_INDEX,
+        POLARIZATION_LINEAR_DEBIAS,
         MAX_CHUNK_SAMPLES,
         MAX_RAM_FRACTION_USER,
         MAX_DM_CUBE_SIZE_GB,
@@ -67,8 +74,11 @@ except ImportError:
             DEBUG_FREQUENCY_ORDER,
             DM_max,
             DM_min,
+            DM_GRID_MODE,
+            MAX_DM_SMEARING_MS,
             DOWN_FREQ_RATE,
             DOWN_TIME_RATE,
+            TEMPORAL_DOWNSAMPLING_MODE,
             DET_PROB,
             CLASS_PROB,
             CLASS_PROB_LINEAR,
@@ -78,15 +88,19 @@ except ImportError:
             SLICE_DURATION_MS,
             SNR_THRESH,
             SNR_THRESH_LINEAR,
+            DETECTION_WIDTHS_MS,
+            TRIAL_CORRECTION,
             USE_MULTI_BAND,
             SAVE_ONLY_BURST,
             AUTO_HIGH_FREQ_PIPELINE,
-            HIGH_FREQ_THRESHOLD_MHZ,
+            BOWTIE_COLLAPSE_RATIO,
+            HIGH_FREQ_DM_POLICY,
             ENABLE_LINEAR_VALIDATION,
             ENABLE_INTENSITY_CLASSIFICATION,
             ENABLE_LINEAR_CLASSIFICATION,
             POLARIZATION_MODE,
             POLARIZATION_INDEX,
+            POLARIZATION_LINEAR_DEBIAS,
             MAX_CHUNK_SAMPLES,
             MAX_RAM_FRACTION_USER,
             MAX_DM_CUBE_SIZE_GB,
@@ -166,6 +180,8 @@ DM_RANGE_MIN_WIDTH: float = 80.0
 DM_RANGE_MAX_WIDTH: float = 300.0                                                 
 DM_RANGE_FACTOR: float = 0.3
 DM_DYNAMIC_RANGE_ENABLE: bool = False
+DM_GRID_MODE: str = globals().get("DM_GRID_MODE", "legacy_uniform")
+MAX_DM_SMEARING_MS = globals().get("MAX_DM_SMEARING_MS", "auto")
                                          
 # DM plotting ranges
 DM_PLOT_MARGIN_FACTOR: float = 0.25                                                    
@@ -183,6 +199,8 @@ SNR_OFF_REGIONS = [(-250, -150), (-100, -50), (50, 100), (150, 250)]
 SNR_HIGHLIGHT_COLOR = "red"                                                  
 SNR_SHOW_PEAK_LINES: bool = False                                                              
 SNR_COLORMAP = "viridis"                                                     
+DETECTION_WIDTHS_MS = globals().get("DETECTION_WIDTHS_MS", [])
+TRIAL_CORRECTION: str = globals().get("TRIAL_CORRECTION", "gaussian_extreme")
 
 # ==============================================================================
 # PREPROCESSING CONFIGURATION
@@ -190,6 +208,9 @@ SNR_COLORMAP = "viridis"
 
 PREWHITEN_BEFORE_DM: bool = True   # Apply prewhitening before dedispersion
 SHADE_INVALID_TAIL: bool = True    # Shade invalid tail regions in plots
+TEMPORAL_DOWNSAMPLING_MODE: str = globals().get("TEMPORAL_DOWNSAMPLING_MODE", "sum")
+HIGH_FREQ_DM_POLICY: str = globals().get("HIGH_FREQ_DM_POLICY", "unresolved")
+POLARIZATION_LINEAR_DEBIAS: bool = globals().get("POLARIZATION_LINEAR_DEBIAS", True)
 
 # ==============================================================================
 # LOGGING CONFIGURATION
@@ -208,11 +229,15 @@ SHOW_PROGRESS: bool = True
 _KNOWN_CONFIG_KEYS = {
     "DATA_DIR", "RESULTS_DIR", "FRB_TARGETS",
     "SLICE_DURATION_MS", "DOWN_FREQ_RATE", "DOWN_TIME_RATE",
+    "TEMPORAL_DOWNSAMPLING_MODE",
     "DM_min", "DM_max", "DET_PROB", "CLASS_PROB", "CLASS_PROB_LINEAR",
+    "DM_GRID_MODE", "MAX_DM_SMEARING_MS",
     "SNR_THRESH", "SNR_THRESH_LINEAR", "USE_MULTI_BAND", "SAVE_ONLY_BURST",
-    "AUTO_HIGH_FREQ_PIPELINE", "HIGH_FREQ_THRESHOLD_MHZ",
+    "DETECTION_WIDTHS_MS", "TRIAL_CORRECTION",
+    "AUTO_HIGH_FREQ_PIPELINE", "BOWTIE_COLLAPSE_RATIO",
     "ENABLE_LINEAR_VALIDATION", "ENABLE_INTENSITY_CLASSIFICATION",
     "ENABLE_LINEAR_CLASSIFICATION", "POLARIZATION_MODE", "POLARIZATION_INDEX",
+    "HIGH_FREQ_DM_POLICY", "POLARIZATION_LINEAR_DEBIAS",
     "DEBUG_FREQUENCY_ORDER", "FORCE_PLOTS",
     "MAX_CHUNK_SAMPLES", "MAX_RAM_FRACTION", "MAX_DM_CUBE_SIZE_GB",
     "DM_CHUNKING_THRESHOLD_GB", "OVERHEAD_FACTOR",

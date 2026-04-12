@@ -11,6 +11,7 @@ import numpy as np
 
 # Local imports
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
+from ..analysis.science_metrics import physical_consistency_score, post_trials_sigma
 from ..detection.model_interface import classify_patch, detect
 from ..logging.logging_config import Colors, get_global_logger
 from ..output.candidate_manager import Candidate, append_candidate
@@ -281,6 +282,10 @@ def detect_and_classify_candidates_in_band(
                 width_ms = float(best_w_vec[int(peak_idx_patch)] * dt_ds * 1000.0)
         except Exception:
             width_ms = None
+        n_trials = max(1, int((config.DM_max - config.DM_min + 1) * max(1, len(snr_wf_profile) if snr_wf_profile is not None else 1)))
+        post_sigma = post_trials_sigma(float(snr_val), n_trials, getattr(config, "TRIAL_CORRECTION", "gaussian_extreme"))
+        phys_score = physical_consistency_score(post_sigma, snr_val_raw, snr_val, "measured")
+        rank_score = float(class_prob) * phys_score
 
         # Calculate MJD values for the candidate (using DM-time detection time, same as plot)
         mjd_data = calculate_candidate_mjd(
@@ -290,25 +295,34 @@ def detect_and_classify_candidates_in_band(
         )
 
         cand = Candidate(
-            fits_path.name,
-            chunk_idx if chunk_idx is not None else 0,                
-            j,            
-            band_idx if band_idx is not None else 0,                  
-            float(conf),
-            dm_val,  # DM calculated with extract_candidate_dm (same as plot)
-            float(detection_time_dm_time),  # Time from DM-time plot (same as plot label)
-            peak_time_waterfall,  # Time from waterfall SNR peak (different method)
-            t_sample,
-            tuple(map(int, box)),
-            snr_intensity_at_peak if snr_intensity_at_peak is not None else snr_waterfall_global,  # SNR from waterfall at candidate position (or global peak as fallback)
-            float(snr_val),  # SNR from dedispersed patch
-            width_ms,
-            class_prob,  # Classification probability in Intensity (I) - classic pipeline
-            is_burst,  # BURST classification in Intensity (I) - classic pipeline
-            None,  # class_prob_linear - not available in classic pipeline
-            None,  # is_burst_linear - not available in classic pipeline
-            is_burst,  # Final classification (same as Intensity for classic)
-            patch_path.name,
+            file=fits_path.name,
+            chunk_id=chunk_idx if chunk_idx is not None else 0,
+            slice_id=j,
+            band_id=band_idx if band_idx is not None else 0,
+            prob=float(conf),
+            dm=float(dm_val),
+            t_sec_dm_time=float(detection_time_dm_time),
+            t_sec_waterfall=peak_time_waterfall,
+            t_sample=t_sample,
+            box=tuple(map(int, box)),
+            snr_waterfall=snr_intensity_at_peak if snr_intensity_at_peak is not None else snr_waterfall_global,
+            snr_patch_dedispersed=float(snr_val),
+            width_ms=width_ms,
+            dm_uncertainty=0.5,
+            dm_status="measured",
+            best_width_ms=width_ms,
+            n_trials=n_trials,
+            post_trials_sigma=post_sigma,
+            snr_pre_dedisp=snr_val_raw,
+            snr_post_dedisp=float(snr_val),
+            physical_score=phys_score,
+            rank_score=rank_score,
+            class_prob_intensity=class_prob,
+            is_burst_intensity=is_burst,
+            class_prob_linear=None,
+            is_burst_linear=None,
+            is_burst=is_burst,
+            patch_file=patch_path.name,
             mjd_utc=mjd_data.get('mjd_utc'),
             mjd_bary_utc=mjd_data.get('mjd_bary_utc'),
             mjd_bary_tdb=mjd_data.get('mjd_bary_tdb'),
@@ -331,7 +345,19 @@ def detect_and_classify_candidates_in_band(
             # Log the saved candidate
             try:
                 global_logger = get_global_logger()
-                global_logger.candidate_detected(dm_val, absolute_candidate_time, conf, class_prob, is_burst, snr_val_raw, snr_val)
+                global_logger.candidate_detected(
+                    dm_val,
+                    absolute_candidate_time,
+                    conf,
+                    class_prob,
+                    is_burst,
+                    snr_val_raw,
+                    snr_val,
+                    width_ms=width_ms,
+                    post_sigma=post_sigma,
+                    physical_score=phys_score,
+                    rank_score=rank_score,
+                )
             except ImportError:
                 logger.info(
                     f"Candidate DM {dm_val:.2f} t={absolute_candidate_time:.3f}s conf={conf:.2f} class={class_prob:.2f} → {'BURST' if is_burst else 'no burst'}"

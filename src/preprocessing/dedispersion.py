@@ -8,6 +8,7 @@ import logging
 
                      
 import numpy as np
+from ..analysis.science_metrics import K_DM_MS
 
 try:
     from numba import cuda
@@ -42,9 +43,7 @@ def delay_from_dm(dm: float, freq_mhz: float) -> float:
     """
     if freq_mhz == 0.0:
         return 0.0
-    # Formula: delay = DM / (0.000241 * freq^2)
-    # 0.000241 = 1 / (2.41e-4) = constant for dispersion
-    return dm / (0.000241 * freq_mhz * freq_mhz)
+    return (K_DM_MS * dm * (freq_mhz ** -2)) / 1000.0
 
 
 def calculate_dispersion_bandwidth_delay(
@@ -83,14 +82,12 @@ if cuda is not None:
 
             for idx in index:
                 delay = (
-                    4.15
+                    K_DM_MS
                     * DM
                     * ((freq[idx]) ** -2 - (freq[-1] ** -2))
-                    * 1e3
-                    / config.TIME_RESO
-                    / config.DOWN_TIME_RATE
+                    / (config.TIME_RESO * config.DOWN_TIME_RATE * 1000.0)
                 )
-                pos = int(delay + y)
+                pos = int(round(delay) + y)
                 if 0 <= pos < data.shape[0]:
                     total_val += data[pos, idx]
                     total_cnt += 1
@@ -113,6 +110,7 @@ def _d_dm_time_cpu(
     dm_min: float,
     dm_max: float,
     freq_ds: np.ndarray,
+    dm_values: np.ndarray | None = None,
 ) -> np.ndarray:
     """CPU dedispersion with exposure normalization and edge handling.
 
@@ -121,9 +119,11 @@ def _d_dm_time_cpu(
     """
     time_reso = float(config.TIME_RESO)
     down_time_rate = int(config.DOWN_TIME_RATE)
+    if dm_values is None:
+        dm_values = np.linspace(dm_min, dm_max, height).astype(np.float32)
     return _d_dm_time_cpu_core(
         data, height, width, dm_min, dm_max, freq_ds,
-        time_reso, down_time_rate,
+        time_reso, down_time_rate, dm_values.astype(np.float32),
     )
 
 
@@ -133,7 +133,7 @@ try:
     @njit(parallel=True, cache=True, fastmath=True)
     def _d_dm_time_cpu_core(
         data, height, width, dm_min, dm_max, freq_ds,
-        time_reso, down_time_rate,
+        time_reso, down_time_rate, dm_values,
     ):
         out = np.zeros((3, height, width), dtype=np.float32)
         nchan_ds = freq_ds.shape[0]
@@ -141,11 +141,10 @@ try:
         n_time = data.shape[0]
         n_chan = data.shape[1]
         freq_max = freq_ds.max()
-        dm_step = (dm_max - dm_min) / max(1, height - 1) if height > 1 else np.float32(0.0)
-        inv_tr_dt = np.float32(1e3 / (time_reso * down_time_rate))
+        inv_tr_dt = np.float32(1.0 / (time_reso * down_time_rate * 1000.0))
 
         for i in _prange(height):
-            DM = np.float32(dm_min + i * dm_step)
+            DM = np.float32(dm_values[i])
 
             total_series = np.zeros(width, dtype=np.float32)
             count_series = np.zeros(width, dtype=np.int32)
@@ -154,9 +153,9 @@ try:
             for j in range(nchan_ds):
                 if j >= n_chan:
                     continue
-                delay = int(np.float64(4.15) * np.float64(DM)
+                delay = int(np.rint(np.float64(K_DM_MS) * np.float64(DM)
                             * (np.float64(freq_ds[j]) ** -2 - np.float64(freq_max) ** -2)
-                            * np.float64(inv_tr_dt))
+                            * np.float64(inv_tr_dt)))
 
                 if delay >= 0:
                     src_lo = delay
@@ -191,21 +190,19 @@ try:
 except ImportError:
     def _d_dm_time_cpu_core(
         data, height, width, dm_min, dm_max, freq_ds,
-        time_reso, down_time_rate,
+        time_reso, down_time_rate, dm_values,
     ):
         """Pure-NumPy fallback (sequential) when Numba is not installed."""
         out = np.zeros((3, height, width), dtype=np.float32)
         nchan_ds = freq_ds.shape[0]
         mid_channel = nchan_ds // 2
-        dm_values = np.linspace(dm_min, dm_max, height).astype(np.float32)
-
         for i in range(height):
             DM = dm_values[i]
             delays = (
-                4.15 * DM
+                K_DM_MS * DM
                 * (freq_ds ** -2 - freq_ds.max() ** -2)
-                * 1e3 / time_reso / down_time_rate
-            ).astype(np.int64)
+                / (time_reso * down_time_rate * 1000.0)
+            ).round().astype(np.int64)
 
             total_series = np.zeros(width, dtype=np.float32)
             count_series = np.zeros(width, dtype=np.int32)
@@ -261,6 +258,13 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
         dm_min = config.DM_min
     if dm_max is None:
         dm_max = config.DM_max
+    try:
+        from ..core.pipeline_parameters import calculate_dm_values
+        dm_values_full = calculate_dm_values(dm_min, dm_max).astype(np.float32)
+        if dm_values_full.size != height:
+            dm_values_full = np.linspace(dm_min, dm_max, height, dtype=np.float32)
+    except Exception:
+        dm_values_full = np.linspace(dm_min, dm_max, height, dtype=np.float32)
     
                                                                      
     try:
@@ -291,14 +295,25 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
     freq_values = np.mean(config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE), axis=1)
 
                                                                 
-    if torch is not None and torch.cuda.is_available() and str(getattr(config, 'DEVICE', 'cpu')).startswith('cuda'):
+    use_cuda_device = str(getattr(config, 'DEVICE', 'cpu')).startswith('cuda')
+
+    if torch is not None and torch.cuda.is_available() and use_cuda_device:
         try:
-            return _d_dm_time_torch_gpu(data, height, width, dm_min, dm_max, freq_values)
+            return _d_dm_time_torch_gpu(data, height, width, dm_min, dm_max, freq_values, dm_values_full)
         except Exception as e:
             logger.warning("Torch GPU dedispersion failed (%s); attempting Numba GPU...", e)
 
-    if cuda is None:
-        return _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values)
+    # Only attempt Numba-CUDA when the pipeline is actually configured for CUDA.
+    # On CPU-only Windows environments, importing numba.cuda may succeed even
+    # though NVVM/driver pieces are missing, which only produces noisy fallbacks.
+    if cuda is None or not use_cuda_device:
+        return _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values, dm_values_full)
+
+    try:
+        if hasattr(cuda, "is_available") and not cuda.is_available():
+            return _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values, dm_values_full)
+    except Exception:
+        return _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values, dm_values_full)
 
     try:
         logger.info("Attempting GPU dedispersion...")
@@ -318,9 +333,7 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
             current_height = end_dm - start_dm
             
                                                             
-            chunk_dm_min = dm_min + (start_dm * (dm_max - dm_min) / (height - 1))
-            chunk_dm_max = dm_min + (end_dm * (dm_max - dm_min) / (height - 1))
-            dm_values = np.linspace(chunk_dm_min, chunk_dm_max, current_height, dtype=np.float32)
+            dm_values = dm_values_full[start_dm:end_dm].astype(np.float32)
             dm_values_gpu = cuda.to_device(dm_values)
             
             dm_time_gpu = cuda.to_device(np.zeros((3, current_height, width), dtype=np.float32))
@@ -347,7 +360,7 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
                 torch.cuda.synchronize()
         except Exception as e:
             logger.debug("GPU cleanup after failure: %s", e)
-        return _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values)
+        return _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values, dm_values_full)
 
 
 def _d_dm_time_torch_gpu(
@@ -357,6 +370,7 @@ def _d_dm_time_torch_gpu(
     dm_min: float,
     dm_max: float,
     freq_ds_np: np.ndarray,
+    dm_values_np: np.ndarray | None = None,
 ) -> np.ndarray:
     """GPU dedispersion using PyTorch with vectorized channel batching.
 
@@ -368,7 +382,10 @@ def _d_dm_time_torch_gpu(
     data_t = torch.from_numpy(data_np).to(device=device, dtype=torch.float32)
     T, C = data_t.shape
     freq_ds = torch.from_numpy(freq_ds_np.astype(np.float32)).to(device)
-    dm_values = torch.linspace(float(dm_min), float(dm_max), steps=height, device=device, dtype=torch.float32)
+    if dm_values_np is None:
+        dm_values = torch.linspace(float(dm_min), float(dm_max), steps=height, device=device, dtype=torch.float32)
+    else:
+        dm_values = torch.from_numpy(dm_values_np.astype(np.float32)).to(device)
     time_reso = float(config.TIME_RESO * config.DOWN_TIME_RATE)
 
     out0 = torch.zeros((height, width), device=device, dtype=torch.float32)
@@ -393,8 +410,8 @@ def _d_dm_time_torch_gpu(
         dms = dm_values[start:end]
 
         # Compute all delays: (D, C)
-        delays = (4.15 * dms[:, None] * (freq_ds[None, :] ** -2 - freq_ds.max() ** -2) * 1e3 / time_reso)
-        delays = delays.to(dtype=torch.int64)
+        delays = (K_DM_MS * dms[:, None] * (freq_ds[None, :] ** -2 - freq_ds.max() ** -2) / (time_reso * 1000.0))
+        delays = torch.round(delays).to(dtype=torch.int64)
 
         acc = torch.zeros((D, width), device=device, dtype=torch.float32)
         cnt = torch.zeros((D, width), device=device, dtype=torch.int32)
@@ -475,13 +492,11 @@ def dedisperse_patch(
         return np.zeros((patch_len, freq_down.size), dtype=np.float32), 0
     
     delays = (
-        4.15
+        K_DM_MS
         * dm
         * (freq_down ** -2 - freq_down.max() ** -2)
-        * 1e3
-        / config.TIME_RESO
-        / config.DOWN_TIME_RATE
-    ).astype(np.int64)
+        / (config.TIME_RESO * config.DOWN_TIME_RATE * 1000.0)
+    ).round().astype(np.int64)
     max_delay = int(delays.max())
     
     # CRITICAL: Adapt patch_len if data is too small (edge cases at chunk boundaries)
@@ -566,13 +581,11 @@ def dedisperse_block(
     """
 
     delays = (
-        4.15
+        K_DM_MS
         * dm
         * (freq_down ** -2 - freq_down.max() ** -2)
-        * 1e3
-        / config.TIME_RESO
-        / config.DOWN_TIME_RATE
-    ).astype(np.int64)
+        / (config.TIME_RESO * config.DOWN_TIME_RATE * 1000.0)
+    ).round().astype(np.int64)
 
                                    
     if config.DEBUG_FREQUENCY_ORDER:

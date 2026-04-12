@@ -153,6 +153,36 @@ class DRAFTSLogger:
         chunk_samples = config.get("chunk_samples", 0)
         if chunk_samples:
             self.logger.info("Chunk override • %s samples", f"{chunk_samples:,}")
+        dm_min = config.get("dm_min")
+        dm_max = config.get("dm_max")
+        dm_trials = config.get("dm_trials")
+        if dm_min is not None and dm_max is not None:
+            dm_trials_txt = f"{dm_trials:,}" if isinstance(dm_trials, int) and dm_trials > 0 else "N/A"
+            self.logger.info(
+                "Search space • DM=%.1f-%.1f pc cm⁻³ • trials=%s • mode=%s • trial_correction=%s",
+                float(dm_min),
+                float(dm_max),
+                dm_trials_txt,
+                config.get("dm_grid_mode", "unknown"),
+                config.get("trial_correction", "unknown"),
+            )
+        self.logger.info(
+            "Signal config • slice=%.1f ms • downsample(t=%sx, f=%sx) • polarization=%s • save_only_burst=%s",
+            float(config.get("slice_duration_ms", 0.0)),
+            config.get("down_time_rate", "N/A"),
+            config.get("down_freq_rate", "N/A"),
+            config.get("polarization_mode", "unknown"),
+            bool(config.get("save_only_burst", False)),
+        )
+        self.logger.info(
+            "Compute config • device=%s • multi_band=%s • auto_high_freq=%s",
+            config.get("device", "unknown"),
+            bool(config.get("multi_band", False)),
+            bool(config.get("auto_high_freq", False)),
+        )
+        hardware_summary = config.get("hardware_summary")
+        if hardware_summary:
+            self.logger.info("Hardware summary • %s", hardware_summary)
 
     def pipeline_end(self, summary: Dict[str, Any]) -> None:
         """Log a compact summary of the pipeline execution."""
@@ -160,15 +190,29 @@ class DRAFTSLogger:
         total_files = len(summary)
         total_candidates = sum(r.get("n_candidates", 0) for r in summary.values())
         total_bursts = sum(r.get("n_bursts", 0) for r in summary.values())
+        total_non_bursts = sum(r.get("n_no_bursts", 0) for r in summary.values())
         total_time = sum(r.get("runtime_s", 0.0) for r in summary.values())
+        mean_snr_values = [float(r.get("mean_snr", 0.0)) for r in summary.values() if r.get("mean_snr")]
+        best_prob = max((float(r.get("max_prob", 0.0)) for r in summary.values()), default=0.0)
+        statuses: dict[str, int] = {}
+        for result in summary.values():
+            status = str(result.get("status", "UNKNOWN"))
+            statuses[status] = statuses.get(status, 0) + 1
 
         self.logger.info("Pipeline finished")
         self.logger.info(
-            "Summary • files=%d • candidates=%d • bursts=%d • runtime=%.1fs",
+            "Summary • files=%d • candidates=%d • bursts=%d • non-bursts=%d • runtime=%.1fs",
             total_files,
             total_candidates,
             total_bursts,
+            total_non_bursts,
             total_time,
+        )
+        self.logger.info(
+            "Quality summary • best_prob=%.2f • mean_file_snr=%.2f • statuses=%s",
+            best_prob,
+            sum(mean_snr_values) / len(mean_snr_values) if mean_snr_values else 0.0,
+            ", ".join(f"{k}:{v}" for k, v in sorted(statuses.items())),
         )
 
     def file_processing_start(self, filename: str, file_info: Dict[str, Any]) -> None:
@@ -181,17 +225,38 @@ class DRAFTSLogger:
             file_info.get("duration_min", 0.0),
             file_info.get("channels", 0),
         )
+        if all(k in file_info for k in ("freq_min_mhz", "freq_max_mhz", "bandwidth_mhz", "time_reso_ms")):
+            self.logger.info(
+                "Observation • ν=%.1f-%.1f MHz • BW=%.1f MHz • tsamp=%.6f ms • tsamp_ds=%.6f ms",
+                float(file_info.get("freq_min_mhz", 0.0)),
+                float(file_info.get("freq_max_mhz", 0.0)),
+                float(file_info.get("bandwidth_mhz", 0.0)),
+                float(file_info.get("time_reso_ms", 0.0)),
+                float(file_info.get("time_reso_ds_ms", 0.0)),
+            )
+        if "dm_min" in file_info and "dm_max" in file_info:
+            dm_trials = file_info.get("dm_trials")
+            dm_trials_txt = f"{dm_trials:,}" if isinstance(dm_trials, int) and dm_trials > 0 else "N/A"
+            self.logger.info(
+                "Astrophysical search • DM=%.1f-%.1f pc cm⁻³ • trials=%s • mode=%s",
+                float(file_info.get("dm_min", 0.0)),
+                float(file_info.get("dm_max", 0.0)),
+                dm_trials_txt,
+                file_info.get("dm_grid_mode", "unknown"),
+            )
 
     def file_processing_end(self, filename: str, results: Dict[str, Any]) -> None:
         """Log the result obtained after processing a file."""
 
         self.logger.info(
-            "File result • %s • candidates=%d • bursts=%d • max_prob=%.2f • runtime=%.1fs",
+            "File result • %s • candidates=%d • bursts=%d • mean_snr=%.2f • max_prob=%.2f • runtime=%.1fs • status=%s",
             filename,
             results.get("n_candidates", 0),
             results.get("n_bursts", 0),
+            results.get("mean_snr", 0.0),
             results.get("max_prob", 0.0),
             results.get("runtime_s", 0.0),
+            results.get("status", "UNKNOWN"),
         )
 
     def chunk_processing(self, chunk_idx: int, chunk_info: Dict[str, Any]) -> None:
@@ -264,20 +329,30 @@ class DRAFTSLogger:
 
     def candidate_detected(self, dm: float, time: float, confidence: float,
                            class_prob: float, is_burst: bool, snr_raw: float,
-                           snr_patch: float) -> None:
+                           snr_patch: float, width_ms: float | None = None,
+                           post_sigma: float | None = None,
+                           physical_score: float | None = None,
+                           rank_score: float | None = None) -> None:
         """Log a candidate detection event."""
 
         burst_status = "burst" if is_burst else "noise"
-        self.logger.info(
-            "Candidate • DM=%.1f • t=%.3fs • detect=%.2f • class=%.2f • SNR(raw=%.2f, patch=%.2f) • %s",
-            dm,
-            time,
-            confidence,
-            class_prob,
-            snr_raw,
-            snr_patch,
-            burst_status,
-        )
+        details = [
+            f"DM={dm:.1f}",
+            f"t={time:.3f}s",
+            f"detect={confidence:.2f}",
+            f"class={class_prob:.2f}",
+            f"SNR(raw={snr_raw:.2f}, patch={snr_patch:.2f})",
+        ]
+        if width_ms is not None:
+            details.append(f"width={width_ms:.3f} ms")
+        if post_sigma is not None:
+            details.append(f"post_sigma={post_sigma:.2f}")
+        if physical_score is not None:
+            details.append(f"phys={physical_score:.3f}")
+        if rank_score is not None:
+            details.append(f"rank={rank_score:.3f}")
+        details.append(burst_status)
+        self.logger.info("Candidate • %s", " • ".join(details))
 
     def slice_completed(self, slice_idx: int, candidates: int, bursts: int,
                         no_bursts: int) -> None:
@@ -293,16 +368,34 @@ class DRAFTSLogger:
             )
 
     def chunk_completed(self, chunk_idx: int, total_candidates: int,
-                        total_bursts: int, total_no_bursts: int) -> None:
+                        total_bursts: int, total_no_bursts: int,
+                        runtime_s: float | None = None,
+                        sample_count: int | None = None,
+                        mean_snr: float | None = None,
+                        throughput_sps: float | None = None,
+                        data_rate_mib_s: float | None = None,
+                        slice_count: int | None = None) -> None:
         """Log the summary for a completed chunk."""
 
-        self.logger.info(
-            "Chunk %03d complete • candidates=%d (bursts=%d • non-bursts=%d)",
-            chunk_idx,
-            total_candidates,
-            total_bursts,
-            total_no_bursts,
-        )
+        details = [
+            f"Chunk {chunk_idx:03d} complete",
+            f"candidates={total_candidates}",
+            f"bursts={total_bursts}",
+            f"non-bursts={total_no_bursts}",
+        ]
+        if slice_count is not None:
+            details.append(f"slices={slice_count}")
+        if sample_count is not None:
+            details.append(f"samples={sample_count:,}")
+        if runtime_s is not None:
+            details.append(f"runtime={runtime_s:.1f}s")
+        if throughput_sps is not None:
+            details.append(f"throughput={throughput_sps:,.0f} samp/s")
+        if data_rate_mib_s is not None:
+            details.append(f"io≈{data_rate_mib_s:.2f} MiB/s")
+        if mean_snr is not None and mean_snr > 0:
+            details.append(f"mean_snr={mean_snr:.2f}")
+        self.logger.info(" • ".join(details))
 
     def processing_band(self, band_name: str, slice_idx: int) -> None:
         """Debug log for per-band processing steps."""

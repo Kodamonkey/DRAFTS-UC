@@ -69,12 +69,15 @@ SLICE_DURATION_MS = float(_config['temporal']['slice_duration_ms'])
 # =============================================================================
 DOWN_FREQ_RATE = int(_config['downsampling']['frequency_rate'])
 DOWN_TIME_RATE = int(_config['downsampling']['time_rate'])
+TEMPORAL_DOWNSAMPLING_MODE = str(_config.get('downsampling', {}).get('temporal_mode', 'sum')).lower()
 
 # =============================================================================
 # DISPERSION MEASURE CONFIGURATION (DM)
 # =============================================================================
 DM_min = int(_config['dispersion']['dm_min'])
 DM_max = int(_config['dispersion']['dm_max'])
+DM_GRID_MODE = str(_config.get('dispersion', {}).get('dm_grid_mode', 'legacy_uniform')).lower()
+MAX_DM_SMEARING_MS = _config.get('dispersion', {}).get('max_dm_smearing_ms', 'auto')
 # DM_CHUNKING_THRESHOLD_GB moved to performance section
 
 # =============================================================================
@@ -86,6 +89,10 @@ CLASS_PROB_LINEAR = float(_config['thresholds'].get('classification_probability_
 SNR_THRESH = float(_config['thresholds']['snr_threshold'])
 SNR_THRESH_LINEAR = float(_config['thresholds'].get('snr_threshold_linear', 5.0))
 
+_detection_config = _config.get('detection', {})
+DETECTION_WIDTHS_MS = _detection_config.get('widths_ms', [])
+TRIAL_CORRECTION = str(_detection_config.get('trial_correction', 'gaussian_extreme')).lower()
+
 # =============================================================================
 # MULTI-BAND ANALYSIS CONFIGURATION
 # =============================================================================
@@ -95,7 +102,8 @@ USE_MULTI_BAND = bool(_config['multiband']['enabled'])
 # HIGH-FREQUENCY PIPELINE CONFIGURATION
 # =============================================================================
 AUTO_HIGH_FREQ_PIPELINE = bool(_config['high_frequency']['auto_enable'])
-HIGH_FREQ_THRESHOLD_MHZ = float(_config['high_frequency']['threshold_mhz'])
+BOWTIE_COLLAPSE_RATIO = float(_config['high_frequency'].get('collapse_ratio', 2.0))
+HIGH_FREQ_DM_POLICY = str(_config['high_frequency'].get('dm_policy', 'unresolved')).lower()
 
 # Phase 2: Linear Polarization SNR Validation
 ENABLE_LINEAR_VALIDATION = bool(_config['high_frequency'].get('enable_linear_validation', False))
@@ -116,6 +124,7 @@ if not ENABLE_INTENSITY_CLASSIFICATION and not ENABLE_LINEAR_CLASSIFICATION:
 # =============================================================================
 POLARIZATION_MODE = str(_config['polarization']['mode'])
 POLARIZATION_INDEX = int(_config['polarization']['default_index'])
+POLARIZATION_LINEAR_DEBIAS = bool(_config['polarization'].get('linear_debias', True))
 
 # =============================================================================
 # LOGGING AND DEBUG CONFIGURATION

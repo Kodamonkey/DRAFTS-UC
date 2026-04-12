@@ -20,85 +20,14 @@ data:
   input_dir: "./Data/raw/"
 
   # Directory where results will be saved (CSVs, plots, logs)
-  results_dir: "./ResultsThesis/ALMA-4phases/no-phase2-no-classification-linear/"
+  results_dir: "./Results/FRB20121102/"
 
-  # List of files to process (search patterns)
-  # Can specify full names or partial patterns
-  # Pipeline will search for files matching any of these patterns
+  # Substrings matched against basenames under input_dir (case-insensitive; see README).
+  # Use "FRB20121102" if files are named like *FRB20121102*.fil.
+  # Zenodo 10.5281/zenodo.3974768 Lovell snippets use *J0532+3305* in the filename instead.
   targets:
-    # Caso 1: FAST-FREX (Validación cuantitativa completa)
-    # - "FRB20180301_0001" # Caso 1: FAST-FREX - Archivo válido para validación
-    #- "3100_0001_00_8bit" # Caso 1: FAST-FREX - Archivo válido para validación
-
-    # Caso 2: B0355+54 (Robustez temporal - YA EJECUTADO)
-    # - "B0355+54_FB_20220918" # Caso 2: B0355+54 - Robustez Temporal
-
-    # Caso 3: FRB 121102 (Escalabilidad y descubrimiento científico)
-    #- "3096_0001_00_8bit" # FRB 121102 - Effelsberg 1.4 GHz (32.2 GB)
-    # - "3097_0001_00_8bit" # FRB 121102 - Effelsberg 1.4 GHz (32.2 GB)
-    # - "3098_0001_00_8bit" # FRB 121102 - Effelsberg 1.4 GHz (32.2 GB)
-    # - "3099_0001_00_8bit" # FRB 121102 - Effelsberg 1.4 GHz (32.2 GB)
-    # - "3100_0001_00_8bit" # FRB 121102 - Effelsberg 1.4 GHz (32.2 GB)
-    # - "3101_0001_00_8bit" # FRB 121102 - Effelsberg 1.4 GHz (32.2 GB)
-    # - "3102_0001_00_8bit" # FRB 121102 - Effelsberg 1.4 GHz (32.2 GB)
-
-    # Caso 4: ALMA
-
-    - "2017-04-03-08_16_13_142_0006_t10.882_t25.829"
-    - "2017-04-03-08_55_22_153_0006_t23.444"
-    - "2017-04-03-08-16-13_142_0003_t39.977"
-    - "2017-04-03-12_56_05_230_0002_t2.3_t17.395"
-    - "2017-04-03-12_56_05_230_0003_t36.548"
-    - "2017-04-03-13_38_31_242_0005_t44.169"
-    # No0134
-    - "2017-04-03-07-55-05_0007"
-    # No0142
-    - "2017-04-03-08_16_13_0006"
-    - "2017-04-03-08_16_13_0003"
-    - "2017-04-03-08_16_13_0002"
-    - "2017-04-03-08_16_13_0001"
-    - "2017-04-03-08_16_13_0008"
-    # No0143
-    - "2017-04-03-08_25_13_0007"
-    - "2017-04-03-08_25_13_0006"
-    - "2017-04-03-08_25_13_0005"
-    - "2017-04-03-08_25_13_0003"
-    # No0152
-    - "2017-04-03-08_46_22_0007"
-    - "2017-04-03-08_46_22_0006"
-    - "2017-04-03-08_46_22_0005"
-    - "2017-04-03-08_46_22_0004"
-    # No0153
-    - "2017-04-03-08_55_22_0006"
-    # No0220
-    - "2017-04-03-12_26_08_0006"
-    - "2017-04-03-12_26_08_0005"
-    # No0227
-    - "2017-04-03-12_47_05_0008"
-    - "2017-04-03-12_47_05_0007"
-    - "2017-04-03-12_47_05_0005"
-    - "2017-04-03-12_47_05_0003"
-    - "2017-04-03-12_47_05_0002"
-    # No0230
-    - "2017-04-03-12_56_05_0004"
-    - "2017-04-03-12_56_05_0003"
-    - "2017-04-03-12_56_05_0002"
-    - "2017-04-03-12_56_05_0001"
-    # No0240
-    - "2017-04-03-13_26_01_0008"
-    - "2017-04-03-13_26_01_0004"
-    - "2017-04-03-13_26_01_0003"
-    # No0242
-    - "2017-04-03-13-38-31_0006"
-    - "2017-04-03-13_38_31_0005"
-    - "2017-04-03-133831_0008"
-    - "2017-04-03-133831_0007"
-    - "2017-04-03-13_38_31_0004"
-    - "2017-04-03-13_38_31_0003"
-    - "2017-04-03-13_38_31_0002"
-    # No0243
-    - "2017-04-03-13-47-01_0001"
-    - "2017-04-03-134701_0004"
+    - "FRB20121102"
+    #- "J0532+3305"
 
 # ==============================================================================
 # TEMPORAL ANALYSIS
@@ -106,7 +35,6 @@ data:
 temporal:
   # Duration of each temporal segment in milliseconds
   # Common values for FRBs: 100-500 ms, Pulsars: 1000-5000 ms
-  # Caso 3: FRB 121102 - Configuración según plan de validación
   slice_duration_ms: 300.0
 
 # ==============================================================================
@@ -116,27 +44,30 @@ downsampling:
   # Frequency reduction factor (1 = no reduction)
   # Higher values = faster processing, lower frequency resolution
   # Values: 1, 2, 4, 8
-  # Caso 3: FRB 121102 - Decimación agresiva para archivos grandes (32.2 GB cada uno)
   frequency_rate: 1
 
   # Time reduction factor (1 = no reduction)
-  # Higher values = faster processing, lower time resolution
-  # Common values: 4, 8, 16, 32
-  # Caso 3: FRB 121102 - Decimación agresiva 8x8 según plan de validación
-  time_rate: 72
+  # Lovell Zenodo snippets are small per file; 16 is a lighter default than heavy Effelsberg runs.
+  time_rate: 1
+
+  # Temporal reduction mode: sum, phase_preserving, snr_preserving.
+  temporal_mode: "sum"
 
 # ==============================================================================
 # DISPERSION MEASURE (DM) SEARCH RANGE
 # ==============================================================================
 dispersion:
   # DM search range in pc cm⁻³
-  # Adjust according to your source:
-  # - Nearby pulsars: 0-100
-  # - Extragalactic FRBs: 100-2000
-  # - General/unknown: 0-1024
-  # Caso 3: FRB 121102 - DM conocido ~560 pc cm⁻³, amplio rango para detección
+  # FRB 121102: DM ~557. Narrow window speeds up trials; widen if needed.
   dm_min: 0
-  dm_max: 3540
+  dm_max: 1000
+
+  # DM trial strategy:
+  # - legacy_uniform: 1 pc cm^-3 spacing (reproducible historical behavior)
+  # - smear_limited: choose spacing so DM-step smearing stays below a physical limit
+  # - coarse_to_fine: reserved for two-pass searches; currently falls back to smear_limited
+  dm_grid_mode: "smear_limited"
+  max_dm_smearing_ms: "auto"
 
 # ==============================================================================
 # DETECTION THRESHOLDS
@@ -180,6 +111,12 @@ thresholds:
   # - Sensitive: 3.0-5.0
   snr_threshold_linear: 3.0
 
+detection:
+  # Optional matched-filter widths in ms. Empty/omitted = derive from current dt.
+  widths_ms: []
+  # Trial correction for reported significance: none, bonferroni, gaussian_extreme.
+  trial_correction: "gaussian_extreme"
+
 # ==============================================================================
 # MULTI-BAND ANALYSIS
 # ==============================================================================
@@ -193,17 +130,25 @@ multiband:
   enabled: false
 
 # ==============================================================================
-# HIGH-FREQUENCY PIPELINE (>8 GHz)
+# HIGH-FREQUENCY PIPELINE (bow-tie collapse detection)
 # ==============================================================================
 high_frequency:
-  # Automatically enable high-frequency pipeline
-  # when central frequency exceeds threshold
-  # Useful for: ALMA, mm-wave observations
+  # Automatically detect when the bow-tie collapses and switch to HF pipeline.
+  # The bow-tie collapses when the dispersive sweep across the band
+  # is smaller than collapse_ratio × effective time resolution:
+  #   Δt_disp / Δt_res_eff < collapse_ratio  →  HF pipeline
   auto_enable: true
 
-  # Central frequency threshold in MHz
-  # Default: 8000 MHz (8 GHz) for ALMA
-  threshold_mhz: 8000.0
+  # Collapse ratio: HF activates when Δt_disp / Δt_res_eff < this value.
+  # Higher = more aggressive switching to HF. Default 2.0 means the sweep
+  # must span at least ~2 resolution elements to stay in LF mode.
+  collapse_ratio: 2.0
+
+  # DM at mm/high-frequency may be unresolved across narrow slices.
+  # unresolved: report status instead of inventing a measured DM when cube has no DM contrast.
+  # catalog_prior: use configured/catalog DM if available (future extension).
+  # estimate_if_resolved: estimate only when DM contrast is significant.
+  dm_policy: "unresolved"
 
   # ============================================================================
   # PHASE 2: LINEAR POLARIZATION SNR VALIDATION
@@ -246,6 +191,9 @@ polarization:
   # Default index when IQUV not available (e.g., AABB)
   # Values: 0-3
   default_index: 0
+
+  # Debias L = sqrt(Q^2 + U^2) against positive noise bias.
+  linear_debias: true
 
 # ==============================================================================
 # BASIC PERFORMANCE SETTINGS
@@ -336,7 +284,7 @@ debug:
 
   # Force plot generation even without candidates
   # Useful for verifying data quality and debugging
-  force_plots: false
+  force_plots: true
 # ==============================================================================
 # ADVANCED CONFIGURATIONS
 # ==============================================================================

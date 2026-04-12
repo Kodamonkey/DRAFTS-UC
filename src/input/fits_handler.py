@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import os
-from typing import Generator, Tuple, Dict
+from typing import Any, Generator, Tuple, Dict
 
 import numpy as np
 from astropy.io import fits
@@ -30,10 +30,27 @@ from ..logging import (
     log_stream_fits_parameters,
     log_stream_fits_summary
 )
-from .utils import safe_float, safe_int, auto_config_downsampling, print_debug_frequencies, save_file_debug_info
+from .utils import safe_float, safe_int, auto_config_downsampling, print_debug_frequencies, save_file_debug_info, normalize_frequency_axis
+from .polarization_utils import debiased_linear_polarization
 
 
 logger = logging.getLogger(__name__)
+
+
+def _read_fits_like_fitsio(file_name: str) -> Tuple[np.ndarray, Any]:
+    """Return ``(data, header)`` like ``fitsio.read(..., header=True)``.
+
+    Uses ``fitsio`` when installed (faster on supported platforms). If missing—e.g.
+    Python 3.14 on Windows without wheels—uses the first HDU with data via Astropy.
+    """
+    if fitsio is not None:
+        return fitsio.read(file_name, header=True)
+    with fits.open(file_name, memmap=False) as hdul:
+        for hdu in hdul:
+            if hdu.data is None:
+                continue
+            return hdu.data, hdu.header
+    raise ValueError(f"No HDU with data in {file_name}")
 
 
 def _unpack_1bit(data: np.ndarray) -> np.ndarray:
@@ -130,10 +147,9 @@ def _select_polarization(
         if mode_l in ("intensity", "i", "stokes_i", "intensidad"):
             return data[:, 0:1, :]
         if mode_l in ("linear", "l", "lineal"):
-                                                                   
             q = data[:, 1, :]
             u = data[:, 2, :]
-            l = np.sqrt(np.maximum(0.0, q * q + u * u)).astype(data.dtype, copy=False)
+            l = debiased_linear_polarization(q, u, enabled=bool(getattr(config, "POLARIZATION_LINEAR_DEBIAS", True)))
             return l[:, np.newaxis, :]
         if mode_l in ("circular", "v", "c"):
             v = np.abs(data[:, 3, :]).astype(data.dtype, copy=False)
@@ -168,14 +184,12 @@ def _load_fits_non_subint(file_name: str) -> np.ndarray:
     (simple IMAGE/BINTABLE formats).  PSRFITS files with SUBINT tables are
     handled by the streaming path in ``stream_fits()``.
     """
-    if fitsio is None:
-        raise ImportError("fitsio is not installed. Install with: pip install fitsio")
-
+    backend = "fitsio" if fitsio is not None else "astropy"
     logger.warning(
-        "Loading non-SUBINT FITS via fitsio (entire file in RAM): %s", file_name
+        "Loading non-SUBINT FITS via %s (entire file in RAM): %s", backend, file_name
     )
 
-    temp_data, h = fitsio.read(file_name, header=True)
+    temp_data, h = _read_fits_like_fitsio(file_name)
     total_samples = safe_int(h.get("NAXIS2", 1)) * safe_int(h.get("NSBLK", 1))
     num_pols = safe_int(h.get("NPOL", 2))
     num_chans = safe_int(h.get("NCHAN", 512))
@@ -353,7 +367,7 @@ def get_obparams(file_name: str) -> None:
                 else:
                                                                                                                     
                                                                          
-                    freq_axis_inverted = True
+                    freq_axis_inverted = False
                     if config.DEBUG_FREQUENCY_ORDER:
                         logger.debug(f"[DEBUG HEADER] DAT_FREQ ascending → invert band (radioastronomy style)")
         else:
@@ -446,7 +460,7 @@ def get_obparams(file_name: str) -> None:
                                 logger.debug(f"[DEBUG HEADER]   [WARNING] Negative CDELT - frequencies inverted!")
                         else:
                                                                                                                             
-                            freq_axis_inverted = True
+                            freq_axis_inverted = False
                             if config.DEBUG_FREQUENCY_ORDER:
                                 logger.debug(f"[DEBUG HEADER]   [WARNING] Positive CDELT - inverting for radioastronomy standard!")
                     else:
@@ -475,17 +489,18 @@ def get_obparams(file_name: str) -> None:
                 config.FREQ_RESO = 512
                 config.FILE_LENG = 100000
                 freq_temp = np.linspace(1000, 1500, config.FREQ_RESO)
+        normalized_freq, needs_reversal = normalize_frequency_axis(freq_temp)
         if freq_axis_inverted:
-                                                                                                   
-            config.FREQ = freq_temp[::-1]
-            config.DATA_NEEDS_REVERSAL = True
+                                                                                                    
+            config.FREQ = normalized_freq
+            config.DATA_NEEDS_REVERSAL = needs_reversal
             try:
                 config.NEED_FLIPBAND = True
             except Exception:
                 pass
         else:
-            config.FREQ = freq_temp
-            config.DATA_NEEDS_REVERSAL = False
+            config.FREQ = normalized_freq
+            config.DATA_NEEDS_REVERSAL = needs_reversal
             try:
                 config.NEED_FLIPBAND = False
             except Exception:
@@ -1327,9 +1342,7 @@ def stream_fits(
                     return
 
                                                                      
-                if fitsio is None:
-                    raise ImportError("fitsio is not installed. Install with: pip install fitsio")
-                temp_data, h = fitsio.read(file_name, header=True)
+                _, h = _read_fits_like_fitsio(file_name)
                 nsamples = safe_int(h.get("NAXIS2", 1)) * safe_int(h.get("NSBLK", 1))
                 npols = safe_int(h.get("NPOL", 2))
                 nchans = safe_int(h.get("NCHAN", 512))

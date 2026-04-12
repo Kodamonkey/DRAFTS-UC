@@ -1,7 +1,13 @@
 # Python dependencies for DRAFTS pipeline
+#
+# Optional faster FITS I/O (binary wheels on Windows for Python 3.10–3.12):
+#   pip install fitsio
+# The pipeline uses Astropy when fitsio is not installed (e.g. Python 3.14 on Windows).
+# Optional: faster FITS reads. Use with Python 3.10–3.12 on Windows (prebuilt wheels).
+#
+# fitsio
 astropy
 opencv-python
-fitsio
 matplotlib
 numba
 numpy

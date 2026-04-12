@@ -36,7 +36,7 @@ from .data_flow_manager import (
     trim_valid_window,
     validate_slice_indices,
 )
-from .pipeline_parameters import calculate_absolute_slice_time, calculate_frequency_downsampled
+from .pipeline_parameters import calculate_absolute_slice_time, calculate_dm_values, calculate_frequency_downsampled, should_use_hf_pipeline
 from ..input.parameter_extractor import extract_parameters_auto
 from ..input.streaming_orchestrator import get_streaming_function
 from .high_freq_pipeline import _process_file_chunked_high_freq
@@ -160,6 +160,8 @@ def _process_block(
 ) -> DetectionStats:
     """Process a data block and return aggregated detection statistics."""
 
+    block_wall_start = time.time()
+    raw_block_nbytes = int(getattr(block, "nbytes", 0))
     chunk_samples = int(metadata.get("actual_chunk_size", block.shape[0]))
     total_samples = int(metadata.get("total_samples", 0)) or chunk_samples
     start_sample = int(metadata.get("start_sample", 0))
@@ -389,8 +391,18 @@ def _process_block(
         from ..logging.logging_config import get_global_logger
 
         global_logger = get_global_logger()
+        chunk_runtime_s = time.time() - block_wall_start
         global_logger.chunk_completed(
-            chunk_idx, chunk_stats.n_candidates, chunk_stats.n_bursts, chunk_stats.n_no_bursts
+            chunk_idx,
+            chunk_stats.n_candidates,
+            chunk_stats.n_bursts,
+            chunk_stats.n_no_bursts,
+            runtime_s=chunk_runtime_s,
+            sample_count=chunk_samples,
+            mean_snr=chunk_stats.mean_snr(),
+            throughput_sps=(chunk_samples / max(chunk_runtime_s, 1e-9)),
+            data_rate_mib_s=(raw_block_nbytes / max(chunk_runtime_s, 1e-9) / (1024 ** 2)),
+            slice_count=len(slices_to_process),
         )
     except ImportError:
         pass
@@ -583,7 +595,7 @@ def _process_file_chunked(
             freq_ds = config.FREQ
         nu_min = float(freq_ds.min())
         nu_max = float(freq_ds.max())
-        dt_max_sec = 4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)
+        dt_max_sec = (4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)) / 1000.0
 
         if config.TIME_RESO <= 0:
             logger.warning(
@@ -608,25 +620,27 @@ def _process_file_chunked(
         # Log streaming parameters with the adjusted chunk size (after adaptive budgeting)
         log_streaming_parameters(effective_chunk_samples, overlap_raw, total_samples, effective_chunk_samples, streaming_func, file_type)
         
-        # Switch to the high-frequency pipeline when the configuration allows it
+        # Decide LF vs HF pipeline based on bow-tie collapse physics
         try:
-            # FIX: Use calculate_frequency_downsampled to avoid errors with non-divisible channels
             freq_ds_local = calculate_frequency_downsampled()
-            center_mhz = float(np.median(freq_ds_local))
-            exceeds_threshold = center_mhz >= float(getattr(config, 'HIGH_FREQ_THRESHOLD_MHZ', 8000.0))
+            use_hf, hf_reason = should_use_hf_pipeline(
+                freq_low_mhz=float(np.min(freq_ds_local)),
+                freq_high_mhz=float(np.max(freq_ds_local)),
+                dm_max=float(config.DM_max),
+                time_reso_s=float(config.TIME_RESO),
+                down_time_rate=int(config.DOWN_TIME_RATE),
+                collapse_ratio=float(getattr(config, 'BOWTIE_COLLAPSE_RATIO', 2.0)),
+            )
         except Exception:
-            exceeds_threshold = False
+            use_hf = False
+            hf_reason = "error computing bow-tie criterion — falling back to standard pipeline"
 
         auto_high_freq_enabled = bool(getattr(config, 'AUTO_HIGH_FREQ_PIPELINE', True))
 
-        if auto_high_freq_enabled and exceeds_threshold:
+        if auto_high_freq_enabled and use_hf:
             logger.info(
                 "Switching to high-frequency pipeline (SNR-based detection)")
-            logger.info(
-                "Reason: centre frequency %.1f MHz ≥ threshold %.1f MHz",
-                center_mhz,
-                float(getattr(config, 'HIGH_FREQ_THRESHOLD_MHZ', 8000.0)),
-            )
+            logger.info("Reason: %s", hf_reason)
             result = _process_file_chunked_high_freq(
                 cls_model=cls_model,
                 fits_path=fits_path,
@@ -634,8 +648,10 @@ def _process_file_chunked(
                 chunk_samples=effective_chunk_samples,
                 streaming_func=streaming_func,
             )
-            # Add phase_metrics to result if available
             return result
+        else:
+            if auto_high_freq_enabled:
+                logger.info("Using standard pipeline. %s", hf_reason)
 
         # PRESTO-style: Process each block immediately (read → process → write → free)
         # This ensures we never accumulate multiple chunks in memory
@@ -775,7 +791,7 @@ def _process_file_chunked(
             "n_no_bursts": n_no_bursts,
             "runtime_s": runtime,
             "max_prob": file_stats.max_prob,
-            "mean_snr": file_stats.mean_snr,
+            "mean_snr": file_stats.mean_snr(),
             "status": "SUCCESS_CHUNKED",
             "chunks_processed": actual_chunk_count,
             "total_chunks": chunk_count,
@@ -840,12 +856,12 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
     set_global_logger(logger)
 
     # ===== HARDWARE DETECTION & STARTUP VALIDATION =====
-    from ..core.hardware_profile import detect_hardware
+    from ..core.hardware_profile import apply_thread_settings, detect_hardware
     from ..core.system_validator import SystemRequirements
 
-    hw = detect_hardware()
+    hw = detect_hardware(str(config.RESULTS_DIR))
     config.inject_config({"_hardware_profile": hw})
-    hw.apply_thread_settings()
+    apply_thread_settings(hw)
     logger.logger.info(
         "Hardware: %s, %d cores, %.1f GB RAM (%.1f GB free), GPU: %s",
         hw.platform_system, hw.cpu_cores_physical,
@@ -861,7 +877,21 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
         'data_dir': str(config.DATA_DIR),
         'results_dir': str(config.RESULTS_DIR),
         'targets': config.FRB_TARGETS,
-        'chunk_samples': chunk_samples
+        'chunk_samples': chunk_samples,
+        'dm_min': config.DM_min,
+        'dm_max': config.DM_max,
+        'dm_trials': int(calculate_dm_values().size),
+        'dm_grid_mode': getattr(config, 'DM_GRID_MODE', 'legacy_uniform'),
+        'trial_correction': getattr(config, 'TRIAL_CORRECTION', 'gaussian_extreme'),
+        'slice_duration_ms': getattr(config, 'SLICE_DURATION_MS', 0.0),
+        'down_time_rate': getattr(config, 'DOWN_TIME_RATE', 1),
+        'down_freq_rate': getattr(config, 'DOWN_FREQ_RATE', 1),
+        'polarization_mode': getattr(config, 'POLARIZATION_MODE', 'intensity'),
+        'save_only_burst': getattr(config, 'SAVE_ONLY_BURST', False),
+        'device': str(getattr(config, 'DEVICE', 'cpu')),
+        'multi_band': getattr(config, 'USE_MULTI_BAND', False),
+        'auto_high_freq': getattr(config, 'AUTO_HIGH_FREQ_PIPELINE', True),
+        'hardware_summary': hw.summary(),
     }
 
     logger.pipeline_start(pipeline_config)
@@ -872,7 +902,7 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
     enable_linear_class = getattr(config, 'ENABLE_LINEAR_CLASSIFICATION', True)
     
     logger.logger.info("=" * 80)
-    logger.logger.info("HF PIPELINE CONTROL (for files ≥ %.0f MHz):", getattr(config, 'HIGH_FREQ_THRESHOLD_MHZ', 8000))
+    logger.logger.info("HF PIPELINE CONTROL (collapse_ratio=%.1f):", getattr(config, 'BOWTIE_COLLAPSE_RATIO', 2.0))
     logger.logger.info("  Phase 1 (SNR Detection - I): ALWAYS ENABLED (threshold=%.1f)", config.SNR_THRESH)
     logger.logger.info("  Phase 2 (SNR Validation - L): %s%s", 
                       "ENABLED" if enable_phase2_snr else "DISABLED",
@@ -950,11 +980,26 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
             
         for fits_path in file_list:                                 
             try:
-                                                      
+                try:
+                    freq_ds = calculate_frequency_downsampled()
+                    freq_min_mhz = float(freq_ds.min())
+                    freq_max_mhz = float(freq_ds.max())
+                except Exception:
+                    freq_min_mhz = float(np.min(config.FREQ)) if getattr(config, "FREQ", None) is not None else 0.0
+                    freq_max_mhz = float(np.max(config.FREQ)) if getattr(config, "FREQ", None) is not None else 0.0
                 file_info = {
                     'samples': config.FILE_LENG,
                     'duration_min': (config.FILE_LENG * config.TIME_RESO) / 60,
-                    'channels': config.FREQ_RESO
+                    'channels': config.FREQ_RESO,
+                    'freq_min_mhz': freq_min_mhz,
+                    'freq_max_mhz': freq_max_mhz,
+                    'bandwidth_mhz': max(0.0, freq_max_mhz - freq_min_mhz),
+                    'time_reso_ms': float(config.TIME_RESO) * 1000.0,
+                    'time_reso_ds_ms': float(config.TIME_RESO) * max(1, int(config.DOWN_TIME_RATE)) * 1000.0,
+                    'dm_min': float(config.DM_min),
+                    'dm_max': float(config.DM_max),
+                    'dm_trials': int(calculate_dm_values().size),
+                    'dm_grid_mode': getattr(config, 'DM_GRID_MODE', 'legacy_uniform'),
                 }
                 logger.file_processing_start(fits_path.name, file_info) 
                 

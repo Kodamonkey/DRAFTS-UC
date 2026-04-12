@@ -202,6 +202,14 @@ def apply_thread_settings(profile: HardwareProfile, user_threads: int = 0) -> in
 
     try:
         import numba
+        # If Numba was imported before these env vars were set, keep its internal
+        # config aligned with the chosen thread count to avoid launch-time
+        # mismatches like "currently have 6, trying to set 12".
+        if hasattr(numba, "config"):
+            if hasattr(numba.config, "NUMBA_NUM_THREADS"):
+                numba.config.NUMBA_NUM_THREADS = threads
+            if hasattr(numba.config, "NUMBA_DEFAULT_NUM_THREADS"):
+                numba.config.NUMBA_DEFAULT_NUM_THREADS = threads
         numba.set_num_threads(threads)
     except (ImportError, RuntimeError):
         pass

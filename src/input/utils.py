@@ -7,12 +7,24 @@ import os
 from pathlib import Path
 from typing import Dict
 import logging
+import numpy as np
 
 
 from ..config import config
 
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_frequency_axis(freq: np.ndarray) -> tuple[np.ndarray, bool]:
+    """Return ascending MHz frequency axis and whether data channels must reverse."""
+    arr = np.asarray(freq, dtype=np.float64)
+    if arr.size <= 1:
+        return arr, False
+    descending = bool(arr[0] > arr[-1])
+    if descending:
+        return arr[::-1].copy(), True
+    return arr.copy(), False
 
 
 def safe_float(value, default=0.0) -> float:

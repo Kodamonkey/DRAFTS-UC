@@ -12,6 +12,7 @@ import numpy as np
 # Local imports
 from ..config import config
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
+from ..analysis.science_metrics import physical_consistency_score, post_trials_sigma
 from ..logging.logging_config import Colors, get_global_logger
 from ..output.candidate_manager import Candidate, append_candidate
 from ..output.phase_metrics import PhaseMetricsTracker
@@ -510,19 +511,28 @@ def snr_detect_and_classify_candidates_in_band(
         intensity_column = dm_img_for_calc[:, cx] if cx < dm_img_for_calc.shape[1] else dm_img_for_calc[:, 0]
         col_std = float(np.std(intensity_column))
         
+        dm_status = "measured"
+        dm_uncertainty = 0.5
         if col_std < 1e-6:
-            # No variation in DM dimension - this is expected at very high frequencies
-            # Use middle DM as approximation since dispersion is negligible
+            dm_policy = str(getattr(config, "HIGH_FREQ_DM_POLICY", "unresolved")).lower()
             dm_min = float(config.DM_min)
             dm_max = float(config.DM_max)
-            dm_val = (dm_min + dm_max) / 2.0
+            if dm_policy in {"unresolved", "estimate_if_resolved"}:
+                dm_val = float("nan")
+                dm_status = "unresolved_high_freq"
+                dm_uncertainty = None
+            else:
+                dm_val = (dm_min + dm_max) / 2.0
+                dm_status = "catalog_prior"
+                dm_uncertainty = (dm_max - dm_min) / 2.0
             logger.info(
                 f"[DM_CALC] No DM variation detected (std={col_std:.6f}) - typical at very high frequencies. "
-                f"Using middle DM as approximation: {dm_val:.2f} (range: {dm_min:.2f}-{dm_max:.2f})"
+                f"dm_status={dm_status} (range: {dm_min:.2f}-{dm_max:.2f})"
             )
         else:
             # Normal case: use the DM with maximum intensity at the peak time
             dm_val = dm_val_approx
+            dm_status = "measured"
             logger.info(f"[DM_CALC] Calculated DM: {dm_val:.2f} (from _dm_from_image_at_time, std={col_std:.6f})")
         
         # Calculate time from the center of the box (temporal position)
@@ -544,6 +554,7 @@ def snr_detect_and_classify_candidates_in_band(
         conf = float(min(0.99, max(0.05, snr_peak / 10.0)))
 
         global_sample = int(slice_start_idx) + int(peak_idx)
+        dm_for_dedisp = 0.0 if not np.isfinite(float(dm_val)) else float(dm_val)
         
         # =====================================================================
         # PHASE 3a: ResNet Classification on INTENSITY (conditional)
@@ -553,7 +564,7 @@ def snr_detect_and_classify_candidates_in_band(
         snr_val_intensity = snr_peak
         
         if enable_intensity_class:
-            patch_intensity, start_sample = dedisperse_patch(data_block, freq_down, dm_val, global_sample)
+            patch_intensity, start_sample = dedisperse_patch(data_block, freq_down, dm_for_dedisp, global_sample)
 
             peak_idx_patch = None
             if patch_intensity is not None and patch_intensity.size > 0:
@@ -599,7 +610,7 @@ def snr_detect_and_classify_candidates_in_band(
         
         if enable_linear_class and data_block_linear is not None:
             # Dedisperse Linear polarization patch at same DM and time
-            patch_linear, _ = dedisperse_patch(data_block_linear, freq_down, dm_val, global_sample)
+            patch_linear, _ = dedisperse_patch(data_block_linear, freq_down, dm_for_dedisp, global_sample)
             
             if patch_linear is not None and patch_linear.size > 0:
                 # Calculate SNR from dedispersed Linear patch (similar to Intensity)
@@ -785,6 +796,18 @@ def snr_detect_and_classify_candidates_in_band(
             logger.warning("SNR Linear is None for peak_idx=%d (has_multipol=%s, snr_profile_linear available=%s)", 
                         peak_idx, has_multipol, snr_profile_linear is not None)
 
+        linear_fraction = None
+        if waterfall_block_linear is not None and waterfall_block is not None:
+            try:
+                lo = max(0, peak_idx - 2)
+                hi = min(waterfall_block.shape[0], peak_idx + 3)
+                i_level = float(np.nanmedian(np.abs(waterfall_block[lo:hi])))
+                l_level = float(np.nanmedian(np.abs(waterfall_block_linear[lo:hi])))
+                if i_level > 1e-6:
+                    linear_fraction = l_level / i_level
+            except Exception:
+                linear_fraction = None
+
         # Keep track of the best candidate.
         # Use proc_patch_intensity if available, otherwise use proc_patch_linear
         # Initialize proc_patch_linear if not already defined (for cases where Phase 3b is skipped)
@@ -805,12 +828,23 @@ def snr_detect_and_classify_candidates_in_band(
                 width_ms = float(best_w_vec[int(peak_idx_patch)] * time_reso_ds * 1000.0)
         except Exception:
             width_ms = None
+        n_trials = max(1, int((config.DM_max - config.DM_min + 1) * max(1, len(snr_profile_intensity))))
+        post_sigma = post_trials_sigma(float(snr_val_intensity), n_trials, getattr(config, "TRIAL_CORRECTION", "gaussian_extreme"))
+        phys_score = physical_consistency_score(
+            post_sigma,
+            snr_peak,
+            snr_val_intensity,
+            dm_status,
+            linear_fraction,
+        )
+        morphology_prob = max(float(class_prob_intensity), float(class_prob_linear))
+        rank_score = morphology_prob * phys_score
 
         # Calculate MJD values for the candidate (using DM-time detection time, same as plot)
         mjd_data = calculate_candidate_mjd(
             t_sec=float(detection_time_dm_time),
             compute_bary=True,
-            dm=float(dm_val),
+            dm=float(dm_val) if np.isfinite(float(dm_val)) else None,
         )
 
         cand = Candidate(
@@ -829,6 +863,16 @@ def snr_detect_and_classify_candidates_in_band(
             snr_waterfall_linear=snr_linear_at_peak,  # NEW: SNR from Linear waterfall at peak
             snr_patch_dedispersed_linear=snr_val_linear,  # NEW: SNR from dedispersed Linear patch
             width_ms=width_ms,
+            dm_uncertainty=dm_uncertainty,
+            dm_status=dm_status,
+            best_width_ms=width_ms,
+            n_trials=n_trials,
+            post_trials_sigma=post_sigma,
+            snr_pre_dedisp=snr_peak,
+            snr_post_dedisp=float(snr_val_intensity),
+            linear_fraction=linear_fraction,
+            physical_score=phys_score,
+            rank_score=rank_score,
             class_prob_intensity=float(class_prob_intensity),  # Classification probability in Intensity (I)
             is_burst_intensity=bool(is_burst_intensity),  # BURST classification in Intensity (I)
             class_prob_linear=float(class_prob_linear),  # Classification probability in Linear (L) - HF only
@@ -1329,7 +1373,7 @@ def _process_file_chunked_high_freq(
             freq_ds = config.FREQ
         nu_min = float(freq_ds.min())
         nu_max = float(freq_ds.max())
-        dt_max_sec = 4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)
+        dt_max_sec = (4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)) / 1000.0
 
         if config.TIME_RESO <= 0:
             logger.warning(

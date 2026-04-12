@@ -18,7 +18,7 @@ from ..logging import (
     log_stream_fil_parameters,
     log_stream_fil_summary
 )
-from .utils import safe_float, safe_int, auto_config_downsampling, print_debug_frequencies, save_file_debug_info
+from .utils import safe_float, safe_int, auto_config_downsampling, print_debug_frequencies, save_file_debug_info, normalize_frequency_axis
 
 
 logger = logging.getLogger(__name__)
@@ -208,19 +208,14 @@ def get_obparams_fil(file_name: str) -> None:
             if config.DEBUG_FREQUENCY_ORDER:
                 logger.debug(f"[DEBUG FILTERBANK] Frequencies detected in descending order!")
         else:
-                                                                                                            
-                                                                 
-            freq_axis_inverted = True
+                                                                                                             
+                                                                  
+            freq_axis_inverted = False
             if config.DEBUG_FREQUENCY_ORDER:
-                logger.debug(f"[DEBUG FILTERBANK] Positive foff - inverting for radioastronomy standard!")
+                logger.debug("[DEBUG FILTERBANK] Positive foff - keeping ascending frequency order")
         
                                                         
-        if freq_axis_inverted:
-            config.FREQ = freq_temp[::-1]
-            config.DATA_NEEDS_REVERSAL = True
-        else:
-            config.FREQ = freq_temp
-            config.DATA_NEEDS_REVERSAL = False
+        config.FREQ, config.DATA_NEEDS_REVERSAL = normalize_frequency_axis(freq_temp)
 
                                  
     if config.DEBUG_FREQUENCY_ORDER:

@@ -136,7 +136,7 @@ def calculate_memory_safe_chunk_size(
         nu_max = 2000.0  # MHz
     
     # Calculate overlap required (maximum dispersion delay)
-    dt_max_sec = 4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)
+    dt_max_sec = (4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)) / 1000.0
     overlap_raw = max(0, int(np.ceil(dt_max_sec / config.TIME_RESO)))
     overlap_decimated = overlap_raw // max(1, config.DOWN_TIME_RATE)
     

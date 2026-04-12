@@ -43,7 +43,7 @@ def delay_from_dm(dm: float, freq_mhz: float) -> float:
     """
     if freq_mhz == 0.0:
         return 0.0
-    return (K_DM_MS * dm * (freq_mhz ** -2)) / 1000.0
+    return K_DM_MS * dm * (freq_mhz ** -2)
 
 
 def calculate_dispersion_bandwidth_delay(
@@ -85,7 +85,7 @@ if cuda is not None:
                     K_DM_MS
                     * DM
                     * ((freq[idx]) ** -2 - (freq[-1] ** -2))
-                    / (config.TIME_RESO * config.DOWN_TIME_RATE * 1000.0)
+                    / (config.TIME_RESO * config.DOWN_TIME_RATE)
                 )
                 pos = int(round(delay) + y)
                 if 0 <= pos < data.shape[0]:
@@ -141,7 +141,7 @@ try:
         n_time = data.shape[0]
         n_chan = data.shape[1]
         freq_max = freq_ds.max()
-        inv_tr_dt = np.float32(1.0 / (time_reso * down_time_rate * 1000.0))
+        inv_tr_dt = np.float32(1.0 / (time_reso * down_time_rate))
 
         for i in _prange(height):
             DM = np.float32(dm_values[i])
@@ -201,7 +201,7 @@ except ImportError:
             delays = (
                 K_DM_MS * DM
                 * (freq_ds ** -2 - freq_ds.max() ** -2)
-                / (time_reso * down_time_rate * 1000.0)
+                / (time_reso * down_time_rate)
             ).round().astype(np.int64)
 
             total_series = np.zeros(width, dtype=np.float32)
@@ -298,8 +298,11 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
     use_cuda_device = str(getattr(config, 'DEVICE', 'cpu')).startswith('cuda')
 
     if torch is not None and torch.cuda.is_available() and use_cuda_device:
+        logger.info("[DEDISPERSION] Route: PyTorch GPU (device=%s)", getattr(config, 'DEVICE', 'cuda'))
         try:
-            return _d_dm_time_torch_gpu(data, height, width, dm_min, dm_max, freq_values, dm_values_full)
+            result = _d_dm_time_torch_gpu(data, height, width, dm_min, dm_max, freq_values, dm_values_full)
+            logger.info("[DEDISPERSION] PyTorch GPU completed successfully")
+            return result
         except Exception as e:
             logger.warning("Torch GPU dedispersion failed (%s); attempting Numba GPU...", e)
 
@@ -307,14 +310,21 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
     # On CPU-only Windows environments, importing numba.cuda may succeed even
     # though NVVM/driver pieces are missing, which only produces noisy fallbacks.
     if cuda is None or not use_cuda_device:
+        logger.info(
+            "[DEDISPERSION] Route: CPU Numba (cuda=%s, use_cuda_device=%s)",
+            cuda is not None, use_cuda_device,
+        )
         return _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values, dm_values_full)
 
     try:
         if hasattr(cuda, "is_available") and not cuda.is_available():
+            logger.info("[DEDISPERSION] Route: CPU Numba (Numba CUDA unavailable)")
             return _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values, dm_values_full)
     except Exception:
+        logger.info("[DEDISPERSION] Route: CPU Numba (cuda.is_available() raised)")
         return _d_dm_time_cpu(data, height, width, dm_min, dm_max, freq_values, dm_values_full)
 
+    logger.info("[DEDISPERSION] Route: Numba CUDA GPU")
     try:
         logger.info("Attempting GPU dedispersion...")
 
@@ -410,7 +420,7 @@ def _d_dm_time_torch_gpu(
         dms = dm_values[start:end]
 
         # Compute all delays: (D, C)
-        delays = (K_DM_MS * dms[:, None] * (freq_ds[None, :] ** -2 - freq_ds.max() ** -2) / (time_reso * 1000.0))
+        delays = (K_DM_MS * dms[:, None] * (freq_ds[None, :] ** -2 - freq_ds.max() ** -2) / time_reso)
         delays = torch.round(delays).to(dtype=torch.int64)
 
         acc = torch.zeros((D, width), device=device, dtype=torch.float32)
@@ -495,7 +505,7 @@ def dedisperse_patch(
         K_DM_MS
         * dm
         * (freq_down ** -2 - freq_down.max() ** -2)
-        / (config.TIME_RESO * config.DOWN_TIME_RATE * 1000.0)
+        / (config.TIME_RESO * config.DOWN_TIME_RATE)
     ).round().astype(np.int64)
     max_delay = int(delays.max())
     
@@ -584,10 +594,10 @@ def dedisperse_block(
         K_DM_MS
         * dm
         * (freq_down ** -2 - freq_down.max() ** -2)
-        / (config.TIME_RESO * config.DOWN_TIME_RATE * 1000.0)
+        / (config.TIME_RESO * config.DOWN_TIME_RATE)
     ).round().astype(np.int64)
 
-                                   
+
     if config.DEBUG_FREQUENCY_ORDER:
         logger.debug(f"[DEBUG DEDISPERSION] DM: {dm:.2f} pc cm⁻³")
         logger.debug(f"[DEBUG DEDISPERSION] freq_down shape: {freq_down.shape}")

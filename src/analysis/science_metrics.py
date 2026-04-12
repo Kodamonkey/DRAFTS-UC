@@ -6,7 +6,7 @@ from typing import Iterable
 
 import numpy as np
 
-K_DM_MS = 4.148808e3
+K_DM_MS = 4.148808e3  # Dispersion constant: gives SECONDS when freq in MHz, DM in pc/cm³
 
 
 def dispersion_delay_ms(dm: float, freq_low_mhz: float, freq_high_mhz: float) -> float:
@@ -15,7 +15,7 @@ def dispersion_delay_ms(dm: float, freq_low_mhz: float, freq_high_mhz: float) ->
         return 0.0
     nu_lo = min(float(freq_low_mhz), float(freq_high_mhz))
     nu_hi = max(float(freq_low_mhz), float(freq_high_mhz))
-    return K_DM_MS * float(dm) * (nu_lo ** -2 - nu_hi ** -2)
+    return K_DM_MS * float(dm) * (nu_lo ** -2 - nu_hi ** -2) * 1000.0
 
 
 def dm_step_for_smearing(max_smearing_ms: float, freq_low_mhz: float, freq_high_mhz: float) -> float:

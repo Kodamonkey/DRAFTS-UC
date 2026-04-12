@@ -24,6 +24,42 @@ from .visualization_ranges import get_dynamic_dm_range_for_candidate
 logger = logging.getLogger(__name__)
 
 
+def _coerce_float_image(arr: Optional[np.ndarray]) -> Optional[np.ndarray]:
+    """Force waterfall / dedispersed panels to a real dtype (FITS can yield dtype=object)."""
+
+    if arr is None or getattr(arr, "size", 0) == 0:
+        return arr
+    a = np.ascontiguousarray(arr)
+    if a.dtype == object or not np.issubdtype(a.dtype, np.number):
+        try:
+            a = np.asarray(a, dtype=np.float64)
+        except (TypeError, ValueError):
+            a = np.array(a.tolist(), dtype=np.float64)
+    else:
+        a = a.astype(np.float64, copy=False)
+    return np.nan_to_num(a, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def _coerce_img_rgb_for_imshow(arr: np.ndarray) -> np.ndarray:
+    """DM-time RGB: matplotlib rejects dtype=object; normalize float RGB to 0–1 if needed."""
+
+    if arr is None or getattr(arr, "size", 0) == 0:
+        return arr
+    a = np.ascontiguousarray(arr)
+    if a.dtype == object or not np.issubdtype(a.dtype, np.number):
+        try:
+            a = np.asarray(a, dtype=np.float32)
+        except (TypeError, ValueError):
+            a = np.array(a.tolist(), dtype=np.float32)
+    if np.issubdtype(a.dtype, np.floating):
+        amax = float(np.nanmax(a)) if a.size else 0.0
+        if amax > 1.0:
+            a = np.clip(a / 255.0, 0.0, 1.0)
+        else:
+            a = np.clip(a, 0.0, 1.0)
+    return a
+
+
 def _calculate_label_positions(
     ax,
     candidate_boxes: list,
@@ -244,7 +280,7 @@ def create_composite_plot(
                    len(snr_waterfall_linear), 
                    [f"{v:.2f}" if v is not None else "None" for v in snr_waterfall_linear[:5]])
     else:
-        logger.warning("create_composite_plot: snr_waterfall_linear is None")
+        logger.debug("create_composite_plot: snr_waterfall_linear is None (expected in standard/single-pol mode)")
     if snr_patch_linear is not None:
         if not isinstance(snr_patch_linear, (list, tuple)):
             snr_patch_linear = list(snr_patch_linear)
@@ -252,7 +288,7 @@ def create_composite_plot(
                    len(snr_patch_linear),
                    [f"{v:.2f}" if v is not None else "None" for v in snr_patch_linear[:5]])
     else:
-        logger.warning("create_composite_plot: snr_patch_linear is None")
+        logger.debug("create_composite_plot: snr_patch_linear is None (expected in standard/single-pol mode)")
     if snr_waterfall_intensity is not None:
         if not isinstance(snr_waterfall_intensity, (list, tuple)):
             snr_waterfall_intensity = list(snr_waterfall_intensity)
@@ -314,6 +350,13 @@ def create_composite_plot(
             dw_linear = dedisp_block_linear.copy()
         if dedisp_block_circular is not None and dedisp_block_circular.size > 0:
             dw_circular = dedisp_block_circular.copy()
+        if dw_linear is not None:
+            dw_linear = _coerce_float_image(dw_linear)
+        if dw_circular is not None:
+            dw_circular = _coerce_float_image(dw_circular)
+
+    wf_block = _coerce_float_image(wf_block)
+    dw_block = _coerce_float_image(dw_block)
     
     if normalize:
         blocks_to_norm = [wf_block, dw_block]
@@ -352,6 +395,7 @@ def create_composite_plot(
     
                             
     ax_det = fig.add_subplot(gs_main[0, 0])
+    img_rgb = _coerce_img_rgb_for_imshow(img_rgb)
     ax_det.imshow(img_rgb, origin="lower", aspect="auto")
     
     # Set title first so we can calculate its position later

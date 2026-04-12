@@ -63,8 +63,14 @@ class DRAFTSFormatter(logging.Formatter):
     def format(self, record):
         """Apply formatting according to the log level."""
         if record.levelno in self.formats:
-            return self.formats[record.levelno](record)
-        return super().format(record)
+            msg = self.formats[record.levelno](record)
+        else:
+            msg = super().format(record)
+        if record.exc_info and not record.exc_text:
+            record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            msg = msg + "\n" + record.exc_text
+        return msg
     
     def _format_debug(self, record):
         """Format DEBUG messages."""

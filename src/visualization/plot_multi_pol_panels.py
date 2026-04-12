@@ -84,7 +84,8 @@ def create_multi_pol_panels(
         ax_waterfall = fig.add_subplot(gs_nested[1, 0])
         
         if pol_data is not None and pol_data.size > 0:
-            # Compute SNR profile
+            if pol_data.dtype == object or not np.issubdtype(pol_data.dtype, np.number):
+                pol_data = np.asarray(pol_data, dtype=np.float64)
             snr_prof, _, best_w = compute_snr_profile(pol_data, off_regions)
             peak_snr, _, peak_idx = find_snr_peak(snr_prof)
             

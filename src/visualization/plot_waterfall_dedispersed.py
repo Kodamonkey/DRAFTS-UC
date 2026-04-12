@@ -84,6 +84,8 @@ def create_waterfall_dedispersed_plot(
                                          
     if dedispersed_block is not None and dedispersed_block.size > 0:
         dw_block = dedispersed_block.copy()
+        if dw_block.dtype == object or not np.issubdtype(dw_block.dtype, np.number):
+            dw_block = np.asarray(dw_block, dtype=np.float64)
     else:
         dw_block = None
     

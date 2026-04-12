@@ -26,8 +26,8 @@ data:
   # Use "FRB20121102" if files are named like *FRB20121102*.fil.
   # Zenodo 10.5281/zenodo.3974768 Lovell snippets use *J0532+3305* in the filename instead.
   targets:
-    - "FRB20121102"
-    #- "J0532+3305"
+    #- "FRB20121102"
+    - "J0532+3305"
 
 # ==============================================================================
 # TEMPORAL ANALYSIS
@@ -35,7 +35,7 @@ data:
 temporal:
   # Duration of each temporal segment in milliseconds
   # Common values for FRBs: 100-500 ms, Pulsars: 1000-5000 ms
-  slice_duration_ms: 300.0
+  slice_duration_ms: 1000.0
 
 # ==============================================================================
 # DOWNSAMPLING (DATA REDUCTION)
@@ -44,11 +44,14 @@ downsampling:
   # Frequency reduction factor (1 = no reduction)
   # Higher values = faster processing, lower frequency resolution
   # Values: 1, 2, 4, 8
-  frequency_rate: 1
+  # NOTE: 800-channel Lovell data → frequency_rate:2 halves channels (800→400)
+  #       and gives ~2x speedup in DM cube construction.
+  frequency_rate: 2
 
   # Time reduction factor (1 = no reduction)
-  # Lovell Zenodo snippets are small per file; 16 is a lighter default than heavy Effelsberg runs.
-  time_rate: 1
+  # Lovell Zenodo snippets (tsamp=0.256ms): time_rate:4 reduces width 4x →
+  # effective tsamp=1.024ms, still well below FRB typical widths (>1ms).
+  time_rate: 4
 
   # Temporal reduction mode: sum, phase_preserving, snr_preserving.
   temporal_mode: "sum"
@@ -58,9 +61,10 @@ downsampling:
 # ==============================================================================
 dispersion:
   # DM search range in pc cm⁻³
-  # FRB 121102: DM ~557. Narrow window speeds up trials; widen if needed.
-  dm_min: 0
-  dm_max: 1000
+  # FRB 121102: DM ~557. Narrow window (480-640) gives ~6x speedup vs 0-1000.
+  # Set dm_min: 0, dm_max: 1000 for a blind search.
+  dm_min: 480
+  dm_max: 640
 
   # DM trial strategy:
   # - legacy_uniform: 1 pc cm^-3 spacing (reproducible historical behavior)

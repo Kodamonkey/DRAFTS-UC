@@ -136,6 +136,8 @@ def create_waterfall_dispersed_plot(
                                        
     if waterfall_block is not None and waterfall_block.size > 0:
         wf_block = waterfall_block.copy()
+        if wf_block.dtype == object or not np.issubdtype(wf_block.dtype, np.number):
+            wf_block = np.asarray(wf_block, dtype=np.float64)
     else:
         wf_block = None
     

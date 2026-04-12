@@ -136,7 +136,7 @@ def calculate_memory_safe_chunk_size(
         nu_max = 2000.0  # MHz
     
     # Calculate overlap required (maximum dispersion delay)
-    dt_max_sec = (4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)) / 1000.0
+    dt_max_sec = 4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)
     overlap_raw = max(0, int(np.ceil(dt_max_sec / config.TIME_RESO)))
     overlap_decimated = overlap_raw // max(1, config.DOWN_TIME_RATE)
     
@@ -564,8 +564,8 @@ def get_processing_parameters() -> dict:
         # Calculate memory considering dedispersion overhead
         from ..core.pipeline_parameters import calculate_dm_height
         height_dm = calculate_dm_height()
-        dm_cube_overhead = 3 * height_dm  # 3 channels × DM height
-        memory_per_sample = bytes_per_sample * (1 + dm_cube_overhead) * 1.2  # Include 20% overhead
+        dm_cube_bytes_per_sample = 3 * height_dm * 4  # 3 planes × DM height × float32
+        memory_per_sample = (bytes_per_sample + dm_cube_bytes_per_sample) * 1.2
                                 
         if getattr(config, 'MAX_CHUNK_BYTES', None):
             usable_bytes = config.MAX_CHUNK_BYTES / max(1.0, getattr(config, 'OVERHEAD_FACTOR', 1.3))
@@ -639,7 +639,7 @@ def get_processing_parameters() -> dict:
             logger.warning(
                 f"Adaptive budgeting failed ({e}), falling back to calculate_optimal_chunk_size"
             )
-        chunk_samples = calculate_optimal_chunk_size(slice_len)
+            chunk_samples = calculate_optimal_chunk_size(slice_len)
 
                                                                                    
                                                  
@@ -788,10 +788,8 @@ def validate_processing_parameters(parameters: dict) -> bool:
         errors.append(f"slice_len ({parameters['slice_len']}) > maximum ({config.SLICE_LEN_MAX})")
     
                            
-    # Allow chunk_samples = slice_len in extreme memory-constrained scenarios
-    # but warn if it's less than 2 slices (which would be problematic)
-    if parameters['chunk_samples'] < parameters['slice_len'] * 2:
-        errors.append(f"chunk_samples ({parameters['chunk_samples']}) too small for {parameters['slice_len']} slice_len (minimum: {parameters['slice_len'] * 2})")
+    if parameters['chunk_samples'] < parameters['slice_len']:
+        errors.append(f"chunk_samples ({parameters['chunk_samples']}) too small for {parameters['slice_len']} slice_len (minimum: {parameters['slice_len']})")
     elif parameters['chunk_samples'] < parameters['slice_len'] * 10:
         # Warn but don't error: this is acceptable in memory-constrained scenarios
         logger.warning(f"chunk_samples ({parameters['chunk_samples']}) is small (only {parameters['slices_per_chunk']:.1f} slices per chunk). This may impact efficiency but is acceptable in memory-constrained scenarios.")

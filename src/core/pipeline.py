@@ -595,7 +595,7 @@ def _process_file_chunked(
             freq_ds = config.FREQ
         nu_min = float(freq_ds.min())
         nu_max = float(freq_ds.max())
-        dt_max_sec = (4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)) / 1000.0
+        dt_max_sec = 4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)
 
         if config.TIME_RESO <= 0:
             logger.warning(

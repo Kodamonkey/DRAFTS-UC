@@ -56,7 +56,7 @@ class TestDedispersionPhysics(unittest.TestCase):
         try:
             n_time = 512
             n_chan = 32
-            dm_true = 200.0
+            dm_true = 5.0
             config.FREQ = np.linspace(400.0, 800.0, n_chan).astype(np.float32)
             config.FREQ_RESO = n_chan
             config.DOWN_FREQ_RATE = 1
@@ -67,11 +67,12 @@ class TestDedispersionPhysics(unittest.TestCase):
 
             data = np.zeros((n_time, n_chan), dtype=np.float32)
             t0 = 120
-            delays = (4.148808e3 * dm_true * (config.FREQ ** -2 - config.FREQ.max() ** -2) / (config.TIME_RESO * 1000.0)).round().astype(int)
+            delays = (4.148808e3 * dm_true * (config.FREQ ** -2 - config.FREQ.max() ** -2) / config.TIME_RESO).round().astype(int)
             for ch, d in enumerate(delays):
-                data[t0 + d, ch] = 10.0
+                if t0 + d < n_time:
+                    data[t0 + d, ch] = 10.0
 
-            cube = d_dm_time_g(data, height=301, width=300, dm_min=0, dm_max=300)
+            cube = d_dm_time_g(data, height=11, width=n_time, dm_min=0, dm_max=10)
             profile_by_dm = cube[0].max(axis=1)
             dm_hat = int(np.argmax(profile_by_dm))
             self.assertLessEqual(abs(dm_hat - dm_true), 2.0)
@@ -152,7 +153,7 @@ class TestBowtieCollapse(unittest.TestCase):
     def test_narrow_band_triggers_hf(self):
         """Very narrow band at any frequency: sweep → 0 → HF."""
         use_hf, _ = should_use_hf_pipeline(
-            freq_low_mhz=1400.0, freq_high_mhz=1400.5,
+            freq_low_mhz=1400.0, freq_high_mhz=1400.1,
             dm_max=100.0, time_reso_s=5.12e-5, down_time_rate=1,
         )
         self.assertTrue(use_hf)

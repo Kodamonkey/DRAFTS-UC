@@ -72,6 +72,12 @@ Cubos grandes (≥ `DM_CUBE_MEMMAP_THRESHOLD_GB`, default 4 GB) usan `np.memmap`
 Paridad numérica con alloc directa debe mantenerse.
 Verifica: `test_cube_windowed_parity`, `test_memmap_cube_parity`.
 
+## SPEC-CAND-001 — Salida de candidatos unificada
+Ambas rutas de detección (CenterNet LF y SNR-peak HF) usan `finalize_patch()`
+para producir (proc_patch, class_prob, snr_val, peak_idx_patch, width_ms, start_sample).
+El CSV de candidatos debe ser byte-idéntico antes/después de la refactorización.
+Verifica: `tests/test_candidate_finalizer.py`.
+
 ## SPEC-PURE-001 — Dedispersión sin mutar config global
 `d_dm_time_g` no muta `config.FREQ` ni `config.FREQ_RESO`; usa cómputo local puro.
 Verifica: `test_audit_fixes.test_dedispersion_does_not_mutate_config`.

@@ -17,6 +17,7 @@ from ..logging.logging_config import Colors, get_global_logger
 from ..output.candidate_manager import Candidate, append_candidate
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
 from ..preprocessing.dedispersion import dedisperse_block, dedisperse_patch
+from .candidate_finalization import finalize_patch
 from .mjd_utils import calculate_candidate_mjd
 
 from ..visualization.visualization_unified import (
@@ -50,6 +51,7 @@ def detect_and_classify_candidates_in_band(
     waterfall_block=None,  # time x frequency slice block for waterfall SNR calculation
     slice_samples: int | None = None,  # actual slice samples (may differ from slice_len)
     off_regions=None,  # off-pulse regions for SNR calculation
+    dm_values=None,
 ):
     """Run detection and classification for a specific frequency band.
 
@@ -142,10 +144,15 @@ def detect_and_classify_candidates_in_band(
     all_candidates = []
     
     for conf, box in zip(top_conf, top_boxes):
+        img_h = int(band_img.shape[0]) if band_img is not None and band_img.ndim >= 1 else 512
+        img_w = int(band_img.shape[1]) if band_img is not None and band_img.ndim >= 2 else 512
         dm_val, t_sec, t_sample = extract_candidate_dm(
             (box[0] + box[2]) / 2,
             (box[1] + box[3]) / 2,
             slice_len,
+            img_height=img_h,
+            img_width=img_w,
+            dm_values=dm_values,
         )
         
                                                 
@@ -166,22 +173,12 @@ def detect_and_classify_candidates_in_band(
         else:
                                                                                         
             global_sample = j * slice_len + int(t_sample)
-        patch, start_sample = dedisperse_patch(
-            data, freq_down, dm_val, global_sample
+        time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+        proc_patch, class_prob, snr_val, peak_idx_patch, width_ms, start_sample = finalize_patch(
+            data, freq_down, dm_val, global_sample, cls_model, time_reso_ds
         )
-        
-                                                                   
-        snr_val = 0.0                     
-        peak_idx_patch = None
-        if patch is not None and patch.size > 0:
-            # Measure SNR on the dedispersed patch using the unified routine.
-            snr_profile_pre, _, best_w_vec = compute_snr_profile(patch)
-            peak_idx_patch = int(np.argmax(snr_profile_pre)) if snr_profile_pre.size > 0 else None
-            snr_val = float(np.max(snr_profile_pre)) if snr_profile_pre.size > 0 else 0.0
-        else:
-                                                            
+        if snr_val == 0.0:
             snr_val = snr_val_raw
-        class_prob, proc_patch = classify_patch(cls_model, patch)
         class_probs_list.append(class_prob)
         is_burst = class_prob >= config.CLASS_PROB
         
@@ -274,14 +271,7 @@ def detect_and_classify_candidates_in_band(
         snr_waterfall_intensity_list.append(snr_intensity_at_peak)
         snr_patch_intensity_list.append(float(snr_val) if snr_val is not None else None)
         
-        # Assemble a candidate record with optional width estimates.
-        width_ms = None
-        try:
-            if peak_idx_patch is not None and 'best_w_vec' in locals() and best_w_vec.size > 0:
-                dt_ds = config.TIME_RESO * config.DOWN_TIME_RATE
-                width_ms = float(best_w_vec[int(peak_idx_patch)] * dt_ds * 1000.0)
-        except Exception:
-            width_ms = None
+        # width_ms already computed by finalize_patch
         n_trials = max(1, int((config.DM_max - config.DM_min + 1) * max(1, len(snr_wf_profile) if snr_wf_profile is not None else 1)))
         post_sigma = post_trials_sigma(float(snr_val), n_trials, getattr(config, "TRIAL_CORRECTION", "gaussian_extreme"))
         phys_score = physical_consistency_score(post_sigma, snr_val_raw, snr_val, "measured")
@@ -431,6 +421,7 @@ def process_slice_with_multiple_bands(
     force_plots: bool = False,
     slice_start_idx: int | None = None,
     slice_end_idx: int | None = None,
+    dm_values=None,
 ):
     """Process a slice across all configured frequency bands and persist outputs."""
 
@@ -541,6 +532,7 @@ def process_slice_with_multiple_bands(
             waterfall_block=waterfall_block,  # Pass waterfall block for SNR calculation
             slice_samples=end_idx - start_idx,  # Actual slice samples
             off_regions=None,  # Can be passed if available
+            dm_values=dm_values,
         )
         cand_counter += band_result["cand_counter"]
         n_bursts += band_result["n_bursts"]

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drafts-uc"
+version = "0.1.0"
+description = "DRAFTS FRB detection pipeline (audited)"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+norecursedirs = ["mutation", ".git", "__pycache__"]
+# Fast PR suite: physics, parity, contracts, audit fixes, YAML, smoke.
+addopts = "-q"
+filterwarnings = [
+    "ignore::pytest.PytestReturnNotNoneWarning",
+]
+
+[tool.mutmut]
+# Mutation testing on architecture/physics-critical, mostly-pure modules.
+paths_to_mutate = [
+    "src/analysis/science_metrics.py",
+    "src/core/pipeline_parameters.py",
+    "src/preprocessing/dm_candidate_extractor.py",
+    "src/input/utils.py",
+]
+tests_dir = ["tests/"]

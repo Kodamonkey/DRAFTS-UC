@@ -19,6 +19,7 @@ from ..output.phase_metrics import PhaseMetricsTracker
 from ..preprocessing.dedispersion import dedisperse_block, dedisperse_patch
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
 from ..visualization.visualization_unified import preprocess_img, postprocess_img
+from .candidate_finalization import finalize_patch as _finalize_patch
 from .contracts import DMGrid
 from .mjd_utils import calculate_candidate_mjd
 
@@ -554,43 +555,27 @@ def snr_detect_and_classify_candidates_in_band(
         class_prob_intensity = 0.0
         is_burst_intensity = False
         snr_val_intensity = snr_peak
-        best_w_vec = np.array([])  # set in Phase 3a if patch available
+        peak_idx_patch = None
+        width_ms_intensity = None
+        start_sample = None
+        proc_patch_intensity = None
 
         if enable_intensity_class:
-            patch_intensity, start_sample = dedisperse_patch(data_block, freq_down, dm_for_dedisp, global_sample)
-
-            peak_idx_patch = None
-            if patch_intensity is not None and patch_intensity.size > 0:
-                snr_profile_pre, _, best_w_vec = compute_snr_profile(patch_intensity)
-                if snr_profile_pre.size > 0:
-                    peak_idx_patch = int(np.argmax(snr_profile_pre))
-                    snr_val_intensity = float(np.max(snr_profile_pre))
-
-            # Classify patch - EXACTLY same logic as classic pipeline (line 145 in detection_engine.py)
-            class_prob_intensity, proc_patch_intensity = classify_patch(cls_model, patch_intensity)
-            is_burst_intensity = class_prob_intensity >= float(config.CLASS_PROB)
-            
-            # Log classification result with patch info for debugging
-            patch_info = f"shape={patch_intensity.shape if patch_intensity is not None else 'None'}, size={patch_intensity.size if patch_intensity is not None else 0}"
-            logger.debug(
-                "Phase 3a: Intensity classification - DM=%.2f t_idx=%d class_prob=%.3f is_burst=%s patch_info=%s",
-                dm_val, peak_idx, class_prob_intensity, is_burst_intensity, patch_info
+            time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+            proc_patch_intensity, class_prob_intensity, snr_intensity_fp, peak_idx_patch, width_ms_intensity, start_sample = _finalize_patch(
+                data_block, freq_down, dm_for_dedisp, global_sample, cls_model, time_reso_ds
             )
-            
-            # Warn if probability is 0.0 but we have a valid patch (this shouldn't happen for valid candidates)
-            if class_prob_intensity == 0.0 and patch_intensity is not None and patch_intensity.size > 0:
-                logger.warning(
-                    "WARNING: class_prob_intensity is 0.0 for valid patch at DM=%.2f peak_idx=%d. "
-                    "This may indicate a classification error.",
-                    dm_val, peak_idx
-                )
+            if snr_intensity_fp > 0.0:
+                snr_val_intensity = snr_intensity_fp
+            is_burst_intensity = class_prob_intensity >= float(config.CLASS_PROB)
+            logger.debug(
+                "Phase 3a: Intensity classification - DM=%.2f t_idx=%d class_prob=%.3f is_burst=%s",
+                dm_val, peak_idx, class_prob_intensity, is_burst_intensity,
+            )
         else:
-            # Phase 3a disabled: Set default values (will rely on Phase 3b)
             logger.debug("Phase 3a: DISABLED - Skipping Intensity classification for peak_idx=%d", peak_idx)
-            class_prob_intensity = 1.0  # Neutral value (will depend on Linear)
-            is_burst_intensity = True  # Pass through to Linear decision
-            patch_intensity = None
-            proc_patch_intensity = None  # Initialize to None when Phase 3a is disabled
+            class_prob_intensity = 1.0
+            is_burst_intensity = True
             start_sample = None
             peak_idx_patch = None
         
@@ -812,13 +797,8 @@ def snr_detect_and_classify_candidates_in_band(
             best_dm = dm_val
             best_is_burst = is_burst
 
-        # Build the CSV row and estimate width_ms using the optimal width at the peak.
-        width_ms = None
-        try:
-            if peak_idx_patch is not None and best_w_vec.size > 0:
-                width_ms = float(best_w_vec[int(peak_idx_patch)] * time_reso_ds * 1000.0)
-        except Exception:
-            width_ms = None
+        # width_ms already computed by _finalize_patch (Phase 3a)
+        width_ms = width_ms_intensity
         n_trials = max(1, int((config.DM_max - config.DM_min + 1) * max(1, len(snr_profile_intensity))))
         post_sigma = post_trials_sigma(float(snr_val_intensity), n_trials, getattr(config, "TRIAL_CORRECTION", "gaussian_extreme"))
         phys_score = physical_consistency_score(

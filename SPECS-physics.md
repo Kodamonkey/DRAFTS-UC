@@ -66,6 +66,12 @@ Verifica: `test_audit_fixes.test_parameters_extracted_per_file`.
 Si fallan chunks, el archivo reporta `PARTIAL` (no `SUCCESS`) y registra el conteo.
 Verifica: `test_audit_fixes.test_chunk_failure_marks_partial`.
 
+## SPEC-HF-002 — DM no resuelto no construye cubo
+Si `dispersion_delay_ms(DM_max - DM_min, f_lo, f_hi) / time_reso_ms < 1.0 sample`,
+el cubo DM-tiempo no se construye (todos los DM trials colapsan al mismo sample).
+Se usa un cubo trivial de ceros; el candidato tiene `dm_status="unresolved_high_freq"`.
+Verifica: `tests/test_hf_phases.py::TestDmSmearingDecision`.
+
 ## SPEC-MEM-001 — Pico de memoria acotado en cubo DM
 Durante DM chunking, pico de cómputo ≤ tamaño de una ventana DM (`3 × dm_chunk_height × width × 4` bytes).
 Cubos grandes (≥ `DM_CUBE_MEMMAP_THRESHOLD_GB`, default 4 GB) usan `np.memmap` para el buffer resultado.

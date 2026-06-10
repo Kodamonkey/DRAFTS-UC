@@ -3,6 +3,7 @@ from __future__ import annotations
 # Standard library imports
 from dataclasses import dataclass
 from pathlib import Path
+import gc
 import logging
 import time
 
@@ -1413,11 +1414,29 @@ def _process_file_chunked_high_freq(
                 overlap_left_ds = chunk_params['overlap_left_ds']
                 overlap_right_ds = chunk_params['overlap_right_ds']
 
-                # Memory validation is now done inside build_dm_time_cube (PRESTO-style)
+                # SPEC-HF-002: Skip cube if DM smearing < 1 sample (unresolved band)
                 height = chunk_params['height']
-                dm_time_full = build_dm_time_cube(block_ds, height=height, dm_min=config.DM_min, dm_max=config.DM_max, collector=collector)
-                block_ds, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(block_ds, dm_time_full, overlap_left_ds, overlap_right_ds)
-                
+                freq_low = float(freq_down.min())
+                freq_high = float(freq_down.max())
+                dm_range = float(config.DM_max) - float(config.DM_min)
+                dm_delay_s = K_DM_MS * dm_range * (freq_low ** -2 - freq_high ** -2)
+                dm_smear_samples = dm_delay_s / (config.TIME_RESO * config.DOWN_TIME_RATE)
+                if dm_smear_samples < 1.0:
+                    logger.info(
+                        "SPEC-HF-002: DM unresolved (%.4f samples at %.0f-%.0f MHz) — "
+                        "skipping DM-time cube build.",
+                        dm_smear_samples, freq_low, freq_high,
+                    )
+                    n_valid = max(0, block_ds.shape[0] - overlap_left_ds - overlap_right_ds)
+                    dm_time = np.zeros((3, height, n_valid), dtype=np.float32)
+                    block_ds = block_ds[overlap_left_ds: block_ds.shape[0] - overlap_right_ds]
+                    valid_start_ds, valid_end_ds = 0, n_valid
+                else:
+                    dm_time_full = build_dm_time_cube(block_ds, height=height, dm_min=config.DM_min, dm_max=config.DM_max, collector=collector)
+                    block_ds, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(block_ds, dm_time_full, overlap_left_ds, overlap_right_ds)
+                    del dm_time_full
+                    gc.collect()
+
                 # Record chunk processing for validation metrics
                 collector.record_chunk_processing(
                     chunk_idx=metadata['chunk_idx'],
@@ -1427,11 +1446,6 @@ def _process_file_chunked_high_freq(
                     valid_end=valid_end_ds,
                     chunk_samples=block_ds.shape[0]
                 )
-                
-                # CRITICAL: Free the full cube immediately after trimming
-                del dm_time_full
-                import gc
-                gc.collect()
 
                 # Also downsample the RAW multi-pol block for polarization extraction
                 block_raw_ds = None

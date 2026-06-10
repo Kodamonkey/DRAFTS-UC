@@ -14,6 +14,7 @@ import numpy as np
 from matplotlib import gridspec
 
                
+from ..analysis.science_metrics import K_DM_MS
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..config import config
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
@@ -781,9 +782,8 @@ def create_composite_plot(
             candidate_snr_intensity_wf = snr_waterfall_intensity[0]
         
         if dm_best > 0:
-            K_DM = 4.148808e3
             freq_min, freq_max = get_band_frequency_range(band_idx)
-            delta_t_max = K_DM * dm_best * (1.0/(freq_min**2) - 1.0/(freq_max**2))
+            delta_t_max = K_DM_MS * dm_best * (1.0/(freq_min**2) - 1.0/(freq_max**2))
             margin = 0.1 * delta_t_max
             delta_t_max_correction = delta_t_max + margin
             raw_waterfall_start = slice_start_abs - delta_t_max_correction

@@ -19,12 +19,10 @@ except ImportError:
     ASTROPY_AVAILABLE = False
     logging.warning("astropy not available - barycentric MJD calculations will be disabled")
 
+from ..analysis.science_metrics import K_DM_MS
 from ..config import config
 
 logger = logging.getLogger(__name__)
-
-# Dispersion constant
-K_DM_MS = 4.148808e3  # Dispersion constant: gives SECONDS when freq in MHz
 
 
 def get_topocentric_mjd(tstart_mjd: float, t_sec: float) -> float:

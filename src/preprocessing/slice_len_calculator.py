@@ -11,6 +11,7 @@ import numpy as np
 import psutil
 
                
+from ..analysis.science_metrics import K_DM_MS
 from ..config import config
 
               
@@ -136,7 +137,7 @@ def calculate_memory_safe_chunk_size(
         nu_max = 2000.0  # MHz
     
     # Calculate overlap required (maximum dispersion delay)
-    dt_max_sec = 4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)
+    dt_max_sec = K_DM_MS * config.DM_max * (nu_min**-2 - nu_max**-2)
     overlap_raw = max(0, int(np.ceil(dt_max_sec / config.TIME_RESO)))
     overlap_decimated = overlap_raw // max(1, config.DOWN_TIME_RATE)
     

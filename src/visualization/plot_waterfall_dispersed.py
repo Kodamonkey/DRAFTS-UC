@@ -14,6 +14,7 @@ import numpy as np
 from matplotlib import gridspec
 
                
+from ..analysis.science_metrics import K_DM_MS
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..config import config
 
@@ -59,10 +60,7 @@ def calculate_undispersed_burst_time(
     """
                                                                              
                                                             
-    k_dispersion = 4.15e3
-    
-                                    
-    delta_t = k_dispersion * dm * ((1.0 / (freq_low**2)) - (1.0 / (freq_high**2)))
+    delta_t = K_DM_MS * dm * ((1.0 / (freq_low**2)) - (1.0 / (freq_high**2)))
     
                           
     undispersed_time = observed_time - delta_t
@@ -168,8 +166,7 @@ def create_waterfall_dispersed_plot(
         freq_min, freq_max = get_band_frequency_range(band_idx)
                                                     
         # Calculate maximum dispersion delay using precise formula
-        K_DM = 4.148808e3  # s MHz^2 pc^-1 cm^3
-        delta_t_max = K_DM * dm_value * (1.0/(freq_min**2) - 1.0/(freq_max**2))
+        delta_t_max = K_DM_MS * dm_value * (1.0/(freq_min**2) - 1.0/(freq_max**2))
         
         # Add small margin (10%) to ensure we capture the full sweep
         margin = 0.1 * delta_t_max

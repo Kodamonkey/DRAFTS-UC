@@ -37,7 +37,10 @@ Verifica: `test_audit_fixes.test_extract_candidate_dm_*`.
 ## SPEC-FREQ-001 — Eje de frecuencia ascendente, una sola inversión
 `normalize_frequency_axis` devuelve eje ascendente y un flag `needs_reversal`.
 Invertir datos SÓLO si el orden original es descendente. Nunca doble inversión.
-Verifica: `test_scientific_physics.TestFrequencyAxisPhysics`.
+Kernel GPU: la frecuencia de referencia se computa como `float(freq.max())**-2` en el
+host y se pasa como escalar `f_ref_inv2`; no se usa `freq[-1]` (asunción posicional).
+Verifica: `test_scientific_physics.TestFrequencyAxisPhysics`,
+          `test_dedispersion_parity.TestDedispersionParity.test_gpu_freq_ref_uses_max`.
 
 ## SPEC-HF-001 — Decisión LF/HF por colapso bow-tie
 HF se activa cuando `Δt_disp / Δt_res < collapse_ratio` (no por frecuencia central fija).

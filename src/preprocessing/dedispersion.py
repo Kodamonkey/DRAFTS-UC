@@ -72,7 +72,9 @@ def calculate_dispersion_bandwidth_delay(
 
 if cuda is not None:
     @cuda.jit
-    def _de_disp_gpu(dm_time, data, freq, index, dm_values, mid_channel):
+    def _de_disp_gpu(dm_time, data, freq, index, dm_values, mid_channel, f_ref_inv2):
+        # f_ref_inv2 = float(freq.max())**-2, computed on host (SPEC-FREQ-001).
+        # Not freq[-1]**-2 — positional assumption breaks on unsorted arrays.
         x, y = cuda.grid(2)
         if x < dm_time.shape[1] and y < dm_time.shape[2]:
             total_val = 0.0
@@ -84,7 +86,7 @@ if cuda is not None:
                 delay = (
                     K_DM_MS
                     * DM
-                    * ((freq[idx]) ** -2 - (freq[-1] ** -2))
+                    * ((freq[idx]) ** -2 - f_ref_inv2)
                     / (config.TIME_RESO * config.DOWN_TIME_RATE)
                 )
                 pos = int(round(delay) + y)
@@ -283,16 +285,18 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
         logger.warning("Prewhitening failed: %s", e)
     
                                                  
+    # SPEC-PURE-001: compute the decimated frequency axis locally without mutating
+    # global config state (config.FREQ / config.FREQ_RESO must stay intact).
     if config.FREQ is None or config.FREQ.size == 0:
         raise ValueError("config.FREQ invalid during dedispersion (empty)")
     if config.FREQ_RESO == 0 or config.DOWN_FREQ_RATE == 0:
         raise ValueError(f"Invalid frequency parameters: FREQ_RESO={config.FREQ_RESO}, DOWN_FREQ_RATE={config.DOWN_FREQ_RATE}")
-    if (config.FREQ_RESO // config.DOWN_FREQ_RATE) * config.DOWN_FREQ_RATE != config.FREQ_RESO:
-                                                       
-        n_groups = config.FREQ_RESO // config.DOWN_FREQ_RATE
-        config.FREQ_RESO = n_groups * config.DOWN_FREQ_RATE
-        config.FREQ = config.FREQ[:config.FREQ_RESO]
-    freq_values = np.mean(config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE), axis=1)
+    _down_freq = int(config.DOWN_FREQ_RATE)
+    _n_groups = int(config.FREQ_RESO) // _down_freq
+    _usable = _n_groups * _down_freq
+    freq_values = np.mean(
+        np.asarray(config.FREQ)[:_usable].reshape(_n_groups, _down_freq), axis=1
+    )
 
                                                                 
     use_cuda_device = str(getattr(config, 'DEVICE', 'cpu')).startswith('cuda')
@@ -329,6 +333,7 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
         logger.info("Attempting GPU dedispersion...")
 
         freq_gpu = cuda.to_device(freq_values)
+        f_ref_inv2 = float(freq_values.max()) ** -2  # SPEC-FREQ-001: explicit, not freq[-1]
         nchan_ds = config.FREQ_RESO // config.DOWN_FREQ_RATE
         index_values = np.arange(0, nchan_ds)
         mid_channel = nchan_ds // 2
@@ -349,7 +354,7 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
             dm_time_gpu = cuda.to_device(np.zeros((3, current_height, width), dtype=np.float32))
             nthreads = (8, 128)
             nblocks = (current_height // nthreads[0] + 1, width // nthreads[1] + 1)
-            _de_disp_gpu[nblocks, nthreads](dm_time_gpu, data_gpu, freq_gpu, index_gpu, dm_values_gpu, mid_channel)
+            _de_disp_gpu[nblocks, nthreads](dm_time_gpu, data_gpu, freq_gpu, index_gpu, dm_values_gpu, mid_channel, f_ref_inv2)
             cuda.synchronize()
             result[:, start_dm:end_dm, :] = dm_time_gpu.copy_to_host()
             del dm_time_gpu, dm_values_gpu

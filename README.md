@@ -100,7 +100,7 @@ If you set `results_dir` to a path outside `./Results` (e.g. only `./ResultsThes
 |------|-------------|
 | **Models** | `cent_resnet18.pth` and `class_resnet18.pth` in `src/models/` (see table above). |
 | **Data** | `.fits` or `.fil` in the folder given by `data.input_dir`. |
-| **Python** | **3.10+** recommended (matches the Docker image). |
+| **Python** | **3.11+** (tested on 3.11–3.14). The Docker image pins its own self-contained 3.10 stack. |
 | **GPU (optional)** | For local CUDA acceleration, install PyTorch with CUDA matching your driver. With Docker, use the `drafts-gpu` service and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html). |
 
 Typical `config.yaml` tweaks: `data.input_dir`, `data.results_dir`, `data.targets`, `dm_min` / `dm_max`, detection and classification thresholds. The `advanced-config/` folder holds extra options (performance, visualization, models, logging).
@@ -122,10 +122,27 @@ python -m venv .venv
 
 ```bash
 pip install -U pip
+
+# Exact, reproducible environment (direct + transitive deps, pinned with hashes):
+pip install -r requirements.lock.txt
+
+# — or — just the direct deps (looser, version-pinned):
 pip install -r requirements.txt
 ```
 
-`requirements.txt` includes `torch` and `torchvision` without pinning CPU/CUDA index. For **GPU**, install PyTorch compatible with your CUDA from the [official page](https://pytorch.org/get-started/locally/) (replace or reinstall `torch`/`torchvision` per the installer). Docker images ship PyTorch CPU or CUDA 11.8 depending on the target.
+**Reproducibility:** `requirements.lock.txt` is the source of truth used by CI — it pins every
+package (incl. transitives) to an exact version with hashes, resolved universally across
+Windows/Linux. Regenerate it after changing `requirements.txt` with:
+
+```bash
+uv pip compile requirements.txt -o requirements.lock.txt --universal --python-version 3.11 --generate-hashes
+```
+
+`requirements.txt` pins `torch`/`torchvision` to specific versions but pulls the default
+PyPI build. For **GPU**, install the *same version numbers* from the CUDA index, e.g.
+`pip install torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cu121`
+(see [official page](https://pytorch.org/get-started/locally/)). The Docker images ship their
+own self-contained PyTorch CPU or CUDA 11.8 stack, independent of these files.
 
 ### 2. Paths and configuration
 

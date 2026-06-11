@@ -50,6 +50,7 @@ docs/
 *.docx
 *.txt
 !requirements.txt
+!requirements.lock.txt
 !README.md
 
 # =============================================================================

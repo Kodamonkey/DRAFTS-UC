@@ -72,6 +72,12 @@ DOWN_TIME_RATE = int(_config['downsampling']['time_rate'])
 TEMPORAL_DOWNSAMPLING_MODE = str(_config.get('downsampling', {}).get('temporal_mode', 'sum')).lower()
 
 # =============================================================================
+# PREPROCESSING CONFIGURATION
+# =============================================================================
+# Scientific default is False: prewhitening changes the DM-cube physics.
+PREWHITEN_BEFORE_DM = bool(_config.get('preprocessing', {}).get('prewhiten_before_dm', False))
+
+# =============================================================================
 # DISPERSION MEASURE CONFIGURATION (DM)
 # =============================================================================
 DM_min = int(_config['dispersion']['dm_min'])

@@ -39,6 +39,7 @@ try:
         DOWN_FREQ_RATE,
         DOWN_TIME_RATE,
         TEMPORAL_DOWNSAMPLING_MODE,
+        PREWHITEN_BEFORE_DM,
         DET_PROB,
         CLASS_PROB,
         CLASS_PROB_LINEAR,
@@ -79,6 +80,7 @@ except ImportError:
             DOWN_FREQ_RATE,
             DOWN_TIME_RATE,
             TEMPORAL_DOWNSAMPLING_MODE,
+            PREWHITEN_BEFORE_DM,
             DET_PROB,
             CLASS_PROB,
             CLASS_PROB_LINEAR,
@@ -169,6 +171,7 @@ OVERHEAD_FACTOR: float = MEMORY_OVERHEAD_FACTOR_USER  # Memory overhead factor f
 # These will be overridden by the imported values from user_config.py
 # MAX_DM_CUBE_SIZE_GB is imported from user_config.py above
 DM_CHUNKING_THRESHOLD_GB: float = DM_CHUNKING_THRESHOLD_GB_USER  # DM chunking threshold (from config.yaml)
+DM_CUBE_MEMMAP_THRESHOLD_GB: float = 4.0  # SPEC-MEM-001: use memmap for cubes >= this size (GB)
 
 # ==============================================================================
 # DM (DISPERSION MEASURE) CONFIGURATION
@@ -206,7 +209,7 @@ TRIAL_CORRECTION: str = globals().get("TRIAL_CORRECTION", "gaussian_extreme")
 # PREPROCESSING CONFIGURATION
 # ==============================================================================
 
-PREWHITEN_BEFORE_DM: bool = True   # Apply prewhitening before dedispersion
+PREWHITEN_BEFORE_DM: bool = globals().get("PREWHITEN_BEFORE_DM", False)   # Apply prewhitening before dedispersion (SPEC-PRE-001; scientific default False)
 SHADE_INVALID_TAIL: bool = True    # Shade invalid tail regions in plots
 TEMPORAL_DOWNSAMPLING_MODE: str = globals().get("TEMPORAL_DOWNSAMPLING_MODE", "sum")
 HIGH_FREQ_DM_POLICY: str = globals().get("HIGH_FREQ_DM_POLICY", "unresolved")
@@ -229,7 +232,7 @@ SHOW_PROGRESS: bool = True
 _KNOWN_CONFIG_KEYS = {
     "DATA_DIR", "RESULTS_DIR", "FRB_TARGETS",
     "SLICE_DURATION_MS", "DOWN_FREQ_RATE", "DOWN_TIME_RATE",
-    "TEMPORAL_DOWNSAMPLING_MODE",
+    "TEMPORAL_DOWNSAMPLING_MODE", "PREWHITEN_BEFORE_DM",
     "DM_min", "DM_max", "DET_PROB", "CLASS_PROB", "CLASS_PROB_LINEAR",
     "DM_GRID_MODE", "MAX_DM_SMEARING_MS",
     "SNR_THRESH", "SNR_THRESH_LINEAR", "USE_MULTI_BAND", "SAVE_ONLY_BURST",

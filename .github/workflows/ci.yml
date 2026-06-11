@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pyyaml
+
+      - name: Validate config.yaml
+        run: python -m pytest tests/test_config_yaml.py -q
+
+      - name: Run test suite
+        run: python -m pytest tests -q
+
+  mutation:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Mutation testing (cosmic-ray)
+        run: |
+          pip install -r requirements.txt pytest cosmic-ray
+          cosmic-ray exec mutation/cr-science_metrics.toml
+          cosmic-ray exec mutation/cr-dm_candidate_extractor.toml
+          cosmic-ray exec mutation/cr-pipeline_parameters.toml
+          cosmic-ray exec mutation/cr-utils.toml

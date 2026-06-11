@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.analysis.science_metrics import dm_step_for_smearing, post_trials_sigma
 from src.analysis.snr_utils import compute_snr_profile

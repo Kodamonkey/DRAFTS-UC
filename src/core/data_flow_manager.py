@@ -25,6 +25,30 @@ from .pipeline_parameters import (
 logger = logging.getLogger(__name__)
 
 
+def estimate_dm_chunk_peak_memory_gb(dm_chunk_height: int, width: int) -> float:
+    """Peak RAM while building one DM window (SPEC-MEM-001)."""
+    return (3 * int(dm_chunk_height) * int(width) * 4) / (1024**3)
+
+
+def _allocate_dm_cube_buffer(shape: tuple[int, ...], size_gb: float) -> np.ndarray:
+    """Allocate DM-cube storage; large cubes use memmap to limit RSS spikes."""
+    memmap_threshold_gb = float(getattr(config, "DM_CUBE_MEMMAP_THRESHOLD_GB", 4.0))
+    if size_gb >= memmap_threshold_gb:
+        import os
+        import tempfile
+
+        fd, path = tempfile.mkstemp(suffix=".mmap", prefix="drafts_dm_cube_")
+        os.close(fd)
+        arr = np.memmap(path, dtype=np.float32, mode="w+", shape=shape)
+        arr._mmap_path = path  # type: ignore[attr-defined]
+        logger.info(
+            "[MEM] DM cube %.2f GB via memmap (%s); peak compute bounded per DM window",
+            size_gb,
+            path,
+        )
+        return arr
+    return np.zeros(shape, dtype=np.float32)
+
 
 def validate_memory_allocation(
     size_bytes: int,
@@ -144,17 +168,16 @@ def build_dm_time_cube(block_ds: np.ndarray, height: int, dm_min: float, dm_max:
         )
         return _build_dm_time_cube_chunked(block_ds, height, dm_min, dm_max, dm_chunking_threshold_gb, collector=collector)
     else:
-        # Normal path: build entire cube at once
+        # Windowed assembly: one DM window when small, multiple when large (SPEC-MEM-001).
+        # Peak RAM stays bounded by the largest window, not the full cube build.
+        window_threshold_gb = max(cube_size_gb * 1.01, 0.001)
         logger.info(
-            f"[DEDISPERSION] Building DM-time cube: {cube_size_gb:.2f} GB (height={height}, width={width:,}, "
-            f"DM range: {dm_min:.1f}-{dm_max:.1f} pc cm⁻³)"
+            f"[DEDISPERSION] Building DM-time cube (windowed): {cube_size_gb:.2f} GB "
+            f"(height={height}, width={width:,}, DM range: {dm_min:.1f}-{dm_max:.1f} pc cm⁻³)"
         )
-        validate_memory_allocation(cube_size_bytes, "DM-time cube", collector=collector)
-        from ..preprocessing.dedispersion import d_dm_time_g
-        logger.debug("[DEDISPERSION] Calling d_dm_time_g() to perform dedispersion...")
-        result = d_dm_time_g(block_ds, height=height, width=width, dm_min=dm_min, dm_max=dm_max)
-        logger.debug(f"[DEDISPERSION] Dedispersion complete, cube shape: {result.shape}")
-        return result
+        return _build_dm_time_cube_chunked(
+            block_ds, height, dm_min, dm_max, window_threshold_gb, collector=collector
+        )
 
 
 def _build_dm_time_cube_chunked(
@@ -250,13 +273,19 @@ def _build_dm_time_cube_chunked(
     # Allocate full result array (required to combine DM chunks)
     # This is necessary because the rest of the pipeline expects the complete cube
     validate_memory_allocation(result_size_bytes, "DM-time cube result array", collector=collector)
-    result = np.zeros((3, height, width), dtype=np.float32)
+    result = _allocate_dm_cube_buffer((3, height, width), result_size_gb)
+    peak_gb = estimate_dm_chunk_peak_memory_gb(dm_chunk_height, width)
+    logger.debug(
+        "[MEM] DM chunking peak window ~%.3f GB (chunk_height=%d width=%d)",
+        peak_gb,
+        dm_chunk_height,
+        width,
+    )
 
-    from ..preprocessing.dedispersion import d_dm_time_g
     import gc
-    
-    # Process each DM chunk
     import time
+
+    # Process each DM chunk
     dm_chunk_start_time = time.time()
     dm_chunk_times = []
     
@@ -358,13 +387,12 @@ def _build_dm_time_cube_temporal_chunking(
             sub_chunk_width=sub_chunk_width
         )
     
-    # Allocate full result array
-    result = np.zeros((3, height, width), dtype=np.float32)
-    
-    from ..preprocessing.dedispersion import d_dm_time_g
+    result_size_gb = (3 * height * width * 4) / (1024**3)
+    result = _allocate_dm_cube_buffer((3, height, width), result_size_gb)
+
     import gc
     import time
-    
+
     temporal_chunk_start_time = time.time()
     temporal_chunk_times = []
     

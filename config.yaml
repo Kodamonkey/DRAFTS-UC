@@ -57,6 +57,15 @@ downsampling:
   temporal_mode: "sum"
 
 # ==============================================================================
+# PREPROCESSING
+# ==============================================================================
+preprocessing:
+  # Apply per-channel prewhitening (zero-mean, unit-variance) before building the
+  # DM-time cube. This alters the physics of the DM cube (changes relative band
+  # weighting), so the scientific default is FALSE. Enable only intentionally.
+  prewhiten_before_dm: false
+
+# ==============================================================================
 # DISPERSION MEASURE (DM) SEARCH RANGE
 # ==============================================================================
 dispersion:

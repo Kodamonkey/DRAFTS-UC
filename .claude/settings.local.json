@@ -2,7 +2,25 @@
   "permissions": {
     "allow": [
       "Bash(python -m pytest src/tests/test_scientific_physics.py -v)",
-      "Bash(python -m pytest src/tests/ -v)"
+      "Bash(python -m pytest src/tests/ -v)",
+      "Bash(python -m pytest tests -q --tb=no)",
+      "Bash(python -m pytest tests --tb=no)",
+      "Bash(git tag *)",
+      "Bash(python -m pytest tests/test_mut_fast.py -x -q --tb=short)",
+      "Bash(python -m pytest tests/test_mut_fast.py --tb=no)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(python -m pytest tests/test_spec_constants.py -v --tb=short)",
+      "Bash(python -m pytest tests/test_dedispersion_parity.py -v --tb=short)",
+      "Bash(python -m pytest tests/test_contracts.py::TestDmFromImageVsDMGrid -v --tb=short)",
+      "Bash(python -m pytest tests/test_candidate_finalizer.py -v --tb=short)",
+      "Bash(python -m pytest tests/test_candidate_finalizer.py::TestFinalizePatch::test_returns_six_tuple -v --tb=long)",
+      "Bash(python -m pytest tests/test_hf_phases.py -v --tb=short)",
+      "Bash(python -m pytest tests --tb=short -q)",
+      "Bash(python -m pytest tests -q)",
+      "Bash(python -m pytest tests)",
+      "Bash(Select-String \"passed|failed|error\")",
+      "Bash(Select-Object -Last 3)"
     ]
   }
 }

@@ -36,7 +36,9 @@ from .data_flow_manager import (
     trim_valid_window,
     validate_slice_indices,
 )
+from .contracts import ChunkPlan, DMGrid, ObservationMetadata, PipelineConfigSnapshot
 from .pipeline_parameters import calculate_absolute_slice_time, calculate_dm_values, calculate_frequency_downsampled, should_use_hf_pipeline
+from ..analysis.science_metrics import K_DM_MS
 from ..input.parameter_extractor import extract_parameters_auto
 from ..input.streaming_orchestrator import get_streaming_function
 from .high_freq_pipeline import _process_file_chunked_high_freq
@@ -97,6 +99,21 @@ def _trace_info(message: str, *args) -> None:
         gl.logger.info(message % args if args else message)
     except Exception:
         logger.info(message, *args)
+
+def finalize_file_status(base_status: str, failed_chunks: int, processed_chunks: int) -> str:
+    """Resolve the per-file status accounting for swallowed chunk errors.
+
+    SPEC-IO-002: a file with failed chunks must NOT report success silently.
+    - failed > 0 and some chunks processed -> ``<base>_PARTIAL``
+    - failed > 0 and nothing processed     -> ``ERROR_ALL_CHUNKS_FAILED``
+    - failed == 0                          -> ``base_status``
+    """
+    if failed_chunks <= 0:
+        return base_status
+    if processed_chunks <= 0:
+        return "ERROR_ALL_CHUNKS_FAILED"
+    return f"{base_status}_PARTIAL"
+
 
 def _optimize_memory(aggressive: bool = False) -> None:
     """Release cached resources to keep the pipeline within memory limits.
@@ -184,6 +201,32 @@ def _process_block(
     )
 
     block, dt_ds = downsample_chunk(block)
+
+    obs_meta = ObservationMetadata.from_config(config)
+    pipe_snap = PipelineConfigSnapshot.from_config(config)
+    dm_grid = DMGrid.from_config(config)
+    chunk_plan = ChunkPlan(
+        chunk_idx=int(chunk_idx),
+        start_sample=int(start_sample),
+        end_sample=int(end_sample),
+        overlap_left=int(metadata.get("overlap_left", 0)),
+        overlap_right=int(metadata.get("overlap_right", 0)),
+    )
+    logger.debug(
+        "Chunk %03d contracts: band=[%.1f–%.1f] MHz duration=%.2fs DM_grid=%d rows",
+        chunk_idx,
+        obs_meta.freq_low,
+        obs_meta.freq_high,
+        obs_meta.duration_s,
+        dm_grid.size,
+    )
+    _trace_info(
+        "[TRACE] Chunk %03d ChunkPlan valid=%d block=[%d,%d)",
+        chunk_idx,
+        chunk_plan.valid_length,
+        chunk_plan.block_start,
+        chunk_plan.block_end,
+    )
 
     _trace_info(
         "[TRACE] Chunk %03d: tsamp=%.9fs DOWN_TIME_RATE=%dx Δt=%.9fs start_sample_raw=%d end_sample_raw=%d",
@@ -367,6 +410,7 @@ def _process_block(
             force_plots=config.FORCE_PLOTS,
             slice_start_idx=start_idx,
             slice_end_idx=end_idx,
+            dm_values=dm_grid.values,
         )
 
         # Update stats immediately (PRESTO-style: process → write → update stats)
@@ -571,6 +615,7 @@ def _process_file_chunked(
     
     t_start = time.time()                                     
     actual_chunk_count = 0                                
+    failed_chunk_count = 0
     file_stats = DetectionStats()
     
     try:
@@ -595,7 +640,7 @@ def _process_file_chunked(
             freq_ds = config.FREQ
         nu_min = float(freq_ds.min())
         nu_max = float(freq_ds.max())
-        dt_max_sec = 4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)
+        dt_max_sec = K_DM_MS * config.DM_max * (nu_min**-2 - nu_max**-2)
 
         if config.TIME_RESO <= 0:
             logger.warning(
@@ -623,13 +668,14 @@ def _process_file_chunked(
         # Decide LF vs HF pipeline based on bow-tie collapse physics
         try:
             freq_ds_local = calculate_frequency_downsampled()
+            hf_snap = PipelineConfigSnapshot.from_config(config)
             use_hf, hf_reason = should_use_hf_pipeline(
                 freq_low_mhz=float(np.min(freq_ds_local)),
                 freq_high_mhz=float(np.max(freq_ds_local)),
-                dm_max=float(config.DM_max),
+                dm_max=float(hf_snap.dm_max),
                 time_reso_s=float(config.TIME_RESO),
                 down_time_rate=int(config.DOWN_TIME_RATE),
-                collapse_ratio=float(getattr(config, 'BOWTIE_COLLAPSE_RATIO', 2.0)),
+                collapse_ratio=float(hf_snap.bowtie_collapse_ratio),
             )
         except Exception:
             use_hf = False
@@ -721,6 +767,9 @@ def _process_file_chunked(
                 logger.exception(f"Out of memory processing chunk {metadata['chunk_idx']:03d}: {mem_error}")
                 raise
             except Exception as chunk_error:
+                # SPEC-IO-002: do not silently drop chunks; count failures so the
+                # file is reported as PARTIAL instead of SUCCESS.
+                failed_chunk_count += 1
                 logger.exception(f"Error processing chunk {metadata['chunk_idx']:03d}: {chunk_error}")
 
             # Track chunk processing time
@@ -785,6 +834,14 @@ def _process_file_chunked(
 
         n_candidates, n_bursts, n_no_bursts = file_stats.effective_counts(config.SAVE_ONLY_BURST)
 
+        successful_chunks = actual_chunk_count - failed_chunk_count
+        status = finalize_file_status("SUCCESS_CHUNKED", failed_chunk_count, successful_chunks)
+        if failed_chunk_count > 0:
+            logger.warning(
+                "File %s completed with %d/%d chunks failed -> status=%s",
+                fits_path.name, failed_chunk_count, actual_chunk_count, status,
+            )
+
         return {
             "n_candidates": n_candidates,
             "n_bursts": n_bursts,
@@ -792,7 +849,8 @@ def _process_file_chunked(
             "runtime_s": runtime,
             "max_prob": file_stats.max_prob,
             "mean_snr": file_stats.mean_snr(),
-            "status": "SUCCESS_CHUNKED",
+            "status": status,
+            "failed_chunks": failed_chunk_count,
             "chunks_processed": actual_chunk_count,
             "total_chunks": chunk_count,
             "file_size_samples": total_samples,
@@ -844,6 +902,52 @@ def _process_file_chunked(
             "max_prob": 0.0, "mean_snr": 0.0,
             "status": status, "error_details": str(e),
         }
+
+def _prepare_file_parameters(fits_path: Path, manual_chunk_override: int) -> tuple[dict, int]:
+    """Extract observation parameters for a single file and resolve its chunk size.
+
+    SPEC-IO-001: parameters must be extracted per file (not once per target), so
+    heterogeneous files never inherit another file's TIME_RESO/FREQ/FILE_LENG.
+
+    Returns
+    -------
+    (extraction_result, chunk_samples)
+        ``extraction_result`` is the dict returned by ``extract_parameters_auto``.
+        ``chunk_samples`` is the manual override when > 0, otherwise the value
+        computed from this file's freshly-extracted parameters.
+    """
+    from ..preprocessing.slice_len_calculator import get_processing_parameters, validate_processing_parameters
+    from ..logging.chunking_logging import display_detailed_chunking_info
+
+    extraction_result = extract_parameters_auto(fits_path)
+    if not extraction_result.get('success'):
+        return extraction_result, 0
+
+    obs_meta = ObservationMetadata.from_config(config)
+    logger.debug(
+        "Per-file metadata %s: Δt=%.3e s channels=%d samples=%d band=[%.1f–%.1f] MHz",
+        fits_path.name,
+        obs_meta.time_reso,
+        obs_meta.freq_reso,
+        obs_meta.file_leng,
+        obs_meta.freq_low,
+        obs_meta.freq_high,
+    )
+
+    if manual_chunk_override and manual_chunk_override > 0:
+        return extraction_result, int(manual_chunk_override)
+
+    processing_params = get_processing_parameters()
+    if validate_processing_parameters(processing_params):
+        try:
+            display_detailed_chunking_info(processing_params)
+        except Exception:
+            pass
+        return extraction_result, int(processing_params['chunk_samples'])
+
+    # Fall back to a safe default when the computed parameters are invalid.
+    return extraction_result, 2_097_152
+
 
 def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> None:
     # Inject configuration if provided
@@ -933,6 +1037,9 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
     # Dictionary to store phase metrics trackers by filename
     phase_metrics_by_file: dict[str, 'PhaseMetricsTracker'] = {}
     
+    # Preserve the original manual override so it does not leak across files/targets.
+    manual_chunk_override = int(chunk_samples)
+
     for frb in config.FRB_TARGETS:                                 
         logger.logger.info("Searching files for target: %s", frb)
         file_list = find_data_files(frb)
@@ -940,46 +1047,34 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
         if not file_list:
             logger.logger.warning("No files found for %s", frb)
             continue
-        try:
 
-            first_file = file_list[0]
-            logger.logger.info("Extracting parameters from %s", first_file.name)
-
-            extraction_result = extract_parameters_auto(first_file)
-            if extraction_result['success']:
-                logger.logger.info(
-                    "Parameters extracted: %s",
-                    ", ".join(extraction_result['parameters_extracted']),
-                )
-            else:
-                logger.logger.error(
-                    "Parameter extraction failed: %s",
-                    ", ".join(extraction_result['errors']),
-                )
-                continue
-            
-                                                                  
-            from ..preprocessing.slice_len_calculator import get_processing_parameters, validate_processing_parameters
-            from ..logging.chunking_logging import display_detailed_chunking_info
-            
-            if chunk_samples == 0:
-                processing_params = get_processing_parameters()
-                if validate_processing_parameters(processing_params):
-                    chunk_samples = processing_params['chunk_samples']
-
-                    display_detailed_chunking_info(processing_params)
-                else:
-                    logger.logger.error("Calculated processing parameters are invalid; falling back to defaults")
-                    chunk_samples = 2_097_152
-            else:
-                logger.logger.info("Using manual chunk_samples override: %s", f"{chunk_samples:,}")
-
-        except Exception as e:
-            logger.logger.error("Failed to obtain parameters: %s", e)
-            continue
-            
         for fits_path in file_list:                                 
             try:
+                # SPEC-IO-001: extract parameters PER FILE (not once per target).
+                logger.logger.info("Extracting parameters from %s", fits_path.name)
+                try:
+                    extraction_result, file_chunk_samples = _prepare_file_parameters(
+                        fits_path, manual_chunk_override
+                    )
+                except Exception as e:
+                    logger.logger.error("Failed to obtain parameters for %s: %s", fits_path.name, e)
+                    continue
+
+                if not extraction_result.get('success'):
+                    logger.logger.error(
+                        "Parameter extraction failed for %s: %s",
+                        fits_path.name,
+                        ", ".join(extraction_result.get('errors', [])),
+                    )
+                    continue
+
+                logger.logger.info(
+                    "Parameters extracted: %s",
+                    ", ".join(extraction_result.get('parameters_extracted', [])),
+                )
+                if manual_chunk_override and manual_chunk_override > 0:
+                    logger.logger.info("Using manual chunk_samples override: %s", f"{file_chunk_samples:,}")
+
                 try:
                     freq_ds = calculate_frequency_downsampled()
                     freq_min_mhz = float(freq_ds.min())
@@ -1003,9 +1098,9 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
                 }
                 logger.file_processing_start(fits_path.name, file_info) 
                 
-                log_pipeline_file_processing(fits_path.name, fits_path.suffix.lower(), config.FILE_LENG, chunk_samples) 
+                log_pipeline_file_processing(fits_path.name, fits_path.suffix.lower(), config.FILE_LENG, file_chunk_samples) 
                 
-                results = _process_file_chunked(det_model, cls_model, fits_path, save_dir, chunk_samples)                               
+                results = _process_file_chunked(det_model, cls_model, fits_path, save_dir, file_chunk_samples)                               
                 summary[fits_path.name] = results
                 
                 # Capture phase metrics tracker if available (from high-freq pipeline)

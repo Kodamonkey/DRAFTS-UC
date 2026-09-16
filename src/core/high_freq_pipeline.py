@@ -15,7 +15,12 @@ from ..config import config
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..analysis.science_metrics import K_DM_MS, physical_consistency_score, post_trials_sigma
 from ..logging.logging_config import Colors, get_global_logger
-from ..output.candidate_manager import Candidate, append_candidate
+from ..output.candidate_manager import (
+    Candidate,
+    CandidateWriter,
+    append_candidate,
+    rotate_previous_candidates,
+)
 from ..output.phase_metrics import PhaseMetricsTracker
 from ..preprocessing.dedispersion import dedisperse_block, dedisperse_patch
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
@@ -1211,6 +1216,7 @@ def _process_file_chunked_high_freq(
         downsample_chunk,
         get_chunk_processing_parameters,
         plan_slices,
+        release_dm_cube_buffer,
         trim_valid_window,
     )
     from .pipeline_parameters import calculate_frequency_downsampled
@@ -1368,7 +1374,30 @@ def _process_file_chunked_high_freq(
         chunk_processing_times = []
         last_chunk_arrival_time = stream_start_time
         
-        for block, block_raw, metadata, pol_type in stream_fits_multi_pol(str(fits_path), effective_chunk_samples, overlap_samples=overlap_raw):
+        # Checkpoint/resume, matching the LF pipeline: an interrupted HF run
+        # used to restart from chunk 0 and, because the CSV is opened in
+        # append mode, duplicate every candidate it had already written.
+        from ..core.checkpoint import (
+            clear_checkpoint,
+            compute_run_fingerprint,
+            load_checkpoint,
+            save_checkpoint,
+            should_skip_chunk,
+        )
+        run_fingerprint = compute_run_fingerprint(fits_path, config)
+        resume_after = load_checkpoint(save_dir, fits_path.stem, run_fingerprint)
+        if resume_after < 0:
+            # Fresh run, not a resume: do not append to a previous run's CSV.
+            rotate_previous_candidates(csv_file)
+
+        for chunk_seq, (block, block_raw, metadata, pol_type) in enumerate(
+            stream_fits_multi_pol(
+                str(fits_path), effective_chunk_samples, overlap_samples=overlap_raw
+            ), 1
+        ):
+            if should_skip_chunk(chunk_seq, resume_after):
+                logger.debug('Skipping chunk %d (already completed)', chunk_seq)
+                continue
             chunk_start_time = time.time()
             actual_chunk_count += 1
             log_block_processing(actual_chunk_count, block.shape, str(block.dtype), metadata)
@@ -1397,6 +1426,7 @@ def _process_file_chunked_high_freq(
                 f"{metadata['end_sample']:,}",
             )
             
+            chunk_succeeded = False
             try:
                 # DIAGNOSTIC: Log block_raw shape before downsampling
                 if block_raw is not None:
@@ -1442,6 +1472,7 @@ def _process_file_chunked_high_freq(
                 else:
                     dm_time_full = build_dm_time_cube(block_ds, height=height, dm_min=config.DM_min, dm_max=config.DM_max, collector=collector)
                     block_ds, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(block_ds, dm_time_full, overlap_left_ds, overlap_right_ds)
+                    release_dm_cube_buffer(dm_time_full)
                     del dm_time_full
                     gc.collect()
 
@@ -1577,6 +1608,7 @@ def _process_file_chunked_high_freq(
                 del block_ds, dm_time, block_raw_ds
                 from ..core.pipeline import _optimize_memory
                 _optimize_memory(aggressive=(actual_chunk_count % 5 == 0))
+                chunk_succeeded = True
             except MemoryError as mem_error:
                 collector.record_oom_error()
                 logger.exception(f"Out of memory processing chunk {metadata['chunk_idx']:03d}: {mem_error}")
@@ -1585,6 +1617,15 @@ def _process_file_chunked_high_freq(
                 # SPEC-IO-002: count failed chunks for PARTIAL status reporting.
                 failed_chunk_count += 1
                 logger.exception(f"Error processing chunk {metadata['chunk_idx']:03d}: {chunk_error}")
+
+            # Only a chunk that completed may advance the checkpoint, and its
+            # rows have to be on disk before it does.
+            if chunk_succeeded:
+                CandidateWriter.flush_buffers()
+                save_checkpoint(
+                    save_dir, fits_path.stem, chunk_seq, chunk_count,
+                    fingerprint=run_fingerprint,
+                )
 
         from ..logging import log_processing_summary
         log_processing_summary(actual_chunk_count, chunk_count, cand_counter_total, n_bursts_total)
@@ -1611,10 +1652,15 @@ def _process_file_chunked_high_freq(
         effective_n_bursts_total = n_bursts_total
         effective_n_no_bursts_total = n_no_bursts_total
 
+    # The file finished: the checkpoint has served its purpose.
+    try:
+        clear_checkpoint(save_dir, fits_path.stem)
+    except Exception as e:
+        logger.debug('Could not clear HF checkpoint: %s', e)
+
     # Flush buffered candidate rows before reporting counts. The caller also
     # flushes in a finally, but this keeps the HF path correct on its own: the
     # numbers returned below must match what is on disk.
-    from ..output.candidate_manager import CandidateWriter
     CandidateWriter.flush_all()
 
     from ..core.pipeline import finalize_file_status

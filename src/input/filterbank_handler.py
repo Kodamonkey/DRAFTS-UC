@@ -34,9 +34,26 @@ def _read_double(f) -> float:
     return struct.unpack("<d", f.read(8))[0]
 
 
+#: Longest length prefix accepted for a SIGPROC keyword or string value. Real
+#: ones are a handful of characters; anything beyond this is a corrupt or
+#: hostile header, not a long name.
+_MAX_SIGPROC_STRING = 256
+
+#: Upper bound on header fields, so a header that never reaches HEADER_END
+#: terminates instead of spinning.
+_MAX_HEADER_FIELDS = 512
+
+
 def _read_string(f) -> str:
     """Read a length-prefixed string from the file."""
     length = _read_int(f)
+    # Unvalidated, this is a denial of service on third-party data: a negative
+    # prefix makes f.read(-1) pull the entire file into memory, and a huge one
+    # does the same more slowly. The pipeline reads terabyte files.
+    if not 0 <= length <= _MAX_SIGPROC_STRING:
+        raise ValueError(
+            f"implausible SIGPROC string length {length}; header is corrupt"
+        )
     return f.read(length).decode('utf-8', errors='ignore')
 
 
@@ -44,16 +61,19 @@ def _read_header(f) -> Tuple[dict, int]:
     """Read filterbank header, handling both standard and non-standard formats."""
     original_pos = f.tell()
     
+    saw_header_start = False
     try:
-                                                      
+
         start = _read_string(f)
         if start != "HEADER_START":
-                                                                        
+
             f.seek(original_pos)
             return _read_non_standard_header(f)
+        saw_header_start = True
 
         header = {}
-        while True:
+        key = "<none>"
+        for _ in range(_MAX_HEADER_FIELDS):
             try:
                 key = _read_string(f)
                 if key == "HEADER_END":
@@ -89,19 +109,50 @@ def _read_header(f) -> Tuple[dict, int]:
                 else:
                                                               
                     header[key] = _read_int(f)
-            except (struct.error, UnicodeDecodeError) as e:
-                logger.debug(f"Warning: Error reading header field '{key}': {e}")
-                continue
+            except (struct.error, UnicodeDecodeError, ValueError) as e:
+                # `continue` here span forever: at EOF _read_int raises every
+                # time and the file position never advances, so a truncated
+                # header pinned a core indefinitely and filled the log.
+                logger.warning(
+                    "Truncated or corrupt filterbank header near field '%s': %s", key, e
+                )
+                raise ValueError(f"corrupt filterbank header near '{key}'") from e
+        else:
+            raise ValueError(
+                f"filterbank header has more than {_MAX_HEADER_FIELDS} fields "
+                "without reaching HEADER_END; refusing to keep reading"
+            )
         return header, f.tell()
     except Exception as e:
+        if saw_header_start:
+            # The file declared itself a SIGPROC filterbank and then failed to
+            # parse. Falling through to _read_non_standard_header would invent
+            # nchans/tsamp/fch1/foff and process the file against made-up
+            # physics, producing candidates with wrong DMs and times and no
+            # indication anything went wrong. Refuse instead.
+            logger.error(
+                "Corrupt SIGPROC header in this file (%s). Refusing to guess "
+                "observation parameters; fix or re-transfer the file.", e,
+            )
+            raise
         logger.debug(f"Error reading standard filterbank header: {e}")
         f.seek(original_pos)
         return _read_non_standard_header(f)
 
 
 def _read_non_standard_header(f) -> Tuple[dict, int]:
-    """Handle non-standard filterbank files by assuming common parameters."""
-    logger.info("Detected non-standard .fil file; using estimated parameters")
+    """Handle non-standard filterbank files by assuming common parameters.
+
+    Every value below is INVENTED. Nothing in the file supports them. Any
+    candidate produced from a file read this way has a DM, an arrival time and a
+    frequency axis derived from guesses, so it is not a measurement.
+    """
+    logger.warning(
+        "No SIGPROC header found: falling back to INVENTED observation "
+        "parameters (nchans=512, tsamp=8.192e-05 s, fch1=1500 MHz, foff=-1 MHz). "
+        "These are not read from the file. Any DM, time or frequency reported "
+        "for it is meaningless unless these happen to match the real setup."
+    )
     
                                           
     current_pos = f.tell()

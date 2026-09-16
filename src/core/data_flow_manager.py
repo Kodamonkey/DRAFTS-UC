@@ -7,6 +7,8 @@ import logging
 from pathlib import Path
 from typing import List, Tuple
 
+import atexit
+
 import numpy as np
 
 from ..config import config
@@ -30,8 +32,17 @@ def estimate_dm_chunk_peak_memory_gb(dm_chunk_height: int, width: int) -> float:
     return (3 * int(dm_chunk_height) * int(width) * 4) / (1024**3)
 
 
+#: Backing files of memmap DM cubes that have not been released yet. Swept at
+#: interpreter exit so a crash cannot leave multi-GB files behind.
+_LIVE_DM_CUBE_FILES: set[str] = set()
+
+
 def _allocate_dm_cube_buffer(shape: tuple[int, ...], size_gb: float) -> np.ndarray:
-    """Allocate DM-cube storage; large cubes use memmap to limit RSS spikes."""
+    """Allocate DM-cube storage; large cubes use memmap to limit RSS spikes.
+
+    A memmap-backed cube owns a temporary file that the caller MUST hand to
+    :func:`release_dm_cube_buffer` once it is done with it.
+    """
     memmap_threshold_gb = float(getattr(config, "DM_CUBE_MEMMAP_THRESHOLD_GB", 4.0))
     if size_gb >= memmap_threshold_gb:
         import os
@@ -41,6 +52,7 @@ def _allocate_dm_cube_buffer(shape: tuple[int, ...], size_gb: float) -> np.ndarr
         os.close(fd)
         arr = np.memmap(path, dtype=np.float32, mode="w+", shape=shape)
         arr._mmap_path = path  # type: ignore[attr-defined]
+        _LIVE_DM_CUBE_FILES.add(path)
         logger.info(
             "[MEM] DM cube %.2f GB via memmap (%s); peak compute bounded per DM window",
             size_gb,
@@ -48,6 +60,49 @@ def _allocate_dm_cube_buffer(shape: tuple[int, ...], size_gb: float) -> np.ndarr
         )
         return arr
     return np.zeros(shape, dtype=np.float32)
+
+
+def release_dm_cube_buffer(arr) -> None:
+    """Close and delete the temporary file backing a memmap DM cube.
+
+    Nothing did this before: each chunk whose cube crossed
+    DM_CUBE_MEMMAP_THRESHOLD_GB left a multi-GB file in the system temp
+    directory for the lifetime of the machine. A long run over a large file
+    filled the disk, and the resulting OSError surfaced as a generic chunk
+    failure. Safe to call on a plain in-memory array.
+    """
+    path = getattr(arr, "_mmap_path", None)
+    if path is None:
+        return
+    import os
+
+    # The mapping has to be closed before the file can be removed on Windows.
+    try:
+        mm = getattr(arr, "_mmap", None)
+        if mm is not None:
+            mm.close()
+    except Exception as e:  # pragma: no cover - platform dependent
+        logger.debug("Could not close DM cube mapping %s: %s", path, e)
+    try:
+        os.unlink(path)
+        _LIVE_DM_CUBE_FILES.discard(path)
+    except OSError as e:
+        logger.warning("Could not remove temporary DM cube %s: %s", path, e)
+
+
+def _sweep_dm_cube_files() -> None:
+    """Remove any DM cube file left behind (crash, or a path that forgot)."""
+    import os
+
+    for path in list(_LIVE_DM_CUBE_FILES):
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        _LIVE_DM_CUBE_FILES.discard(path)
+
+
+atexit.register(_sweep_dm_cube_files)
 
 
 def validate_memory_allocation(

@@ -8,6 +8,7 @@ import atexit
 import csv
 import logging
 import os
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
@@ -86,6 +87,45 @@ def ensure_csv_header(csv_path: Path) -> None:
         raise
 
 
+def rotate_previous_candidates(csv_path: Path) -> Path | None:
+    """Move an existing candidate CSV aside so a fresh run cannot append to it.
+
+    The writer opens in append mode and ``ensure_csv_header`` keeps whatever is
+    already there, so re-running over the same input used to interleave both
+    runs' detections in one file with nothing to tell them apart -- while the
+    plots, which are overwritten, showed only the newer run. Resuming is
+    different and must keep appending, so the caller only invokes this when
+    there is no checkpoint to resume from.
+
+    Returns the path the old file was moved to, or ``None`` if there was
+    nothing worth keeping.
+    """
+    if not csv_path.exists():
+        return None
+    try:
+        with csv_path.open("r", newline="", encoding="utf-8") as f_csv:
+            has_data = sum(1 for _ in csv.reader(f_csv)) > 1
+    except OSError as e:
+        logger.warning("Could not inspect %s before rotating: %s", csv_path, e)
+        return None
+    if not has_data:
+        return None
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    target = csv_path.with_name(f"{csv_path.stem}.{stamp}{csv_path.suffix}")
+    try:
+        csv_path.replace(target)
+    except OSError as e:
+        logger.error("Could not rotate previous candidates %s: %s", csv_path, e)
+        return None
+    logger.warning(
+        "Previous candidates for this file were kept as %s; this run starts a "
+        "new CSV instead of appending to them.", target.name,
+    )
+    ensure_csv_header(csv_path)
+    return target
+
+
 def append_candidate(csv_path: Path, candidate_row: list) -> None:
     """Append a candidate row to the CSV file.
 
@@ -147,9 +187,7 @@ class CandidateWriter:
         if len(self._buffer) >= self._flush_interval:
             self.flush()
 
-    def flush(self) -> None:
-        if not self._buffer:
-            return
+    def _write_buffer(self) -> None:
         self._ensure_open()
         self._writer.writerows(self._buffer)
         self._fh.flush()
@@ -159,6 +197,21 @@ class CandidateWriter:
             # fsync is unavailable on some filesystems; the rows are already out
             # of the process buffer, which is the part that matters for a crash.
             pass
+
+    def flush(self) -> None:
+        if not self._buffer:
+            return
+        # Safe to retry: the buffer is only cleared once the write has returned,
+        # so a transient storage error cannot drop or duplicate rows.
+        from ..core.retry import with_retry
+
+        def _attempt() -> None:
+            # Drop a handle that went bad so the retry reopens it.
+            if self._fh is not None and self._fh.closed:
+                self._fh = None
+            self._write_buffer()
+
+        with_retry(_attempt, description=f"writing candidates to {self._path.name}")
         self._buffer.clear()
 
     def close(self) -> None:

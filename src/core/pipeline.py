@@ -33,6 +33,7 @@ from .data_flow_manager import (
     downsample_chunk,
     get_chunk_processing_parameters,
     plan_slices,
+    release_dm_cube_buffer,
     trim_valid_window,
     validate_slice_indices,
 )
@@ -50,7 +51,11 @@ from ..logging import (
     log_processing_summary,
     log_streaming_parameters,
 )
-from ..output.candidate_manager import CandidateWriter, ensure_csv_header
+from ..output.candidate_manager import (
+    CandidateWriter,
+    ensure_csv_header,
+    rotate_previous_candidates,
+)
 from ..output.phase_metrics import PhaseMetricsTracker
 
               
@@ -91,6 +96,38 @@ class DetectionStats:
         if save_only_burst:
             return self.n_bursts, self.n_bursts, 0
         return self.n_candidates, self.n_bursts, self.n_no_bursts
+
+def _error_result(
+    status: str,
+    error: Exception,
+    t_start: float,
+    stats: "DetectionStats",
+    chunks_processed: int = 0,
+    failed_chunks: int = 0,
+) -> dict:
+    """Per-file result for a run that ended in an error.
+
+    The counts are what the run actually produced and wrote before failing, not
+    zeros. Reporting zero while the CSV already held those rows led straight to
+    the wrong conclusion -- that the file had no detections -- and to real
+    candidates being discarded with it.
+    """
+    effective_candidates, effective_bursts, effective_no_bursts = stats.effective_counts(
+        bool(getattr(config, "SAVE_ONLY_BURST", False))
+    )
+    return {
+        "n_candidates": effective_candidates,
+        "n_bursts": effective_bursts,
+        "n_no_bursts": effective_no_bursts,
+        "runtime_s": time.time() - t_start,
+        "max_prob": stats.max_prob,
+        "mean_snr": stats.mean_snr(),
+        "status": status,
+        "error_details": str(error),
+        "chunks_processed": chunks_processed,
+        "failed_chunks": failed_chunks,
+    }
+
 
 def _trace_info(message: str, *args) -> None:
     try:
@@ -282,6 +319,9 @@ def _process_block(
     # CRITICAL: Free the full cube immediately after trimming (PRESTO-style)
     # This ensures we never keep more than the trimmed cube in memory
     # We only keep what we need for processing slices
+    # Frees the temporary file when the cube was memmap-backed; a no-op
+    # otherwise. Without it each large chunk leaves a multi-GB file behind.
+    release_dm_cube_buffer(dm_time_full)
     del dm_time_full
     import gc
     gc.collect()
@@ -711,8 +751,16 @@ def _process_file_chunked(
             load_checkpoint,
             clear_checkpoint,
             should_skip_chunk,
+            compute_run_fingerprint,
         )
-        resume_after = load_checkpoint(save_dir, fits_path.stem)
+        # Ties the checkpoint to this search and this input file, so a resume
+        # after a configuration change starts over instead of splicing two
+        # different searches into one CSV.
+        run_fingerprint = compute_run_fingerprint(fits_path, config)
+        resume_after = load_checkpoint(save_dir, fits_path.stem, run_fingerprint)
+        if resume_after < 0:
+            # Fresh run, not a resume: do not append to a previous run's CSV.
+            rotate_previous_candidates(csv_file)
 
         logger.info(
             "Starting to read chunks from file.%s",
@@ -812,7 +860,10 @@ def _process_file_chunked(
             # produced are durable, so they have to be on disk before it lands.
             if chunk_succeeded:
                 CandidateWriter.flush_buffers()
-                save_checkpoint(save_dir, fits_path.stem, chunk_idx, chunk_count)
+                save_checkpoint(
+                    save_dir, fits_path.stem, chunk_idx, chunk_count,
+                    fingerprint=run_fingerprint,
+                )
 
             # CRITICAL: Free block immediately after processing (PRESTO-style)
             del block
@@ -872,48 +923,43 @@ def _process_file_chunked(
     except MemoryError as e:
         logger.error("Memory error while processing %s: %s", fits_path.name, e)
         status = "ERROR_MEMORY"
-        return {
-            "n_candidates": 0, "n_bursts": 0, "n_no_bursts": 0,
-            "runtime_s": time.time() - t_start,
-            "max_prob": 0.0, "mean_snr": 0.0,
-            "status": status, "error_details": str(e),
-        }
+        return _error_result(
+            status, e, t_start, file_stats,
+            chunks_processed=actual_chunk_count,
+            failed_chunks=failed_chunk_count,
+        )
     except FileNotFoundError as e:
         logger.error("File not found: %s - %s", fits_path.name, e)
         status = "ERROR_FILE_NOT_FOUND"
-        return {
-            "n_candidates": 0, "n_bursts": 0, "n_no_bursts": 0,
-            "runtime_s": time.time() - t_start,
-            "max_prob": 0.0, "mean_snr": 0.0,
-            "status": status, "error_details": str(e),
-        }
+        return _error_result(
+            status, e, t_start, file_stats,
+            chunks_processed=actual_chunk_count,
+            failed_chunks=failed_chunk_count,
+        )
     except PermissionError as e:
         logger.error("Permission error processing %s: %s", fits_path.name, e)
         status = "ERROR_PERMISSION"
-        return {
-            "n_candidates": 0, "n_bursts": 0, "n_no_bursts": 0,
-            "runtime_s": time.time() - t_start,
-            "max_prob": 0.0, "mean_snr": 0.0,
-            "status": status, "error_details": str(e),
-        }
+        return _error_result(
+            status, e, t_start, file_stats,
+            chunks_processed=actual_chunk_count,
+            failed_chunks=failed_chunk_count,
+        )
     except ValueError as e:
         logger.error("Invalid/corrupted file %s: %s", fits_path.name, e)
         status = "ERROR_CORRUPTED_FILE"
-        return {
-            "n_candidates": 0, "n_bursts": 0, "n_no_bursts": 0,
-            "runtime_s": time.time() - t_start,
-            "max_prob": 0.0, "mean_snr": 0.0,
-            "status": status, "error_details": str(e),
-        }
+        return _error_result(
+            status, e, t_start, file_stats,
+            chunks_processed=actual_chunk_count,
+            failed_chunks=failed_chunk_count,
+        )
     except Exception as e:
         logger.error("Unhandled error processing %s: %s", fits_path.name, e)
         status = "ERROR_CHUNKED"
-        return {
-            "n_candidates": 0, "n_bursts": 0, "n_no_bursts": 0,
-            "runtime_s": time.time() - t_start,
-            "max_prob": 0.0, "mean_snr": 0.0,
-            "status": status, "error_details": str(e),
-        }
+        return _error_result(
+            status, e, t_start, file_stats,
+            chunks_processed=actual_chunk_count,
+            failed_chunks=failed_chunk_count,
+        )
     finally:
         # Every exit path -- success, early return, or any of the handlers above --
         # must leave the CSV on disk. Without this, a failure after N candidates
@@ -1059,7 +1105,29 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
     # Preserve the original manual override so it does not leak across files/targets.
     manual_chunk_override = int(chunk_samples)
 
-    for frb in config.FRB_TARGETS:                                 
+    # Every output path -- candidate CSV, checkpoint, plot directories, summary
+    # key -- is derived from the file stem alone, so two inputs with the same
+    # basename in different directories write over each other: the CSVs merge
+    # (append mode), the checkpoints collide and the plots are overwritten. The
+    # result is two observations blended into one dataset with nothing marking
+    # the seam. Detect it up front rather than discover it in the data later.
+    # The structural fix is to derive output identity from the full path
+    # (audit REF-17); this guard is the safe stop-gap.
+    seen_stems: dict[str, Path] = {}
+    for frb in config.FRB_TARGETS:
+        for candidate_path in find_data_files(frb):
+            previous = seen_stems.get(candidate_path.stem)
+            if previous is not None and previous != candidate_path:
+                raise ValueError(
+                    "Two input files share the basename "
+                    f"'{candidate_path.stem}':\n  {previous}\n  {candidate_path}\n"
+                    "They would write to the same CSV, checkpoint and plot "
+                    "directory and their results would be merged silently. "
+                    "Rename one, or process them into separate results_dir."
+                )
+            seen_stems[candidate_path.stem] = candidate_path
+
+    for frb in config.FRB_TARGETS:
         logger.logger.info("Searching files for target: %s", frb)
         file_list = find_data_files(frb)
         logger.logger.info("Files found: %s", [f.name for f in file_list])
@@ -1067,7 +1135,7 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
             logger.logger.warning("No files found for %s", frb)
             continue
 
-        for fits_path in file_list:                                 
+        for fits_path in file_list:
             try:
                 # SPEC-IO-001: extract parameters PER FILE (not once per target).
                 logger.logger.info("Extracting parameters from %s", fits_path.name)

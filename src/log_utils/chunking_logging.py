@@ -70,85 +70,14 @@ def display_detailed_chunking_info(parameters: Dict[str, Any]) -> None:
         )
 
 
-def log_chunk_processing_start(chunk_idx: int, chunk_info: Dict[str, Any]) -> None:
-    """Record the start of processing for a chunk.
-
-    Args:
-        chunk_idx: Chunk index
-        chunk_info: Chunk information
-    """
-    logger = get_global_logger().logger
-    logger.info(
-        "Chunk %03d/%03d • samples=%s • slices=%d",
-        chunk_idx,
-        chunk_info.get("total_chunks", 0),
-        f"{chunk_info.get('chunk_samples', 0):,}",
-        chunk_info.get("slices_per_chunk", 0),
-    )
 
 
-def log_chunk_processing_end(chunk_idx: int, results: Dict[str, Any]) -> None:
-    """Record the completion of chunk processing.
-
-    Args:
-        chunk_idx: Chunk index
-        results: Processing results
-    """
-    logger = get_global_logger().logger
-    logger.info(
-        "Chunk %03d finished • candidates=%d • runtime=%.2fs",
-        chunk_idx,
-        results.get("candidates", 0),
-        results.get("processing_time", 0.0),
-    )
 
 
-def log_file_processing_summary(file_info: Dict[str, Any]) -> None:
-    """Record a summary of the file processing.
-
-    Args:
-        file_info: Information about the processed file
-    """
-    logger = get_global_logger().logger
-    logger.info(
-        "File summary • %s • chunks=%d • slices=%s • candidates=%d • runtime=%.2fs",
-        file_info.get("filename", "N/A"),
-        file_info.get("total_chunks", 0),
-        f"{file_info.get('total_slices', 0):,}",
-        file_info.get("total_candidates", 0),
-        file_info.get("total_time", 0.0),
-    )
 
 
-def log_memory_optimization(optimization_info: Dict[str, Any]) -> None:
-    """Record information about memory optimizations.
-
-    Args:
-        optimization_info: Optimization details
-    """
-    logger = get_global_logger().logger
-    logger.debug(
-        "Memory optimisation • strategy=%s • used=%.2f GB • efficiency=%.1f%%",
-        optimization_info.get("strategy", "N/A"),
-        optimization_info.get("memory_used_gb", 0.0),
-        optimization_info.get("efficiency_percent", 0.0),
-    )
 
 
-def log_slice_configuration(slice_config: Dict[str, Any]) -> None:
-    """Record the slice configuration.
-
-    Args:
-        slice_config: Slice configuration
-    """
-    logger = get_global_logger().logger
-    logger.info(
-        "Slice configuration • target=%.1f ms • samples=%s • actual=%.1f ms • accuracy=%.1f%%",
-        slice_config.get("target_duration_ms", 0.0),
-        f"{slice_config.get('samples_per_slice', 0):,}",
-        slice_config.get("real_duration_ms", 0.0),
-        slice_config.get("precision_percent", 0.0),
-    )
 
 
 def log_chunk_budget(budget: Dict[str, Any]) -> None:

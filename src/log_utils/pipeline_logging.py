@@ -9,7 +9,7 @@ information, especially for chunking operations and file processing.
 """
 
                           
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict
 
                
 from .logging_config import get_global_logger

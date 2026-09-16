@@ -22,10 +22,9 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 import logging
 
-import numpy as np
 from astropy.io import fits
 
 # Setup path

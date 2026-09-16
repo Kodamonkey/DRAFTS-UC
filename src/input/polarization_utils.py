@@ -25,26 +25,6 @@ def debiased_linear_polarization(q: np.ndarray, u: np.ndarray, enabled: bool = T
     return np.sqrt(np.maximum(power, 0.0)).astype(q.dtype, copy=False)
 
 
-def polarization_fractions(
-    raw_data: np.ndarray,
-    pol_type: str,
-    eps: float = 1e-6,
-) -> tuple[np.ndarray | None, np.ndarray | None]:
-    """Return L/I and V/I for IQUV data; otherwise ``(None, None)``."""
-    if not has_full_polarization_data(raw_data, pol_type):
-        return None, None
-    i = raw_data[:, 0, :]
-    q = raw_data[:, 1, :]
-    u = raw_data[:, 2, :]
-    v = raw_data[:, 3, :]
-    try:
-        from ..config import config
-        debias = bool(getattr(config, "POLARIZATION_LINEAR_DEBIAS", True))
-    except Exception:
-        debias = True
-    l = debiased_linear_polarization(q, u, enabled=debias)
-    denom = np.where(np.abs(i) < eps, np.nan, i)
-    return l / denom, np.abs(v) / denom
 
 
 def extract_polarization_from_raw(

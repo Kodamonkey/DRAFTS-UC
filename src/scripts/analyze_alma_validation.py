@@ -6,13 +6,11 @@ Genera estadísticas detalladas para los 8 pulsos canónicos, dataset extendido 
 
 import pandas as pd
 import numpy as np
-from pathlib import Path
 import re
 
 # Cargar canónicos desde config.yaml
 def load_canonical_pulses_from_config():
     """Carga los 8 pulsos canónicos desde config.yaml."""
-    import yaml
     
     canonical_pulses = []
     

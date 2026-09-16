@@ -24,9 +24,8 @@ except Exception:
 
                
 from ..config import config
-from ..logging import (
+from ..log_utils import (
     log_stream_fits_block_generation,
-    log_stream_fits_load_strategy,
     log_stream_fits_parameters,
     log_stream_fits_summary
 )

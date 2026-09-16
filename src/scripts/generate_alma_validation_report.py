@@ -10,8 +10,7 @@ import json
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Dict, Optional, Tuple
-from scipy import stats as scipy_stats
+from typing import Dict, Optional
 
 
 def load_metrics(metrics_path: str) -> Dict:

@@ -4,7 +4,7 @@
 
 import numpy as np
 import logging
-from typing import Tuple, Dict, List, Optional, Any
+from typing import Tuple, Dict, List, Any
 
 from ..analysis.science_metrics import K_DM_MS
 
@@ -386,47 +386,6 @@ def get_dynamic_dm_range_for_candidate(
     
     return dm_plot_min, dm_plot_max
 
-def get_dynamic_dm_range_for_multiple_candidates(
-    dm_candidates: List[float],
-    config_module,
-    visualization_type: str = 'overview',
-    **kwargs
-) -> Tuple[float, float]:
-    """Obtain a dynamic DM range for multiple candidates.
-
-    Parameters
-    ----------
-    dm_candidates : list
-        List of detected candidate DMs
-    config_module : module
-        Configuration module
-    visualization_type : str
-        Visualization type
-
-    Returns
-    -------
-    tuple
-        (dm_plot_min, dm_plot_max)
-    """
-    
-    dm_global_min = getattr(config_module, 'DM_min', 0)
-    dm_global_max = getattr(config_module, 'DM_max', 1024)
-    
-    dm_plot_min, dm_plot_max, details = dm_range_calculator.calculate_multiple_candidates_range(
-        dm_candidates=dm_candidates,
-        dm_global_min=dm_global_min,
-        dm_global_max=dm_global_max,
-        **kwargs
-    )
-    
-    logger.info(
-        "DM range for %d candidates: %.1f - %.1f",
-        len(dm_candidates),
-        dm_plot_min,
-        dm_plot_max,
-    )
-    
-    return dm_plot_min, dm_plot_max
 
 if __name__ == "__main__":
                     

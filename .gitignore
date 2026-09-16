@@ -32,7 +32,7 @@ src/training/binary_classification/Data/
 # LOGS AND TEMPORARY FILES
 # =============================================================================
 *.log
-src/logging/log/
+src/log_utils/log/
 src/training/object_detection/logs*/
 src/training/binary_classification/logs*/
 *.tmp

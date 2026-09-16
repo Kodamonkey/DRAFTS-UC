@@ -16,9 +16,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import Optional
 
-import numpy as np
 
 from src.input.fits_handler import get_obparams, stream_fits
 from src.input.filterbank_handler import get_obparams_fil, stream_fil

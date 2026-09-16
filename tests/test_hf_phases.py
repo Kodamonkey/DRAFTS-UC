@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import unittest
-import numpy as np
 
 
 def _dm_smear_samples(dm_range: float, freq_low: float, freq_high: float,

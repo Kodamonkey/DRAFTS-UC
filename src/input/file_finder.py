@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import List, Optional
 import logging
 
-from .file_detector import validate_file_compatibility
 from ..config import config
 
 logger = logging.getLogger(__name__)

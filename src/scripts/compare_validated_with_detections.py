@@ -9,7 +9,6 @@ y genera archivos Excel con todos los matches encontrados.
 import re
 import pandas as pd
 from pathlib import Path
-from typing import Tuple, List
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 

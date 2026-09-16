@@ -24,12 +24,11 @@ except ImportError:
 
                
 from ..config import config
-from ..logging import (
+from ..log_utils import (
     log_stream_fil_block_generation,
     log_stream_fil_parameters,
     log_stream_fil_summary,
     log_stream_fits_block_generation,
-    log_stream_fits_load_strategy,
     log_stream_fits_parameters,
     log_stream_fits_summary
 )
@@ -67,12 +66,6 @@ logger = logging.getLogger(__name__)
 
 
 
-# Legacy aliases — use the canonical versions from .utils directly
-_safe_float = safe_float
-_safe_int = safe_int
-_auto_config_downsampling = auto_config_downsampling
-_print_debug_frequencies = print_debug_frequencies
-_save_file_debug_info = save_file_debug_info
 
                                                                                
                                  

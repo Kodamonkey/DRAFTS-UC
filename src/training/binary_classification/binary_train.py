@@ -3,7 +3,6 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 import numpy as np
 from tqdm import tqdm
-import seaborn as sns
 import matplotlib.pyplot as plt
 plt.style.use('default')
 

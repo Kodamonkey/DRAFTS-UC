@@ -12,15 +12,9 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-from matplotlib import gridspec
 from matplotlib.colors import ListedColormap
 
                
-from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
-from ..config import config
-from ..preprocessing.dedispersion import dedisperse_block
-from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
-from .visualization_ranges import get_dynamic_dm_range_for_candidate
 from .plot_composite import save_composite_plot
 
               
@@ -33,55 +27,6 @@ if "mako" not in plt.colormaps():
         cmap=ListedColormap(sns.color_palette("mako", as_cmap=True)(np.linspace(0, 1, 256)))
     )
 
-def _calculate_dynamic_dm_range(
-    top_boxes: Iterable | None,
-    slice_len: int,
-    fallback_dm_min: int = None,
-    fallback_dm_max: int = None,
-    confidence_scores: Iterable | None = None
-) -> Tuple[float, float]:
-    """Unified delegate: uses visualization_ranges for dynamic DM range."""
-    if (not getattr(config, 'DM_DYNAMIC_RANGE_ENABLE', True)
-        or top_boxes is None
-        or len(top_boxes) == 0):
-        dm_min = fallback_dm_min if fallback_dm_min is not None else config.DM_min
-        dm_max = fallback_dm_max if fallback_dm_max is not None else config.DM_max
-        return float(dm_min), float(dm_max)
-
-    dm_candidates: List[float] = []
-    for box in top_boxes:
-        x1, y1, x2, y2 = map(int, box)
-        center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
-        dm_val, _, _ = extract_candidate_dm(center_x, center_y, slice_len)
-        dm_candidates.append(dm_val)
-    if not dm_candidates:
-        dm_min = fallback_dm_min if fallback_dm_min is not None else config.DM_min
-        dm_max = fallback_dm_max if fallback_dm_max is not None else config.DM_max
-        return float(dm_min), float(dm_max)
-
-    if confidence_scores is not None and len(confidence_scores) > 0:
-        best_idx = int(np.argmax(confidence_scores))
-        dm_optimal = float(dm_candidates[best_idx])
-        confidence = float(confidence_scores[best_idx])
-    else:
-        dm_optimal = float(np.median(dm_candidates))
-        confidence = 0.8
-
-    try:
-        return get_dynamic_dm_range_for_candidate(
-            dm_optimal=dm_optimal,
-            config_module=config,
-            visualization_type=getattr(config, 'DM_RANGE_DEFAULT_VISUALIZATION', 'detailed'),
-            confidence=confidence,
-            range_factor=getattr(config, 'DM_RANGE_FACTOR', 0.2),
-            min_range_width=getattr(config, 'DM_RANGE_MIN_WIDTH', 50.0),
-            max_range_width=getattr(config, 'DM_RANGE_MAX_WIDTH', 200.0),
-        )
-    except Exception as e:
-        print(f"[WARNING] Error calculating dynamic DM range: {e}")
-        dm_min = fallback_dm_min if fallback_dm_min is not None else config.DM_min
-        dm_max = fallback_dm_max if fallback_dm_max is not None else config.DM_max
-        return float(dm_min), float(dm_max)
 
 
 def preprocess_img(img: np.ndarray) -> np.ndarray:
@@ -212,28 +157,8 @@ def save_all_plots(
         logger.info(f"Composite plot generated at: {comp_path}")
         logger.info(f"Individual plots automatically generated in: {comp_path.parent}/individual_plots/")
 
-def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:
-    freq_ds = np.mean(
-        config.FREQ.reshape(config.FREQ_RESO // config.DOWN_FREQ_RATE, config.DOWN_FREQ_RATE),
-        axis=1,
-    )
-    
-    if band_idx == 0:             
-        return freq_ds.min(), freq_ds.max()
-    elif band_idx == 1:             
-        mid_channel = len(freq_ds) // 2
-        return freq_ds.min(), freq_ds[mid_channel]
-    elif band_idx == 2:             
-        mid_channel = len(freq_ds) // 2  
-        return freq_ds[mid_channel], freq_ds.max()
-    else:
-        logger.warning(f"Invalid band index {band_idx}, using Full Band range")
-        return freq_ds.min(), freq_ds.max()
 
 
-def get_band_name_with_freq_range(band_idx: int, band_name: str) -> str:
-    freq_min, freq_max = get_band_frequency_range(band_idx)
-    return f"{band_name} ({freq_min:.0f}-{freq_max:.0f} MHz)"
 
 def save_slice_summary(
     waterfall_block: np.ndarray,

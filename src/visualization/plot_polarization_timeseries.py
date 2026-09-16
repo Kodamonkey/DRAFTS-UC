@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,108 +16,10 @@ from ..config import config
 logger = logging.getLogger(__name__)
 
 
-def compute_simple_timeseries(waterfall: np.ndarray) -> np.ndarray:
-    """Compute time series by summing over frequency channels.
-    
-    This is a simple sum (not PRESTO-style normalization) to match
-    the behavior of time_series_with_polarization_dos.py.
-    
-    Parameters
-    ----------
-    waterfall : np.ndarray
-        2D array of shape (n_freq, n_time) or (n_time, n_freq)
-        
-    Returns
-    -------
-    np.ndarray
-        1D time series of shape (n_time,)
-    """
-    if waterfall.ndim != 2:
-        raise ValueError(f"Expected 2D waterfall, got shape {waterfall.shape}")
-    
-    # Handle both (freq, time) and (time, freq) shapes
-    if waterfall.shape[0] < waterfall.shape[1]:
-        # Likely (freq, time) - sum over frequency
-        return np.nansum(waterfall, axis=0)
-    else:
-        # Likely (time, freq) - sum over frequency
-        return np.nansum(waterfall, axis=1)
 
 
-def normalize_simple(data: np.ndarray, mean: float, std: float) -> np.ndarray:
-    """Simple normalization: (data - mean) / std.
-    
-    This matches the normalization in time_series_with_polarization_dos.py.
-    
-    Parameters
-    ----------
-    data : np.ndarray
-        Data to normalize
-    mean : float
-        Mean value to subtract
-    std : float
-        Standard deviation to divide by
-        
-    Returns
-    -------
-    np.ndarray
-        Normalized data
-    """
-    if std <= 0 or not np.isfinite(std):
-        std = 1.0
-    return (data - mean) / std
 
 
-def compute_off_pulse_stats(
-    time_series: np.ndarray,
-    use_quarters: bool = True
-) -> Tuple[float, float, float]:
-    """Compute noise statistics from off-pulse regions.
-    
-    Uses first and last quarter of the time series to estimate noise,
-    matching the behavior of time_series_with_polarization_dos.py.
-    
-    Parameters
-    ----------
-    time_series : np.ndarray
-        1D time series
-    use_quarters : bool
-        If True, use first and last quarter. If False, use all data.
-        
-    Returns
-    -------
-    mean : float
-        Mean of noise regions
-    median : float
-        Median of noise regions
-    std : float
-        Standard deviation of noise regions
-    """
-    if time_series.size == 0:
-        return 0.0, 0.0, 1.0
-    
-    if use_quarters and time_series.size >= 4:
-        # Use first and last quarter (matching script behavior)
-        left_region = time_series[:len(time_series)//4]
-        right_region = time_series[3*len(time_series)//4:]
-        
-        # Remove mean from each region before concatenating
-        left_region = left_region - np.nanmean(left_region)
-        right_region = right_region - np.nanmean(right_region)
-        
-        noise_region = np.concatenate([left_region, right_region])
-    else:
-        # Use all data
-        noise_region = time_series - np.nanmean(time_series)
-    
-    mean = np.nanmean(noise_region)
-    median = np.nanmedian(noise_region)
-    std = np.nanstd(noise_region)
-    
-    if not np.isfinite(std) or std <= 0:
-        std = 1.0
-    
-    return mean, median, std
 
 
 def create_polarization_timeseries_plot(

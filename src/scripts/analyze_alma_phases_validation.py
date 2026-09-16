@@ -9,10 +9,9 @@ y genera archivos Excel ordenados por relevancia.
 
 import re
 import pandas as pd
-import numpy as np
 import yaml
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 

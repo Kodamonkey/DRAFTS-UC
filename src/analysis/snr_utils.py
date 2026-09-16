@@ -105,26 +105,6 @@ def compute_snr_profile(
                             posinf=np.max(snr_max[np.isfinite(snr_max)]) if np.isfinite(snr_max).any() else 0.0)
     return snr_max, 1.0, best_width
 
-def estimate_sigma_iqr(data: np.ndarray) -> float:
-    """
-    Estimate noise standard deviation using the Interquartile Range method.
-    
-    This method is robust to outliers (like FRB pulses).
-    
-    Parameters
-    ----------
-    data : np.ndarray
-        1D data array
-        
-    Returns
-    -------
-    float
-        Estimated standard deviation
-    """
-    q25, q75 = np.percentile(data, [25, 75])
-    iqr = q75 - q25
-                                                    
-    return iqr / 1.349
 
 
 def find_snr_peak(snr: np.ndarray, time_axis: Optional[np.ndarray] = None) -> Tuple[float, float, int]:
@@ -245,139 +225,10 @@ def _detrend_normalize_by_blocks(timeseries: np.ndarray, block_len: int = 1000, 
 
     return out
   
-def compute_presto_matched_snr(
-    waterfall: np.ndarray,
-    dt_seconds: float,
-    max_downfact: int = 30,
-    widths: Optional[List[int]] = None,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Compute SNR profile emulating PRESTO (matched filtering with boxcars).
-
-    Args:
-        waterfall: 2D matrix (n_time, n_freq)
-        dt_seconds: temporal resolution (s) per sample
-        max_downfact: maximum downfact (bins) to use
-        widths: list of boxcar widths; if None, uses default PRESTO set
-
-    Returns:
-        snr_max: maximum SNR profile per sample
-        best_width: boxcar width that maximizes SNR at each sample
-    """
-    if waterfall is None or waterfall.size == 0:
-        raise ValueError("empty waterfall in compute_presto_matched_snr")
-
-                                             
-    if waterfall.ndim != 2:
-        raise ValueError("waterfall must be 2D (time, freq)")
-    timeseries = np.mean(waterfall, axis=1).astype(np.float32)
-
-                                                
-    ts = _detrend_normalize_timeseries(timeseries)
-
-                                                        
-                                                                                        
-                                                                                        
-                                                                                   
-    if widths is None:
-        widths = [2, 3, 4, 6, 9, 14, 20, 30, 45, 70, 100, 150, 220, 300]
-    widths = [w for w in widths if w <= max_downfact and w >= 1]
-    n = ts.shape[0]
-    snr_max = np.full(n, -np.inf, dtype=np.float32)
-    best_width = np.zeros(n, dtype=np.int32)
-
-                                                        
-    for w in widths:
-        kernel = np.ones(w, dtype=np.float32) / np.sqrt(float(w))
-        conv = np.convolve(ts, kernel, mode="same").astype(np.float32)
-                                   
-        mask = conv > snr_max
-        snr_max[mask] = conv[mask]
-        best_width[mask] = w
-
-                      
-    snr_max = np.nan_to_num(snr_max, nan=-np.inf, posinf=np.max(snr_max[np.isfinite(snr_max)]) if np.isfinite(snr_max).any() else 0.0)
-    return snr_max, best_width
 
 
                                                                                      
 
 
-def inject_synthetic_frb(
-    waterfall: np.ndarray,
-    peak_time_idx: int,
-    peak_freq_idx: int,
-    amplitude: float,
-    width_time: int = 5,
-    width_freq: int = 20
-) -> np.ndarray:
-    """
-    Inject a synthetic FRB pulse into a waterfall for testing.
-    
-    Parameters
-    ----------
-    waterfall : np.ndarray
-        Background waterfall with shape (n_time, n_freq)
-    peak_time_idx : int
-        Time index for pulse peak
-    peak_freq_idx : int
-        Frequency index for pulse peak
-    amplitude : float
-        Peak amplitude of the pulse
-    width_time : int
-        Temporal width (samples)
-    width_freq : int
-        Spectral width (channels)
-        
-    Returns
-    -------
-    np.ndarray
-        Waterfall with injected pulse
-    """
-    waterfall_with_pulse = waterfall.copy()
-    n_time, n_freq = waterfall.shape
-    
-                              
-    t_indices = np.arange(n_time)
-    f_indices = np.arange(n_freq)
-    t_grid, f_grid = np.meshgrid(t_indices, f_indices, indexing='ij')
-    
-                                            
-    pulse = amplitude * np.exp(
-        -0.5 * ((t_grid - peak_time_idx) / width_time) ** 2
-        -0.5 * ((f_grid - peak_freq_idx) / width_freq) ** 2
-    )
-    
-    waterfall_with_pulse += pulse
-    return waterfall_with_pulse
 
 
-def compute_detection_significance(
-    snr_peak: float, 
-    n_samples: int, 
-    n_trials: int = 1
-) -> float:
-    """
-    Compute the statistical significance of a detection.
-    
-    Parameters
-    ----------
-    snr_peak : float
-        Peak SNR value
-    n_samples : int
-        Number of independent samples searched
-    n_trials : int
-        Number of independent trials (e.g., DM trials)
-        
-    Returns
-    -------
-    float
-        Significance level (number of sigma)
-    """
-                                                
-    effective_trials = n_samples * n_trials
-    
-                                                      
-                                      
-    significance = snr_peak - np.sqrt(2 * np.log(effective_trials))
-    
-    return max(0, significance)

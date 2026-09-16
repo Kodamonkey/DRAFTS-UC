@@ -12,11 +12,11 @@ import numpy as np
 # Local imports
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..analysis.science_metrics import physical_consistency_score, post_trials_sigma
-from ..detection.model_interface import CNN_IMG_SIZE, classify_patch, detect
-from ..logging.logging_config import Colors, get_global_logger
+from ..detection.model_interface import CNN_IMG_SIZE, detect
+from ..log_utils.logging_config import Colors, get_global_logger
 from ..output.candidate_manager import Candidate, append_candidate
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
-from ..preprocessing.dedispersion import dedisperse_block, dedisperse_patch
+from ..preprocessing.dedispersion import dedisperse_block
 from .candidate_finalization import finalize_patch
 from .mjd_utils import calculate_candidate_mjd
 

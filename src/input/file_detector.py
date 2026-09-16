@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
                              
 SUPPORTED_EXTENSIONS = {'.fits', '.fil'}
-SUPPORTED_FORMATS = {'fits', 'filterbank'}
 
 def detect_file_type(file_path: Path) -> str:
     """Detect the file type from its suffix.

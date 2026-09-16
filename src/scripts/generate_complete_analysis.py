@@ -3,11 +3,7 @@
 Genera análisis académico completo para validación ALMA con todos los detalles.
 """
 
-import pandas as pd
-import numpy as np
 import json
-from pathlib import Path
-import re
 
 # Cargar resultados
 with open('ResultsThesis/alma_validation_analysis.json', 'r') as f:

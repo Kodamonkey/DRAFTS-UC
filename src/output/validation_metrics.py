@@ -251,44 +251,7 @@ class ValidationMetricsCollector:
                 "reason_not_activated": "cube_size_below_threshold",
             }
             
-    def record_buffer_event(self, buffer_size_samples: int, event_type: str, chunk_emitted: bool = False):
-        """Registra eventos del buffer."""
-        chunk_samples = self.metrics["chunk_calculation"].get("final_chunk_samples", 0)
-        max_buffer = max(2 * chunk_samples, 10_000_000)
-        
-        self.metrics["buffer_control"]["max_buffer_samples"] = max_buffer
-        
-        # SIEMPRE registrar el tamaño máximo del buffer alcanzado
-        if "max_buffer_size_reached" not in self.metrics["buffer_control"]:
-            self.metrics["buffer_control"]["max_buffer_size_reached"] = 0
-        
-        if buffer_size_samples > self.metrics["buffer_control"]["max_buffer_size_reached"]:
-            self.metrics["buffer_control"]["max_buffer_size_reached"] = buffer_size_samples
-            self.metrics["buffer_control"]["max_buffer_size_gb"] = buffer_size_samples * self.metrics["data_characteristics"].get("bytes_per_sample", 2048) / (1024**3)
-        
-        if buffer_size_samples > max_buffer * 0.95:  # 95% del límite
-            event = {
-                "timestamp": datetime.now().isoformat(),
-                "buffer_size_samples": buffer_size_samples,
-                "buffer_size_gb": buffer_size_samples * self.metrics["data_characteristics"].get("bytes_per_sample", 2048) / (1024**3),
-                "event_type": event_type,
-                "chunk_emitted": chunk_emitted,
-                "buffer_utilization": buffer_size_samples / max_buffer,
-            }
-            self.metrics["buffer_control"]["buffer_events"].append(event)
-            
-            if event_type == "emergency_chunk_emission":
-                self.metrics["buffer_control"]["emergency_chunks_emitted"] += 1
     
-    def record_buffer_limit(self, chunk_samples: int):
-        """Registra el límite calculado del buffer."""
-        max_buffer = max(2 * chunk_samples, 10_000_000)
-        self.metrics["buffer_control"]["max_buffer_samples_calculated"] = max_buffer
-        self.metrics["buffer_control"]["formula_validation"] = {
-            "N_c": chunk_samples,
-            "N_b_max_calculated": max_buffer,
-            "description": "N_b_max = max(2 * N_c, 10^7)",
-        }
                 
     def record_memory_validation(self, operation: str, requested_bytes: int, 
                                 validation_result: str, error_message: Optional[str] = None):

@@ -10,7 +10,7 @@ import logging
 import os
 import platform
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import psutil
 
@@ -73,13 +73,7 @@ class HardwareProfile:
         """Number of threads to use for parallel workloads (Numba, OMP, MKL)."""
         return min(self.cpu_cores_physical, 8)
 
-    def usable_ram_bytes(self, fraction: float = 0.25, overhead: float = 1.3) -> int:
-        """RAM budget for pipeline data, after safety margins."""
-        return int(self.ram_available_bytes * fraction / overhead)
 
-    def usable_vram_bytes(self, fraction: float = 0.70) -> int:
-        """GPU VRAM budget for pipeline data."""
-        return int(self.gpu_vram_available_bytes * fraction)
 
     def summary(self) -> str:
         parts = [

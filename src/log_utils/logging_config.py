@@ -15,7 +15,6 @@ for the FRB detection pipeline. It includes:
 """
 
                           
-import json
 import logging
 import os
 import sys
@@ -310,30 +309,7 @@ class DRAFTSLogger:
             results.get("status", "UNKNOWN"),
         )
 
-    def chunk_processing(self, chunk_idx: int, chunk_info: Dict[str, Any]) -> None:
-        """Log a high-level summary for a chunk."""
 
-        self.logger.info(
-            "Chunk %03d • samples=%s • slices=%d",
-            chunk_idx,
-            f"{chunk_info.get('samples', 0):,}",
-            chunk_info.get("slices", 0),
-        )
-
-    def slice_processing(self, slice_idx: int, slice_info: Dict[str, Any]) -> None:
-        """Log slice information only when something relevant happened."""
-
-        candidates = slice_info.get("candidates", 0)
-        if candidates > 0:
-            bursts = slice_info.get("bursts", 0)
-            no_bursts = slice_info.get("no_bursts", candidates - bursts)
-            self.logger.info(
-                "Slice %03d • candidates=%d (bursts=%d • non-bursts=%d)",
-                slice_idx,
-                candidates,
-                bursts,
-                no_bursts,
-            )
 
     def gpu_info(self, message: str, level: str = "INFO") -> None:
         """Log GPU related messages respecting their level."""
@@ -343,16 +319,6 @@ class DRAFTSLogger:
         else:
             self.logger.info(message)
 
-    def debug_file_info(self, file_info: Dict[str, Any]) -> None:
-        """Emit a compact debug line with file metadata."""
-
-        self.logger.debug(
-            "File info • Δt=%0.2e s • channels=%d • f_start=%.1f MHz • bandwidth=%.1f MHz",
-            file_info.get("time_reso", 0.0),
-            file_info.get("freq_reso", 0),
-            file_info.get("freq_start", 0.0),
-            file_info.get("bandwidth", 0.0),
-        )
 
     def slice_config(self, config_info: Dict[str, Any]) -> None:
         """Log the slice configuration in a single line."""
@@ -495,9 +461,6 @@ def setup_logging(
     return DRAFTSLogger("DRAFTS", level, log_file, use_colors)
 
 
-def get_logger(name: str = "DRAFTS") -> logging.Logger:
-    """Get a configured logger."""
-    return logging.getLogger(name)
 
 
                       

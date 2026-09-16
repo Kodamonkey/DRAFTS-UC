@@ -3,10 +3,7 @@
 Genera tablas LaTeX detalladas para el análisis académico de validación ALMA.
 """
 
-import pandas as pd
-import numpy as np
 import json
-from pathlib import Path
 
 # Cargar resultados del análisis
 with open('ResultsThesis/alma_validation_analysis.json', 'r') as f:

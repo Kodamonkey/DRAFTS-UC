@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 # Standard library imports
-from dataclasses import dataclass
 from pathlib import Path
 import gc
 import logging
@@ -14,7 +13,7 @@ import numpy as np
 from ..config import config
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..analysis.science_metrics import K_DM_MS, physical_consistency_score, post_trials_sigma
-from ..logging.logging_config import Colors, get_global_logger
+from ..log_utils.logging_config import get_global_logger
 from ..output.candidate_manager import (
     Candidate,
     CandidateWriter,
@@ -23,7 +22,6 @@ from ..output.candidate_manager import (
 )
 from ..output.phase_metrics import PhaseMetricsTracker
 from ..preprocessing.dedispersion import dedisperse_block, dedisperse_patch
-from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
 from ..visualization.visualization_unified import preprocess_img, postprocess_img
 from .candidate_finalization import finalize_patch as _finalize_patch
 from .contracts import DMGrid
@@ -32,12 +30,6 @@ from .mjd_utils import calculate_candidate_mjd
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class PeakCandidateBox:
-    x1: int
-    y1: int
-    x2: int
-    y2: int
 
 
 def _find_snr_peaks(snr_profile: np.ndarray, threshold: float, min_distance: int = 16) -> list[int]:
@@ -1221,9 +1213,8 @@ def _process_file_chunked_high_freq(
     )
     from .pipeline_parameters import calculate_frequency_downsampled
     from ..output.candidate_manager import ensure_csv_header
-    from ..logging import log_block_processing, log_streaming_parameters
+    from ..log_utils import log_block_processing, log_streaming_parameters
     from ..input.fits_handler import stream_fits_multi_pol
-    from ..input.polarization_utils import extract_polarization_from_raw, has_full_polarization_data
 
     if chunk_samples <= 0:
         raise ValueError("chunk_samples must be greater than zero")
@@ -1626,7 +1617,7 @@ def _process_file_chunked_high_freq(
                     fingerprint=run_fingerprint,
                 )
 
-        from ..logging import log_processing_summary
+        from ..log_utils import log_processing_summary
         log_processing_summary(actual_chunk_count, chunk_count, cand_counter_total, n_bursts_total)
 
         # Export validation metrics

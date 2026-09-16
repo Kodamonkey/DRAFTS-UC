@@ -190,7 +190,6 @@ DM_CUBE_MEMMAP_THRESHOLD_GB: float = 4.0  # SPEC-MEM-001: use memmap for cubes >
 # ==============================================================================
 
 # Adaptive DM range
-DM_RANGE_ADAPTIVE: bool = False                                                                  
 DM_RANGE_MIN_WIDTH: float = 80.0                                                  
 DM_RANGE_MAX_WIDTH: float = 300.0                                                 
 DM_RANGE_FACTOR: float = 0.3
@@ -199,10 +198,6 @@ DM_GRID_MODE: str = globals().get("DM_GRID_MODE", "legacy_uniform")
 MAX_DM_SMEARING_MS = globals().get("MAX_DM_SMEARING_MS", "auto")
                                          
 # DM plotting ranges
-DM_PLOT_MARGIN_FACTOR: float = 0.25                                                    
-DM_PLOT_MIN_RANGE: float = 120.0                                              
-DM_PLOT_MAX_RANGE: float = 400.0                                              
-DM_PLOT_DEFAULT_RANGE: float = 250.0                                          
 DM_RANGE_DEFAULT_VISUALIZATION: str = "detailed"                                     
                                
 # ==============================================================================
@@ -210,10 +205,8 @@ DM_RANGE_DEFAULT_VISUALIZATION: str = "detailed"
 # ==============================================================================
 
 # SNR off-pulse regions (for noise estimation)
-SNR_OFF_REGIONS = [(-250, -150), (-100, -50), (50, 100), (150, 250)]                       
 SNR_HIGHLIGHT_COLOR = "red"                                                  
 SNR_SHOW_PEAK_LINES: bool = False                                                              
-SNR_COLORMAP = "viridis"                                                     
 DETECTION_WIDTHS_MS = globals().get("DETECTION_WIDTHS_MS", [])
 TRIAL_CORRECTION: str = globals().get("TRIAL_CORRECTION", "gaussian_extreme")
 
@@ -222,7 +215,6 @@ TRIAL_CORRECTION: str = globals().get("TRIAL_CORRECTION", "gaussian_extreme")
 # ==============================================================================
 
 PREWHITEN_BEFORE_DM: bool = globals().get("PREWHITEN_BEFORE_DM", False)   # Apply prewhitening before dedispersion (SPEC-PRE-001; scientific default False)
-SHADE_INVALID_TAIL: bool = True    # Shade invalid tail regions in plots
 TEMPORAL_DOWNSAMPLING_MODE: str = globals().get("TEMPORAL_DOWNSAMPLING_MODE", "sum")
 HIGH_FREQ_DM_POLICY: str = globals().get("HIGH_FREQ_DM_POLICY", "unresolved")
 POLARIZATION_LINEAR_DEBIAS: bool = globals().get("POLARIZATION_LINEAR_DEBIAS", True)
@@ -233,8 +225,6 @@ POLARIZATION_LINEAR_DEBIAS: bool = globals().get("POLARIZATION_LINEAR_DEBIAS", T
                                       
 # Imported from user_config above, which reads advanced-config/logging.yaml.
 # They were previously hardcoded here and the YAML was never consulted.
-GPU_VERBOSE: bool = False                                                       
-SHOW_PROGRESS: bool = True                                              
                                                                                
 # ==============================================================================
 # HELPER FUNCTIONS

@@ -44,7 +44,7 @@ from ..input.parameter_extractor import extract_parameters_auto
 from ..input.streaming_orchestrator import get_streaming_function
 from .high_freq_pipeline import _process_file_chunked_high_freq
 from ..input.file_finder import find_data_files
-from ..logging import (
+from ..log_utils import (
     log_block_processing,
     log_pipeline_file_completion,
     log_pipeline_file_processing,
@@ -131,7 +131,7 @@ def _error_result(
 
 def _trace_info(message: str, *args) -> None:
     try:
-        from ..logging.logging_config import get_global_logger
+        from ..log_utils.logging_config import get_global_logger
         gl = get_global_logger()
         gl.logger.info(message % args if args else message)
     except Exception:
@@ -349,7 +349,7 @@ def _process_block(
     for j, start_idx, end_idx in slices_to_process:
         if j % 10 == 0 or j == 0:
             try:
-                from ..logging.logging_config import get_global_logger
+                from ..log_utils.logging_config import get_global_logger
 
                 global_logger = get_global_logger()
                 global_logger.slice_progress(j, time_slice, chunk_idx)
@@ -472,7 +472,7 @@ def _process_block(
     _optimize_memory(aggressive=True)
 
     try:
-        from ..logging.logging_config import get_global_logger
+        from ..log_utils.logging_config import get_global_logger
 
         global_logger = get_global_logger()
         chunk_runtime_s = time.time() - block_wall_start
@@ -982,7 +982,7 @@ def _prepare_file_parameters(fits_path: Path, manual_chunk_override: int) -> tup
         computed from this file's freshly-extracted parameters.
     """
     from ..preprocessing.slice_len_calculator import get_processing_parameters, validate_processing_parameters
-    from ..logging.chunking_logging import display_detailed_chunking_info
+    from ..log_utils.chunking_logging import display_detailed_chunking_info
 
     extraction_result = extract_parameters_auto(fits_path)
     if not extraction_result.get('success'):
@@ -1019,7 +1019,7 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
     if config_dict is not None:
         config.inject_config(config_dict)
 
-    from ..logging.logging_config import setup_logging, set_global_logger
+    from ..log_utils.logging_config import setup_logging, set_global_logger
 
     # Level and colours come from advanced-config/logging.yaml; they used to be
     # literals here, so raising verbosity in production meant editing code.

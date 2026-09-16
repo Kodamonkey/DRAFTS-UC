@@ -2,27 +2,15 @@
 import numpy as np
 from matplotlib import rc
 import matplotlib.pyplot as plt
-import scipy.stats as sts
-import scipy.signal as sign
-from astropy.table import QTable
-from astropy import constants as const
 import astropy.units as u
-from sigpyproc import readers as read
 
-from sigpyproc.readers import FilReader, PFITSReader
-from rich.pretty import Pretty
-from sigpyproc.timeseries import TimeSeries
-from sigpyproc.block import FilterbankBlock as filterbank
+from sigpyproc.readers import FilReader
 from your import Your
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-import pandas as pd
 import os
 rc('text',usetex=True)
 import warnings
 warnings.filterwarnings('ignore')
-from scipy.ndimage import gaussian_filter1d
-from scipy.signal import find_peaks
-from scipy.optimize import curve_fit
 
 
 

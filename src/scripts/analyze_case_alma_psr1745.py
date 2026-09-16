@@ -22,7 +22,7 @@ import json
 import csv
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Any, Tuple
 import logging
 
 # Setup path

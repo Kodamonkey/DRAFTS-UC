@@ -1,5 +1,5 @@
 import numpy as np
-import torch, cv2
+import torch
 from torch import nn
 from torchvision.ops import nms
 

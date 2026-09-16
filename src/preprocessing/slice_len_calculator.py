@@ -621,8 +621,7 @@ def get_processing_parameters() -> dict:
 
                                         
         try:
-            from ..logging.chunking_logging import log_chunk_budget
-            import psutil as _ps
+            from ..log_utils.chunking_logging import log_chunk_budget
             vm = _psutil = psutil.virtual_memory()
             log_chunk_budget({
                 'bytes_per_sample': bytes_per_sample,
@@ -766,7 +765,7 @@ def update_slice_len_dynamic():
     
                                               
     try:
-        from ..logging.logging_config import get_global_logger
+        from ..log_utils.logging_config import get_global_logger
         global_logger = get_global_logger()
         global_logger.slice_config({
             'target_ms': config.SLICE_DURATION_MS,

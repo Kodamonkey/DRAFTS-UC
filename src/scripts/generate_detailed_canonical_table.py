@@ -5,7 +5,6 @@ Genera tabla detallada de los 8 pulsos canónicos para cada caso.
 
 import pandas as pd
 import numpy as np
-import json
 import re
 
 # Cargar tabla validada

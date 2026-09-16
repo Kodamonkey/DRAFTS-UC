@@ -3,8 +3,6 @@
 """Common utilities used while handling FITS and filterbank files."""
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from typing import Dict
 import logging
 import numpy as np

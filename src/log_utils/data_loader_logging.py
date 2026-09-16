@@ -9,7 +9,7 @@ from the data loader, especially for FITS and FIL file streaming operations.
 """
 
                           
-from typing import Any, Dict, Optional
+from typing import Optional
 
                
 from .logging_config import get_global_logger
@@ -101,18 +101,6 @@ def log_stream_fits_parameters(nsamples: int, chunk_samples: int, overlap_sample
     logger.logger.debug(f"[DEBUG] STREAM_FITS: npol={npol if npol is not None else 'N/A'}, nsblk={nsblk if nsblk is not None else 'N/A'}")
 
 
-def log_stream_fits_load_strategy(use_memmap: bool, data_shape: tuple, data_dtype: str) -> None:
-    """
-    Logs loading strategy for FITS files.
-    
-    Args:
-        use_memmap: Whether memmap is used
-        data_shape: Data shape
-        data_dtype: Data type
-    """
-    logger = get_global_logger()
-    logger.logger.debug(f"[DEBUG] STREAM_FITS LOAD: use_memmap={use_memmap}, data_array.shape={data_shape}")
-    logger.logger.debug(f"[DEBUG] STREAM_FITS LOAD: data_array.dtype={data_dtype}")
 
 
 def log_stream_fits_block_generation(chunk_counter: int, block_shape: tuple, block_dtype: str,

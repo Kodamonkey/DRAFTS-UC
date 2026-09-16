@@ -242,7 +242,7 @@ class TestConfigurationIsInternallyConsistent:
 
 class TestLogRotation:
     def test_the_file_handler_rotates(self):
-        source = (PROJECT_ROOT / "src/logging/logging_config.py").read_text(encoding="utf-8")
+        source = (PROJECT_ROOT / "src/log_utils/logging_config.py").read_text(encoding="utf-8")
         assert "RotatingFileHandler" in source, (
             "a run lasting days writes an unbounded file otherwise"
         )
@@ -253,7 +253,7 @@ class TestLogRotation:
         import logging as stdlib_logging
 
         monkeypatch.setenv("DRAFTS_LOG_DIR", str(tmp_path))
-        module = importlib.import_module("src.logging.logging_config")
+        module = importlib.import_module("src.log_utils.logging_config")
         stdlib_logging.getLogger("DRAFTS_ROTATION_TEST").handlers.clear()
         module.DRAFTSLogger(name="DRAFTS_ROTATION_TEST", level="INFO", use_colors=False)
 
@@ -261,6 +261,49 @@ class TestLogRotation:
             "DRAFTS_LOG_DIR was ignored; in a container the log stays in the "
             "writable layer and disappears with `run --rm`"
         )
+
+
+class TestNoPackageShadowsTheStandardLibrary:
+    """`src/logging/` shadowed the stdlib `logging` module.
+
+    With src/ on sys.path -- which seven scripts in this repository put there --
+    any library doing `import logging` got the project's package instead, and
+    the project's own logging_config subclasses `logging.Formatter`, so the
+    import failed half-initialised. `import pandas` was enough to trigger it.
+    The seven scripts survived only because they happened to import logging
+    before inserting the path.
+    """
+
+    def test_importing_a_third_party_library_works_with_src_on_the_path(self):
+        import subprocess
+
+        script = (
+            "import sys; sys.path.insert(0, r'%s');"
+            "import logging; assert hasattr(logging, 'Formatter'), logging.__file__;"
+            "import json, csv;"
+            "print(logging.__file__)"
+        ) % str(PROJECT_ROOT / "src")
+        result = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True, timeout=120
+        )
+        assert result.returncode == 0, result.stderr
+        assert "src" not in result.stdout.replace(str(PROJECT_ROOT), ""), (
+            f"stdlib logging resolved to a project package: {result.stdout!r}"
+        )
+
+    def test_no_package_is_named_after_a_standard_module(self):
+        import sysconfig
+
+        stdlib = {
+            path.stem
+            for path in Path(sysconfig.get_paths()["stdlib"]).glob("*.py")
+        } | {"logging", "json", "csv", "types", "typing", "queue", "select", "signal"}
+        for package in (PROJECT_ROOT / "src").iterdir():
+            if package.is_dir() and (package / "__init__.py").exists():
+                assert package.name not in stdlib, (
+                    f"src/{package.name}/ shadows the standard library module "
+                    f"'{package.name}' whenever src/ is on sys.path"
+                )
 
 
 class TestChunkSizeFallbackDoesNotCrash:

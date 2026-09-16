@@ -39,7 +39,7 @@ from src.core.data_flow_manager import (
     _build_dm_time_cube_chunked,
     trim_valid_window,
 )
-from src.core.pipeline_parameters import calculate_dm_height, calculate_dm_values
+from src.core.pipeline_parameters import calculate_dm_height
 from src.detection.model_interface import CNN_IMG_SIZE
 from src.input.filterbank_handler import get_obparams_fil, stream_fil
 from src.output.candidate_manager import CandidateWriter, ensure_csv_header

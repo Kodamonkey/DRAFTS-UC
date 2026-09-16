@@ -161,10 +161,8 @@ MEMORY_OVERHEAD_FACTOR_USER = float(_memory_config.get('overhead_factor', 1.3))
 
 # Settings kept for Phase 2/3 implementation
 _gpu_config = _performance_advanced.get('gpu', {})
-ENABLE_MIXED_PRECISION = bool(_gpu_config.get('enable_mixed_precision', False))
 
 _io_config = _performance_advanced.get('io', {})
-ENABLE_ASYNC_IO = bool(_io_config.get('enable_async_io', True))
 
 _parallel_config = _performance_advanced.get('parallel', {})
 CPU_THREADS = int(_parallel_config.get('cpu_threads', 0))

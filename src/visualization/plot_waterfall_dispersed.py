@@ -6,7 +6,7 @@ from __future__ import annotations
                           
 import logging
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
                      
 import matplotlib.pyplot as plt
@@ -22,56 +22,6 @@ from ..config import config
 logger = logging.getLogger(__name__)
 
 
-def calculate_undispersed_burst_time(
-    observed_time: float, 
-    dm: float, 
-    freq_low: float, 
-    freq_high: float
-) -> float:
-    """
-    Calculates the undispersed burst arrival time.
-    
-    The formula for dispersion delay between two frequencies is:
-    Δt = k × DM × (1/f_low² - 1/f_high²)
-    
-    Where:
-    - k ≈ 4.15 × 10³ s·MHz²·pc⁻¹·cm³ (dispersion constant in cgs units)
-    - DM is the Dispersion Measure in pc·cm⁻³
-    - f_low and f_high are the lowest and highest frequencies in MHz
-    
-    To get the undispersed time:
-    t_0 = t_obs - Δt
-    
-    Parameters
-    ----------
-    observed_time : float
-        Observed arrival time of the dispersed signal (seconds)
-    dm : float
-        Dispersion Measure in pc·cm⁻³
-    freq_low : float
-        Lowest frequency in MHz
-    freq_high : float
-        Highest frequency in MHz
-    
-    Returns
-    -------
-    float
-        Undispersed burst arrival time (seconds)
-    """
-                                                                             
-                                                            
-    delta_t = K_DM_MS * dm * ((1.0 / (freq_low**2)) - (1.0 / (freq_high**2)))
-    
-                          
-    undispersed_time = observed_time - delta_t
-    
-    logger.debug(f"[DISPERSION CORRECTION] DM: {dm:.2f} pc cm⁻³")
-    logger.debug(f"[DISPERSION CORRECTION] Frequencies: {freq_low:.1f} - {freq_high:.1f} MHz")
-    logger.debug(f"[DISPERSION CORRECTION] Calculated delay: {delta_t:.6f} s")
-    logger.debug(f"[DISPERSION CORRECTION] Observed time: {observed_time:.6f} s")
-    logger.debug(f"[DISPERSION CORRECTION] Undispersed time: {undispersed_time:.6f} s")
-    
-    return undispersed_time
 
 
 def get_band_frequency_range(band_idx: int) -> Tuple[float, float]:

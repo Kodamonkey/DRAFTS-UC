@@ -46,28 +46,6 @@ def delay_from_dm(dm: float, freq_mhz: float) -> float:
     return K_DM_MS * dm * (freq_mhz ** -2)
 
 
-def calculate_dispersion_bandwidth_delay(
-    dm_max: float,
-    freq_low_mhz: float,
-    freq_high_mhz: float
-) -> float:
-    """
-    Calculate the maximum dispersion delay across the bandwidth.
-    
-    Based on PRESTO's BW_ddelay calculation.
-    This is the difference in delay between the lowest and highest frequencies.
-    
-    Args:
-        dm_max: Maximum DM to consider
-        freq_low_mhz: Lowest frequency in MHz
-        freq_high_mhz: Highest frequency in MHz
-    
-    Returns:
-        Maximum delay difference in seconds
-    """
-    delay_low = delay_from_dm(dm_max, freq_low_mhz)
-    delay_high = delay_from_dm(dm_max, freq_high_mhz)
-    return delay_low - delay_high
 
 
 if cuda is not None:

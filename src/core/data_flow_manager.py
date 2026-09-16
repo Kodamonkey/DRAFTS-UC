@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List, Tuple
 
 import atexit
 
@@ -560,7 +559,7 @@ def plan_slices(block_valid: np.ndarray, slice_len: int, chunk_idx: int) -> list
             time_tol_ms=getattr(config, 'TIME_TOL_MS', 0.1),
         )
         try:
-            from ..logging.chunking_logging import log_slice_plan_summary
+            from ..log_utils.chunking_logging import log_slice_plan_summary
             log_slice_plan_summary(chunk_idx, plan)
         except Exception:
             pass

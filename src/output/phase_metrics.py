@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict
 
 
@@ -169,12 +169,3 @@ class PhaseMetricsTracker:
             }
         }
     
-    def reset(self) -> None:
-        """Reset all metrics (for new file processing)."""
-        self.phase_1 = PhaseMetrics()
-        self.phase_2 = PhaseMetrics()
-        self.phase_3a_intensity = PhaseMetrics()
-        self.phase_3b_linear = PhaseMetrics()
-        self.total_candidates = 0
-        self.total_burst = 0
-        self.total_no_burst = 0

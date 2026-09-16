@@ -241,7 +241,14 @@ except ImportError:
         return out
 
 
-def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128, dm_min: float = None, dm_max: float = None) -> np.ndarray:
+def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128, dm_min: float = None, dm_max: float = None, dm_values: np.ndarray | None = None) -> np.ndarray:
+    """Build the DM-time cube for *data*.
+
+    ``dm_values`` lets the caller supply the exact DM trials for this cube. DM
+    chunking must use it: re-deriving a grid from a per-chunk ``(dm_min, dm_max)``
+    pair makes every chunk span its own sub-range end to end, which changes the
+    step and duplicates the boundary rows (see ``_build_dm_time_cube_chunked``).
+    """
     # CRITICAL: Validate memory before creating full result array
     # This cube can be HUGE: 3 × height × width × 4 bytes
     cube_size_bytes = 3 * height * width * 4
@@ -260,13 +267,20 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
         dm_min = config.DM_min
     if dm_max is None:
         dm_max = config.DM_max
-    try:
-        from ..core.pipeline_parameters import calculate_dm_values
-        dm_values_full = calculate_dm_values(dm_min, dm_max).astype(np.float32)
+    if dm_values is not None:
+        dm_values_full = np.asarray(dm_values, dtype=np.float32)
         if dm_values_full.size != height:
+            raise ValueError(
+                f"dm_values has {dm_values_full.size} trials but height={height}"
+            )
+    else:
+        try:
+            from ..core.pipeline_parameters import calculate_dm_values
+            dm_values_full = calculate_dm_values(dm_min, dm_max).astype(np.float32)
+            if dm_values_full.size != height:
+                dm_values_full = np.linspace(dm_min, dm_max, height, dtype=np.float32)
+        except Exception:
             dm_values_full = np.linspace(dm_min, dm_max, height, dtype=np.float32)
-    except Exception:
-        dm_values_full = np.linspace(dm_min, dm_max, height, dtype=np.float32)
     
                                                                      
     try:

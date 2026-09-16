@@ -157,24 +157,21 @@ def detect_and_classify_candidates_in_band(
             dm_values=dm_values,
         )
 
-        # band_img is in the cube frame, so the box has to be scaled back before
-        # it can index it.
-        cube_h = int(band_img.shape[0]) if band_img is not None and band_img.ndim >= 1 else CNN_IMG_SIZE
-        cube_w = int(band_img.shape[1]) if band_img is not None and band_img.ndim >= 2 else CNN_IMG_SIZE
-        scale_y = cube_h / float(CNN_IMG_SIZE)
-        scale_x = cube_w / float(CNN_IMG_SIZE)
-        x1 = max(0, min(cube_w, int(box[0] * scale_x)))
-        y1 = max(0, min(cube_h, int(box[1] * scale_y)))
-        x2 = max(0, min(cube_w, int(box[2] * scale_x)))
-        y2 = max(0, min(cube_h, int(box[3] * scale_y)))
-        candidate_region = band_img[y1:y2, x1:x2]
-        if candidate_region.size > 0:
-            # Compute SNR for consistency with the composite visualisation.
-            snr_profile, _, _ = compute_snr_profile(candidate_region)
-            snr_val_raw = np.max(snr_profile)  # Use the peak SNR value.
-        else:
-            snr_val_raw = 0.0
-        
+        # SNR before dedispersion, read off the raw waterfall at the candidate's
+        # own time. This must NOT be measured on band_img: that is the DM-time
+        # cube, and compute_snr_profile integrates over axis 1 and boxcar-filters
+        # over axis 0, so feeding it a (DM, time) slab filters along the DM axis
+        # and returns something that is not an SNR at all. That value fed
+        # snr_pre_dedisp in the CSV and the pre/post comparison in
+        # physical_consistency_score.
+        snr_val_raw = 0.0
+        if snr_wf_profile is not None and snr_wf_profile.size > 0:
+            idx_wf = int(np.clip(t_sample, 0, snr_wf_profile.size - 1))
+            snr_val_raw = float(snr_wf_profile[idx_wf])
+        elif snr_waterfall_global is not None:
+            snr_val_raw = float(snr_waterfall_global)
+
+
         snr_list.append(snr_val_raw)                                     
                                                                                                      
         if slice_start_idx is not None:

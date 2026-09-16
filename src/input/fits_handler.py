@@ -325,12 +325,25 @@ def get_obparams(file_name: str) -> None:
             except Exception:
                 pass
                                                                         
+            # Both epochs are rewritten on every file, including when this one
+            # carries no start time. Leaving a stale TSTART_MJD_CORR behind makes
+            # every candidate of the current file inherit the previous file's
+            # observation date -- silently, since mjd_utils prefers _CORR.
             if tstart_mjd is not None:
+                config.TSTART_MJD = tstart_mjd
                 try:
-                    config.TSTART_MJD = tstart_mjd
                     config.TSTART_MJD_CORR = tstart_mjd + (nsuboffs * tsubint) / 86400.0
-                except Exception:
-                    config.TSTART_MJD = tstart_mjd
+                except Exception as e:
+                    logger.warning(
+                        "Could not apply the subint offset to TSTART for %s (%s); "
+                        "using the uncorrected start time",
+                        file_name, e,
+                    )
+                    config.TSTART_MJD_CORR = tstart_mjd
+            else:
+                logger.warning("STT_* not found in %s: absolute MJD unavailable", file_name)
+                config.TSTART_MJD = None
+                config.TSTART_MJD_CORR = None
 
             try:
                 freq_temp = sub_data["DAT_FREQ"][0].astype(np.float64)
@@ -836,8 +849,37 @@ def stream_fits(
                         raise ValueError("Unexpected shape in 'your' get_data")
                                                                                   
                     block = _select_polarization(arr, getattr(pf, 'pol_type', 'IQUV'), getattr(config, 'POLARIZATION_MODE', 'intensity'), getattr(config, 'POLARIZATION_INDEX', 0))
+                    # UNRESOLVED (audit P1-02): this branch reverses on foff > 0
+                    # (channels stored ascending) while every other reader path --
+                    # the astropy branches here and stream_fil -- reverses on
+                    # config.DATA_NEEDS_REVERSAL, which is set when DAT_FREQ is
+                    # DESCENDING. Those two criteria are opposites, so at most one
+                    # of them can leave the channel axis matching the ascending
+                    # config.FREQ that dedispersion indexes against. Getting this
+                    # wrong inverts the dispersive sweep and no real burst is
+                    # recovered, silently.
+                    #
+                    # Behaviour is deliberately left unchanged until it is checked
+                    # against a real file: flipping it on a guess is worse than the
+                    # current state. The warning below fires exactly when the two
+                    # criteria disagree, so one run over one PSRFITS settles it.
+                    _foff = getattr(pf, 'foff', 0.0)
+                    _your_says_reverse = bool(_foff > 0)
+                    _rest_says_reverse = bool(getattr(config, 'DATA_NEEDS_REVERSAL', False))
+                    if _your_says_reverse != _rest_says_reverse:
+                        logger.warning(
+                            "FREQ-ORDER MISMATCH (audit P1-02): the 'your' reader would %s "
+                            "channels (foff=%.6f) but DATA_NEEDS_REVERSAL=%s says %s. "
+                            "One of the two is wrong and the dispersive sweep may be "
+                            "inverted. Verify against a known pulsar before trusting "
+                            "candidates from this file.",
+                            "reverse" if _your_says_reverse else "keep",
+                            _foff,
+                            _rest_says_reverse,
+                            "reverse" if _rest_says_reverse else "keep",
+                        )
                     try:
-                        if getattr(pf, 'foff', 0.0) > 0:
+                        if _your_says_reverse:
                             block = block[:, :, ::-1]
                     except Exception:
                         pass
@@ -1214,9 +1256,18 @@ def stream_fits(
                             # Ensure out_buf is concatenated before extracting chunk
                             if out_buf is None:
                                 out_buf = _concatenate_buffer()
-                            
+
+                            # At the very beginning of the file there is no
+                            # preceding data, so nothing can be left overlap:
+                            # keeping valid_start > 0 here discards the first
+                            # overlap_samples of every FITS file. stream_fil
+                            # already clamps this via max(0, valid_start - overlap).
+                            if emitted - out_buf.shape[0] <= 0 and valid_start > 0:
+                                valid_start = 0
+                                valid_end = valid_start + actual_chunk_size
+
                             block_out = out_buf[start_with_overlap:end_with_overlap].copy()
-                                                 
+
                             start_sample_idx = emitted - out_buf.shape[0] + valid_start
                             end_sample_idx = start_sample_idx + actual_chunk_size
                                          
@@ -1237,8 +1288,13 @@ def stream_fits(
                                 "actual_chunk_size": actual_chunk_size,
                                 "block_start_sample": emitted - out_buf.shape[0],
                                 "block_end_sample": emitted - out_buf.shape[0] + end_with_overlap,
-                                "overlap_left": overlap_samples,
-                                "overlap_right": overlap_samples,
+                                # Derived from the real geometry, not assumed:
+                                # the first chunk of a file has no left overlap
+                                # and the last one has no right overlap. Hardcoding
+                                # overlap_samples made _process_block trim data
+                                # that was never overlap.
+                                "overlap_left": valid_start - start_with_overlap,
+                                "overlap_right": max(0, end_with_overlap - valid_end),
                                 "total_samples": total_samples,
                                 "nchans": nchan,
                                 "nifs": 1,
@@ -1257,7 +1313,11 @@ def stream_fits(
                             yield block_out, metadata
                                                                          
                             # Remove emitted chunk from buffer (keep overlap for next chunk)
-                            samples_to_remove = actual_chunk_size if not buffer_too_large else end_with_overlap
+                            # Always advance by exactly the valid span. Dropping
+                            # end_with_overlap (= actual + 2*overlap) in the
+                            # emergency path left a 2*overlap hole between
+                            # consecutive chunks that was never searched.
+                            samples_to_remove = actual_chunk_size
                             
                             # Update buffer: remove emitted samples, keep overlap
                             # Rebuild buffer_blocks list from remaining data
@@ -1711,16 +1771,24 @@ def stream_fits(
                                 valid_start = overlap_samples
                                 valid_end = valid_start + chunk_samples
                                 actual_chunk_size = chunk_samples
-                            
+
+                            # At the very beginning of the file there is no
+                            # preceding data, so nothing can be left overlap:
+                            # keeping valid_start > 0 here discards the first
+                            # overlap_samples of every FITS file.
+                            if emitted - out_buf.shape[0] <= 0 and valid_start > 0:
+                                valid_start = 0
+                                valid_end = valid_start + actual_chunk_size
+
                             block_out = out_buf[start_with_overlap:end_with_overlap].copy()
-                            
-                                                                         
+
+
                             if config.DATA_NEEDS_REVERSAL:
                                 block_out = block_out[:, :, ::-1]
                             
                                                                                                                  
                                                                            
-                            start_sample_idx = emitted - out_buf.shape[0]
+                            start_sample_idx = emitted - out_buf.shape[0] + valid_start
                             end_sample_idx = start_sample_idx + actual_chunk_size
                             
                                          
@@ -1741,8 +1809,13 @@ def stream_fits(
                                 "actual_chunk_size": actual_chunk_size,
                                 "block_start_sample": emitted - out_buf.shape[0],
                                 "block_end_sample": emitted - out_buf.shape[0] + end_with_overlap,
-                                "overlap_left": overlap_samples,
-                                "overlap_right": overlap_samples,
+                                # Derived from the real geometry, not assumed:
+                                # the first chunk of a file has no left overlap
+                                # and the last one has no right overlap. Hardcoding
+                                # overlap_samples made _process_block trim data
+                                # that was never overlap.
+                                "overlap_left": valid_start - start_with_overlap,
+                                "overlap_right": max(0, end_with_overlap - valid_end),
                                 "total_samples": total_samples,
                                 "nchans": nchan,
                                 "nifs": 1,
@@ -1761,7 +1834,11 @@ def stream_fits(
                             yield block_out, metadata
                                                                          
                             # Remove emitted chunk from buffer (keep overlap for next chunk)
-                            samples_to_remove = actual_chunk_size if not buffer_too_large else end_with_overlap
+                            # Always advance by exactly the valid span. Dropping
+                            # end_with_overlap (= actual + 2*overlap) in the
+                            # emergency path left a 2*overlap hole between
+                            # consecutive chunks that was never searched.
+                            samples_to_remove = actual_chunk_size
                             
                             # Update buffer: remove emitted samples, keep overlap
                             # Rebuild buffer_blocks list from remaining data

@@ -285,21 +285,36 @@ def _build_dm_time_cube_chunked(
     import gc
     import time
 
+    # The authoritative DM grid for the WHOLE cube. Each chunk gets a slice of
+    # it. Deriving a grid per chunk from its own (dm_min, dm_max) would make each
+    # chunk span its sub-range end to end, so the internal step becomes
+    # range_chunk/(C-1) instead of range_total/(H-1): boundary rows come out
+    # duplicated, every row is off by up to one DM unit, and DM_max is never
+    # actually searched. Downstream code (extract_candidate_dm,
+    # _dm_from_image_at_time) assumes a single uniform axis.
+    try:
+        from .pipeline_parameters import calculate_dm_values
+        dm_values_global = calculate_dm_values(dm_min, dm_max).astype(np.float32)
+        if dm_values_global.size != height:
+            dm_values_global = np.linspace(dm_min, dm_max, height, dtype=np.float32)
+    except Exception:
+        dm_values_global = np.linspace(dm_min, dm_max, height, dtype=np.float32)
+
     # Process each DM chunk
     dm_chunk_start_time = time.time()
     dm_chunk_times = []
-    
+
     for chunk_idx in range(num_dm_chunks):
         chunk_iter_start = time.time()
         start_dm = chunk_idx * dm_chunk_height
         end_dm = min(start_dm + dm_chunk_height, height)
         chunk_height = end_dm - start_dm
         
-        # Calculate DM range for this chunk
-        dm_range = dm_max - dm_min
-        chunk_dm_min = dm_min + (start_dm / height) * dm_range
-        chunk_dm_max = dm_min + (end_dm / height) * dm_range
-        
+        # Exact trials for this chunk, taken from the global grid.
+        chunk_dm_values = dm_values_global[start_dm:end_dm]
+        chunk_dm_min = float(chunk_dm_values[0])
+        chunk_dm_max = float(chunk_dm_values[-1])
+
         logger.info(
             f"[DEDISPERSION] Processing DM chunk {chunk_idx + 1}/{num_dm_chunks}: "
             f"DM {chunk_dm_min:.1f}-{chunk_dm_max:.1f} pc cm⁻³ (indices {start_dm}-{end_dm}, "
@@ -308,11 +323,12 @@ def _build_dm_time_cube_chunked(
         
         # Dedisperse this DM chunk
         chunk_cube = d_dm_time_g(
-            block_ds, 
-            height=chunk_height, 
-            width=width, 
-            dm_min=chunk_dm_min, 
-            dm_max=chunk_dm_max
+            block_ds,
+            height=chunk_height,
+            width=width,
+            dm_min=chunk_dm_min,
+            dm_max=chunk_dm_max,
+            dm_values=chunk_dm_values,
         )
         
         # Copy into result array
@@ -458,8 +474,14 @@ def trim_valid_window(
 ) -> tuple[np.ndarray, np.ndarray, int, int]:
     """Extract the valid window, discarding overlap-contaminated edges."""
     valid_start_ds = max(0, overlap_left_ds)
-                                                         
-    valid_end_ds = block_ds.shape[0]
+    # The right overlap is contaminated exactly like the left one: it is the
+    # lead-in that the NEXT chunk will process as its own valid region. Leaving
+    # it in reports every burst there twice, and its DM-cube columns are built
+    # from a partial channel sum (count_series is incomplete at the edge), which
+    # depresses the SNR and fills the mid/diff planes with noise.
+    # Readers set overlap_right=0 on the last chunk (stream_fil clamps
+    # end_with_overlap to nsamples), so this never drops the tail of the file.
+    valid_end_ds = block_ds.shape[0] - max(0, overlap_right_ds)
     if valid_end_ds <= valid_start_ds:
         valid_start_ds, valid_end_ds = 0, block_ds.shape[0]
     

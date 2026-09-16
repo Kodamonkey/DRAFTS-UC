@@ -1427,10 +1427,18 @@ def _process_file_chunked_high_freq(
                         "skipping DM-time cube build.",
                         dm_smear_samples, freq_low, freq_high,
                     )
+                    # valid_start_ds/valid_end_ds must index the UNTRIMMED block,
+                    # exactly like trim_valid_window() reports them in the branch
+                    # below: block_raw_ds is trimmed with these same bounds and is
+                    # still untrimmed at that point. Returning 0-based bounds here
+                    # shifted every polarisation waveform by overlap_left_ds
+                    # relative to intensity, so Phase 2 compared SNR_I and SNR_L at
+                    # different instants.
                     n_valid = max(0, block_ds.shape[0] - overlap_left_ds - overlap_right_ds)
                     dm_time = np.zeros((3, height, n_valid), dtype=np.float32)
-                    block_ds = block_ds[overlap_left_ds: block_ds.shape[0] - overlap_right_ds]
-                    valid_start_ds, valid_end_ds = 0, n_valid
+                    valid_start_ds = overlap_left_ds
+                    valid_end_ds = block_ds.shape[0] - overlap_right_ds
+                    block_ds = block_ds[valid_start_ds:valid_end_ds]
                 else:
                     dm_time_full = build_dm_time_cube(block_ds, height=height, dm_min=config.DM_min, dm_max=config.DM_max, collector=collector)
                     block_ds, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(block_ds, dm_time_full, overlap_left_ds, overlap_right_ds)

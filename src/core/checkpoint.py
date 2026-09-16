@@ -54,6 +54,19 @@ def save_checkpoint(
         logger.warning("Failed to write checkpoint for %s chunk %d: %s", file_stem, chunk_idx, e)
 
 
+def should_skip_chunk(chunk_idx: int, resume_after: int) -> bool:
+    """True when *chunk_idx* was already completed in an earlier run.
+
+    ``chunk_idx`` is 1-based (the streaming loop enumerates from 1) and
+    :func:`save_checkpoint` stores that same 1-based index, so ``resume_after``
+    IS the last completed chunk. Skipping must therefore stop AT it, not one
+    past it: with ``resume_after=5`` the next chunk to process is 6.
+
+    ``resume_after == -1`` means no checkpoint, so nothing is skipped.
+    """
+    return chunk_idx <= resume_after
+
+
 def load_checkpoint(results_dir: Path, file_stem: str) -> int:
     """Return the index of the last completed chunk, or -1 if none."""
     cp_path = _checkpoint_path(results_dir, file_stem)

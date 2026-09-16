@@ -12,7 +12,7 @@ import numpy as np
 # Local imports
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..analysis.science_metrics import physical_consistency_score, post_trials_sigma
-from ..detection.model_interface import classify_patch, detect
+from ..detection.model_interface import CNN_IMG_SIZE, classify_patch, detect
 from ..logging.logging_config import Colors, get_global_logger
 from ..output.candidate_manager import Candidate, append_candidate
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
@@ -144,20 +144,29 @@ def detect_and_classify_candidates_in_band(
     all_candidates = []
     
     for conf, box in zip(top_conf, top_boxes):
-        img_h = int(band_img.shape[0]) if band_img is not None and band_img.ndim >= 1 else 512
-        img_w = int(band_img.shape[1]) if band_img is not None and band_img.ndim >= 2 else 512
+        # Boxes come back in the CNN frame: preprocess_img resizes every band to
+        # CNN_IMG_SIZE x CNN_IMG_SIZE and postprocess() scales the boxes by that
+        # same input_shape. extract_candidate_dm maps from the CNN frame, so it
+        # must be given the CNN dimensions, not band_img.shape (the cube frame).
         dm_val, t_sec, t_sample = extract_candidate_dm(
             (box[0] + box[2]) / 2,
             (box[1] + box[3]) / 2,
             slice_len,
-            img_height=img_h,
-            img_width=img_w,
+            img_height=CNN_IMG_SIZE,
+            img_width=CNN_IMG_SIZE,
             dm_values=dm_values,
         )
-        
-                                                
-                                                          
-        x1, y1, x2, y2 = map(int, box)
+
+        # band_img is in the cube frame, so the box has to be scaled back before
+        # it can index it.
+        cube_h = int(band_img.shape[0]) if band_img is not None and band_img.ndim >= 1 else CNN_IMG_SIZE
+        cube_w = int(band_img.shape[1]) if band_img is not None and band_img.ndim >= 2 else CNN_IMG_SIZE
+        scale_y = cube_h / float(CNN_IMG_SIZE)
+        scale_x = cube_w / float(CNN_IMG_SIZE)
+        x1 = max(0, min(cube_w, int(box[0] * scale_x)))
+        y1 = max(0, min(cube_h, int(box[1] * scale_y)))
+        x2 = max(0, min(cube_w, int(box[2] * scale_x)))
+        y2 = max(0, min(cube_h, int(box[3] * scale_y)))
         candidate_region = band_img[y1:y2, x1:x2]
         if candidate_region.size > 0:
             # Compute SNR for consistency with the composite visualisation.

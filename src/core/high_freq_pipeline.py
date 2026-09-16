@@ -1603,6 +1603,12 @@ def _process_file_chunked_high_freq(
         effective_n_bursts_total = n_bursts_total
         effective_n_no_bursts_total = n_no_bursts_total
 
+    # Flush buffered candidate rows before reporting counts. The caller also
+    # flushes in a finally, but this keeps the HF path correct on its own: the
+    # numbers returned below must match what is on disk.
+    from ..output.candidate_manager import CandidateWriter
+    CandidateWriter.flush_all()
+
     from ..core.pipeline import finalize_file_status
     successful_chunks = actual_chunk_count - failed_chunk_count
     status = finalize_file_status("SUCCESS_CHUNKED_HIGH_FREQ", failed_chunk_count, successful_chunks)

@@ -18,8 +18,15 @@ try:
 except ImportError:
     torch = None
 
-              
+
 logger = logging.getLogger(__name__)
+
+# Side of the square frame the detection network works in. preprocess_img()
+# resizes every band to this size and centernet_utils.get_res() scales the
+# predicted boxes by it, so every box returned by detect() is expressed in
+# this frame -- never in the frame of the DM-time cube it came from.
+CNN_IMG_SIZE = 512
+
 
 def detect(model, img_tensor: np.ndarray):
     """Run the detection model and return confidences and boxes."""

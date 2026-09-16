@@ -3,9 +3,11 @@
 """Candidate management for FRB pipeline - handles CSV output and candidate serialization."""
 from __future__ import annotations
 
-                          
+
+import atexit
 import csv
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
@@ -123,6 +125,18 @@ class CandidateWriter:
             w.close()
         cls._instances.clear()
 
+    @classmethod
+    def flush_buffers(cls) -> None:
+        """Flush every open writer to disk without closing it.
+
+        Durability barrier: a caller about to record progress (a checkpoint)
+        must first make sure the rows already counted are on disk. Otherwise a
+        crash loses the buffered rows while the progress marker claims the
+        chunk that produced them was completed.
+        """
+        for w in list(cls._instances.values()):
+            w.flush()
+
     def _ensure_open(self):
         if self._fh is None or self._fh.closed:
             self._fh = self._path.open("a", newline="")
@@ -139,6 +153,12 @@ class CandidateWriter:
         self._ensure_open()
         self._writer.writerows(self._buffer)
         self._fh.flush()
+        try:
+            os.fsync(self._fh.fileno())
+        except OSError:
+            # fsync is unavailable on some filesystems; the rows are already out
+            # of the process buffer, which is the part that matters for a crash.
+            pass
         self._buffer.clear()
 
     def close(self) -> None:
@@ -146,6 +166,12 @@ class CandidateWriter:
         if self._fh is not None and not self._fh.closed:
             self._fh.close()
             self._fh = None
+
+
+# Last-resort safety net: rows still buffered when the interpreter exits would
+# otherwise be lost silently. This does not cover SIGKILL or an OOM kill, which
+# is why callers also flush explicitly before each checkpoint and in a finally.
+atexit.register(CandidateWriter.flush_all)
 
 
 @dataclass(slots=True)

@@ -50,7 +50,7 @@ from ..logging import (
     log_processing_summary,
     log_streaming_parameters,
 )
-from ..output.candidate_manager import ensure_csv_header
+from ..output.candidate_manager import CandidateWriter, ensure_csv_header
 from ..output.phase_metrics import PhaseMetricsTracker
 
               
@@ -706,16 +706,21 @@ def _process_file_chunked(
         last_chunk_arrival_time = stream_start_time
 
         # Checkpoint/resume: skip already-completed chunks
-        from ..core.checkpoint import save_checkpoint, load_checkpoint, clear_checkpoint
+        from ..core.checkpoint import (
+            save_checkpoint,
+            load_checkpoint,
+            clear_checkpoint,
+            should_skip_chunk,
+        )
         resume_after = load_checkpoint(save_dir, fits_path.stem)
 
         logger.info(
             "Starting to read chunks from file.%s",
-            f" Resuming after chunk {resume_after + 1}." if resume_after >= 0 else ""
+            f" Resuming from chunk {resume_after + 1}." if resume_after >= 0 else ""
         )
 
         for chunk_idx, (block, metadata) in enumerate(streaming_func(str(fits_path), effective_chunk_samples, overlap_samples=overlap_raw), 1):
-            if chunk_idx <= resume_after + 1:
+            if should_skip_chunk(chunk_idx, resume_after):
                 logger.debug("Skipping chunk %d (already completed)", chunk_idx)
                 continue
             chunk_start_time = time.time()
@@ -748,6 +753,7 @@ def _process_file_chunked(
             
             # PRESTO-style: Process immediately, write results immediately, then free
             # Results (candidates, plots) are written during _process_block via append_candidate()
+            chunk_succeeded = False
             try:
                 block_stats = _process_block(
                     det_model,
@@ -762,6 +768,7 @@ def _process_file_chunked(
                 )
                 # Merge stats immediately (results already written to CSV/plots)
                 file_stats.merge(block_stats)
+                chunk_succeeded = True
             except MemoryError as mem_error:
                 collector.record_oom_error()
                 logger.exception(f"Out of memory processing chunk {metadata['chunk_idx']:03d}: {mem_error}")
@@ -798,8 +805,14 @@ def _process_file_chunked(
                         f"Average: {avg_time:.1f}s/chunk. ETA: {eta_seconds:.1f}s"
                     )
             
-            # Checkpoint after successful chunk processing
-            save_checkpoint(save_dir, fits_path.stem, chunk_idx, chunk_count)
+            # Checkpoint ONLY after a chunk that actually completed. A failed
+            # chunk must stay un-checkpointed, otherwise a later resume skips it
+            # for good and the recovery run reports success without recovering
+            # anything. Flush first: the checkpoint claims the rows this chunk
+            # produced are durable, so they have to be on disk before it lands.
+            if chunk_succeeded:
+                CandidateWriter.flush_buffers()
+                save_checkpoint(save_dir, fits_path.stem, chunk_idx, chunk_count)
 
             # CRITICAL: Free block immediately after processing (PRESTO-style)
             del block
@@ -809,7 +822,6 @@ def _process_file_chunked(
         log_processing_summary(actual_chunk_count, chunk_count, file_stats.n_candidates, file_stats.n_bursts)
 
         # Flush any buffered CSV rows
-        from ..output.candidate_manager import CandidateWriter
         CandidateWriter.flush_all()
 
         # Clear checkpoint on successful completion
@@ -902,6 +914,13 @@ def _process_file_chunked(
             "max_prob": 0.0, "mean_snr": 0.0,
             "status": status, "error_details": str(e),
         }
+    finally:
+        # Every exit path -- success, early return, or any of the handlers above --
+        # must leave the CSV on disk. Without this, a failure after N candidates
+        # were counted drops the last buffered rows while the summary still
+        # reports them.
+        CandidateWriter.flush_all()
+
 
 def _prepare_file_parameters(fits_path: Path, manual_chunk_override: int) -> tuple[dict, int]:
     """Extract observation parameters for a single file and resolve its chunk size.

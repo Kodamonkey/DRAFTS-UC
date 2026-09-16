@@ -1,7 +1,7 @@
 # DRAFTS++: Deep Learning Radio Transient Search
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Kodamonkey/DRAFTS-UC/releases)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
 [![CUDA](https://img.shields.io/badge/CUDA-11.0+-76B900.svg)](https://developer.nvidia.com/cuda-toolkit)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED.svg)](https://www.docker.com/)
@@ -225,7 +225,7 @@ Everything produced (CSV, figures, pipeline logs) goes to `data.results_dir`. Lo
 If you have `pytest` installed:
 
 ```bash
-pytest src/tests -q
+pytest -q
 ```
 
 ---

@@ -1224,7 +1224,6 @@ def _process_file_chunked_high_freq(
     from ..logging import log_block_processing, log_streaming_parameters
     from ..input.fits_handler import stream_fits_multi_pol
     from ..input.polarization_utils import extract_polarization_from_raw, has_full_polarization_data
-    import time
 
     if chunk_samples <= 0:
         raise ValueError("chunk_samples must be greater than zero")

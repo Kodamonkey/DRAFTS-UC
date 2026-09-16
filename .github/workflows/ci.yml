@@ -7,12 +7,49 @@ on:
     branches: [main, dev]
   workflow_dispatch:
 
+# The default token permissions are inherited from the repository and are
+# read-write on contents in older configurations. Nothing here needs to write.
+permissions:
+  contents: read
+
 jobs:
-  test:
+  lint:
+    name: Static checks
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install ruff
+        run: pip install "ruff==0.16.4"
+
+      # Deliberately narrow: these are outright errors (undefined names,
+      # redefinitions, duplicate dict keys), not style. The audit found a
+      # guaranteed NameError on a fallback path that this rule alone catches.
+      # Widen the selection as the existing findings are cleared, not before,
+      # so the gate stays meaningful instead of being disabled for noise.
+      - name: Ruff (errors only)
+        run: ruff check --select F821,F811,F601,E999 src tests main.py
+
+  test:
+    name: Tests
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ["3.11", "3.12"]
+        include:
+          # Windows catches a class of defect the Linux runners cannot: console
+          # encoding and path handling. The audit found the suite could be taken
+          # down by a UnicodeEncodeError under cp1252.
+          - os: windows-latest
+            python-version: "3.12"
     steps:
       - uses: actions/checkout@v4
 
@@ -20,12 +57,19 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
 
       - name: Install dependencies
+        # --require-hashes is what makes the lockfile worth having. The test
+        # tooling is the one remaining unpinned step: pytest is not in the lock,
+        # so it resolves live. Compiling a dev lock alongside this one would
+        # close that gap. `-e . --no-deps` installs the package without letting
+        # pip re-resolve anything the lock already placed.
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.lock.txt
-          pip install -e .[dev]
+          pip install --require-hashes -r requirements.lock.txt
+          pip install "pytest>=8,<10" "pytest-cov>=5,<8"
+          pip install -e . --no-deps
 
       - name: Validate config.yaml
         run: python -m pytest tests/test_config_yaml.py -q
@@ -33,19 +77,55 @@ jobs:
       - name: Run test suite
         run: python -m pytest tests -q
 
+  docker:
+    name: Build container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The image is the documented way to run this pipeline and was never
+      # built in CI, which is how it drifted to a different Python and a
+      # different torch from the one the tests run against.
+      - name: Build CPU image
+        run: docker build --target cpu-final -t drafts-uc:ci .
+
+      - name: Check the image agrees with the lockfile
+        run: |
+          docker run --rm --entrypoint python drafts-uc:ci - <<'PY'
+          import sys
+          import numpy, torch
+          print("python", sys.version)
+          print("numpy", numpy.__version__)
+          print("torch", torch.__version__)
+          assert sys.version_info[:2] >= (3, 11), sys.version
+          assert numpy.__version__.startswith("2."), numpy.__version__
+          assert torch.__version__.startswith("2.11"), torch.__version__
+          PY
+
   mutation:
+    name: Mutation testing
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - name: Mutation testing (cosmic-ray)
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
         run: |
-          pip install -r requirements.lock.txt
-          pip install pytest cosmic-ray
-          cosmic-ray exec mutation/cr-science_metrics.toml
-          cosmic-ray exec mutation/cr-dm_candidate_extractor.toml
-          cosmic-ray exec mutation/cr-pipeline_parameters.toml
-          cosmic-ray exec mutation/cr-utils.toml
+          pip install --require-hashes -r requirements.lock.txt
+          pip install "pytest>=8,<10" cosmic-ray
+          pip install -e . --no-deps
+
+      # `cosmic-ray exec` needs a session database, which `init` creates from the
+      # config. Without it this job could never have run.
+      - name: Run mutation sessions
+        run: |
+          set -euo pipefail
+          for name in science_metrics dm_candidate_extractor pipeline_parameters utils; do
+            cosmic-ray init "mutation/cr-${name}.toml" "mutation/${name}.sqlite"
+            cosmic-ray exec "mutation/cr-${name}.toml" "mutation/${name}.sqlite"
+            cr-report "mutation/${name}.sqlite" | tail -20
+          done

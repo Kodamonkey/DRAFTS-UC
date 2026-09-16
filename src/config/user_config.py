@@ -169,3 +169,21 @@ ENABLE_ASYNC_IO = bool(_io_config.get('enable_async_io', True))
 _parallel_config = _performance_advanced.get('parallel', {})
 CPU_THREADS = int(_parallel_config.get('cpu_threads', 0))
 
+
+# =============================================================================
+# LOGGING (from advanced-config/logging.yaml)
+# =============================================================================
+# These keys were loaded and then never read by anything, so editing them had
+# no effect. They drive the logger now.
+_logging_advanced = _config.get('logging_advanced', {})
+_logging_general = _logging_advanced.get('general', {})
+
+LOG_LEVEL = str(_logging_general.get('level', 'INFO')).upper()
+LOG_COLORS = bool(_logging_general.get('colors', True))
+_enable_file_logging = bool(_logging_general.get('enable_file_logging', False))
+# Only an explicit path counts; otherwise the logger picks its own destination
+# (DRAFTS_LOG_DIR, or a directory next to the package).
+LOG_FILE = str(_logging_general.get('log_file')) if _enable_file_logging and _logging_general.get('log_file') else None
+LOG_MAX_BYTES = int(float(_logging_general.get('max_file_size_mb', 50)) * 1024 * 1024)
+LOG_BACKUP_COUNT = int(_logging_general.get('backup_count', 5))
+

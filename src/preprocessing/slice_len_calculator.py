@@ -477,7 +477,7 @@ def calculate_optimal_chunk_size(slice_len: Optional[int] = None) -> int:
     # IMPORTANT: The limit must be calculated for DECIMATED samples, not RAW
     # because the DM-time cube is built from the decimated block
     # CRITICAL: The chunk that arrives includes overlap, so we must account for that
-    from ..core.pipeline_parameters import calculate_dm_height
+    from ..core.pipeline_parameters import calculate_dm_height, calculate_frequency_downsampled
     height_dm = calculate_dm_height()
     max_cube_size_gb = getattr(config, 'MAX_DM_CUBE_SIZE_GB', 2.0)  # Default 2 GB
     
@@ -497,8 +497,19 @@ def calculate_optimal_chunk_size(slice_len: Optional[int] = None) -> int:
     # Calculate max decimated samples including overlap
     max_decimated_with_overlap = int((max_result_size_gb * 1024**3) / (3 * height_dm * 4))
     
-    # The overlap_total_decimated is approximately 2 * overlap_decimated (left + right)
-    # But be conservative and use the actual calculated overlap
+    # Overlap has to be recomputed here: this function has its own scope, and
+    # the copy of this block it was derived from took overlap_decimated from
+    # calculate_memory_safe_chunk_size(). Referencing it here raised NameError
+    # every time -- on the fallback path, which only runs once the primary
+    # budget calculation has already failed.
+    try:
+        freq_ds = calculate_frequency_downsampled()
+        nu_min, nu_max = float(np.min(freq_ds)), float(np.max(freq_ds))
+    except Exception:
+        nu_min, nu_max = 1000.0, 2000.0
+    dt_max_sec = K_DM_MS * config.DM_max * (nu_min**-2 - nu_max**-2)
+    overlap_raw = max(0, int(np.ceil(dt_max_sec / max(config.TIME_RESO, 1e-12))))
+    overlap_decimated = overlap_raw // max(1, config.DOWN_TIME_RATE)
     overlap_total_decimated = 2 * overlap_decimated  # Left + right overlap
     
     # Calculate max chunk size (valid samples, without overlap)
@@ -740,8 +751,7 @@ def get_processing_parameters() -> dict:
         'has_leftover_samples': leftover_samples > 0,
         
                                                                
-        'slice_duration_ms': real_duration_ms,                                            
-        'total_duration_sec': total_duration_sec,                                            
+        'slice_duration_ms': real_duration_ms,
     }
 
     return parameters

@@ -50,9 +50,7 @@ except ImportError:
     fitsio = None
 
                
-import sys
 import logging
-from pathlib import Path
 
                                                         
 script_dir = Path(__file__).parent

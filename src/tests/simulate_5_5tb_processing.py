@@ -445,7 +445,7 @@ def simulate_5_5tb_processing():
     logger.info("-" * 100)
     logger.info("")
     logger.info("El chunk temporal ({safe_samples_decimated:,} DECIMATED) es el MÍNIMO FÍSICO necesario:")
-    logger.info(f"  - Overlap: {overlap_decimated:,} samples (necesario para cubrir dispersión de {dt_max:.3f}s)")
+    logger.info(f"  - Overlap: {overlap_decimated:,} samples (necesario para cubrir dispersión de {dt_max_sec:.3f}s)")
     logger.info(f"  - Slice length: {slice_len} samples (necesario para extraer patches)")
     logger.info(f"  - Total mínimo: {required_min_size_decimated:,} samples")
     logger.info("")

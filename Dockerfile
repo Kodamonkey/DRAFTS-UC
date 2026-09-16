@@ -8,7 +8,7 @@
 # ==============================================================================
 # Stage 1: Base CPU
 # ==============================================================================
-FROM python:3.10-slim as base-cpu
+FROM python:3.12-slim as base-cpu
 
 LABEL maintainer="Sebastian Salgado Polanco"
 LABEL description="DRAFTS-UC/DRAFTS++: Pipeline FRB"
@@ -60,32 +60,16 @@ FROM base-cpu as builder-cpu
 
 WORKDIR /tmp
 
-# Copy requirements
-COPY requirements.txt .
+# The lockfile is the source of truth for versions (requirements.lock.txt is
+# universal and carries the CUDA wheels, so the CPU image installs the same
+# versions from the CPU index instead of the full lock).
+COPY requirements.txt requirements.lock.txt ./
 
-# Install PyTorch CPU + all dependencies
-# Optimized order: torch first, then the rest
 RUN pip install --no-cache-dir \
-    torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir \
-    numpy==1.24.3 \
-    numba==0.58.0 \
-    scipy \
-    astropy \
-    fitsio \
-    matplotlib \
-    opencv-python-headless \
-    pandas \
-    psutil \
-    pyyaml \
-    seaborn \
-    scikit-image \
-    scikit-learn \
-    timm \
-    tqdm \
-    your \
-    blimpy \
-    jplephem
+        --index-url https://download.pytorch.org/whl/cpu \
+        --extra-index-url https://pypi.org/simple \
+        torch==2.11.0 torchvision==0.26.0 \
+ && pip install --no-cache-dir -r requirements.txt
 
 # ==============================================================================
 # Stage 3: Final CPU image
@@ -93,7 +77,7 @@ RUN pip install --no-cache-dir \
 FROM base-cpu as cpu-final
 
 # Copy installed Python packages
-COPY --from=builder-cpu /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder-cpu /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder-cpu /usr/local/bin /usr/local/bin
 
 # Create directory structure
@@ -105,17 +89,24 @@ RUN mkdir -p /app/Data/raw /app/Data/processed /app/Results /app/models /app/log
 COPY --chown=draftsuser:draftsuser src/ /app/src/
 COPY --chown=draftsuser:draftsuser main.py /app/
 COPY --chown=draftsuser:draftsuser config.yaml /app/
+COPY --chown=draftsuser:draftsuser advanced-config/ /app/advanced-config/
 COPY --chown=draftsuser:draftsuser README.md /app/
 
 # Non-root user
 USER draftsuser
 
 # Default command
-CMD ["python", "main.py"]
+ENTRYPOINT ["python", "main.py"]
+CMD []
 
 # ==============================================================================
 # Stage 4: Base GPU with CUDA
 # ==============================================================================
+# NOTE: torch 2.11 in requirements.lock.txt brings its own CUDA runtime through
+# the nvidia-*-cu13 wheels, so this base supplies the driver interface rather
+# than the toolkit. The 11.8 tag no longer matches the wheels and should be
+# revisited on a machine with a GPU, which is why it is left explicit here
+# instead of being changed untested.
 FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 as base-gpu
 
 ENV PYTHONUNBUFFERED=1 \
@@ -175,30 +166,12 @@ FROM base-gpu as builder-gpu
 
 WORKDIR /tmp
 
-COPY requirements.txt .
+COPY requirements.lock.txt ./
 
-# Install PyTorch with CUDA 11.8 + all dependencies
-RUN pip install --no-cache-dir \
-    torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118 && \
-    pip install --no-cache-dir \
-    numpy==1.24.3 \
-    numba==0.58.0 \
-    scipy \
-    astropy \
-    fitsio \
-    matplotlib \
-    opencv-python-headless \
-    pandas \
-    psutil \
-    pyyaml \
-    seaborn \
-    scikit-image \
-    scikit-learn \
-    timm \
-    tqdm \
-    your \
-    blimpy \
-    jplephem
+# The GPU image installs the audited environment verbatim: every package pinned
+# and hash-checked. This is what CI tests; the previous hand-written list was
+# not (torch 2.1 vs 2.11, numpy 1.24 vs 2.4, fifteen packages unpinned).
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock.txt
 
 # ==============================================================================
 # Stage 6: Final GPU image
@@ -218,6 +191,7 @@ RUN mkdir -p /app/Data/raw /app/Data/processed /app/Results /app/models /app/log
 COPY --chown=draftsuser:draftsuser src/ /app/src/
 COPY --chown=draftsuser:draftsuser main.py /app/
 COPY --chown=draftsuser:draftsuser config.yaml /app/
+COPY --chown=draftsuser:draftsuser advanced-config/ /app/advanced-config/
 COPY --chown=draftsuser:draftsuser README.md /app/
 
 # Non-root user
@@ -225,4 +199,5 @@ COPY --chown=draftsuser:draftsuser README.md /app/
 USER draftsuser
 
 # Default command
-CMD ["python", "main.py"]
+ENTRYPOINT ["python", "main.py"]
+CMD []

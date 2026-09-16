@@ -17,8 +17,10 @@ for the FRB detection pipeline. It includes:
                           
 import json
 import logging
+import os
 import sys
-from datetime import datetime
+from logging.handlers import RotatingFileHandler
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -42,6 +44,32 @@ class Colors:
     GPU = '\033[38;5;213m'                 
     FILE = '\033[38;5;87m'              
     ERROR = '\033[38;5;196m'                  
+
+
+
+def _log_setting(name: str, default):
+    """Read a logging setting from config, falling back to *default*.
+
+    Imported lazily and defensively: logging is set up before much else and must
+    not fail because configuration is unavailable.
+    """
+    try:
+        from ..config import config as _config
+
+        value = getattr(_config, name, None)
+        return default if value is None else value
+    except Exception:
+        return default
+
+
+def _configured_log_path():
+    """Explicit log file from configuration, or ``None``."""
+    value = _log_setting("LOG_FILE", None)
+    if not value:
+        return None
+    from pathlib import Path as _Path
+
+    return _Path(str(value))
 
 
 class DRAFTSFormatter(logging.Formatter):
@@ -124,12 +152,29 @@ class DRAFTSLogger:
         console_handler.setFormatter(DRAFTSFormatter(use_colors))
 
         if log_file is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            log_dir = Path(__file__).parent / "log"
-            log_file = log_dir / f"drafts_pipeline_{timestamp}.log"
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            # Default inside the source tree only as a last resort: in a
+            # container that directory is in the writable layer and the log
+            # disappears with `docker compose run --rm`. DRAFTS_LOG_DIR (set by
+            # docker-compose to a mounted volume) or LOG_FILE in the config take
+            # precedence.
+            env_dir = os.environ.get("DRAFTS_LOG_DIR")
+            configured = _configured_log_path()
+            if configured is not None:
+                log_file = configured
+            elif env_dir:
+                log_file = Path(env_dir) / f"drafts_pipeline_{timestamp}.log"
+            else:
+                log_file = Path(__file__).parent / "log" / f"drafts_pipeline_{timestamp}.log"
 
         log_file.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        # Rotating, not plain: a run lasting days over terabytes writes an
+        # unbounded file otherwise, on the same partition as the code.
+        max_bytes = int(_log_setting("LOG_MAX_BYTES", 50 * 1024 * 1024))
+        backups = int(_log_setting("LOG_BACKUP_COUNT", 5))
+        file_handler = RotatingFileHandler(
+            log_file, maxBytes=max_bytes, backupCount=backups, encoding="utf-8"
+        )
         file_handler.setFormatter(DRAFTSFormatter(use_colors=False))
 
         self.logger.addHandler(console_handler)

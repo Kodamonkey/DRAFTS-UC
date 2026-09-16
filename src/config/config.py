@@ -63,6 +63,12 @@ try:
         POLARIZATION_INDEX,
         POLARIZATION_LINEAR_DEBIAS,
         MAX_CHUNK_SAMPLES,
+        CPU_THREADS,
+        LOG_LEVEL,
+        LOG_COLORS,
+        LOG_FILE,
+        LOG_MAX_BYTES,
+        LOG_BACKUP_COUNT,
         MAX_RAM_FRACTION_USER,
         MAX_DM_CUBE_SIZE_GB,
         DM_CHUNKING_THRESHOLD_GB_USER,
@@ -104,6 +110,12 @@ except ImportError:
             POLARIZATION_INDEX,
             POLARIZATION_LINEAR_DEBIAS,
             MAX_CHUNK_SAMPLES,
+        CPU_THREADS,
+        LOG_LEVEL,
+        LOG_COLORS,
+        LOG_FILE,
+        LOG_MAX_BYTES,
+        LOG_BACKUP_COUNT,
             MAX_RAM_FRACTION_USER,
             MAX_DM_CUBE_SIZE_GB,
             DM_CHUNKING_THRESHOLD_GB_USER,
@@ -219,9 +231,8 @@ POLARIZATION_LINEAR_DEBIAS: bool = globals().get("POLARIZATION_LINEAR_DEBIAS", T
 # LOGGING CONFIGURATION
 # ==============================================================================
                                       
-LOG_LEVEL: str = "INFO"                                                                    
-LOG_COLORS: bool = True                                                 
-LOG_FILE: bool = False                                               
+# Imported from user_config above, which reads advanced-config/logging.yaml.
+# They were previously hardcoded here and the YAML was never consulted.
 GPU_VERBOSE: bool = False                                                       
 SHOW_PROGRESS: bool = True                                              
                                                                                

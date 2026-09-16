@@ -89,32 +89,9 @@ class TestScienceMetrics(unittest.TestCase):
         s_unres = physical_consistency_score(8.0, None, None, "unresolved_high_freq")
         self.assertLess(s_unres, s_full)
 
-    def test_consistency_base_division(self):
-        # base = clamp(snr/8). Exact values pin the /8.0 divisor.
-        self.assertAlmostEqual(physical_consistency_score(4.0, None, None, "ok"), 0.5, places=9)
-        self.assertAlmostEqual(physical_consistency_score(8.0, None, None, "ok"), 1.0, places=9)
-        self.assertAlmostEqual(physical_consistency_score(0.0, None, None, "ok"), 0.0, places=9)
-        self.assertAlmostEqual(physical_consistency_score(16.0, None, None, "ok"), 1.0, places=9)
 
-    def test_consistency_gain_factor(self):
-        # gain = post/pre; factor = clamp(gain, 0.5, 1.25)/1.25 applied to base.
-        self.assertAlmostEqual(physical_consistency_score(8.0, 4.0, 4.0, "ok"), 0.8, places=6)
-        self.assertAlmostEqual(physical_consistency_score(8.0, 4.0, 2.0, "ok"), 0.4, places=6)
-        self.assertAlmostEqual(physical_consistency_score(8.0, 4.0, 8.0, "ok"), 1.0, places=6)
-        # pre <= 0 disables the gain correction entirely.
-        self.assertAlmostEqual(physical_consistency_score(8.0, 0.0, 8.0, "ok"), 1.0, places=6)
 
-    def test_consistency_unresolved_penalty(self):
-        # Exactly 0.85 multiplier, no gain branch (pre/post None).
-        self.assertAlmostEqual(
-            physical_consistency_score(8.0, None, None, "unresolved_high_freq"), 0.85, places=6
-        )
 
-    def test_consistency_linear_fraction_factor(self):
-        # factor = clamp(0.9 + 0.2*min(|lf|,1), 0.8, 1.1). base = 0.5 (snr=4).
-        self.assertAlmostEqual(physical_consistency_score(4.0, None, None, "ok", 1.0), 0.55, places=6)
-        self.assertAlmostEqual(physical_consistency_score(4.0, None, None, "ok", 0.5), 0.5, places=6)
-        self.assertAlmostEqual(physical_consistency_score(4.0, None, None, "ok", 0.0), 0.45, places=6)
 
     def test_consistency_base_division(self):
         # base = clamp(snr/8). Exact values pin the /8.0 divisor.
@@ -182,66 +159,9 @@ class TestPipelineParameters(unittest.TestCase):
             (config.DM_min, config.DM_max, config.DM_GRID_MODE, config.FREQ,
              config.TIME_RESO, config.DOWN_TIME_RATE, config.MAX_DM_SMEARING_MS) = old
 
-    def test_smear_limited_step_matches_spec(self):
-        old = (config.DM_min, config.DM_max, config.DM_GRID_MODE, config.FREQ,
-               config.TIME_RESO, config.DOWN_TIME_RATE, config.MAX_DM_SMEARING_MS)
-        try:
-            config.FREQ = np.array([400.0, 800.0])
-            config.TIME_RESO, config.DOWN_TIME_RATE = 1e-3, 1
-            config.MAX_DM_SMEARING_MS = 1.0
-            config.DM_GRID_MODE = "smear_limited"
-            step = dm_step_for_smearing(1.0, 400.0, 800.0)
-            # DM_max chosen as an exact multiple of step so no extra append happens.
-            config.DM_min, config.DM_max = 0.0, float(step) * 5.0
-            vals = calculate_dm_values()
-            self.assertEqual(vals.size, 6)
-            np.testing.assert_allclose(np.diff(vals), step, rtol=1e-4)
-            self.assertAlmostEqual(float(vals[0]), 0.0, places=4)
-            self.assertLessEqual(float(vals[-1]), config.DM_max + 1e-4)
-        finally:
-            (config.DM_min, config.DM_max, config.DM_GRID_MODE, config.FREQ,
-             config.TIME_RESO, config.DOWN_TIME_RATE, config.MAX_DM_SMEARING_MS) = old
 
-    def test_smear_limited_auto_scales_with_down_rate(self):
-        old = (config.DM_min, config.DM_max, config.DM_GRID_MODE, config.FREQ,
-               config.TIME_RESO, config.DOWN_TIME_RATE, config.MAX_DM_SMEARING_MS)
-        try:
-            config.FREQ = np.array([400.0, 800.0])
-            config.TIME_RESO = 1e-3
-            config.MAX_DM_SMEARING_MS = "auto"
-            config.DM_GRID_MODE = "smear_limited"
-            config.DM_min, config.DM_max = 0.0, 200.0
-            config.DOWN_TIME_RATE = 1
-            n_fine = calculate_dm_values().size
-            config.DOWN_TIME_RATE = 4
-            n_coarse = calculate_dm_values().size
-            # Higher decimation => larger allowed smear => bigger step => fewer trials.
-            self.assertLess(n_coarse, n_fine)
-        finally:
-            (config.DM_min, config.DM_max, config.DM_GRID_MODE, config.FREQ,
-             config.TIME_RESO, config.DOWN_TIME_RATE, config.MAX_DM_SMEARING_MS) = old
 
-    def test_smear_limited_appends_dm_max(self):
-        old = (config.DM_min, config.DM_max, config.DM_GRID_MODE, config.FREQ,
-               config.TIME_RESO, config.DOWN_TIME_RATE, config.MAX_DM_SMEARING_MS)
-        try:
-            config.FREQ = np.array([400.0, 800.0])
-            config.TIME_RESO, config.DOWN_TIME_RATE = 1e-3, 1
-            config.MAX_DM_SMEARING_MS = 1.0
-            config.DM_GRID_MODE = "smear_limited"
-            step = dm_step_for_smearing(1.0, 400.0, 800.0)
-            # Not a multiple of step => last grid point must be appended at exactly DM_max.
-            config.DM_min, config.DM_max = 0.0, float(step) * 4.5
-            vals = calculate_dm_values()
-            self.assertAlmostEqual(float(vals[-1]), float(config.DM_max), places=4)
-        finally:
-            (config.DM_min, config.DM_max, config.DM_GRID_MODE, config.FREQ,
-             config.TIME_RESO, config.DOWN_TIME_RATE, config.MAX_DM_SMEARING_MS) = old
 
-    def test_absolute_slice_time(self):
-        self.assertAlmostEqual(calculate_absolute_slice_time(10.0, 5, 0.1), 10.5, places=9)
-        self.assertAlmostEqual(calculate_absolute_slice_time(0.0, 0, 0.1), 0.0, places=9)
-        self.assertAlmostEqual(calculate_absolute_slice_time(2.0, 3, 0.0), 2.0, places=9)
 
     def test_smear_limited_step_matches_spec(self):
         old = (config.DM_min, config.DM_max, config.DM_GRID_MODE, config.FREQ,

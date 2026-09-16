@@ -32,12 +32,15 @@ services:
     
     # Volumes for data, results, models and configuration
     volumes:
-      # Pipeline configuration (REQUIRED - read-write for updates)
-      - ./config.yaml:/app/config.yaml:rw
+      # Pipeline configuration. Read-only: nothing in the pipeline writes it,
+      # so there is no reason for a container to be able to rewrite the host's
+      # configuration.
+      - ./config.yaml:/app/config.yaml:ro
       
-      # Input data (read-only recommended)
-      # Change the left side to your actual data path
-      - D:/Your/Data/Path:/app/Data/raw:ro
+      # Input data (read-only). Set DRAFTS_DATA_DIR in a .env file or in the
+      # environment; compose fails with the message below if it is missing,
+      # instead of silently creating a directory named after a sample path.
+      - ${DRAFTS_DATA_DIR:?set DRAFTS_DATA_DIR to the directory holding your .fits/.fil files}:/app/Data/raw:ro
       
       # Results (read-write)
       - ./Results:/app/Results:rw
@@ -45,8 +48,10 @@ services:
       # Pre-trained models (read-only) - where code looks for them
       - ./src/models:/app/src/models:ro
       
-      # Optional: persistent logs
-      # - ./logs:/app/logs:rw
+      # Logs. Mounted by default: the documented way to run this is
+      # `docker compose run --rm`, which used to take the whole run's log with
+      # the container.
+      - ./logs:/app/logs:rw
       
       # Optional: temporary processed data
       # - ./Data/processed:/app/Data/processed:rw
@@ -54,6 +59,7 @@ services:
     # Environment variables (auto-detected at runtime by hardware_profile)
     environment:
       - PYTHONUNBUFFERED=1
+      - DRAFTS_LOG_DIR=/app/logs
       - OMP_NUM_THREADS=${OMP_NUM_THREADS:-0}
       - MKL_NUM_THREADS=${MKL_NUM_THREADS:-0}
       - NUMBA_NUM_THREADS=${NUMBA_NUM_THREADS:-0}
@@ -93,12 +99,15 @@ services:
     
     # Volumes for data, results, models and configuration
     volumes:
-      # Pipeline configuration (REQUIRED - read-write for updates)
-      - ./config.yaml:/app/config.yaml:rw
+      # Pipeline configuration. Read-only: nothing in the pipeline writes it,
+      # so there is no reason for a container to be able to rewrite the host's
+      # configuration.
+      - ./config.yaml:/app/config.yaml:ro
       
-      # Input data (read-only recommended)
-      # Change the left side to your actual data path
-      - D:/Your/Data/Path:/app/Data/raw:ro
+      # Input data (read-only). Set DRAFTS_DATA_DIR in a .env file or in the
+      # environment; compose fails with the message below if it is missing,
+      # instead of silently creating a directory named after a sample path.
+      - ${DRAFTS_DATA_DIR:?set DRAFTS_DATA_DIR to the directory holding your .fits/.fil files}:/app/Data/raw:ro
       
       # Results (read-write)
       - ./Results:/app/Results:rw
@@ -106,8 +115,10 @@ services:
       # Pre-trained models (read-only) - where code looks for them
       - ./src/models:/app/src/models:ro
       
-      # Optional: persistent logs
-      # - ./logs:/app/logs:rw
+      # Logs. Mounted by default: the documented way to run this is
+      # `docker compose run --rm`, which used to take the whole run's log with
+      # the container.
+      - ./logs:/app/logs:rw
       
       # Optional: temporary processed data
       # - ./Data/processed:/app/Data/processed:rw
@@ -115,6 +126,7 @@ services:
     # Environment variables for GPU
     environment:
       - PYTHONUNBUFFERED=1
+      - DRAFTS_LOG_DIR=/app/logs
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - CUDA_VISIBLE_DEVICES=0

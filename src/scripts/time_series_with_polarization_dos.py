@@ -9,7 +9,6 @@ from astropy import constants as const
 import astropy.units as u
 from sigpyproc import readers as read
 
-from sigpyproc  import readers as read
 from sigpyproc.readers import FilReader, PFITSReader
 from rich.pretty import Pretty
 from sigpyproc.timeseries import TimeSeries

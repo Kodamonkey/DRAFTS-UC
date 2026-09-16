@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "drafts-uc"
-version = "0.1.0"
+version = "1.0.0"
 description = "DRAFTS FRB detection pipeline (audited)"
 requires-python = ">=3.11"
 # Lower bounds = tested baseline; major ceilings guard against breaking releases.

@@ -1021,7 +1021,12 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
 
     from ..logging.logging_config import setup_logging, set_global_logger
 
-    logger = setup_logging(level="INFO", use_colors=True)
+    # Level and colours come from advanced-config/logging.yaml; they used to be
+    # literals here, so raising verbosity in production meant editing code.
+    logger = setup_logging(
+        level=str(getattr(config, 'LOG_LEVEL', 'INFO')),
+        use_colors=bool(getattr(config, 'LOG_COLORS', True)),
+    )
     set_global_logger(logger)
 
     # ===== HARDWARE DETECTION & STARTUP VALIDATION =====
@@ -1030,7 +1035,9 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
 
     hw = detect_hardware(str(config.RESULTS_DIR))
     config.inject_config({"_hardware_profile": hw})
-    apply_thread_settings(hw)
+    # advanced-config/performance.yaml exposes cpu_threads and it was loaded
+    # and then ignored: the override never reached the thread settings.
+    apply_thread_settings(hw, user_threads=int(getattr(config, 'CPU_THREADS', 0)))
     logger.logger.info(
         "Hardware: %s, %d cores, %.1f GB RAM (%.1f GB free), GPU: %s",
         hw.platform_system, hw.cpu_cores_physical,

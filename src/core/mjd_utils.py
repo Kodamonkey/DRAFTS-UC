@@ -19,12 +19,10 @@ except ImportError:
     ASTROPY_AVAILABLE = False
     logging.warning("astropy not available - barycentric MJD calculations will be disabled")
 
+from ..analysis.science_metrics import K_DM_MS
 from ..config import config
 
 logger = logging.getLogger(__name__)
-
-# Dispersion constant
-K_DM = 4.148808e3  # s MHz^2 pc^-1 cm^3
 
 
 def get_topocentric_mjd(tstart_mjd: float, t_sec: float) -> float:
@@ -112,7 +110,7 @@ def get_barycentric_mjd(
         
         # 6) Dispersion correction to infinite frequency (if DM provided)
         if dm is not None:
-            dmcorr = TimeDelta(K_DM * dm / (freq_mhz**2), format="sec")
+            dmcorr = TimeDelta(K_DM_MS * dm / (freq_mhz**2), format="sec")
             mjd_bary_utc_inf = (bary_utc - dmcorr).mjd
             mjd_bary_tdb_inf = (bary_tdb - dmcorr).mjd
         else:

@@ -100,7 +100,8 @@ def save_polarization_waterfall_plot(
     
     # LITERALLY the same code as create_multi_pol_panels lines 82-163
     if pol_data is not None and pol_data.size > 0:
-        # Compute SNR profile (EXACTLY line 84)
+        if pol_data.dtype == object or not np.issubdtype(pol_data.dtype, np.number):
+            pol_data = np.asarray(pol_data, dtype=np.float64)
         snr_prof, _, best_w = compute_snr_profile(pol_data, off_regions)
         peak_snr, _, peak_idx = find_snr_peak(snr_prof)
         
@@ -302,9 +303,16 @@ def generate_individual_plots(
             
             # CRITICAL: Apply the SAME normalization as in create_composite_plot()
             # This ensures the plots are EXACTLY identical to the composite panels
-            dw_intensity = dedispersed_block.copy() if dedispersed_block is not None and dedispersed_block.size > 0 else None
-            dw_linear = dedisp_block_linear.copy() if dedisp_block_linear is not None and dedisp_block_linear.size > 0 else None
-            dw_circular = dedisp_block_circular.copy() if dedisp_block_circular is not None and dedisp_block_circular.size > 0 else None
+            def _to_float(a):
+                if a is None:
+                    return None
+                if a.dtype == object or not np.issubdtype(a.dtype, np.number):
+                    return np.asarray(a, dtype=np.float64)
+                return a
+
+            dw_intensity = _to_float(dedispersed_block.copy()) if dedispersed_block is not None and dedispersed_block.size > 0 else None
+            dw_linear = _to_float(dedisp_block_linear.copy()) if dedisp_block_linear is not None and dedisp_block_linear.size > 0 else None
+            dw_circular = _to_float(dedisp_block_circular.copy()) if dedisp_block_circular is not None and dedisp_block_circular.size > 0 else None
             
             if normalize:
                 # Apply EXACTLY the same normalization as in create_composite_plot() (lines 192-204)

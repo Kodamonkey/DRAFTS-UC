@@ -138,6 +138,32 @@ def save_all_plots(
     snr_patch_intensity_list: Optional[Iterable[float | None]] = None,  # NEW: SNR from dedispersed Intensity patch
 ):
 
+    def _safe_float(arr):
+        """Coerce array to float64 if it has dtype=object (FITS edge case)."""
+        if arr is None:
+            return None
+        a = np.asarray(arr)
+        if a.dtype == object or not np.issubdtype(a.dtype, np.number):
+            try:
+                a = np.asarray(a, dtype=np.float64)
+            except (TypeError, ValueError):
+                a = np.array(a.tolist(), dtype=np.float64)
+        return a
+
+    waterfall_block = _safe_float(waterfall_block)
+    dedisp_block = _safe_float(dedisp_block)
+    if dedisp_block_linear is not None:
+        dedisp_block_linear = _safe_float(dedisp_block_linear)
+    if dedisp_block_circular is not None:
+        dedisp_block_circular = _safe_float(dedisp_block_circular)
+    if img_rgb is not None:
+        img_rgb = np.asarray(img_rgb)
+        if img_rgb.dtype == object:
+            try:
+                img_rgb = np.asarray(img_rgb, dtype=np.float32)
+            except (TypeError, ValueError):
+                img_rgb = np.array(img_rgb.tolist(), dtype=np.float32)
+
     if comp_path is not None:
         comp_path.parent.mkdir(parents=True, exist_ok=True)
         

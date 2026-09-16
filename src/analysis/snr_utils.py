@@ -14,7 +14,10 @@ import numpy as np
 
 def compute_snr_profile(
     waterfall: np.ndarray,
-    off_regions: Optional[List[Tuple[int, int]]] = None
+    off_regions: Optional[List[Tuple[int, int]]] = None,
+    dt_seconds: Optional[float] = None,
+    widths_ms: Optional[List[float]] = None,
+    channel_mask: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, float, np.ndarray]:
     """Compute a unified PRESTO-style SNR profile from a 2D waterfall.
 
@@ -42,13 +45,46 @@ def compute_snr_profile(
         raise ValueError("waterfall must be 2D (time, freq)")
 
     # 1) Integrate in frequency → time series
-    timeseries = np.mean(waterfall, axis=1).astype(np.float32)
+    wf = waterfall.astype(np.float32, copy=False)
+    if channel_mask is not None:
+        mask = np.asarray(channel_mask, dtype=bool)
+        if mask.size == wf.shape[1]:
+            wf = wf[:, mask]
+    if wf.shape[1] == 0:
+        raise ValueError("waterfall has no valid frequency channels")
+    med_ch = np.median(wf, axis=0)
+    mad_ch = np.median(np.abs(wf - med_ch), axis=0)
+    sigma_ch = (1.4826 * mad_ch).astype(np.float32)
+    finite = np.isfinite(sigma_ch) & (sigma_ch > 1e-6)
+    if finite.any():
+        weights = np.zeros_like(sigma_ch, dtype=np.float32)
+        weights[finite] = 1.0 / (sigma_ch[finite] ** 2)
+        weights /= max(float(weights.sum()), 1e-12)
+        timeseries = (wf * weights[np.newaxis, :]).sum(axis=1).astype(np.float32)
+    else:
+        timeseries = np.mean(wf, axis=1).astype(np.float32)
 
     # 2) Detrend/normalization by blocks (RMS≈1)
     ts = _detrend_normalize_by_blocks(timeseries, block_len=1000, fast=True)
 
     # 3) Matched filtering with PRESTO width set (trimmed to 30 by default)
-    widths = [1, 2, 3, 4, 6, 9, 14, 20, 30]
+    if dt_seconds is None:
+        try:
+            from ..config import config
+            dt_seconds = float(config.TIME_RESO) * max(1, int(config.DOWN_TIME_RATE))
+        except Exception:
+            dt_seconds = None
+    if widths_ms is None:
+        try:
+            from ..config import config
+            cfg_widths = getattr(config, "DETECTION_WIDTHS_MS", [])
+            widths_ms = [float(w) for w in cfg_widths] if cfg_widths else None
+        except Exception:
+            widths_ms = None
+    if widths_ms and dt_seconds and dt_seconds > 0:
+        widths = sorted({max(1, int(round((float(w) / 1000.0) / dt_seconds))) for w in widths_ms})
+    else:
+        widths = [1, 2, 3, 4, 6, 9, 14, 20, 30, 45, 70, 100, 150, 220, 300]
     n = ts.shape[0]
     # Avoid broadcasting: constrain widths to the available length
     widths = [w for w in widths if 1 <= w <= n]

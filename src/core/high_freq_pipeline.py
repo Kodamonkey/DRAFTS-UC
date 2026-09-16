@@ -3,6 +3,7 @@ from __future__ import annotations
 # Standard library imports
 from dataclasses import dataclass
 from pathlib import Path
+import gc
 import logging
 import time
 
@@ -12,14 +13,16 @@ import numpy as np
 # Local imports
 from ..config import config
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
+from ..analysis.science_metrics import K_DM_MS, physical_consistency_score, post_trials_sigma
 from ..logging.logging_config import Colors, get_global_logger
 from ..output.candidate_manager import Candidate, append_candidate
 from ..output.phase_metrics import PhaseMetricsTracker
 from ..preprocessing.dedispersion import dedisperse_block, dedisperse_patch
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
 from ..visualization.visualization_unified import preprocess_img, postprocess_img
+from .candidate_finalization import finalize_patch as _finalize_patch
+from .contracts import DMGrid
 from .mjd_utils import calculate_candidate_mjd
-from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 
 logger = logging.getLogger(__name__)
 
@@ -80,26 +83,18 @@ def _dm_from_image_at_time(dm_time_band_img: np.ndarray, time_idx: int) -> float
         f"max_at_row0={row_idx == 0}"
     )
     
-    # Map the row index to actual DM value
-    # The DM-time cube uses np.linspace(dm_min, dm_max, height) for uniform distribution
+    # Map row index to DM via DMGrid contract (SPEC-DM-005)
     dm_min = float(config.DM_min)
     dm_max = float(config.DM_max)
-    dm_range = dm_max - dm_min
-    
-    # Formula: DM = DM_min + (row_index / (total_rows - 1)) * DM_range
-    # This matches how np.linspace distributes values
-    if h > 1:
-        dm_val = dm_min + (row_idx / (h - 1)) * dm_range
-    else:
-        dm_val = dm_min  # Edge case: only one row
-    
-    # Log for verification (INFO level so it appears in logs)
+    grid = DMGrid.from_values(np.linspace(dm_min, dm_max, h))
+    dm_val = grid.dm_for_row(row_idx, height=h)
+
     logger.info(
         f"[DM_CALC] time_idx={time_idx}, row_idx={row_idx}/{h-1}, "
         f"intensity={max_intensity:.3f}, DM={dm_val:.2f} "
         f"(range: {dm_min:.2f}-{dm_max:.2f}, DM_mid={(dm_min+dm_max)/2:.2f})"
     )
-    
+
     return float(dm_val)
 
 
@@ -444,7 +439,7 @@ def snr_detect_and_classify_candidates_in_band(
     peak_time_waterfall = None
     if waterfall_block is not None and waterfall_block.size > 0:
         try:
-            snr_wf, _, _ = compute_snr_profile(waterfall_block, off_regions)
+            snr_wf, _, _ = compute_snr_profile(waterfall_block, off_regions=None)
             if snr_wf.size > 0:
                 peak_snr_wf, _, peak_idx_wf = find_snr_peak(snr_wf)
                 snr_waterfall = float(peak_snr_wf)
@@ -467,7 +462,7 @@ def snr_detect_and_classify_candidates_in_band(
     # Calculate SNR from Linear waterfall if available
     if waterfall_block_linear is not None and waterfall_block_linear.size > 0:
         try:
-            snr_wf_linear, _, _ = compute_snr_profile(waterfall_block_linear, off_regions)
+            snr_wf_linear, _, _ = compute_snr_profile(waterfall_block_linear, off_regions=None)
             if snr_wf_linear.size > 0:
                 peak_snr_wf_linear, _, _ = find_snr_peak(snr_wf_linear)
                 snr_waterfall_linear = float(peak_snr_wf_linear)
@@ -510,19 +505,28 @@ def snr_detect_and_classify_candidates_in_band(
         intensity_column = dm_img_for_calc[:, cx] if cx < dm_img_for_calc.shape[1] else dm_img_for_calc[:, 0]
         col_std = float(np.std(intensity_column))
         
+        dm_status = "measured"
+        dm_uncertainty = 0.5
         if col_std < 1e-6:
-            # No variation in DM dimension - this is expected at very high frequencies
-            # Use middle DM as approximation since dispersion is negligible
+            dm_policy = str(getattr(config, "HIGH_FREQ_DM_POLICY", "unresolved")).lower()
             dm_min = float(config.DM_min)
             dm_max = float(config.DM_max)
-            dm_val = (dm_min + dm_max) / 2.0
+            if dm_policy in {"unresolved", "estimate_if_resolved"}:
+                dm_val = float("nan")
+                dm_status = "unresolved_high_freq"
+                dm_uncertainty = None
+            else:
+                dm_val = (dm_min + dm_max) / 2.0
+                dm_status = "catalog_prior"
+                dm_uncertainty = (dm_max - dm_min) / 2.0
             logger.info(
                 f"[DM_CALC] No DM variation detected (std={col_std:.6f}) - typical at very high frequencies. "
-                f"Using middle DM as approximation: {dm_val:.2f} (range: {dm_min:.2f}-{dm_max:.2f})"
+                f"dm_status={dm_status} (range: {dm_min:.2f}-{dm_max:.2f})"
             )
         else:
             # Normal case: use the DM with maximum intensity at the peak time
             dm_val = dm_val_approx
+            dm_status = "measured"
             logger.info(f"[DM_CALC] Calculated DM: {dm_val:.2f} (from _dm_from_image_at_time, std={col_std:.6f})")
         
         # Calculate time from the center of the box (temporal position)
@@ -544,6 +548,7 @@ def snr_detect_and_classify_candidates_in_band(
         conf = float(min(0.99, max(0.05, snr_peak / 10.0)))
 
         global_sample = int(slice_start_idx) + int(peak_idx)
+        dm_for_dedisp = 0.0 if not np.isfinite(float(dm_val)) else float(dm_val)
         
         # =====================================================================
         # PHASE 3a: ResNet Classification on INTENSITY (conditional)
@@ -551,42 +556,27 @@ def snr_detect_and_classify_candidates_in_band(
         class_prob_intensity = 0.0
         is_burst_intensity = False
         snr_val_intensity = snr_peak
-        
+        peak_idx_patch = None
+        width_ms_intensity = None
+        start_sample = None
+        proc_patch_intensity = None
+
         if enable_intensity_class:
-            patch_intensity, start_sample = dedisperse_patch(data_block, freq_down, dm_val, global_sample)
-
-            peak_idx_patch = None
-            if patch_intensity is not None and patch_intensity.size > 0:
-                snr_profile_pre, _, best_w_vec = compute_snr_profile(patch_intensity)
-                if snr_profile_pre.size > 0:
-                    peak_idx_patch = int(np.argmax(snr_profile_pre))
-                    snr_val_intensity = float(np.max(snr_profile_pre))
-
-            # Classify patch - EXACTLY same logic as classic pipeline (line 145 in detection_engine.py)
-            class_prob_intensity, proc_patch_intensity = classify_patch(cls_model, patch_intensity)
-            is_burst_intensity = class_prob_intensity >= float(config.CLASS_PROB)
-            
-            # Log classification result with patch info for debugging
-            patch_info = f"shape={patch_intensity.shape if patch_intensity is not None else 'None'}, size={patch_intensity.size if patch_intensity is not None else 0}"
-            logger.debug(
-                "Phase 3a: Intensity classification - DM=%.2f t_idx=%d class_prob=%.3f is_burst=%s patch_info=%s",
-                dm_val, peak_idx, class_prob_intensity, is_burst_intensity, patch_info
+            time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
+            proc_patch_intensity, class_prob_intensity, snr_intensity_fp, peak_idx_patch, width_ms_intensity, start_sample = _finalize_patch(
+                data_block, freq_down, dm_for_dedisp, global_sample, cls_model, time_reso_ds
             )
-            
-            # Warn if probability is 0.0 but we have a valid patch (this shouldn't happen for valid candidates)
-            if class_prob_intensity == 0.0 and patch_intensity is not None and patch_intensity.size > 0:
-                logger.warning(
-                    "WARNING: class_prob_intensity is 0.0 for valid patch at DM=%.2f peak_idx=%d. "
-                    "This may indicate a classification error.",
-                    dm_val, peak_idx
-                )
+            if snr_intensity_fp > 0.0:
+                snr_val_intensity = snr_intensity_fp
+            is_burst_intensity = class_prob_intensity >= float(config.CLASS_PROB)
+            logger.debug(
+                "Phase 3a: Intensity classification - DM=%.2f t_idx=%d class_prob=%.3f is_burst=%s",
+                dm_val, peak_idx, class_prob_intensity, is_burst_intensity,
+            )
         else:
-            # Phase 3a disabled: Set default values (will rely on Phase 3b)
             logger.debug("Phase 3a: DISABLED - Skipping Intensity classification for peak_idx=%d", peak_idx)
-            class_prob_intensity = 1.0  # Neutral value (will depend on Linear)
-            is_burst_intensity = True  # Pass through to Linear decision
-            patch_intensity = None
-            proc_patch_intensity = None  # Initialize to None when Phase 3a is disabled
+            class_prob_intensity = 1.0
+            is_burst_intensity = True
             start_sample = None
             peak_idx_patch = None
         
@@ -595,11 +585,12 @@ def snr_detect_and_classify_candidates_in_band(
         # =====================================================================
         class_prob_linear = 0.0
         is_burst_linear = False
-        snr_val_linear = None  # NEW: SNR from dedispersed Linear patch
-        
+        snr_val_linear = None
+        proc_patch_linear = None  # set in Phase 3b if linear data available
+
         if enable_linear_class and data_block_linear is not None:
             # Dedisperse Linear polarization patch at same DM and time
-            patch_linear, _ = dedisperse_patch(data_block_linear, freq_down, dm_val, global_sample)
+            patch_linear, _ = dedisperse_patch(data_block_linear, freq_down, dm_for_dedisp, global_sample)
             
             if patch_linear is not None and patch_linear.size > 0:
                 # Calculate SNR from dedispersed Linear patch (similar to Intensity)
@@ -785,11 +776,20 @@ def snr_detect_and_classify_candidates_in_band(
             logger.warning("SNR Linear is None for peak_idx=%d (has_multipol=%s, snr_profile_linear available=%s)", 
                         peak_idx, has_multipol, snr_profile_linear is not None)
 
+        linear_fraction = None
+        if waterfall_block_linear is not None and waterfall_block is not None:
+            try:
+                lo = max(0, peak_idx - 2)
+                hi = min(waterfall_block.shape[0], peak_idx + 3)
+                i_level = float(np.nanmedian(np.abs(waterfall_block[lo:hi])))
+                l_level = float(np.nanmedian(np.abs(waterfall_block_linear[lo:hi])))
+                if i_level > 1e-6:
+                    linear_fraction = l_level / i_level
+            except Exception:
+                linear_fraction = None
+
         # Keep track of the best candidate.
         # Use proc_patch_intensity if available, otherwise use proc_patch_linear
-        # Initialize proc_patch_linear if not already defined (for cases where Phase 3b is skipped)
-        if 'proc_patch_linear' not in locals():
-            proc_patch_linear = None
         patch_to_use = proc_patch_intensity if proc_patch_intensity is not None else proc_patch_linear
         
         if best_patch is None or (is_burst and not best_is_burst):
@@ -798,19 +798,25 @@ def snr_detect_and_classify_candidates_in_band(
             best_dm = dm_val
             best_is_burst = is_burst
 
-        # Build the CSV row and estimate width_ms using the optimal width at the peak.
-        width_ms = None
-        try:
-            if peak_idx_patch is not None and 'best_w_vec' in locals() and best_w_vec.size > 0:
-                width_ms = float(best_w_vec[int(peak_idx_patch)] * time_reso_ds * 1000.0)
-        except Exception:
-            width_ms = None
+        # width_ms already computed by _finalize_patch (Phase 3a)
+        width_ms = width_ms_intensity
+        n_trials = max(1, int((config.DM_max - config.DM_min + 1) * max(1, len(snr_profile_intensity))))
+        post_sigma = post_trials_sigma(float(snr_val_intensity), n_trials, getattr(config, "TRIAL_CORRECTION", "gaussian_extreme"))
+        phys_score = physical_consistency_score(
+            post_sigma,
+            snr_peak,
+            snr_val_intensity,
+            dm_status,
+            linear_fraction,
+        )
+        morphology_prob = max(float(class_prob_intensity), float(class_prob_linear))
+        rank_score = morphology_prob * phys_score
 
         # Calculate MJD values for the candidate (using DM-time detection time, same as plot)
         mjd_data = calculate_candidate_mjd(
             t_sec=float(detection_time_dm_time),
             compute_bary=True,
-            dm=float(dm_val),
+            dm=float(dm_val) if np.isfinite(float(dm_val)) else None,
         )
 
         cand = Candidate(
@@ -829,6 +835,16 @@ def snr_detect_and_classify_candidates_in_band(
             snr_waterfall_linear=snr_linear_at_peak,  # NEW: SNR from Linear waterfall at peak
             snr_patch_dedispersed_linear=snr_val_linear,  # NEW: SNR from dedispersed Linear patch
             width_ms=width_ms,
+            dm_uncertainty=dm_uncertainty,
+            dm_status=dm_status,
+            best_width_ms=width_ms,
+            n_trials=n_trials,
+            post_trials_sigma=post_sigma,
+            snr_pre_dedisp=snr_peak,
+            snr_post_dedisp=float(snr_val_intensity),
+            linear_fraction=linear_fraction,
+            physical_score=phys_score,
+            rank_score=rank_score,
             class_prob_intensity=float(class_prob_intensity),  # Classification probability in Intensity (I)
             is_burst_intensity=bool(is_burst_intensity),  # BURST classification in Intensity (I)
             class_prob_linear=float(class_prob_linear),  # Classification probability in Linear (L) - HF only
@@ -1209,10 +1225,8 @@ def _process_file_chunked_high_freq(
 
     # ===== VALIDATION METRICS COLLECTOR =====
     from ..output.validation_metrics import ValidationMetricsCollector
-    from ..core.data_flow_manager import set_validation_collector
     collector = ValidationMetricsCollector(fits_path.name)
     collector.record_data_characteristics()
-    set_validation_collector(collector)  # Set global collector for memory validations
     
     # ===== PHASE METRICS TRACKER =====
     phase_metrics_tracker = PhaseMetricsTracker()
@@ -1309,6 +1323,7 @@ def _process_file_chunked_high_freq(
     prob_max_total = 0.0
     snr_list_total: list[float] = []
     actual_chunk_count = 0
+    failed_chunk_count = 0
 
     try:
         if total_samples <= 0:
@@ -1331,7 +1346,7 @@ def _process_file_chunked_high_freq(
             freq_ds = config.FREQ
         nu_min = float(freq_ds.min())
         nu_max = float(freq_ds.max())
-        dt_max_sec = 4.1488e3 * config.DM_max * (nu_min**-2 - nu_max**-2)
+        dt_max_sec = K_DM_MS * config.DM_max * (nu_min**-2 - nu_max**-2)
 
         if config.TIME_RESO <= 0:
             logger.warning(
@@ -1399,11 +1414,29 @@ def _process_file_chunked_high_freq(
                 overlap_left_ds = chunk_params['overlap_left_ds']
                 overlap_right_ds = chunk_params['overlap_right_ds']
 
-                # Memory validation is now done inside build_dm_time_cube (PRESTO-style)
+                # SPEC-HF-002: Skip cube if DM smearing < 1 sample (unresolved band)
                 height = chunk_params['height']
-                dm_time_full = build_dm_time_cube(block_ds, height=height, dm_min=config.DM_min, dm_max=config.DM_max)
-                block_ds, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(block_ds, dm_time_full, overlap_left_ds, overlap_right_ds)
-                
+                freq_low = float(freq_down.min())
+                freq_high = float(freq_down.max())
+                dm_range = float(config.DM_max) - float(config.DM_min)
+                dm_delay_s = K_DM_MS * dm_range * (freq_low ** -2 - freq_high ** -2)
+                dm_smear_samples = dm_delay_s / (config.TIME_RESO * config.DOWN_TIME_RATE)
+                if dm_smear_samples < 1.0:
+                    logger.info(
+                        "SPEC-HF-002: DM unresolved (%.4f samples at %.0f-%.0f MHz) — "
+                        "skipping DM-time cube build.",
+                        dm_smear_samples, freq_low, freq_high,
+                    )
+                    n_valid = max(0, block_ds.shape[0] - overlap_left_ds - overlap_right_ds)
+                    dm_time = np.zeros((3, height, n_valid), dtype=np.float32)
+                    block_ds = block_ds[overlap_left_ds: block_ds.shape[0] - overlap_right_ds]
+                    valid_start_ds, valid_end_ds = 0, n_valid
+                else:
+                    dm_time_full = build_dm_time_cube(block_ds, height=height, dm_min=config.DM_min, dm_max=config.DM_max, collector=collector)
+                    block_ds, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(block_ds, dm_time_full, overlap_left_ds, overlap_right_ds)
+                    del dm_time_full
+                    gc.collect()
+
                 # Record chunk processing for validation metrics
                 collector.record_chunk_processing(
                     chunk_idx=metadata['chunk_idx'],
@@ -1413,11 +1446,6 @@ def _process_file_chunked_high_freq(
                     valid_end=valid_end_ds,
                     chunk_samples=block_ds.shape[0]
                 )
-                
-                # CRITICAL: Free the full cube immediately after trimming
-                del dm_time_full
-                import gc
-                gc.collect()
 
                 # Also downsample the RAW multi-pol block for polarization extraction
                 block_raw_ds = None
@@ -1546,6 +1574,8 @@ def _process_file_chunked_high_freq(
                 logger.exception(f"Out of memory processing chunk {metadata['chunk_idx']:03d}: {mem_error}")
                 raise
             except Exception as chunk_error:
+                # SPEC-IO-002: count failed chunks for PARTIAL status reporting.
+                failed_chunk_count += 1
                 logger.exception(f"Error processing chunk {metadata['chunk_idx']:03d}: {chunk_error}")
 
         from ..logging import log_processing_summary
@@ -1573,6 +1603,15 @@ def _process_file_chunked_high_freq(
         effective_n_bursts_total = n_bursts_total
         effective_n_no_bursts_total = n_no_bursts_total
 
+    from ..core.pipeline import finalize_file_status
+    successful_chunks = actual_chunk_count - failed_chunk_count
+    status = finalize_file_status("SUCCESS_CHUNKED_HIGH_FREQ", failed_chunk_count, successful_chunks)
+    if failed_chunk_count > 0:
+        logger.warning(
+            "HF file %s completed with %d/%d chunks failed -> status=%s",
+            fits_path.name, failed_chunk_count, actual_chunk_count, status,
+        )
+
     return {
         "n_candidates": effective_cand_counter_total,
         "n_bursts": effective_n_bursts_total,
@@ -1580,7 +1619,8 @@ def _process_file_chunked_high_freq(
         "runtime_s": runtime,
         "max_prob": prob_max_total,
         "mean_snr": float(np.mean(snr_list_total)) if snr_list_total else 0.0,
-        "status": "SUCCESS_CHUNKED_HIGH_FREQ",
+        "status": status,
+        "failed_chunks": failed_chunk_count,
         "phase_metrics": phase_metrics_tracker,
     }
 

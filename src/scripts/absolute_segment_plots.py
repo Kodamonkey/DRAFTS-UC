@@ -15,8 +15,8 @@ from ..config import config
 from ..input.data_loader import (
     get_obparams,
     get_obparams_fil,
-    load_fil_file,
-    load_fits_file
+    stream_fits,
+    stream_fil,
 )
 from ..preprocessing.dedispersion import dedisperse_block
 from ..visualization.plot_waterfall_dispersed import save_waterfall_dispersed_plot
@@ -70,33 +70,30 @@ def run_single_segment(
     out_dir: Path,
     normalize: bool = True,
 ) -> None:
-                                                                                       
     ftype = _infer_file_type(filename)
     if ftype == "fits":
         get_obparams(str(filename))
     else:
         get_obparams_fil(str(filename))
 
-                                                                                     
-    if ftype == "fits":
-        data_raw = load_fits_file(str(filename))
-    else:
-        data_raw = load_fil_file(str(filename))
-                                        
-    if data_raw.ndim != 3:
-        raise ValueError("Unexpected data: expected (time, pol, chan)")
-                                                               
-    data_raw = data_raw[:, 0:1, :]
-                                                                  
     tsamp = float(config.TIME_RESO)
     R = int(config.DOWN_TIME_RATE)
     start_raw = int(round(start / tsamp))
     n_raw = int(round(duration / tsamp))
-                                                          
     pad = (R - (n_raw % R)) % R
-    end_raw = min(data_raw.shape[0], start_raw + max(1, n_raw + pad))
-    start_raw = max(0, min(start_raw, data_raw.shape[0] - 1))
-    raw_block = data_raw[start_raw:end_raw]                 
+    chunk_samples = max(1, n_raw + pad)
+
+    # Stream only the needed segment instead of loading the entire file
+    stream_fn = stream_fits if ftype == "fits" else stream_fil
+    raw_block = None
+    for block, _meta in stream_fn(str(filename), chunk_samples=chunk_samples):
+        if block.ndim == 3:
+            block = block[:, 0:1, :]
+        raw_block = block
+        break  # only need the first chunk covering the segment
+
+    if raw_block is None:
+        raise ValueError(f"Could not read data from {filename}")
 
                                                                                
     from ..preprocessing.data_downsampler import downsample_data

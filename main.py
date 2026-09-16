@@ -5,6 +5,7 @@ Runs the FRB detection pipeline with configuration from config.yaml
 
 Usage:
     python main.py                      # Use config.yaml
+    python main.py --yes                # Skip CPU-mode confirmation (non-interactive)
     python main.py --dm-max 512         # Override specific parameters
     python main.py --help               # Show all options
 
@@ -17,6 +18,45 @@ import sys
 import argparse
 from pathlib import Path
 from src.core.pipeline import run_pipeline
+
+
+def _torch_cuda_available() -> bool:
+    """True if PyTorch sees a usable CUDA device."""
+    try:
+        import torch
+        return bool(torch.cuda.is_available())
+    except Exception:
+        return False
+
+
+def _prompt_cpu_mode_before_run(args) -> None:
+    """Warn when running without GPU acceleration; optional ENTER to continue."""
+    if _torch_cuda_available():
+        return
+    print()
+    print("!" * 80)
+    print("AVISO: vas a ejecutar el pipeline en modo CPU (sin aceleración GPU/CUDA).")
+    print()
+    print("  Este modo suele ser mucho más lento que usar una GPU NVIDIA con PyTorch")
+    print("  compilado para CUDA y el driver adecuado. Si no sabías que hacía falta CUDA,")
+    print("  revisa la documentación del proyecto para instalar PyTorch+CUDA o usa Docker")
+    print("  con soporte GPU cuando corresponda.")
+    print()
+    print("  Si quieres evitar esta pausa en scripts o CI, usa:  python main.py --yes")
+    print("!" * 80)
+    if getattr(args, "yes", False):
+        print("(Continuando con --yes, sin pedir confirmación.)")
+        print()
+        return
+    if not sys.stdin.isatty():
+        print("(Entrada no interactiva: se continúa sin pedir ENTER.)")
+        print()
+        return
+    try:
+        input("Pulsa ENTER si quieres continuar de todas formas... ")
+    except EOFError:
+        print("(EOF: continuando.)")
+    print()
 
 
 def parse_args():
@@ -92,8 +132,8 @@ Note: For Docker, data paths should be changed in docker-compose.yml, not via CL
                          help='Enable automatic high-frequency pipeline')
     hf_group.add_argument('--no-auto-high-freq', action='store_false', dest='auto_high_freq',
                          help='Disable automatic high-frequency pipeline')
-    hf_group.add_argument('--high-freq-threshold', type=float,
-                         help='High-frequency threshold in MHz (default: from config.yaml)')
+    hf_group.add_argument('--collapse-ratio', type=float,
+                         help='Bow-tie collapse ratio: HF activates when dispersive sweep / time resolution < this value (default: from config.yaml)')
     hf_group.add_argument('--enable-linear-validation', action='store_true',
                          help='Enable Phase 2: Linear Polarization SNR validation')
     hf_group.add_argument('--no-linear-validation', action='store_false', dest='enable_linear_validation',
@@ -122,7 +162,14 @@ Note: For Docker, data paths should be changed in docker-compose.yml, not via CL
                              help='Save only candidates classified as BURST by ResNet (default)')
     
     parser.set_defaults(multi_band=None, auto_high_freq=None, enable_linear_validation=None)
-    
+
+    parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="No pedir confirmación en modo CPU (útil para scripts, CI o ejecución no interactiva)",
+    )
+
     return parser.parse_args()
 
 
@@ -154,7 +201,7 @@ def main():
         "SNR_THRESH": user_config.SNR_THRESH,
         "USE_MULTI_BAND": user_config.USE_MULTI_BAND,
         "AUTO_HIGH_FREQ_PIPELINE": user_config.AUTO_HIGH_FREQ_PIPELINE,
-        "HIGH_FREQ_THRESHOLD_MHZ": user_config.HIGH_FREQ_THRESHOLD_MHZ,
+        "BOWTIE_COLLAPSE_RATIO": user_config.BOWTIE_COLLAPSE_RATIO,
         "ENABLE_LINEAR_VALIDATION": user_config.ENABLE_LINEAR_VALIDATION,
         "POLARIZATION_MODE": user_config.POLARIZATION_MODE,
         "POLARIZATION_INDEX": user_config.POLARIZATION_INDEX,
@@ -218,9 +265,9 @@ def main():
         config_dict["AUTO_HIGH_FREQ_PIPELINE"] = args.auto_high_freq
         cli_overrides.append(f"auto_high_freq={args.auto_high_freq}")
     
-    if args.high_freq_threshold is not None:
-        config_dict["HIGH_FREQ_THRESHOLD_MHZ"] = args.high_freq_threshold
-        cli_overrides.append(f"high_freq_threshold={args.high_freq_threshold}MHz")
+    if args.collapse_ratio is not None:
+        config_dict["BOWTIE_COLLAPSE_RATIO"] = args.collapse_ratio
+        cli_overrides.append(f"collapse_ratio={args.collapse_ratio}")
     
     if args.enable_linear_validation is not None:
         config_dict["ENABLE_LINEAR_VALIDATION"] = args.enable_linear_validation
@@ -290,7 +337,9 @@ def main():
     print(f"Debug frequency:            {'[ENABLED]' if config_dict['DEBUG_FREQUENCY_ORDER'] else '[Disabled]'}")
     print("=" * 80)
     print()
-    
+
+    _prompt_cpu_mode_before_run(args)
+
     # Run pipeline with configuration
     run_pipeline(config_dict=config_dict)
 

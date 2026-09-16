@@ -51,22 +51,22 @@ services:
       # Optional: temporary processed data
       # - ./Data/processed:/app/Data/processed:rw
     
-    # Environment variables
+    # Environment variables (auto-detected at runtime by hardware_profile)
     environment:
       - PYTHONUNBUFFERED=1
-      - OMP_NUM_THREADS=4
-      - MKL_NUM_THREADS=4
-      - NUMBA_NUM_THREADS=4
-    
-    # Resource limits
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-0}
+      - MKL_NUM_THREADS=${MKL_NUM_THREADS:-0}
+      - NUMBA_NUM_THREADS=${NUMBA_NUM_THREADS:-0}
+
+    # Resource limits (override via env vars for different hosts)
     deploy:
       resources:
         limits:
-          cpus: '8'
-          memory: 16G
+          cpus: '${DRAFTS_CPU_LIMIT:-8}'
+          memory: ${DRAFTS_MEM_LIMIT:-16G}
         reservations:
-          cpus: '4'
-          memory: 8G
+          cpus: '${DRAFTS_CPU_RESERVE:-4}'
+          memory: ${DRAFTS_MEM_RESERVE:-8G}
     
     # Network
     network_mode: bridge
@@ -119,15 +119,15 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - CUDA_VISIBLE_DEVICES=0
     
-    # Resource limits
+    # Resource limits (override via env vars for different hosts)
     deploy:
       resources:
         limits:
-          cpus: '8'
-          memory: 32G
+          cpus: '${DRAFTS_CPU_LIMIT:-8}'
+          memory: ${DRAFTS_MEM_LIMIT_GPU:-32G}
         reservations:
-          cpus: '4'
-          memory: 16G
+          cpus: '${DRAFTS_CPU_RESERVE:-4}'
+          memory: ${DRAFTS_MEM_RESERVE_GPU:-16G}
           devices:
             - driver: nvidia
               count: 1

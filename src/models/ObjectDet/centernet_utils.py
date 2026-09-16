@@ -137,7 +137,8 @@ def postprocess(prediction, need_nms, input_shape, nms_iou=0.4):
 
 def get_res(hm, wh, offset, confidence):
 
-    outputs = decode_bbox(hm, wh, offset, confidence, cuda=True)
+    use_cuda = bool(getattr(hm, "is_cuda", False) or getattr(wh, "is_cuda", False) or getattr(offset, "is_cuda", False))
+    outputs = decode_bbox(hm, wh, offset, confidence, cuda=use_cuda)
     results = postprocess(outputs, True, 512, nms_iou=0.3)
 
     if results[0] is None:

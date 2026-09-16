@@ -6,6 +6,8 @@ import numpy as np
 import logging
 from typing import Tuple, Dict, List, Optional, Any
 
+from ..analysis.science_metrics import K_DM_MS
+
 logger = logging.getLogger(__name__)
 
 class DynamicDMRangeCalculator:
@@ -112,11 +114,8 @@ class DynamicDMRangeCalculator:
         """Analyzes dispersion characteristics for specific DM range."""
         
         freq_min, freq_max = freq_range
-        K_DM = 4.148808e3                           
-        
-                                           
-        disp_delay_min = K_DM * dm_min * (1/freq_min**2 - 1/freq_max**2)
-        disp_delay_max = K_DM * dm_max * (1/freq_min**2 - 1/freq_max**2)
+        disp_delay_min = K_DM_MS * dm_min * (1/freq_min**2 - 1/freq_max**2)
+        disp_delay_max = K_DM_MS * dm_max * (1/freq_min**2 - 1/freq_max**2)
         disp_delay_range = disp_delay_max - disp_delay_min
         
                                                  

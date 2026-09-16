@@ -41,13 +41,10 @@ def detect(model, img_tensor: np.ndarray):
                                                     
         if top_boxes is None:
             return [], []
-        try:
-            if torch.is_tensor(top_conf):
-                top_conf = top_conf.detach().cpu().numpy()
-            if torch.is_tensor(top_boxes):
-                top_boxes = top_boxes.detach().cpu().numpy()
-        except Exception:
-            pass
+        if torch.is_tensor(top_conf):
+            top_conf = top_conf.detach().cpu().numpy()
+        if torch.is_tensor(top_boxes):
+            top_boxes = top_boxes.detach().cpu().numpy()
         if isinstance(top_conf, np.ndarray):
             top_conf = top_conf.tolist()
         if isinstance(top_boxes, np.ndarray):

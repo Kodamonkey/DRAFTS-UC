@@ -78,10 +78,44 @@ def validate_file_compatibility(file_path: Path) -> Dict[str, Any]:
             validation_result['validation_errors'].append(f"Error accessing file: {e}")
             return validation_result
         
-                                                    
+        # Verify magic bytes / file integrity
+        integrity_error = _check_magic_bytes(file_path, file_type)
+        if integrity_error:
+            validation_result['validation_errors'].append(integrity_error)
+            return validation_result
+
         validation_result['is_compatible'] = True
-        
+
     except Exception as e:
         validation_result['validation_errors'].append(f"Unexpected validation error: {e}")
-    
+
     return validation_result
+
+
+def _check_magic_bytes(file_path: Path, file_type: str) -> str | None:
+    """Verify that the file starts with the expected magic bytes.
+
+    Returns an error string if invalid, ``None`` if OK.
+    """
+    try:
+        with open(file_path, "rb") as f:
+            header = f.read(80)
+
+        if file_type == "fits":
+            # FITS files must start with "SIMPLE  ="
+            if not header.startswith(b"SIMPLE"):
+                return (
+                    f"File does not look like a valid FITS file (expected "
+                    f"'SIMPLE' header, got {header[:20]!r})"
+                )
+        elif file_type == "filterbank":
+            # Filterbank files start with the keyword "HEADER_START"
+            if b"HEADER_START" not in header[:32]:
+                return (
+                    f"File does not look like a valid filterbank file "
+                    f"(expected 'HEADER_START' in first 32 bytes)"
+                )
+    except OSError as e:
+        return f"Cannot read file header: {e}"
+
+    return None

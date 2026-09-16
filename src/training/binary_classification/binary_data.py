@@ -1,5 +1,6 @@
 import os
 import numpy as np
+from src.analysis.science_metrics import K_DM_MS
 import pandas as pd
 from scipy.interpolate import interp1d
 from skimage.transform import resize
@@ -102,7 +103,7 @@ class BurstDataset(Dataset):
             insert_num   = np.random.randint(1, 8)
             DM = np.random.rand() * 1000 + 50
             freq = np.linspace(1000, 1500, 512)
-            delay = (4.15 * DM * (freq**-2 - freq.max()**-2) * 1e3 / (49.152 * 1e-6) / 8).astype(np.int64)
+            delay = (K_DM_MS * DM * (freq**-2 - freq.max()**-2) / (49.152 * 1e-6) / 8).astype(np.int64)
             for _ in range(insert_num):
                 insert_start = np.random.randint(0, np.max(delay))
                 insert_lengt = np.random.randint(2, 20)

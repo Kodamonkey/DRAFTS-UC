@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 print("="*100)
 print("ANÁLISIS: ¿Por qué NO se reduce el chunk temporal cuando el cubo es muy grande?")

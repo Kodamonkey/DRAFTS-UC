@@ -135,6 +135,13 @@ def create_dm_time_plot(
     ax_det = fig.add_subplot(111)
     
                                                     
+    if img_rgb.dtype == object or not np.issubdtype(img_rgb.dtype, np.number):
+        try:
+            img_rgb = np.asarray(img_rgb, dtype=np.float32)
+        except (TypeError, ValueError):
+            img_rgb = np.array(img_rgb.tolist(), dtype=np.float32)
+    if np.issubdtype(img_rgb.dtype, np.floating) and float(np.nanmax(img_rgb)) > 1.0:
+        img_rgb = np.clip(img_rgb / 255.0, 0.0, 1.0)
     ax_det.imshow(img_rgb, origin="lower", aspect="auto")
     ax_det.set_title("Detection Results", fontsize=10, fontweight="bold")
     ax_det.set_xlabel("Time (s)", fontsize=9)

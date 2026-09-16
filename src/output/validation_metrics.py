@@ -15,6 +15,7 @@ from typing import Dict, List, Optional
 
 import psutil
 
+from ..analysis.science_metrics import K_DM_MS
 from ..config import config
 
 logger = logging.getLogger(__name__)
@@ -103,7 +104,7 @@ class ValidationMetricsCollector:
         # NO convertir a GHz, ya que nu^-2 scaling haría el resultado 10^6 veces mayor.
         nu_min = self.metrics["data_characteristics"].get("freq_min_mhz", 1000)
         nu_max = self.metrics["data_characteristics"].get("freq_max_mhz", 2000)
-        delta_t_max = 4.148808e3 * config.DM_max * (nu_min**-2 - nu_max**-2)
+        delta_t_max = K_DM_MS * config.DM_max * (nu_min**-2 - nu_max**-2)
         
         max_cube_size_gb = getattr(config, 'MAX_DM_CUBE_SIZE_GB', 2.0)
         max_result_size_gb = max_cube_size_gb * 4

@@ -38,6 +38,16 @@ CANDIDATE_HEADER = [
     "snr_waterfall_linear",  # SNR from waterfall raw in Linear polarization - HF pipeline only
     "snr_patch_dedispersed_linear",  # SNR from dedispersed patch in Linear polarization - HF pipeline only
     "width_ms",
+    "dm_uncertainty",
+    "dm_status",
+    "best_width_ms",
+    "n_trials",
+    "post_trials_sigma",
+    "snr_pre_dedisp",
+    "snr_post_dedisp",
+    "linear_fraction",
+    "physical_score",
+    "rank_score",
     "class_prob_intensity",  # Classification probability in Intensity (I) - always present
     "is_burst_intensity",  # BURST classification in Intensity (I) - always present
     "class_prob_linear",  # Classification probability in Linear (L) - HF pipeline only
@@ -51,6 +61,19 @@ def ensure_csv_header(csv_path: Path) -> None:
     """Create csv_path with the standard candidate header if needed."""
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     if csv_path.exists():
+        try:
+            with csv_path.open("r", newline="") as f_csv:
+                rows = list(csv.reader(f_csv))
+            if rows and rows[0] != CANDIDATE_HEADER:
+                width = len(CANDIDATE_HEADER)
+                padded = [CANDIDATE_HEADER]
+                for row in rows[1:]:
+                    padded.append((row + [""] * width)[:width])
+                with csv_path.open("w", newline="") as f_csv:
+                    writer = csv.writer(f_csv)
+                    writer.writerows(padded)
+        except Exception as e:
+            logger.warning("Could not validate/update CSV header for %s: %s", csv_path, e)
         return
     try:
         with csv_path.open("w", newline="") as f_csv:
@@ -62,10 +85,67 @@ def ensure_csv_header(csv_path: Path) -> None:
 
 
 def append_candidate(csv_path: Path, candidate_row: list) -> None:
-    """Append a candidate row to the CSV file."""
-    with csv_path.open("a", newline="") as f_csv:
-        writer = csv.writer(f_csv)
-        writer.writerow(candidate_row)
+    """Append a candidate row to the CSV file.
+
+    Uses a global ``CandidateWriter`` per path to buffer writes and avoid
+    opening/closing the file for every single candidate.
+    """
+    CandidateWriter.get(csv_path).write(candidate_row)
+
+
+class CandidateWriter:
+    """Buffered CSV writer that batches candidate rows.
+
+    Keeps the file handle open and flushes every ``flush_interval`` rows
+    or when explicitly flushed / closed.
+    """
+
+    _instances: dict[Path, "CandidateWriter"] = {}
+
+    def __init__(self, csv_path: Path, flush_interval: int = 50):
+        self._path = csv_path
+        self._flush_interval = flush_interval
+        self._buffer: list[list] = []
+        self._fh = None
+        self._writer = None
+
+    @classmethod
+    def get(cls, csv_path: Path) -> "CandidateWriter":
+        resolved = csv_path.resolve()
+        if resolved not in cls._instances:
+            cls._instances[resolved] = cls(csv_path)
+        return cls._instances[resolved]
+
+    @classmethod
+    def flush_all(cls) -> None:
+        """Flush and close all open writers (call at pipeline end)."""
+        for w in list(cls._instances.values()):
+            w.close()
+        cls._instances.clear()
+
+    def _ensure_open(self):
+        if self._fh is None or self._fh.closed:
+            self._fh = self._path.open("a", newline="")
+            self._writer = csv.writer(self._fh)
+
+    def write(self, row: list) -> None:
+        self._buffer.append(row)
+        if len(self._buffer) >= self._flush_interval:
+            self.flush()
+
+    def flush(self) -> None:
+        if not self._buffer:
+            return
+        self._ensure_open()
+        self._writer.writerows(self._buffer)
+        self._fh.flush()
+        self._buffer.clear()
+
+    def close(self) -> None:
+        self.flush()
+        if self._fh is not None and not self._fh.closed:
+            self._fh.close()
+            self._fh = None
 
 
 @dataclass(slots=True)
@@ -91,6 +171,16 @@ class Candidate:
     snr_waterfall_linear: float | None = None  # SNR from waterfall raw in Linear - HF pipeline only
     snr_patch_dedispersed_linear: float | None = None  # SNR from dedispersed patch in Linear - HF pipeline only
     width_ms: float | None = None
+    dm_uncertainty: float | None = None
+    dm_status: str = "measured"
+    best_width_ms: float | None = None
+    n_trials: int | None = None
+    post_trials_sigma: float | None = None
+    snr_pre_dedisp: float | None = None
+    snr_post_dedisp: float | None = None
+    linear_fraction: float | None = None
+    physical_score: float | None = None
+    rank_score: float | None = None
     class_prob_intensity: float | None = None  # Classification probability in Intensity (I)
     is_burst_intensity: bool | None = None  # BURST classification in Intensity (I)
     class_prob_linear: float | None = None  # Classification probability in Linear (L) - HF only
@@ -134,6 +224,16 @@ class Candidate:
             row.append(f"{self.width_ms:.3f}")
         else:
             row.append("")
+        row.append(f"{self.dm_uncertainty:.3f}" if self.dm_uncertainty is not None else "")
+        row.append(self.dm_status)
+        row.append(f"{self.best_width_ms:.3f}" if self.best_width_ms is not None else "")
+        row.append(self.n_trials if self.n_trials is not None else "")
+        row.append(f"{self.post_trials_sigma:.3f}" if self.post_trials_sigma is not None else "")
+        row.append(f"{self.snr_pre_dedisp:.2f}" if self.snr_pre_dedisp is not None else "")
+        row.append(f"{self.snr_post_dedisp:.2f}" if self.snr_post_dedisp is not None else "")
+        row.append(f"{self.linear_fraction:.4f}" if self.linear_fraction is not None else "")
+        row.append(f"{self.physical_score:.4f}" if self.physical_score is not None else "")
+        row.append(f"{self.rank_score:.4f}" if self.rank_score is not None else "")
         # Add classification probabilities (Intensity - always present)
         if self.class_prob_intensity is not None:
             row.append(f"{self.class_prob_intensity:.3f}")

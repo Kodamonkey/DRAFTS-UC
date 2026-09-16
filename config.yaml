@@ -30,6 +30,42 @@ data:
     - "J0532+3305"
 
 # ==============================================================================
+# SOURCE AND OBSERVATORY
+# ==============================================================================
+# These five values are used ONLY to compute the barycentric MJD columns of the
+# candidate CSV (mjd_bary_*). They do not affect detection.
+#
+# Until they were exposed here they were hardcoded in src/core/mjd_utils.py to
+# FRB 121102 as seen from Effelsberg, and no caller ever overrode them, so every
+# candidate of every observation was stamped with that source and that site. The
+# values below are those same defaults, so behaviour is unchanged for
+# FRB 121102 / J0532+3305 -- but they are now wrong loudly instead of silently
+# for any other target, and the CSV column mjd_bary_status records whether the
+# barycentric correction actually succeeded.
+source:
+  # Source right ascension, sexagesimal hours "hh:mm:ss.ss", ICRS frame.
+  ra: "05:31:58.70"
+
+  # Source declination, sexagesimal degrees "dd:mm:ss.s", ICRS frame.
+  dec: "33:08:52.5"
+
+  # Reference frequency in MHz for the infinite-frequency dispersion correction
+  # (mjd_bary_*_inf). Should be the frequency the arrival time refers to --
+  # normally the top of the observed band, not the centre of some other band.
+  reference_freq_mhz: 1400.0
+
+  # Observatory site, spelled as astropy's EarthLocation.of_site() expects.
+  # `python -c "from astropy.coordinates import EarthLocation; print(EarthLocation.get_site_names())"`
+  # lists the accepted names. An unknown name makes the barycentric correction
+  # fail, which is then reported in mjd_bary_status rather than swallowed.
+  observatory: "Effelsberg"
+
+  # JPL ephemeris for the light-travel-time correction. "de432s" is small and
+  # accurate enough for FRB timing; "de430"/"de440" are larger and downloaded
+  # on first use.
+  ephemeris: "de432s"
+
+# ==============================================================================
 # TEMPORAL ANALYSIS
 # ==============================================================================
 temporal:

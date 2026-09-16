@@ -40,6 +40,11 @@ try:
         DOWN_TIME_RATE,
         TEMPORAL_DOWNSAMPLING_MODE,
         PREWHITEN_BEFORE_DM,
+        SOURCE_RA,
+        SOURCE_DEC,
+        REF_FREQ_MHZ,
+        OBSERVATORY,
+        EPHEMERIS,
         DET_PROB,
         CLASS_PROB,
         CLASS_PROB_LINEAR,
@@ -87,6 +92,11 @@ except ImportError:
             DOWN_TIME_RATE,
             TEMPORAL_DOWNSAMPLING_MODE,
             PREWHITEN_BEFORE_DM,
+            SOURCE_RA,
+            SOURCE_DEC,
+            REF_FREQ_MHZ,
+            OBSERVATORY,
+            EPHEMERIS,
             DET_PROB,
             CLASS_PROB,
             CLASS_PROB_LINEAR,
@@ -215,6 +225,18 @@ TRIAL_CORRECTION: str = globals().get("TRIAL_CORRECTION", "gaussian_extreme")
 # ==============================================================================
 
 PREWHITEN_BEFORE_DM: bool = globals().get("PREWHITEN_BEFORE_DM", False)   # Apply prewhitening before dedispersion (SPEC-PRE-001; scientific default False)
+
+# ==============================================================================
+# SOURCE AND OBSERVATORY (barycentric MJD only)
+# ==============================================================================
+# No fallback literal here on purpose. mjd_utils treats a missing value as
+# "cannot compute the barycentric correction" and records that in the CSV,
+# which is the point of P1-07: a wrong sky position must never be silent.
+SOURCE_RA: str | None = globals().get("SOURCE_RA", None)
+SOURCE_DEC: str | None = globals().get("SOURCE_DEC", None)
+REF_FREQ_MHZ: float | None = globals().get("REF_FREQ_MHZ", None)
+OBSERVATORY: str | None = globals().get("OBSERVATORY", None)
+EPHEMERIS: str = globals().get("EPHEMERIS", "de432s")
 TEMPORAL_DOWNSAMPLING_MODE: str = globals().get("TEMPORAL_DOWNSAMPLING_MODE", "sum")
 HIGH_FREQ_DM_POLICY: str = globals().get("HIGH_FREQ_DM_POLICY", "unresolved")
 POLARIZATION_LINEAR_DEBIAS: bool = globals().get("POLARIZATION_LINEAR_DEBIAS", True)
@@ -243,6 +265,7 @@ _KNOWN_CONFIG_KEYS = {
     "ENABLE_LINEAR_CLASSIFICATION", "POLARIZATION_MODE", "POLARIZATION_INDEX",
     "HIGH_FREQ_DM_POLICY", "POLARIZATION_LINEAR_DEBIAS",
     "DEBUG_FREQUENCY_ORDER", "FORCE_PLOTS",
+    "SOURCE_RA", "SOURCE_DEC", "REF_FREQ_MHZ", "OBSERVATORY", "EPHEMERIS",
     "MAX_CHUNK_SAMPLES", "MAX_RAM_FRACTION", "MAX_DM_CUBE_SIZE_GB",
     "DM_CHUNKING_THRESHOLD_GB", "OVERHEAD_FACTOR",
     "FREQ", "FREQ_RESO", "TIME_RESO", "FILE_LENG", "DATA_NEEDS_REVERSAL",

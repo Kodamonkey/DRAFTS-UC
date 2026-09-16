@@ -324,6 +324,7 @@ def detect_and_classify_candidates_in_band(
             mjd_bary_tdb=mjd_data.get('mjd_bary_tdb'),
             mjd_bary_utc_inf=mjd_data.get('mjd_bary_utc_inf'),
             mjd_bary_tdb_inf=mjd_data.get('mjd_bary_tdb_inf'),
+            mjd_bary_status=mjd_data.get('mjd_bary_status'),
         )
         cand_counter += 1
         if is_burst:

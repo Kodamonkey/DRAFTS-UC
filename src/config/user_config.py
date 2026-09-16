@@ -72,6 +72,17 @@ DOWN_TIME_RATE = int(_config['downsampling']['time_rate'])
 TEMPORAL_DOWNSAMPLING_MODE = str(_config.get('downsampling', {}).get('temporal_mode', 'sum')).lower()
 
 # =============================================================================
+# SOURCE AND OBSERVATORY (barycentric MJD only)
+# =============================================================================
+# Defaults match what src/core/mjd_utils.py used to hardcode, so an existing
+# config.yaml without a `source:` section keeps its previous output.
+SOURCE_RA = str(_config.get('source', {}).get('ra', "05:31:58.70"))
+SOURCE_DEC = str(_config.get('source', {}).get('dec', "33:08:52.5"))
+REF_FREQ_MHZ = float(_config.get('source', {}).get('reference_freq_mhz', 1400.0))
+OBSERVATORY = str(_config.get('source', {}).get('observatory', "Effelsberg"))
+EPHEMERIS = str(_config.get('source', {}).get('ephemeris', "de432s"))
+
+# =============================================================================
 # PREPROCESSING CONFIGURATION
 # =============================================================================
 # Scientific default is False: prewhitening changes the DM-cube physics.

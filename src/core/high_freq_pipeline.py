@@ -45,6 +45,84 @@ def _find_snr_peaks(snr_profile: np.ndarray, threshold: float, min_distance: int
     return peaks
 
 
+def _fmt_prob(prob: float | None) -> str:
+    """Format a classification probability for a log line.
+
+    A phase that was disabled, or that found no patch to classify, has no
+    probability at all. ``"n/a"`` says so; formatting ``None`` with ``%.2f``
+    would raise, and substituting a number would be the very thing P1-10 was.
+    """
+    return "n/a" if prob is None else f"{prob:.2f}"
+
+
+def decide_candidate(
+    *,
+    has_intensity_result: bool,
+    has_linear_result: bool,
+    is_burst_intensity: bool | None,
+    class_prob_intensity: float | None,
+    is_burst_linear: bool | None,
+    class_prob_linear: float | None,
+    enable_linear_class: bool,
+    save_only_burst: bool,
+) -> tuple[bool, bool | None, str]:
+    """Decide whether to keep a high-frequency candidate, and what to call it.
+
+    Returns ``(should_save, is_burst, save_reason)``.
+
+    ``is_burst`` is the verdict that reaches the CSV, and it is produced here,
+    by the same branches that produce ``should_save``. They were two separate
+    decisions until audit finding P1-10: ``should_save`` consulted whichever
+    phase had actually run, while ``is_burst`` was an unconditional alias of the
+    Intensity verdict. With Phase 3a disabled that alias was a hardcoded
+    ``True``, so every saved candidate was labelled a burst no matter what the
+    Linear classifier had concluded, and the burst counter equalled the
+    candidate counter.
+
+    ``is_burst`` is ``None`` when no phase produced a verdict -- an absent
+    classification, not a negative one.
+
+    The function is pure so the four availability combinations can be tested
+    without driving the whole pipeline.
+    """
+    if has_intensity_result and has_linear_result:
+        if save_only_burst:
+            # STRICT: a burst in Intensity AND in Linear.
+            is_burst = bool(is_burst_intensity and is_burst_linear)
+            if is_burst:
+                reason = f"BURST in I+L (p_I={class_prob_intensity:.2f}, p_L={class_prob_linear:.2f})"
+            else:
+                reason = (
+                    f"Filtered: I={'BURST' if is_burst_intensity else 'NO'}({class_prob_intensity:.2f}), "
+                    f"L={'BURST' if is_burst_linear else 'NO'}({class_prob_linear:.2f})"
+                )
+        else:
+            # PERMISSIVE: a burst in either.
+            is_burst = bool(is_burst_intensity or is_burst_linear)
+            if is_burst:
+                reason = f"BURST: I={is_burst_intensity}({class_prob_intensity:.2f}), L={is_burst_linear}({class_prob_linear:.2f})"
+            else:
+                reason = f"NO-BURST in both: I={class_prob_intensity:.2f}, L={class_prob_linear:.2f}"
+        return is_burst, is_burst, reason
+
+    if has_intensity_result:
+        is_burst = bool(is_burst_intensity)
+        reason = f"{'BURST' if is_burst else 'NO-BURST'} in I({class_prob_intensity:.2f})"
+        if enable_linear_class:
+            reason += " [Linear N/A - no multi-pol data]"
+        return (not save_only_burst or is_burst), is_burst, reason
+
+    if has_linear_result:
+        is_burst = bool(is_burst_linear)
+        reason = f"{'BURST' if is_burst else 'NO-BURST'} in L({class_prob_linear:.2f})"
+        reason += " [Intensity disabled]"
+        return (not save_only_burst or is_burst), is_burst, reason
+
+    # Neither phase produced a verdict. Reachable: Phase 3a disabled and
+    # Phase 3b enabled but the file carries no multi-polarisation data.
+    return False, None, "ERROR: No classification available"
+
+
 def _dm_from_image_at_time(dm_time_band_img: np.ndarray, time_idx: int) -> float:
     """
     Map a time index to the DM row with the highest intensity.
@@ -550,8 +628,12 @@ def snr_detect_and_classify_candidates_in_band(
         # =====================================================================
         # PHASE 3a: ResNet Classification on INTENSITY (conditional)
         # =====================================================================
-        class_prob_intensity = 0.0
-        is_burst_intensity = False
+        # None means "Phase 3a produced no verdict for this candidate", which is
+        # what the CSV and the decision table must both see. These used to be
+        # 0.0/False here and 1.0/True in the disabled branch below -- in-range
+        # values indistinguishable from a real classification (audit P1-10).
+        class_prob_intensity = None
+        is_burst_intensity = None
         snr_val_intensity = snr_peak
         peak_idx_patch = None
         width_ms_intensity = None
@@ -572,16 +654,15 @@ def snr_detect_and_classify_candidates_in_band(
             )
         else:
             logger.debug("Phase 3a: DISABLED - Skipping Intensity classification for peak_idx=%d", peak_idx)
-            class_prob_intensity = 1.0
-            is_burst_intensity = True
             start_sample = None
             peak_idx_patch = None
         
         # =====================================================================
         # PHASE 3b: ResNet Classification on LINEAR POLARIZATION (conditional)
         # =====================================================================
-        class_prob_linear = 0.0
-        is_burst_linear = False
+        # Same contract as Phase 3a: None until Phase 3b actually classifies.
+        class_prob_linear = None
+        is_burst_linear = None
         snr_val_linear = None
         proc_patch_linear = None  # set in Phase 3b if linear data available
 
@@ -605,10 +686,11 @@ def snr_detect_and_classify_candidates_in_band(
                     class_prob_linear, is_burst_linear, class_prob_linear_thresh
                 )
         elif not enable_linear_class:
-            # Phase 3b disabled: Set default values (will rely on Phase 3a)
+            # Phase 3b disabled: no verdict. The decision table below already
+            # falls back to Intensity alone, so no "neutral" stand-in is needed
+            # -- and a stand-in of 1.0/True was persisted as a real Linear
+            # classification (audit P1-10).
             logger.debug("Phase 3b: DISABLED - Skipping Linear classification for peak_idx=%d", peak_idx)
-            class_prob_linear = 1.0  # Neutral value (will depend on Intensity)
-            is_burst_linear = True  # Pass through to Intensity decision
             snr_val_linear = None
             proc_patch_linear = None  # Initialize to None when Phase 3b is disabled
         else:
@@ -623,51 +705,27 @@ def snr_detect_and_classify_candidates_in_band(
         # - Only Intensity enabled: Decision based solely on Intensity
         # - Only Linear enabled: Decision based solely on Linear
         
-        should_save = False
-        save_reason = ""
-        
-        # Determine which polarizations are actually available for decision
-        has_intensity_result = enable_intensity_class
-        has_linear_result = enable_linear_class and (data_block_linear is not None)
-        
-        if has_intensity_result and has_linear_result:
-            # BOTH classifications available - apply dual logic
-            if config.SAVE_ONLY_BURST:
-                # STRICT mode: Both must be BURST
-                should_save = is_burst_intensity and is_burst_linear
-                if should_save:
-                    save_reason = f"BURST in I+L (p_I={class_prob_intensity:.2f}, p_L={class_prob_linear:.2f})"
-                else:
-                    save_reason = f"Filtered: I={'BURST' if is_burst_intensity else 'NO'}({class_prob_intensity:.2f}), L={'BURST' if is_burst_linear else 'NO'}({class_prob_linear:.2f})"
-            else:
-                # PERMISSIVE mode: Either can be BURST (logical OR)
-                should_save = is_burst_intensity or is_burst_linear
-                if should_save:
-                    save_reason = f"BURST: I={is_burst_intensity}({class_prob_intensity:.2f}), L={is_burst_linear}({class_prob_linear:.2f})"
-                else:
-                    save_reason = f"NO-BURST in both: I={class_prob_intensity:.2f}, L={class_prob_linear:.2f}"
-        
-        elif has_intensity_result and not has_linear_result:
-            # Only INTENSITY classification available
-            should_save = not config.SAVE_ONLY_BURST or is_burst_intensity
-            save_reason = f"BURST in I({class_prob_intensity:.2f})" if is_burst_intensity else f"NO-BURST in I({class_prob_intensity:.2f})"
-            if enable_linear_class:
-                save_reason += " [Linear N/A - no multi-pol data]"
-        
-        elif not has_intensity_result and has_linear_result:
-            # Only LINEAR classification available
-            should_save = not config.SAVE_ONLY_BURST or is_burst_linear
-            save_reason = f"BURST in L({class_prob_linear:.2f})" if is_burst_linear else f"NO-BURST in L({class_prob_linear:.2f})"
-            save_reason += " [Intensity disabled]"
-        
-        else:
-            # Neither classification available (should not happen due to validation)
+        has_intensity_result = enable_intensity_class and is_burst_intensity is not None
+        has_linear_result = (
+            enable_linear_class
+            and data_block_linear is not None
+            and is_burst_linear is not None
+        )
+        should_save, is_burst, save_reason = decide_candidate(
+            has_intensity_result=has_intensity_result,
+            has_linear_result=has_linear_result,
+            is_burst_intensity=is_burst_intensity,
+            class_prob_intensity=class_prob_intensity,
+            is_burst_linear=is_burst_linear,
+            class_prob_linear=class_prob_linear,
+            enable_linear_class=enable_linear_class,
+            save_only_burst=bool(config.SAVE_ONLY_BURST),
+        )
+        if not has_intensity_result and not has_linear_result:
             logger.error("CRITICAL: No classification results available for peak_idx=%d", peak_idx)
-            should_save = False
-            save_reason = "ERROR: No classification available"
         
         # Track Phase 3a metrics per candidate
-        if enable_intensity_class:
+        if has_intensity_result:
             phase_3a_passed += 1
             if is_burst_intensity:
                 phase_3a_burst += 1
@@ -677,16 +735,13 @@ def snr_detect_and_classify_candidates_in_band(
         # We don't count it as passed/failed in Phase 3a
         
         # Track Phase 3b metrics per candidate
-        if enable_linear_class and data_block_linear is not None:
+        if has_linear_result:
             phase_3b_passed += 1
             if is_burst_linear:
                 phase_3b_burst += 1
             else:
                 phase_3b_no_burst += 1
         # else: Phase 3b disabled or no data - don't count
-        
-        # Use Intensity classification as primary for is_burst flag
-        is_burst = is_burst_intensity
         
         # Calculate detection time from DM-time plot (same as plot_composite.py line 264-269)
         # This is the time shown in the plot label
@@ -730,8 +785,10 @@ def snr_detect_and_classify_candidates_in_band(
         snr_list.append(snr_peak)
         top_conf.append(conf)
         top_boxes.append(box)
-        class_probs_list.append(class_prob_intensity)
-        class_probs_linear_list.append(class_prob_linear)  # NEW: Store Linear prob
+        # NaN rather than None: these two lists feed the composite plot, and a
+        # phase that did not run has no probability to draw.
+        class_probs_list.append(float('nan') if class_prob_intensity is None else class_prob_intensity)
+        class_probs_linear_list.append(float('nan') if class_prob_linear is None else class_prob_linear)
         candidate_times_abs.append(float(absolute_candidate_time))
         
         # Store SNR in Linear for plotting (NEW)
@@ -806,7 +863,8 @@ def snr_detect_and_classify_candidates_in_band(
             dm_status,
             linear_fraction,
         )
-        morphology_prob = max(float(class_prob_intensity), float(class_prob_linear))
+        _available_probs = [p for p in (class_prob_intensity, class_prob_linear) if p is not None]
+        morphology_prob = max(float(p) for p in _available_probs) if _available_probs else 0.0
         rank_score = morphology_prob * phys_score
 
         # Calculate MJD values for the candidate (using DM-time detection time, same as plot)
@@ -842,23 +900,25 @@ def snr_detect_and_classify_candidates_in_band(
             linear_fraction=linear_fraction,
             physical_score=phys_score,
             rank_score=rank_score,
-            class_prob_intensity=float(class_prob_intensity),  # Classification probability in Intensity (I)
-            is_burst_intensity=bool(is_burst_intensity),  # BURST classification in Intensity (I)
-            class_prob_linear=float(class_prob_linear),  # Classification probability in Linear (L) - HF only
-            is_burst_linear=bool(is_burst_linear) if data_block_linear is not None else None,  # BURST classification in Linear (L) - HF only
-            is_burst=bool(is_burst),  # Final classification (I+L when SAVE_ONLY_BURST=True)
+            class_prob_intensity=None if class_prob_intensity is None else float(class_prob_intensity),  # Classification probability in Intensity (I)
+            is_burst_intensity=None if is_burst_intensity is None else bool(is_burst_intensity),  # BURST classification in Intensity (I)
+            class_prob_linear=None if class_prob_linear is None else float(class_prob_linear),  # Classification probability in Linear (L) - HF only
+            is_burst_linear=None if is_burst_linear is None else bool(is_burst_linear),  # BURST classification in Linear (L) - HF only
+            is_burst=None if is_burst is None else bool(is_burst),  # Final verdict, from the decision table above
             patch_file=patch_path.name,
             mjd_utc=mjd_data.get('mjd_utc'),
             mjd_bary_utc=mjd_data.get('mjd_bary_utc'),
             mjd_bary_tdb=mjd_data.get('mjd_bary_tdb'),
             mjd_bary_utc_inf=mjd_data.get('mjd_bary_utc_inf'),
             mjd_bary_tdb_inf=mjd_data.get('mjd_bary_tdb_inf'),
+            mjd_bary_status=mjd_data.get('mjd_bary_status'),
         )
         cand_counter += 1
-        if is_burst:
+        if is_burst is True:
             n_bursts += 1
-        else:
+        elif is_burst is False:
             n_no_bursts += 1
+        # is_burst None: no phase produced a verdict, so it is neither.
         prob_max = max(prob_max, float(conf))
 
         # Save candidate based on dual-polarization filtering logic
@@ -866,20 +926,20 @@ def snr_detect_and_classify_candidates_in_band(
             append_candidate(csv_file, cand.to_row())
             try:
                 gl = get_global_logger()
-                gl.candidate_detected(dm_val, absolute_candidate_time, conf, class_prob_intensity, is_burst, snr_peak, snr_val_intensity)
+                gl.candidate_detected(dm_val, absolute_candidate_time, conf, _fmt_prob(class_prob_intensity), is_burst, snr_peak, snr_val_intensity)
             except Exception:
                 pass
             
             logger.info(
-                "SAVED: DM=%.2f t=%.3fs I_class=%.2f L_class=%.2f → %s",
-                dm_val, absolute_candidate_time, class_prob_intensity, class_prob_linear, save_reason
+                "SAVED: DM=%.2f t=%.3fs I_class=%s L_class=%s → %s",
+                dm_val, absolute_candidate_time,
+                _fmt_prob(class_prob_intensity), _fmt_prob(class_prob_linear), save_reason
             )
         else:
             logger.debug(
-                "FILTERED: DM=%.2f t=%.3fs I_class=%.2f(%.0f%%) L_class=%.2f(%.0f%%) → %s",
-                dm_val, absolute_candidate_time, 
-                class_prob_intensity, class_prob_intensity*100,
-                class_prob_linear, class_prob_linear*100,
+                "FILTERED: DM=%.2f t=%.3fs I_class=%s L_class=%s → %s",
+                dm_val, absolute_candidate_time,
+                _fmt_prob(class_prob_intensity), _fmt_prob(class_prob_linear),
                 save_reason
             )
 

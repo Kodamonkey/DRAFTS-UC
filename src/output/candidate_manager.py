@@ -32,6 +32,7 @@ CANDIDATE_HEADER = [
     "mjd_bary_tdb",
     "mjd_bary_utc_inf",
     "mjd_bary_tdb_inf",
+    "mjd_bary_status",  # Whether the four mjd_bary_* above are real; see mjd_utils
     "x1",
     "y1",
     "x2",
@@ -271,6 +272,9 @@ class Candidate:
     mjd_bary_tdb: float | None = None
     mjd_bary_utc_inf: float | None = None
     mjd_bary_tdb_inf: float | None = None
+    # "ok" | "not_requested" | "unavailable:<reason>". Without it a topocentric
+    # time and a barycentric one were indistinguishable in the catalogue (P1-08).
+    mjd_bary_status: str | None = None
 
     def to_row(self) -> List:
         """Convert candidate to CSV row format."""
@@ -291,6 +295,7 @@ class Candidate:
         row.append(f"{self.mjd_bary_tdb:.12f}" if self.mjd_bary_tdb is not None else "")
         row.append(f"{self.mjd_bary_utc_inf:.12f}" if self.mjd_bary_utc_inf is not None else "")
         row.append(f"{self.mjd_bary_tdb_inf:.12f}" if self.mjd_bary_tdb_inf is not None else "")
+        row.append(self.mjd_bary_status if self.mjd_bary_status is not None else "")
         # Add box coordinates
         row.extend(self.box)
         # Add SNR values (Intensity)

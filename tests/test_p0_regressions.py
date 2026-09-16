@@ -400,9 +400,9 @@ class TestCheckpointOnlyAfterSuccessfulChunk:
         written before it is recorded."""
         source = (PROJECT_ROOT / "src/core/pipeline.py").read_text(encoding="utf-8")
         flush_at = source.index("CandidateWriter.flush_buffers()")
-        save_at = source.index(
-            "save_checkpoint(save_dir, fits_path.stem, chunk_idx, chunk_count)"
-        )
+        # Match the call, not its argument list, so adding arguments does not
+        # break this.
+        save_at = source.index("save_checkpoint(", flush_at - 400)
         assert flush_at < save_at, (
             "candidate rows must be flushed before save_checkpoint records progress"
         )

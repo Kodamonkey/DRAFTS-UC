@@ -163,26 +163,27 @@ class TestEveryReaderPathUsesTheSameCriterion:
         without `your` streamed descending PSRFITS with the channel axis
         untouched -- the same defect, third instance.
         """
+        # Scoped to the whole module, not to stream_fits. REF-03 moved the
+        # emission out into _emit_subint_*_blocks, and while this test still
+        # walked the stream_fits FunctionDef both counts were zero, so it passed
+        # while checking nothing -- which is worse than not having it.
         tree = ast.parse(FITS_HANDLER.read_text(encoding="utf-8"))
-        stream_fits = next(
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef) and node.name == "stream_fits"
-        )
 
-        # The astropy SUBINT readers -- two in the primary path, two in the
-        # duplicated fallback -- each build block_out from out_buf.
+        # The astropy SUBINT readers -- primary and duplicated fallback -- each
+        # build block_out from out_buf.
         built = [
-            node.lineno for node in ast.walk(stream_fits)
+            node.lineno for node in ast.walk(tree)
             if isinstance(node, ast.Assign)
             and any(isinstance(t, ast.Name) and t.id == "block_out" for t in node.targets)
             and "out_buf" in ast.unparse(node.value)
         ]
         reversed_ = [
-            node.lineno for node in ast.walk(stream_fits)
+            node.lineno for node in ast.walk(tree)
             if isinstance(node, ast.If)
             and "DATA_NEEDS_REVERSAL" in ast.unparse(node.test)
             and "block_out[:, :, ::-1]" in "\n".join(ast.unparse(s) for s in node.body)
         ]
+        assert built, "no block_out emission site found; the readers moved again"
         assert len(reversed_) == len(built), (
             f"{len(built)} block_out emission sites (lines {sorted(built)}) but "
             f"{len(reversed_)} reversals (lines {sorted(reversed_)}): "

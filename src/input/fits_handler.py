@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Generator, Tuple, Dict
+import time
+from typing import Any, Generator, Optional, Tuple, Dict
 
 import numpy as np
 from astropy.io import fits
@@ -31,6 +32,16 @@ from ..log_utils import (
 )
 from .utils import safe_float, safe_int, auto_config_downsampling, print_debug_frequencies, save_file_debug_info, normalize_frequency_axis
 from .polarization_utils import debiased_linear_polarization
+from .psrfits_chunking import (
+    BufferLimits,
+    ChunkSpan,
+    SubintBuffer,
+    chunk_metadata,
+    compute_buffer_limits,
+    expected_start_sample,
+    plan_buffered_window,
+    plan_sequential_span,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -766,6 +777,1223 @@ def stream_fits_multi_pol(
         raise
 
 
+def _row_to_block(
+    row_data: np.ndarray,
+    row: np.ndarray,
+    subint,
+    nbits: int,
+    nsblk: int,
+    npol: int,
+    nchan: int,
+    zero_off: float,
+    pol_type: str,
+) -> np.ndarray:
+    """One SUBINT row to a ``(nsblk, 1, nchan)`` float32 block.
+
+    Unpacks sub-byte samples, applies the PSRFITS calibration columns and picks
+    the polarisation. Both astropy readers call this; it was a closure inside
+    ``stream_fits`` and its body is unchanged.
+    """
+
+    if nbits < 8:
+        if nbits == 4:
+            unpacked = _unpack_4bit(row_data)
+        elif nbits == 2:
+            unpacked = _unpack_2bit(row_data)
+        elif nbits == 1:
+            unpacked = _unpack_1bit(row_data)
+        else:
+            raise ValueError(f"NBITS={nbits} not supported")
+        try:
+            tmpb = unpacked.reshape(nsblk, npol, nchan)
+        except Exception:
+            tmpb = unpacked.reshape(nsblk, nchan, npol).swapaxes(1, 2)
+        tmpb = tmpb.astype(np.float32, copy=False)
+    else:
+        arrb = np.asarray(row_data)
+        try:
+            tmpb = arrb.reshape(nsblk, npol, nchan)
+        except Exception:
+            tmpb = arrb.reshape(nsblk, nchan, npol).swapaxes(1, 2)
+        if tmpb.dtype != np.float32:
+            tmpb = tmpb.astype(np.float32, copy=False)
+
+
+    dat_wts_b = row["DAT_WTS"].astype(np.float32, copy=False) if "DAT_WTS" in subint.columns.names else None
+    dat_scl_b = row["DAT_SCL"].astype(np.float32, copy=False) if "DAT_SCL" in subint.columns.names else None
+    dat_offs_b = row["DAT_OFFS"].astype(np.float32, copy=False) if "DAT_OFFS" in subint.columns.names else None
+    tmpb = _apply_calibration(tmpb, dat_wts_b, dat_scl_b, dat_offs_b, zero_off)
+
+    sel = _select_polarization(tmpb, pol_type, getattr(config, 'POLARIZATION_MODE', 'intensity'), getattr(config, 'POLARIZATION_INDEX', 0))
+    return sel
+
+
+def _buffer_limits_for(chunk_samples: int, overlap_samples: int, nchan: int) -> BufferLimits:
+    """Memory-derived buffer ceiling, and the two log lines that announce it.
+
+    The numbers come from :func:`compute_buffer_limits`; only the reading of the
+    machine's free RAM happens here.
+    """
+    import psutil
+    vm = psutil.virtual_memory()
+    available_ram_gb = vm.available / (1024**3)
+    limits = compute_buffer_limits(chunk_samples, overlap_samples, nchan, available_ram_gb)
+
+    if limits.large_chunk:
+        logger.warning(
+            f"Large chunk detected ({chunk_samples:,} samples). "
+            f"Using conservative buffer limit: {limits.max_buffer_samples:,} samples "
+            f"({limits.max_buffer_gb:.2f} GB) to prevent system freeze."
+        )
+    logger.info(
+        f"Buffer limits: max_samples={limits.max_buffer_samples:,} "
+        f"({limits.max_buffer_samples * limits.bytes_per_sample / (1024**3):.2f} GB), "
+        f"max_blocks={limits.max_buffer_blocks}, chunk_samples={chunk_samples:,}"
+    )
+    return limits
+
+
+# --------------------------------------------------------------------------- #
+# the `your` library reader
+# --------------------------------------------------------------------------- #
+class _YourSource:
+    """An open PSRFITS handle from the ``your`` library, plus its scalars."""
+
+    def __init__(self, pf, nspec: int, npol: int, nchan: int, tsamp: float) -> None:
+        self.pf = pf
+        self.nspec = nspec
+        self.npol = npol
+        self.nchan = nchan
+        self.tsamp = tsamp
+
+    def close(self) -> None:
+        """``your`` hands back no handle of its own to release."""
+        return None
+
+
+def _open_your_source(file_name: str, chunk_samples: int, overlap_samples: int) -> _YourSource:
+    """Open *file_name* with ``your`` and read its scalars. May raise.
+
+    Everything that can tell us this reader will not work happens here, before
+    any block exists: ``SpectraInfo`` indexes ``STT_IMJD`` with no default, so a
+    file without an epoch fails at construction (divergence D6).
+    """
+    pf = your_psrfits.PsrfitsFile([file_name])
+    nspec = int(pf.nspectra())
+    npol = int(pf.npol)
+    nchan = int(pf.nchans)
+    tsamp = float(pf.native_tsamp())
+    logger.info(
+        "Streaming PSRFITS ('your'): nspec=%d, npol=%d, nchan=%d, tsamp=%s",
+        nspec,
+        npol,
+        nchan,
+        tsamp,
+    )
+    log_stream_fits_parameters(nspec, chunk_samples, overlap_samples, None, nchan, npol, None)
+    return _YourSource(pf, nspec, npol, nchan, tsamp)
+
+
+def _emit_your_blocks(
+    source: _YourSource, chunk_samples: int, overlap_samples: int
+) -> Generator[Tuple[np.ndarray, Dict], None, None]:
+    """Seek-and-read: the only reader whose valid windows tile the file exactly.
+
+    Divergences preserved deliberately (audit REF-03):
+      D1  this tiles; the two buffered astropy readers do not.
+      D3  no ``ZERO_OFF`` subtraction -- ``your`` never reads that card and this
+          branch applies no calibration of its own.
+      D4  ``NSUBOFFS`` is ignored, so a continuation file streams as written.
+      D5  ``getattr(pf, 'pol_type', 'IQUV')`` -- ``PsrfitsFile`` has no such
+          attribute (it is ``poln_order``), so the default always wins.
+      It also publishes no epoch keys at all, unlike the astropy readers.
+    """
+    pf = source.pf
+    nspec, npol, nchan, tsamp = source.nspec, source.npol, source.nchan, source.tsamp
+
+    chunk_counter = 0
+    emitted = 0
+
+    step = chunk_samples
+    try:
+        while emitted < nspec:
+            span = plan_sequential_span(emitted, step, overlap_samples, nspec)
+            count = span.block_end_sample - span.block_start_sample
+            arr = pf.get_data(span.block_start_sample, count, npoln=npol)
+            if arr.ndim != 3:
+                raise ValueError("Unexpected shape in 'your' get_data")
+
+            block = _select_polarization(arr, getattr(pf, 'pol_type', 'IQUV'), getattr(config, 'POLARIZATION_MODE', 'intensity'), getattr(config, 'POLARIZATION_INDEX', 0))
+            # RESOLVED (audit P1-02). This branch used to reverse on
+            # foff > 0, the opposite of every other reader path, which
+            # reverses on config.DATA_NEEDS_REVERSAL -- set when DAT_FREQ
+            # is DESCENDING. Only one criterion can leave the channel axis
+            # matching the ascending config.FREQ that dedispersion indexes
+            # against, and it is DATA_NEEDS_REVERSAL:
+            #
+            #   - your/formats/psrfits.py returns channels in the file's
+            #     native DAT_FREQ order. It normalises nothing: the flip is
+            #     commented out at its lines 447-453 and need_flipband is
+            #     hardcoded False at 485. Measured on synthetic PSRFITS in
+            #     both orientations; blimpy agrees through a round trip.
+            #   - A burst injected at DM 500 into a descending-axis file
+            #     recovers at exactly DM 500 under DATA_NEEDS_REVERSAL, and
+            #     at DM 748 with S/N 10.4 under foff > 0. The failure mode
+            #     is not a missed burst -- it is a burst with a fabricated
+            #     DM that still clears the detection threshold.
+            #
+            # The mismatch warning below is kept as a live detector: it now
+            # fires when `your` would disagree with the rule we follow, on
+            # a file whose header we have not seen before.
+            # Anomaly detector, and it has to compare two things that
+            # normally AGREE. The first version compared `foff > 0`
+            # against DATA_NEEDS_REVERSAL, which are opposite by
+            # construction -- descending DAT_FREQ means foff < 0 and
+            # DATA_NEEDS_REVERSAL True -- so it fired once per chunk on
+            # every ordinary file: constant noise, not a signal.
+            #
+            # What is worth reporting is a header that contradicts
+            # itself: foff's sign disagreeing with the ordering
+            # normalize_frequency_axis derived from DAT_FREQ.
+            _foff = getattr(pf, 'foff', 0.0)
+            _rest_says_reverse = bool(getattr(config, 'DATA_NEEDS_REVERSAL', False))
+            _foff_says_descending = bool(_foff < 0)
+            if _foff and _foff_says_descending != _rest_says_reverse:
+                logger.warning(
+                    "FREQ-ORDER ANOMALY (audit P1-02): foff=%.6f implies %s channels "
+                    "but DAT_FREQ was read as %s. The file's own header disagrees with "
+                    "itself; this reader follows DAT_FREQ. Check candidates from this "
+                    "file against a known pulsar.",
+                    _foff,
+                    "descending" if _foff_says_descending else "ascending",
+                    "descending" if _rest_says_reverse else "ascending",
+                )
+            try:
+                if _rest_says_reverse:
+                    block = block[:, :, ::-1]
+            except Exception:
+                pass
+            if block.dtype != np.float32:
+                block = block.astype(np.float32)
+
+            chunk_counter += 1
+            log_stream_fits_block_generation(
+                chunk_counter,
+                block.shape,
+                str(block.dtype),
+                span.start_sample,
+                span.end_sample,
+                span.block_start_sample,
+                span.block_end_sample,
+                span.actual_chunk_size,
+            )
+            metadata = chunk_metadata(
+                span,
+                chunk_samples=chunk_samples,
+                total_samples=nspec,
+                nchans=nchan,
+                nifs=1,
+                block=block,
+                tbin_sec=tsamp,
+            )
+            yield block, metadata
+            emitted += step
+
+        log_stream_fits_summary(chunk_counter)
+    finally:
+        source.close()
+
+
+# --------------------------------------------------------------------------- #
+# the astropy SUBINT readers
+# --------------------------------------------------------------------------- #
+class _SubintSource:
+    """An open SUBINT table and every scalar the emitter needs.
+
+    Two of the fields record which of the two conventions this source was built
+    with, because the primary and the fallback readers disagree and the audit
+    decided to keep both until each can be fixed on purpose:
+
+    ``tstart_mjd`` comes from ``STT_IMJD/STT_SMJD/STT_OFFS`` in the primary and
+    from a non-standard ``TSTART`` card in the fallback (divergence D2), and
+    ``position_from_offs_sub`` says whether the emitter places subints by
+    ``OFFS_SUB`` -- absolutely, zero-padding continuation files -- or simply at
+    ``index * NSBLK`` (divergence D4).
+    """
+
+    def __init__(
+        self,
+        *,
+        hdul,
+        subint,
+        tbl,
+        nsubint: int,
+        nchan: int,
+        npol: int,
+        nsblk: int,
+        nbits: int,
+        zero_off: float,
+        tbin: float,
+        tsub: float,
+        pol_type: str,
+        tstart_mjd: float,
+        nsuboffs: int,
+        has_offs_sub: bool,
+        total_samples: int,
+        limits: BufferLimits,
+        position_from_offs_sub: bool,
+    ) -> None:
+        self.hdul = hdul
+        self.subint = subint
+        self.tbl = tbl
+        self.nsubint = nsubint
+        self.nchan = nchan
+        self.npol = npol
+        self.nsblk = nsblk
+        self.nbits = nbits
+        self.zero_off = zero_off
+        self.tbin = tbin
+        self.tsub = tsub
+        self.pol_type = pol_type
+        self.tstart_mjd = tstart_mjd
+        self.nsuboffs = nsuboffs
+        self.has_offs_sub = has_offs_sub
+        self.total_samples = total_samples
+        self.limits = limits
+        self.position_from_offs_sub = position_from_offs_sub
+
+    @property
+    def tstart_mjd_corr(self) -> float:
+        return self.tstart_mjd + (self.nsuboffs * self.tsub) / 86400.0
+
+    def close(self) -> None:
+        try:
+            self.hdul.close()
+        except Exception:
+            pass
+
+
+def _open_subint_table(file_name: str):
+    """``(hdul, subint, tbl)`` for a PSRFITS SUBINT file, or ``(hdul, None, None)``.
+
+    The caller owns ``hdul`` and must close it. A truncated file raises here,
+    before anything has been emitted.
+    """
+    hdul = fits.open(file_name, memmap=True)
+    try:
+        if not ("SUBINT" in [hdu.name for hdu in hdul] and "DATA" in hdul["SUBINT"].columns.names):
+            return hdul, None, None
+        subint = hdul["SUBINT"]
+
+        try:
+            tbl = subint.data
+        except (TypeError, ValueError, OSError) as e:
+            if "buffer is too small" in str(e) or "truncated" in str(e).lower():
+                logger.warning(
+                    "Truncated FITS file detected (%s): %s. Skipping.",
+                    file_name,
+                    e,
+                )
+                raise ValueError(f"Truncated FITS file: {file_name}") from e
+            else:
+                raise
+        return hdul, subint, tbl
+    except Exception:
+        hdul.close()
+        raise
+
+
+def _read_subint_scalars(subint) -> Dict[str, Any]:
+    """The header scalars both astropy readers read, read the same way once."""
+    hdr = subint.header
+    nsblk = safe_int(hdr.get("NSBLK", 1))
+    tbin = safe_float(hdr.get("TBIN"))
+    return {
+        "nsubint": safe_int(hdr.get("NAXIS2", 0)),
+        "nchan": safe_int(hdr.get("NCHAN", 0)),
+        "npol": safe_int(hdr.get("NPOL", 0)),
+        "nsblk": nsblk,
+        "nbits": safe_int(hdr.get("NBITS", 8)),
+        "zero_off": safe_float(hdr.get("ZERO_OFF", 0.0)),
+        "tbin": tbin,
+
+        "tsub": safe_float(hdr.get("TSUBINT", nsblk * tbin)),
+        "pol_type": str(hdr.get("POL_TYPE", "")).upper() if hdr.get("POL_TYPE") is not None else "",
+    }
+
+
+def _open_subint_primary(
+    file_name: str, chunk_samples: int, overlap_samples: int
+) -> Optional[_SubintSource]:
+    """Open the file for the primary astropy reader, or ``None`` if not SUBINT.
+
+    Reads the epoch the way PSRFITS stores it -- ``STT_IMJD``, ``STT_SMJD``,
+    ``STT_OFFS`` in PRIMARY and ``NSUBOFFS`` in SUBINT, refined by the first
+    ``OFFS_SUB``. Raises on anything that makes the reader unusable, which is
+    what lets the caller still choose the fallback.
+    """
+    hdul, subint, tbl = _open_subint_table(file_name)
+    if subint is None:
+        hdul.close()
+        return None
+    try:
+        scalars = _read_subint_scalars(subint)
+        hdr = subint.header
+        nsblk, tsub = scalars["nsblk"], scalars["tsub"]
+        nchan, npol, nsubint = scalars["nchan"], scalars["npol"], scalars["nsubint"]
+
+
+        primary = hdul["PRIMARY"].header if "PRIMARY" in [h.name for h in hdul] else {}
+        imjd = safe_int(primary.get("STT_IMJD", 0))
+        smjd = safe_float(primary.get("STT_SMJD", 0.0))
+        offs = safe_float(primary.get("STT_OFFS", 0.0))
+        tstart_mjd = float(imjd) + (float(smjd) + float(offs)) / 86400.0
+
+        nsuboffs = safe_int(hdr.get("NSUBOFFS", 0))
+        has_offs_sub = "OFFS_SUB" in subint.columns.names
+        if has_offs_sub:
+            try:
+                offs_sub_first = safe_float(tbl[0]["OFFS_SUB"])
+                numrows = int((offs_sub_first - 0.5 * tsub) / tsub + 1e-7)
+                if numrows >= 0:
+                    nsuboffs = numrows
+            except Exception:
+                pass
+
+        # Assign TSTART_MJD to config for MJD calculations in candidate detection
+        if tstart_mjd > 0:
+            config.TSTART_MJD = tstart_mjd
+            config.TSTART_MJD_CORR = tstart_mjd + (nsuboffs * tsub) / 86400.0
+        else:
+            logger.warning("TSTART_MJD not calculated correctly from STT_IMJD/STT_SMJD/STT_OFFS")
+            config.TSTART_MJD = None
+            config.TSTART_MJD_CORR = None
+
+        total_samples = nsubint * nsblk
+        logger.info(
+            "FITS data detected: samples=%d, polarisations=%d, channels=%d",
+            total_samples,
+            npol,
+            nchan,
+        )
+        log_stream_fits_parameters(total_samples, chunk_samples, overlap_samples, nsubint, nchan, npol, nsblk)
+        logger.info(
+            f"[STREAMING] Starting subint processing: {nsubint:,} subints, "
+            f"chunk_samples={chunk_samples:,}, overlap={overlap_samples:,} samples"
+        )
+        limits = _buffer_limits_for(chunk_samples, overlap_samples, nchan)
+
+        return _SubintSource(
+            hdul=hdul, subint=subint, tbl=tbl,
+            tstart_mjd=tstart_mjd, nsuboffs=nsuboffs, has_offs_sub=has_offs_sub,
+            total_samples=total_samples, limits=limits,
+            position_from_offs_sub=True,
+            **scalars,
+        )
+    except Exception:
+        hdul.close()
+        raise
+
+
+def _open_subint_fallback(
+    file_name: str, chunk_samples: int, overlap_samples: int
+) -> Optional[_SubintSource]:
+    """Open the file for the fallback astropy reader, or ``None`` if not SUBINT.
+
+    PINNED AS-IS, and it is wrong (divergence D2). This copy reads a ``TSTART``
+    card from PRIMARY -- not a PSRFITS keyword, and absent from a standard file
+    -- plus ``NSUBOFFS`` from PRIMARY rather than from SUBINT, so on an ordinary
+    file it reports MJD 0.0 and NULLS ``config.TSTART_MJD``. Every candidate's
+    absolute date is computed from that. Fixing it would change the values
+    ``tests/test_fits_reader_characterization.py`` pins, so it is left alone
+    here and reported instead.
+    """
+    hdul, subint, tbl = _open_subint_table(file_name)
+    if subint is None:
+        hdul.close()
+        return None
+    try:
+        scalars = _read_subint_scalars(subint)
+        nsblk, tsub = scalars["nsblk"], scalars["tsub"]
+        nchan, npol, nsubint, tbin = scalars["nchan"], scalars["npol"], scalars["nsubint"], scalars["tbin"]
+
+
+        primary = hdul["PRIMARY"].header if "PRIMARY" in [h.name for h in hdul] else {}
+        tstart_mjd = safe_float(primary.get("TSTART", 0.0))
+        nsuboffs = safe_int(primary.get("NSUBOFFS", 0))
+
+        # Assign TSTART_MJD to config for MJD calculations in candidate detection
+        if tstart_mjd > 0:
+            config.TSTART_MJD = tstart_mjd
+            config.TSTART_MJD_CORR = tstart_mjd + (nsuboffs * tsub) / 86400.0
+        else:
+            logger.warning("TSTART not found or zero in FITS PRIMARY header")
+            config.TSTART_MJD = None
+            config.TSTART_MJD_CORR = None
+
+        logger.info(
+            "Streaming PSRFITS (astropy fallback): nsubint=%d, nchan=%d, npol=%d, tbin=%s",
+            nsubint,
+            nchan,
+            npol,
+            tbin,
+        )
+        logger.info(
+            "NOTE: Using astropy fallback for PSRFITS. This is slower but more compatible. "
+            f"For large files ({nsubint:,} subints), this may take several minutes. "
+            "Progress will be logged every 5 seconds during streaming."
+        )
+        total_samples = nsubint * nsblk
+        logger.info(
+            f"[STREAMING] Starting subint processing (astropy fallback): {nsubint:,} subints, "
+            f"chunk_samples={chunk_samples:,}, overlap={overlap_samples:,} samples"
+        )
+        log_stream_fits_parameters(total_samples, chunk_samples, overlap_samples, None, nchan, npol, None)
+        limits = _buffer_limits_for(chunk_samples, overlap_samples, nchan)
+        logger.info(
+            f"Expected processing time: ~{nsubint * 0.01:.1f}s (estimated ~0.01s per subint). "
+            f"Large files may take longer."
+        )
+
+        return _SubintSource(
+            hdul=hdul, subint=subint, tbl=tbl,
+            tstart_mjd=tstart_mjd, nsuboffs=nsuboffs,
+            has_offs_sub="OFFS_SUB" in subint.columns.names,
+            total_samples=total_samples, limits=limits,
+            position_from_offs_sub=False,
+            **scalars,
+        )
+    except Exception:
+        hdul.close()
+        raise
+
+
+def _emit_subint_primary_blocks(
+    source: _SubintSource, chunk_samples: int, overlap_samples: int
+) -> Generator[Tuple[np.ndarray, Dict], None, None]:
+    """The buffered astropy reader taken when ``your`` is not installed.
+
+    Divergences preserved deliberately (audit REF-03):
+      D1  the first-chunk clamp below pulls ``valid_start`` back to 0 at the
+          start of the file without pulling back how far the buffer then
+          advances, so with an overlap the valid windows come out
+          ``[0,128) [144,272) [272,400) [384,512)``: samples 128..143 are in no
+          window and 384..399 are in two. A live defect of the P1-04/05/06
+          family, pinned by ``TestValidWindowsTile``.
+      D3  ``ZERO_OFF`` IS subtracted here, via ``_apply_calibration``.
+      D4  subints are placed by ``OFFS_SUB`` read as an absolute offset, so a
+          continuation file is zero-padded at the front and more samples are
+          emitted than the file holds.
+
+    Near-identical to :func:`_emit_subint_fallback_blocks`. They are not merged
+    because ``tests/test_p1_regressions.py::TestFitsChunkGeometry`` asserts on
+    the literal source text of four expressions below and requires exactly two
+    copies of each; see the REF-03 report.
+    """
+    subint, tbl = source.subint, source.tbl
+    nsubint, nchan, npol, nsblk = source.nsubint, source.nchan, source.npol, source.nsblk
+    nbits, zero_off, tbin, tsub = source.nbits, source.zero_off, source.tbin, source.tsub
+    pol_type, nsuboffs, tstart_mjd = source.pol_type, source.nsuboffs, source.tstart_mjd
+    total_samples = source.total_samples
+    limits = source.limits
+    max_buffer_samples = limits.max_buffer_samples
+    max_buffer_blocks = limits.max_buffer_blocks
+    bytes_per_sample = limits.bytes_per_sample
+
+    buffer = SubintBuffer(nchan)
+    emitted = 0
+    chunk_counter = 0
+
+    # Progress tracking
+    last_progress_log = time.time()
+    last_progress_row = 0
+    progress_interval = 5.0  # Log every 5 seconds
+
+    # OPTIMIZATION: Check buffer less frequently (every 10 subints instead of every 1)
+    buffer_check_interval = 10
+
+    try:
+        for isub in range(nsubint):
+            row = tbl[isub]
+            offs_sub_val = None
+            if source.has_offs_sub:
+                try:
+                    offs_sub_val = safe_float(row["OFFS_SUB"])
+                except Exception:
+                    offs_sub_val = None
+
+            expected_start = expected_start_sample(
+                offs_sub_val, isub, tsub=tsub, tbin=tbin, nsuboffs=nsuboffs, nsblk=nsblk,
+            )
+
+            if emitted < expected_start:
+                buffer.pad(expected_start - emitted)
+                emitted = expected_start
+
+            block = _row_to_block(row["DATA"], row, subint, nbits, nsblk, npol, nchan, zero_off, pol_type)
+            buffer.append(block)
+            emitted += block.shape[0]
+
+            # OPTIMIZATION: Only check time every N subints (reduces overhead)
+            # Progress logging every 5 seconds
+            if isub % buffer_check_interval == 0:
+                current_time = time.time()
+                if current_time - last_progress_log >= progress_interval:
+                    progress_pct = (isub + 1) / nsubint * 100
+                    rows_processed = isub + 1 - last_progress_row
+                    rate = rows_processed / (current_time - last_progress_log)
+                    remaining = (nsubint - isub - 1) / max(rate, 0.001)
+
+                    logger.info(
+                        f"Streaming progress: {isub+1:,}/{nsubint:,} subints ({progress_pct:.1f}%) | "
+                        f"Buffer: {buffer.n_blocks:,} blocks, {buffer.total_samples:,} samples | "
+                        f"Rate: {rate:.1f} subints/s | ETA: {remaining:.1f}s"
+                    )
+
+                    last_progress_log = current_time
+                    last_progress_row = isub + 1
+
+            # CRITICAL: Check buffer more aggressively for large chunks
+            check_frequency = 1 if chunk_samples > 1_000_000 else buffer_check_interval
+
+            if isub % check_frequency == 0 or isub == nsubint - 1:
+                needs_chunk_emission = (
+                    buffer.total_samples >= (chunk_samples + overlap_samples * 2) or
+                    buffer.total_samples > max_buffer_samples or
+                    buffer.n_blocks > max_buffer_blocks
+                )
+                if buffer.total_samples > max_buffer_samples * 0.8:
+                    logger.warning(
+                        f"Buffer approaching limit: {buffer.total_samples:,}/{max_buffer_samples:,} samples "
+                        f"({buffer.n_blocks:,} blocks). Will emit chunk soon to prevent OOM."
+                    )
+            else:
+                needs_chunk_emission = False
+
+            # Only concatenate when we actually need to emit a chunk
+            if needs_chunk_emission:
+                if buffer.n_blocks > 100:
+                    logger.warning(
+                        f"Concatenating large buffer: {buffer.n_blocks:,} blocks, "
+                        f"{buffer.total_samples:,} samples (~{buffer.total_samples * bytes_per_sample / (1024**3):.2f} GB). "
+                        f"This may take several seconds. Consider reducing chunk size for better performance."
+                    )
+                elif buffer.n_blocks > 50:
+                    logger.info(
+                        f"Preparing chunk emission at subint {isub+1:,}/{nsubint:,}: "
+                        f"{buffer.n_blocks:,} blocks, {buffer.total_samples:,} samples"
+                    )
+
+                concat_start = time.time()
+                out_buf = buffer.concatenate()
+                concat_time = time.time() - concat_start
+                if concat_time > 2.0:
+                    logger.warning(
+                        f"Buffer concatenation took {concat_time:.2f}s for {buffer.n_blocks:,} blocks. "
+                        f"This is slow and may cause system freeze. Consider reducing chunk size."
+                    )
+
+                buffer_too_large = out_buf.shape[0] > max_buffer_samples
+                has_complete_chunk = out_buf.shape[0] >= (chunk_samples + overlap_samples * 2)
+            else:
+                # Don't concatenate yet - continue accumulating
+                buffer_too_large = False
+                has_complete_chunk = False
+                out_buf = None  # Not computed yet
+
+            # Emit chunk if we have a complete chunk OR if buffer is too large
+            while needs_chunk_emission and (has_complete_chunk or (buffer_too_large and out_buf is not None and out_buf.shape[0] >= chunk_samples)):
+                chunk_counter += 1
+
+                # Ensure out_buf is concatenated before extracting chunk
+                if out_buf is None:
+                    out_buf = buffer.concatenate()
+
+                window = plan_buffered_window(
+                    out_buf.shape[0], chunk_samples, overlap_samples,
+                    buffer_too_large=buffer_too_large, large_chunk=limits.large_chunk,
+                )
+                start_with_overlap = window.start_with_overlap
+                end_with_overlap = window.end_with_overlap
+                valid_start = window.valid_start
+                valid_end = window.valid_end
+                actual_chunk_size = window.actual_chunk_size
+
+                if window.emergency:
+                    if actual_chunk_size < chunk_samples:
+                        logger.warning(
+                            f"Buffer too large ({out_buf.shape[0]:,} samples, {out_buf.shape[0] * bytes_per_sample / (1024**3):.2f} GB). "
+                            f"Emitting partial chunk of {actual_chunk_size:,} samples "
+                            f"(requested: {chunk_samples:,}) to prevent system freeze. "
+                            f"Buffer limit: {max_buffer_samples:,} samples."
+                        )
+                    else:
+                        logger.warning(
+                            f"Buffer too large ({out_buf.shape[0]:,} samples), "
+                            f"emitting emergency chunk of {actual_chunk_size:,} samples "
+                            f"(buffer limit: {max_buffer_samples:,})"
+                        )
+
+                # At the very beginning of the file there is no
+                # preceding data, so nothing can be left overlap:
+                # keeping valid_start > 0 here discards the first
+                # overlap_samples of every FITS file. stream_fil
+                # already clamps this via max(0, valid_start - overlap).
+                if emitted - out_buf.shape[0] <= 0 and valid_start > 0:
+                    valid_start = 0
+                    valid_end = valid_start + actual_chunk_size
+
+                block_out = out_buf[start_with_overlap:end_with_overlap].copy()
+
+                # This path performed no reversal at all, while the
+                # duplicated copy of it below (reached only through
+                # `except Exception`) did. Any install without the
+                # `your` library streamed descending PSRFITS with the
+                # channel axis untouched (audit P1-02, third instance).
+                if config.DATA_NEEDS_REVERSAL:
+                    block_out = block_out[:, :, ::-1]
+
+                start_sample_idx = emitted - out_buf.shape[0] + valid_start
+                end_sample_idx = start_sample_idx + actual_chunk_size
+
+                log_stream_fits_block_generation(
+                    chunk_counter,
+                    block_out.shape,
+                    str(block_out.dtype),
+                    start_sample_idx,
+                    end_sample_idx,
+                    start_with_overlap,
+                    end_with_overlap,
+                    chunk_samples,
+                )
+                metadata = {
+                    "chunk_idx": start_sample_idx // chunk_samples,
+                    "start_sample": start_sample_idx,
+                    "end_sample": end_sample_idx,
+                    "actual_chunk_size": actual_chunk_size,
+                    "block_start_sample": emitted - out_buf.shape[0],
+                    "block_end_sample": emitted - out_buf.shape[0] + end_with_overlap,
+                    # Derived from the real geometry, not assumed:
+                    # the first chunk of a file has no left overlap
+                    # and the last one has no right overlap. Hardcoding
+                    # overlap_samples made _process_block trim data
+                    # that was never overlap.
+                    "overlap_left": valid_start - start_with_overlap,
+                    "overlap_right": max(0, end_with_overlap - valid_end),
+                    "total_samples": total_samples,
+                    "nchans": nchan,
+                    "nifs": 1,
+                    "dtype": str(block_out.dtype),
+                    "shape": block_out.shape,
+                    "file_type": "fits",
+
+                    "tbin_sec": tbin,
+                    "t_rel_start_sec": start_sample_idx * tbin,
+                    "t_rel_end_sec": end_sample_idx * tbin,
+
+                    "tstart_mjd": tstart_mjd,
+                    "tstart_mjd_corr": source.tstart_mjd_corr,
+                    "tsubint_sec": tsub,
+                }
+                yield block_out, metadata
+
+                # Remove emitted chunk from buffer (keep overlap for next chunk).
+                # Always advance by exactly the valid span. Dropping
+                # end_with_overlap (= actual + 2*overlap) in the
+                # emergency path left a 2*overlap hole between
+                # consecutive chunks that was never searched.
+                samples_to_remove = actual_chunk_size
+                buffer.advance(out_buf, samples_to_remove)
+
+                # Update buffer size check for next iteration
+                if buffer:
+                    out_buf = buffer.concatenate()
+                    buffer_too_large = out_buf.shape[0] > max_buffer_samples
+                    has_complete_chunk = out_buf.shape[0] >= (chunk_samples + overlap_samples * 2)
+                else:
+                    out_buf = None
+                    buffer_too_large = False
+                    has_complete_chunk = False
+
+                # Recalculate needs_chunk_emission for next iteration
+                needs_chunk_emission = (
+                    buffer.total_samples >= (chunk_samples + overlap_samples * 2) or
+                    buffer.total_samples > max_buffer_samples
+                )
+
+
+        # Handle remaining buffer at end of file.
+        #
+        # This used to read `out_buf = _concatenate_buffer() if buffer_blocks
+        # else None` and then dereference out_buf unconditionally, so when the
+        # last chunk emptied the buffer exactly -- FILE_LENG % chunk_samples == 0
+        # with no overlap, which is divisibility, not a rare case -- it raised
+        # AttributeError. stream_fits is a GENERATOR, so the `except Exception`
+        # outside this already-yielding loop did not hand the error to the
+        # caller: the duplicated reader reopened the file and re-emitted it from
+        # sample 0, and the consumer received every sample twice. The reader is
+        # now chosen before anything is yielded, so that replay cannot happen at
+        # all -- but the None check stays, because the AttributeError was real.
+        out_buf = buffer.concatenate() if buffer else None
+        if out_buf is not None and out_buf.shape[0] > 0:
+            chunk_counter += 1
+
+            valid_start = 0
+            valid_end = out_buf.shape[0]
+            block_out = out_buf.copy()
+            if config.DATA_NEEDS_REVERSAL:
+                block_out = block_out[:, :, ::-1]
+            log_stream_fits_block_generation(
+                chunk_counter,
+                block_out.shape,
+                str(block_out.dtype),
+                emitted - out_buf.shape[0] + valid_start,
+                emitted - out_buf.shape[0] + valid_end,
+                valid_start,
+                valid_end,
+                valid_end - valid_start,
+            )
+            span = ChunkSpan(
+                start_sample=emitted - out_buf.shape[0],
+                end_sample=emitted,
+                block_start_sample=emitted - out_buf.shape[0],
+                block_end_sample=emitted,
+            )
+            metadata = chunk_metadata(
+                span,
+                chunk_samples=chunk_samples,
+                total_samples=total_samples,
+                nchans=nchan,
+                nifs=1,
+                block=block_out,
+                tbin_sec=tbin,
+                extra={
+                    "tstart_mjd": tstart_mjd,
+                    "tstart_mjd_corr": source.tstart_mjd_corr,
+                    "tsubint_sec": tsub,
+                },
+            )
+            yield block_out, metadata
+
+        log_stream_fits_summary(chunk_counter)
+    finally:
+        source.close()
+
+
+def _emit_subint_fallback_blocks(
+    source: _SubintSource, chunk_samples: int, overlap_samples: int
+) -> Generator[Tuple[np.ndarray, Dict], None, None]:
+    """The buffered astropy reader taken when the primary one could not start.
+
+    A near-copy of :func:`_emit_subint_primary_blocks`; the chunk arithmetic is
+    identical and the two differ only in where the epoch comes from (D2, decided
+    in :func:`_open_subint_fallback`) and in placing subints at ``i * NSBLK``
+    instead of by ``OFFS_SUB`` (D4). They are not merged because
+    ``tests/test_p1_regressions.py::TestFitsChunkGeometry`` asserts on the
+    literal source text of four expressions below and requires exactly two
+    copies of each; see the REF-03 report.
+    """
+    subint, tbl = source.subint, source.tbl
+    nsubint, nchan, npol, nsblk = source.nsubint, source.nchan, source.npol, source.nsblk
+    nbits, zero_off, tbin, tsub = source.nbits, source.zero_off, source.tbin, source.tsub
+    pol_type, tstart_mjd = source.pol_type, source.tstart_mjd
+    total_samples = source.total_samples
+    limits = source.limits
+    max_buffer_samples = limits.max_buffer_samples
+    max_buffer_blocks = limits.max_buffer_blocks
+    bytes_per_sample = limits.bytes_per_sample
+
+    buffer = SubintBuffer(nchan)
+    emitted = 0
+    chunk_counter = 0
+
+    # Progress tracking
+    last_progress_log = time.time()
+    progress_interval = 5.0  # Log progress every 5 seconds
+    last_progress_row = 0
+    buffer_check_interval_astropy = 10
+
+    try:
+        for i, row in enumerate(tbl):
+
+            expected_start = i * nsblk
+
+
+            if expected_start > emitted:
+                buffer.pad(expected_start - emitted)
+                emitted = expected_start
+
+
+            block = _row_to_block(row["DATA"], row, subint, nbits, nsblk, npol, nchan, zero_off, pol_type)
+            buffer.append(block)
+            emitted += block.shape[0]
+
+            # OPTIMIZATION: Only check time every N subints (reduces overhead)
+            # Progress logging every 5 seconds
+            if i % buffer_check_interval_astropy == 0:
+                current_time = time.time()
+                if current_time - last_progress_log >= progress_interval:
+                    progress_pct = (i + 1) / nsubint * 100
+                    rows_processed = i + 1 - last_progress_row
+                    rate = rows_processed / (current_time - last_progress_log)
+                    remaining = (nsubint - i - 1) / max(rate, 0.001)
+
+                    logger.info(
+                        f"Streaming progress: {i+1:,}/{nsubint:,} subints ({progress_pct:.1f}%) | "
+                        f"Buffer: {buffer.n_blocks:,} blocks, {buffer.total_samples:,} samples | "
+                        f"Rate: {rate:.1f} subints/s | ETA: {remaining:.1f}s"
+                    )
+
+                    last_progress_log = current_time
+                    last_progress_row = i + 1
+
+            # CRITICAL: Check buffer more aggressively for large chunks
+            check_frequency_astropy = 1 if chunk_samples > 1_000_000 else buffer_check_interval_astropy
+
+            if i % check_frequency_astropy == 0 or i == nsubint - 1:
+                needs_chunk_emission = (
+                    buffer.total_samples >= (chunk_samples + overlap_samples * 2) or
+                    buffer.total_samples > max_buffer_samples or
+                    buffer.n_blocks > max_buffer_blocks
+                )
+                if buffer.total_samples > max_buffer_samples * 0.8:
+                    logger.warning(
+                        f"Buffer approaching limit: {buffer.total_samples:,}/{max_buffer_samples:,} samples "
+                        f"({buffer.n_blocks:,} blocks). Will emit chunk soon to prevent OOM."
+                    )
+            else:
+                needs_chunk_emission = False
+
+            # Only concatenate when we actually need to emit a chunk
+            if needs_chunk_emission:
+                if buffer.n_blocks > 50:
+                    logger.debug(
+                        f"Preparing chunk emission at row {i+1:,}/{nsubint:,}: "
+                        f"{buffer.n_blocks:,} blocks, {buffer.total_samples:,} samples"
+                    )
+                out_buf = buffer.concatenate()
+                buffer_too_large = out_buf.shape[0] > max_buffer_samples
+                has_complete_chunk = out_buf.shape[0] >= (chunk_samples + overlap_samples * 2)
+
+                if buffer_too_large:
+                    logger.warning(
+                        f"Buffer exceeded limit at row {i+1:,}/{nsubint:,}: "
+                        f"{out_buf.shape[0]:,} samples > {max_buffer_samples:,}. "
+                        f"Emitting emergency chunk to prevent OOM."
+                    )
+            else:
+                # Don't concatenate yet - continue accumulating
+                buffer_too_large = False
+                has_complete_chunk = False
+                out_buf = None  # Not computed yet
+
+            # Emit chunk if we have a complete chunk OR if buffer is too large
+            while needs_chunk_emission and (has_complete_chunk or (buffer_too_large and out_buf is not None and out_buf.shape[0] >= chunk_samples)):
+                chunk_counter += 1
+
+                if out_buf is None:
+                    out_buf = buffer.concatenate()
+
+                window = plan_buffered_window(
+                    out_buf.shape[0], chunk_samples, overlap_samples,
+                    buffer_too_large=buffer_too_large, large_chunk=limits.large_chunk,
+                )
+                start_with_overlap = window.start_with_overlap
+                end_with_overlap = window.end_with_overlap
+                valid_start = window.valid_start
+                valid_end = window.valid_end
+                actual_chunk_size = window.actual_chunk_size
+
+                if window.emergency:
+                    if actual_chunk_size < chunk_samples:
+                        logger.warning(
+                            f"Buffer too large ({out_buf.shape[0]:,} samples, {out_buf.shape[0] * bytes_per_sample / (1024**3):.2f} GB). "
+                            f"Emitting partial chunk of {actual_chunk_size:,} samples "
+                            f"(requested: {chunk_samples:,}) to prevent system freeze. "
+                            f"Buffer limit: {max_buffer_samples:,} samples."
+                        )
+                    else:
+                        logger.warning(
+                            f"Buffer too large ({out_buf.shape[0]:,} samples), "
+                            f"emitting emergency chunk of {actual_chunk_size:,} samples "
+                            f"(buffer limit: {max_buffer_samples:,})"
+                        )
+
+                # At the very beginning of the file there is no
+                # preceding data, so nothing can be left overlap:
+                # keeping valid_start > 0 here discards the first
+                # overlap_samples of every FITS file.
+                if emitted - out_buf.shape[0] <= 0 and valid_start > 0:
+                    valid_start = 0
+                    valid_end = valid_start + actual_chunk_size
+
+                block_out = out_buf[start_with_overlap:end_with_overlap].copy()
+
+                if config.DATA_NEEDS_REVERSAL:
+                    block_out = block_out[:, :, ::-1]
+
+                start_sample_idx = emitted - out_buf.shape[0] + valid_start
+                end_sample_idx = start_sample_idx + actual_chunk_size
+
+
+                log_stream_fits_block_generation(
+                    chunk_counter,
+                    block_out.shape,
+                    str(block_out.dtype),
+                    start_sample_idx,
+                    end_sample_idx,
+                    start_with_overlap,
+                    end_with_overlap,
+                    actual_chunk_size,
+                )
+                metadata = {
+                    "chunk_idx": start_sample_idx // chunk_samples,
+                    "start_sample": start_sample_idx,
+                    "end_sample": end_sample_idx,
+                    "actual_chunk_size": actual_chunk_size,
+                    "block_start_sample": emitted - out_buf.shape[0],
+                    "block_end_sample": emitted - out_buf.shape[0] + end_with_overlap,
+                    # Derived from the real geometry, not assumed:
+                    # the first chunk of a file has no left overlap
+                    # and the last one has no right overlap. Hardcoding
+                    # overlap_samples made _process_block trim data
+                    # that was never overlap.
+                    "overlap_left": valid_start - start_with_overlap,
+                    "overlap_right": max(0, end_with_overlap - valid_end),
+                    "total_samples": total_samples,
+                    "nchans": nchan,
+                    "nifs": 1,
+                    "dtype": str(block_out.dtype),
+                    "shape": block_out.shape,
+                    "file_type": "fits",
+
+                    "tbin_sec": tbin,
+                    "t_rel_start_sec": start_sample_idx * tbin,
+                    "t_rel_end_sec": end_sample_idx * tbin,
+
+                    "tstart_mjd": tstart_mjd,
+                    "tstart_mjd_corr": source.tstart_mjd_corr,
+                    "tsubint_sec": tsub,
+                }
+                yield block_out, metadata
+
+                # Remove emitted chunk from buffer (keep overlap for next chunk).
+                # Always advance by exactly the valid span. Dropping
+                # end_with_overlap (= actual + 2*overlap) in the
+                # emergency path left a 2*overlap hole between
+                # consecutive chunks that was never searched.
+                samples_to_remove = actual_chunk_size
+                buffer.advance(out_buf, samples_to_remove)
+
+                out_buf = buffer.concatenate() if buffer else np.zeros((0, 1, nchan), dtype=np.float32)
+
+                # Update buffer size check for next iteration
+                buffer_too_large = out_buf.shape[0] > max_buffer_samples
+                has_complete_chunk = out_buf.shape[0] >= (chunk_samples + overlap_samples * 2)
+                needs_chunk_emission = has_complete_chunk or buffer_too_large
+
+
+        # Handle remaining buffer at end of file. See the same comment in the
+        # primary reader: this used to dereference a None out_buf on an exactly
+        # divisible file, and the resulting AttributeError made the whole file
+        # stream twice.
+        out_buf = buffer.concatenate() if buffer else None
+        if out_buf is not None and out_buf.shape[0] > 0:
+            chunk_counter += 1
+
+            valid_start = 0
+            valid_end = out_buf.shape[0]
+            block_out = out_buf.copy()
+
+
+            if config.DATA_NEEDS_REVERSAL:
+                block_out = block_out[:, :, ::-1]
+
+            log_stream_fits_block_generation(
+                chunk_counter,
+                block_out.shape,
+                str(block_out.dtype),
+                emitted - out_buf.shape[0],
+                emitted,
+                valid_start,
+                valid_end,
+                valid_end - valid_start,
+            )
+            span = ChunkSpan(
+                start_sample=emitted - out_buf.shape[0],
+                end_sample=emitted,
+                block_start_sample=emitted - out_buf.shape[0],
+                block_end_sample=emitted,
+            )
+            metadata = chunk_metadata(
+                span,
+                chunk_samples=chunk_samples,
+                total_samples=total_samples,
+                nchans=nchan,
+                nifs=1,
+                block=block_out,
+                tbin_sec=tbin,
+                extra={
+                    "tstart_mjd": tstart_mjd,
+                    "tstart_mjd_corr": source.tstart_mjd_corr,
+                    "tsubint_sec": tsub,
+                },
+            )
+            yield block_out, metadata
+
+        log_stream_fits_summary(chunk_counter)
+    finally:
+        source.close()
+
+
+# --------------------------------------------------------------------------- #
+# the non-SUBINT reader
+# --------------------------------------------------------------------------- #
+class _NonSubintSource:
+    """A whole non-PSRFITS FITS file, already in RAM."""
+
+    def __init__(self, data_array: np.ndarray, nsamples: int, npols: int, nchans: int) -> None:
+        self.data_array = data_array
+        self.nsamples = nsamples
+        self.npols = npols
+        self.nchans = nchans
+
+
+def _open_non_subint_source(
+    file_name: str, chunk_samples: int, overlap_samples: int
+) -> _NonSubintSource:
+    """Last resort for a FITS file with no SUBINT table: load it whole."""
+    _, h = _read_fits_like_fitsio(file_name)
+    nsamples = safe_int(h.get("NAXIS2", 1)) * safe_int(h.get("NSBLK", 1))
+    npols = safe_int(h.get("NPOL", 2))
+    nchans = safe_int(h.get("NCHAN", 512))
+    logger.info(
+        "FITS data detected: samples=%d, polarisations=%d, channels=%d",
+        nsamples,
+        npols,
+        nchans,
+    )
+    log_stream_fits_parameters(nsamples, chunk_samples, overlap_samples, None, nchans, npols, None)
+    data_array = _load_fits_non_subint(file_name)
+    return _NonSubintSource(data_array, nsamples, npols, nchans)
+
+
+def _emit_non_subint_blocks(
+    source: _NonSubintSource, chunk_samples: int, overlap_samples: int
+) -> Generator[Tuple[np.ndarray, Dict], None, None]:
+    """Slice the in-memory array. Moved verbatim; it has no characterization
+    test and no counterpart in the fallback reader."""
+    data_array = source.data_array
+    nsamples, npols, nchans = source.nsamples, source.npols, source.nchans
+
+    chunk_counter = 0
+    for chunk_start in range(0, nsamples, chunk_samples):
+        chunk_counter += 1
+        valid_start = chunk_start
+        valid_end = min(chunk_start + chunk_samples, nsamples)
+        start_with_overlap = max(0, valid_start - overlap_samples)
+        end_with_overlap = min(nsamples, valid_end + overlap_samples)
+        block = data_array[start_with_overlap:end_with_overlap].copy()
+        log_stream_fits_block_generation(
+            chunk_counter,
+            block.shape,
+            str(block.dtype),
+            valid_start,
+            valid_end,
+            start_with_overlap,
+            end_with_overlap,
+            valid_end - valid_start,
+        )
+        metadata = {
+            "chunk_idx": valid_start // chunk_samples,
+            "start_sample": valid_start,
+            "end_sample": valid_end,
+            "actual_chunk_size": valid_end - valid_start,
+            "block_start_sample": start_with_overlap,
+            "block_end_sample": end_with_overlap,
+            "overlap_left": valid_start - start_with_overlap,
+            "overlap_right": end_with_overlap - valid_end,
+            "total_samples": nsamples,
+            "nchans": nchans,
+            "nifs": npols,
+            "dtype": str(block.dtype),
+            "shape": block.shape,
+            "file_type": "fits",
+
+            "tbin_sec": float(config.TIME_RESO) if hasattr(config, 'TIME_RESO') else None,
+            "t_rel_start_sec": (valid_start * float(config.TIME_RESO)) if hasattr(config, 'TIME_RESO') else None,
+            "t_rel_end_sec": (valid_end * float(config.TIME_RESO)) if hasattr(config, 'TIME_RESO') else None,
+        }
+        yield block, metadata
+    log_stream_fits_summary(chunk_counter)
+
+
+# --------------------------------------------------------------------------- #
+# choosing a reader -- before anything is yielded
+# --------------------------------------------------------------------------- #
+def _replay(first, iterator):
+    """Yield *first*, then the rest of *iterator*."""
+    yield first
+    yield from iterator
+
+
+def _commit_to(reader):
+    """Pull the first block, then hand back an iterator that replays it.
+
+    This is the whole point of audit REF-03. ``stream_fits`` is a generator, and
+    the old ``except Exception`` sat outside a loop that had ALREADY yielded: if
+    the primary reader failed halfway through a file, the fallback reopened it
+    and re-emitted from sample 0, so the consumer silently received duplicate
+    data with nothing but a generic warning in the log. You cannot retract what
+    you have yielded.
+
+    So the choice of reader is made here, before the caller has seen anything. A
+    reader that fails while producing its first block can still be replaced; one
+    that has handed a block over cannot, and its exception now propagates.
+    """
+    iterator = iter(reader)
+    try:
+        first = next(iterator)
+    except StopIteration:
+        return iter(())
+    return _replay(first, iterator)
+
+
+def _open_primary_reader(file_name: str, chunk_samples: int, overlap_samples: int):
+    """The reader we would rather use: ``your`` if installed, else astropy."""
+    if your_psrfits is not None:
+        source = _open_your_source(file_name, chunk_samples, overlap_samples)
+        return _commit_to(_emit_your_blocks(source, chunk_samples, overlap_samples))
+
+    # No `your`: read the SUBINT table with astropy ourselves.
+    subint_source = _open_subint_primary(file_name, chunk_samples, overlap_samples)
+    if subint_source is not None:
+        return _commit_to(_emit_subint_primary_blocks(subint_source, chunk_samples, overlap_samples))
+
+    # No SUBINT table either: a plain FITS file, loaded whole.
+    non_subint = _open_non_subint_source(file_name, chunk_samples, overlap_samples)
+    return _commit_to(_emit_non_subint_blocks(non_subint, chunk_samples, overlap_samples))
+
+
+def _open_fallback_reader(file_name: str, chunk_samples: int, overlap_samples: int):
+    """The duplicated astropy reader, reached only when the primary cannot start."""
+    source = _open_subint_fallback(file_name, chunk_samples, overlap_samples)
+    if source is None:
+        raise ValueError(
+            f"FITS file does not have a valid SUBINT structure: {file_name}"
+        )
+    return _commit_to(_emit_subint_fallback_blocks(source, chunk_samples, overlap_samples))
+
+
+def _open_fits_reader(file_name: str, chunk_samples: int, overlap_samples: int):
+    """Pick the reader for *file_name*. Nothing has been yielded when this returns."""
+    try:
+        return _open_primary_reader(file_name, chunk_samples, overlap_samples)
+    except Exception as e:
+        logger.warning("Error with 'your' PSRFITS implementation (%s); falling back to astropy", e)
+    return _open_fallback_reader(file_name, chunk_samples, overlap_samples)
+
+
 def stream_fits(
     file_name: str,
     chunk_samples: int = 2_097_152,
@@ -773,1212 +2001,18 @@ def stream_fits(
 ) -> Generator[Tuple[np.ndarray, Dict], None, None]:
     """
     Generator that reads a FITS file in blocks without loading everything into RAM.
-    
+
     Args:
         file_name: Path to .fits file
         chunk_samples: Number of samples per block (default: 2M)
         overlap_samples: Number of overlap samples between blocks
-    
+
     Yields:
         Tuple[data_block, metadata]: Data block (time, pol, chan) and metadata
     """
-    
-                                                                                        
-    def _row_to_block(row_data: np.ndarray, row: np.ndarray, subint, nbits: int, nsblk: int, npol: int, nchan: int, zero_off: float, pol_type: str) -> np.ndarray:
-                                                        
-        if nbits < 8:
-            if nbits == 4:
-                unpacked = _unpack_4bit(row_data)
-            elif nbits == 2:
-                unpacked = _unpack_2bit(row_data)
-            elif nbits == 1:
-                unpacked = _unpack_1bit(row_data)
-            else:
-                raise ValueError(f"NBITS={nbits} not supported")
-            try:
-                tmpb = unpacked.reshape(nsblk, npol, nchan)
-            except Exception:
-                tmpb = unpacked.reshape(nsblk, nchan, npol).swapaxes(1, 2)
-            tmpb = tmpb.astype(np.float32, copy=False)
-        else:
-            arrb = np.asarray(row_data)
-            try:
-                tmpb = arrb.reshape(nsblk, npol, nchan)
-            except Exception:
-                tmpb = arrb.reshape(nsblk, nchan, npol).swapaxes(1, 2)
-            if tmpb.dtype != np.float32:
-                tmpb = tmpb.astype(np.float32, copy=False)
-
-                              
-        dat_wts_b = row["DAT_WTS"].astype(np.float32, copy=False) if "DAT_WTS" in subint.columns.names else None
-        dat_scl_b = row["DAT_SCL"].astype(np.float32, copy=False) if "DAT_SCL" in subint.columns.names else None
-        dat_offs_b = row["DAT_OFFS"].astype(np.float32, copy=False) if "DAT_OFFS" in subint.columns.names else None
-        tmpb = _apply_calibration(tmpb, dat_wts_b, dat_scl_b, dat_offs_b, zero_off)
-                                               
-        sel = _select_polarization(tmpb, pol_type, getattr(config, 'POLARIZATION_MODE', 'intensity'), getattr(config, 'POLARIZATION_INDEX', 0))
-        return sel
-    
     try:
         logger.info("Streaming FITS data: chunk_size=%d, overlap=%d", chunk_samples, overlap_samples)
-        
-                                                                                       
-        try:
-            if your_psrfits is not None:
-                pf = your_psrfits.PsrfitsFile([file_name])
-                nspec = int(pf.nspectra())
-                npol = int(pf.npol)
-                nchan = int(pf.nchans)
-                tsamp = float(pf.native_tsamp())            
-                                                                                          
-                logger.info(
-                    "Streaming PSRFITS ('your'): nspec=%d, npol=%d, nchan=%d, tsamp=%s",
-                    nspec,
-                    npol,
-                    nchan,
-                    tsamp,
-                )
-                total_samples = nspec
-                log_stream_fits_parameters(total_samples, chunk_samples, overlap_samples, None, nchan, npol, None)
-                chunk_counter = 0
-                emitted = 0
-                                                        
-                step = chunk_samples
-                while emitted < nspec:
-                    start = emitted
-                                                           
-                    read_start = max(0, start - overlap_samples)
-                    read_end = min(nspec, start + step + overlap_samples)
-                    count = read_end - read_start
-                    arr = pf.get_data(read_start, count, npoln=npol)                        
-                    if arr.ndim != 3:
-                        raise ValueError("Unexpected shape in 'your' get_data")
-                                                                                  
-                    block = _select_polarization(arr, getattr(pf, 'pol_type', 'IQUV'), getattr(config, 'POLARIZATION_MODE', 'intensity'), getattr(config, 'POLARIZATION_INDEX', 0))
-                    # RESOLVED (audit P1-02). This branch used to reverse on
-                    # foff > 0, the opposite of every other reader path, which
-                    # reverses on config.DATA_NEEDS_REVERSAL -- set when DAT_FREQ
-                    # is DESCENDING. Only one criterion can leave the channel axis
-                    # matching the ascending config.FREQ that dedispersion indexes
-                    # against, and it is DATA_NEEDS_REVERSAL:
-                    #
-                    #   - your/formats/psrfits.py returns channels in the file's
-                    #     native DAT_FREQ order. It normalises nothing: the flip is
-                    #     commented out at its lines 447-453 and need_flipband is
-                    #     hardcoded False at 485. Measured on synthetic PSRFITS in
-                    #     both orientations; blimpy agrees through a round trip.
-                    #   - A burst injected at DM 500 into a descending-axis file
-                    #     recovers at exactly DM 500 under DATA_NEEDS_REVERSAL, and
-                    #     at DM 748 with S/N 10.4 under foff > 0. The failure mode
-                    #     is not a missed burst -- it is a burst with a fabricated
-                    #     DM that still clears the detection threshold.
-                    #
-                    # The mismatch warning below is kept as a live detector: it now
-                    # fires when `your` would disagree with the rule we follow, on
-                    # a file whose header we have not seen before.
-                    # Anomaly detector, and it has to compare two things that
-                    # normally AGREE. The first version compared `foff > 0`
-                    # against DATA_NEEDS_REVERSAL, which are opposite by
-                    # construction -- descending DAT_FREQ means foff < 0 and
-                    # DATA_NEEDS_REVERSAL True -- so it fired once per chunk on
-                    # every ordinary file: constant noise, not a signal.
-                    #
-                    # What is worth reporting is a header that contradicts
-                    # itself: foff's sign disagreeing with the ordering
-                    # normalize_frequency_axis derived from DAT_FREQ.
-                    _foff = getattr(pf, 'foff', 0.0)
-                    _rest_says_reverse = bool(getattr(config, 'DATA_NEEDS_REVERSAL', False))
-                    _foff_says_descending = bool(_foff < 0)
-                    if _foff and _foff_says_descending != _rest_says_reverse:
-                        logger.warning(
-                            "FREQ-ORDER ANOMALY (audit P1-02): foff=%.6f implies %s channels "
-                            "but DAT_FREQ was read as %s. The file's own header disagrees with "
-                            "itself; this reader follows DAT_FREQ. Check candidates from this "
-                            "file against a known pulsar.",
-                            _foff,
-                            "descending" if _foff_says_descending else "ascending",
-                            "descending" if _rest_says_reverse else "ascending",
-                        )
-                    try:
-                        if _rest_says_reverse:
-                            block = block[:, :, ::-1]
-                    except Exception:
-                        pass
-                    if block.dtype != np.float32:
-                        block = block.astype(np.float32)
-
-                    chunk_counter += 1
-                    valid_start = start
-                    valid_end = min(start + step, nspec)
-                    start_with_overlap = read_start
-                    end_with_overlap = read_end
-                    log_stream_fits_block_generation(
-                        chunk_counter,
-                        block.shape,
-                        str(block.dtype),
-                        valid_start,
-                        valid_end,
-                        start_with_overlap,
-                        end_with_overlap,
-                        valid_end - valid_start,
-                    )
-                    metadata = {
-                        "chunk_idx": valid_start // chunk_samples,
-                        "start_sample": valid_start,
-                        "end_sample": valid_end,
-                        "actual_chunk_size": valid_end - valid_start,
-                        "block_start_sample": start_with_overlap,
-                        "block_end_sample": end_with_overlap,
-                        "overlap_left": valid_start - start_with_overlap,
-                        "overlap_right": end_with_overlap - valid_end,
-                        "total_samples": nspec,
-                        "nchans": nchan,
-                        "nifs": 1,
-                        "dtype": str(block.dtype),
-                        "shape": block.shape,
-                        "file_type": "fits",
-                                                                                   
-                        "tbin_sec": tsamp,
-                        "t_rel_start_sec": valid_start * tsamp,
-                        "t_rel_end_sec": valid_end * tsamp,
-                    }
-                    yield block, metadata
-                    emitted += step
-
-                log_stream_fits_summary(chunk_counter)
-                return
-
-                                                                                             
-            with fits.open(file_name, memmap=True) as hdul:
-                if "SUBINT" in [hdu.name for hdu in hdul] and "DATA" in hdul["SUBINT"].columns.names:
-                    subint = hdul["SUBINT"]
-                    hdr = subint.header
-                                                                                             
-                    try:
-                        tbl = subint.data
-                    except (TypeError, ValueError, OSError) as e:
-                        if "buffer is too small" in str(e) or "truncated" in str(e).lower():
-                            logger.warning(
-                                "Truncated FITS file detected (%s): %s. Skipping.",
-                                file_name,
-                                e,
-                            )
-                            raise ValueError(f"Truncated FITS file: {file_name}") from e
-                        else:
-                            raise
-                    nsubint = safe_int(hdr.get("NAXIS2", 0))
-                    nchan = safe_int(hdr.get("NCHAN", 0))
-                    npol = safe_int(hdr.get("NPOL", 0))
-                    nsblk = safe_int(hdr.get("NSBLK", 1))
-                    nbits = safe_int(hdr.get("NBITS", 8))
-                    zero_off = safe_float(hdr.get("ZERO_OFF", 0.0))
-                    tbin = safe_float(hdr.get("TBIN"))
-                                                             
-                    tsub = safe_float(hdr.get("TSUBINT", nsblk * tbin))
-                                                                             
-                    primary = hdul["PRIMARY"].header if "PRIMARY" in [h.name for h in hdul] else {}
-                    imjd = safe_int(primary.get("STT_IMJD", 0))
-                    smjd = safe_float(primary.get("STT_SMJD", 0.0))
-                    offs = safe_float(primary.get("STT_OFFS", 0.0))
-                    tstart_mjd = float(imjd) + (float(smjd) + float(offs)) / 86400.0
-                                                                       
-                    nsuboffs = safe_int(hdr.get("NSUBOFFS", 0))
-                    if "OFFS_SUB" in subint.columns.names:
-                        try:
-                            offs_sub_first = safe_float(tbl[0]["OFFS_SUB"])     
-                            numrows = int((offs_sub_first - 0.5 * tsub) / tsub + 1e-7)
-                            if numrows >= 0:
-                                nsuboffs = numrows
-                        except Exception:
-                            pass
-                                            
-                    # Assign TSTART_MJD to config for MJD calculations in candidate detection
-                    if tstart_mjd > 0:
-                        config.TSTART_MJD = tstart_mjd
-                        config.TSTART_MJD_CORR = tstart_mjd + (nsuboffs * tsub) / 86400.0
-                    else:
-                        logger.warning("TSTART_MJD not calculated correctly from STT_IMJD/STT_SMJD/STT_OFFS")
-                        config.TSTART_MJD = None
-                        config.TSTART_MJD_CORR = None
-                                            
-                    total_samples = nsubint * nsblk
-                    logger.info(
-                        "FITS data detected: samples=%d, polarisations=%d, channels=%d",
-                        total_samples,
-                        npol,
-                        nchan,
-                    )
-                    log_stream_fits_parameters(total_samples, chunk_samples, overlap_samples, nsubint, nchan, npol, nsblk)
-
-                    # OPTIMIZATION: Use list to accumulate blocks, only concatenate when needed
-                    # This avoids O(N^2) complexity from repeated np.concatenate calls
-                    buffer_blocks = []  # List of (block, emitted_samples) tuples
-                    buffer_total_samples = 0  # Track total samples without concatenating
-                    emitted = 0
-                    chunk_counter = 0
-                    
-                    # Memory safety: limit buffer growth to prevent OOM
-                    # CRITICAL: For very large chunks, we need stricter limits
-                    # Calculate based on available memory to prevent system freeze
-                    import psutil
-                    vm = psutil.virtual_memory()
-                    available_ram_gb = vm.available / (1024**3)
-                    
-                    # Conservative limit: use max 30% of available RAM for buffer
-                    # This prevents system freeze even with very large chunks
-                    max_buffer_gb = min(available_ram_gb * 0.3, 8.0)  # Cap at 8 GB
-                    bytes_per_sample = 4 * nchan  # float32 = 4 bytes
-                    max_buffer_bytes = max_buffer_gb * (1024**3)
-                    max_buffer_samples = int(max_buffer_bytes / bytes_per_sample)
-                    
-                    # Also enforce: buffer should not exceed 2x chunk size
-                    # But for very large chunks, use memory-based limit instead
-                    if chunk_samples > 1_000_000:  # Chunks > 1M samples
-                        # For large chunks, use memory-based limit (more conservative)
-                        max_buffer_samples = min(max_buffer_samples, chunk_samples + overlap_samples * 2)
-                        logger.warning(
-                            f"Large chunk detected ({chunk_samples:,} samples). "
-                            f"Using conservative buffer limit: {max_buffer_samples:,} samples "
-                            f"({max_buffer_gb:.2f} GB) to prevent system freeze."
-                        )
-                    else:
-                        # For normal chunks, allow 2x chunk size
-                        max_buffer_samples = max(max_buffer_samples, chunk_samples * 2)
-                    
-                    # Additional safety: limit number of blocks before forcing concatenation
-                    # Too many blocks = slow concatenation = system freeze
-                    max_buffer_blocks = 200  # Force concatenation if >200 blocks
-                    
-                    logger.info(
-                        f"Buffer limits: max_samples={max_buffer_samples:,} "
-                        f"({max_buffer_samples * bytes_per_sample / (1024**3):.2f} GB), "
-                        f"max_blocks={max_buffer_blocks}, chunk_samples={chunk_samples:,}"
-                    )
-                    
-                    def _concatenate_buffer():
-                        """Concatenate all blocks in buffer_blocks into a single array.
-                        
-                        OPTIMIZATION: Uses pre-allocation when possible to reduce memory
-                        reallocation overhead during concatenation.
-                        """
-                        if not buffer_blocks:
-                            return np.zeros((0, 1, nchan), dtype=np.float32)
-                        if len(buffer_blocks) == 1:
-                            return buffer_blocks[0][0]
-                        
-                        # Log warning if concatenation might be slow
-                        if len(buffer_blocks) > 100:
-                            logger.warning(
-                                f"Concatenating large buffer: {len(buffer_blocks):,} blocks "
-                                f"(~{buffer_total_samples:,} samples). This may take a few seconds..."
-                            )
-                        
-                        import time
-                        start_time = time.time()
-                        
-                        # OPTIMIZATION: Pre-allocate result array to avoid repeated reallocation
-                        # This is faster than np.concatenate for many blocks
-                        result = np.empty((buffer_total_samples, 1, nchan), dtype=np.float32)
-                        current_idx = 0
-                        for block, _ in buffer_blocks:
-                            block_len = block.shape[0]
-                            result[current_idx:current_idx + block_len] = block
-                            current_idx += block_len
-                        
-                        elapsed = time.time() - start_time
-                        
-                        if elapsed > 1.0:
-                            logger.warning(
-                                f"Buffer concatenation took {elapsed:.2f}s for {len(buffer_blocks):,} blocks "
-                                f"({buffer_total_samples:,} samples). Consider reducing chunk size if this is frequent."
-                            )
-                        
-                        return result
-                    
-                    def _expected_start_sample(offs_sub_seconds: float, sub_index: int) -> int:
-                        if offs_sub_seconds is not None:
-                            start_sec = float(offs_sub_seconds) - 0.5 * tsub
-                            return int(round(start_sec / tbin))
-                        return (nsuboffs + sub_index) * nsblk
-                    
-                    # Progress tracking
-                    import time
-                    last_progress_log = time.time()
-                    last_progress_row = 0
-                    progress_interval = 5.0  # Log every 5 seconds
-                    
-                    pol_type = str(hdr.get("POL_TYPE", "")).upper() if hdr.get("POL_TYPE") is not None else ""
-                    
-                    # OPTIMIZATION: Pre-verify column existence (avoid repeated checks)
-                    has_offs_sub = "OFFS_SUB" in subint.columns.names
-                    
-                    logger.info(
-                        f"[STREAMING] Starting subint processing: {nsubint:,} subints, "
-                        f"chunk_samples={chunk_samples:,}, overlap={overlap_samples:,} samples"
-                    )
-                    
-                    # OPTIMIZATION: Check buffer less frequently (every 10 subints instead of every 1)
-                    buffer_check_interval = 10
-                    
-                    for isub in range(nsubint):
-                        row = tbl[isub]
-                        offs_sub_val = None
-                        if has_offs_sub:
-                            try:
-                                offs_sub_val = safe_float(row["OFFS_SUB"])     
-                            except Exception:
-                                offs_sub_val = None
-
-                        expected_start = _expected_start_sample(offs_sub_val, isub)
-                                                     
-                        if emitted < expected_start:
-                            gap = expected_start - emitted
-                            # OPTIMIZATION: Use np.empty + fill instead of np.zeros (slightly faster)
-                            pad = np.empty((gap, 1, nchan), dtype=np.float32)
-                            pad.fill(0.0)
-                            # Add gap to buffer_blocks instead of concatenating
-                            buffer_blocks.append((pad, emitted))
-                            buffer_total_samples += gap
-                            emitted += gap
-
-                        block = _row_to_block(row["DATA"], row, subint, nbits, nsblk, npol, nchan, zero_off, pol_type)
-                        # Add block to buffer_blocks instead of concatenating
-                        buffer_blocks.append((block, emitted))
-                        buffer_total_samples += block.shape[0]
-                        emitted += block.shape[0]
-                        
-                        # OPTIMIZATION: Only check time every N subints (reduces overhead)
-                        # Progress logging every 5 seconds
-                        if isub % buffer_check_interval == 0:
-                            current_time = time.time()
-                            if current_time - last_progress_log >= progress_interval:
-                                progress_pct = (isub + 1) / nsubint * 100
-                                rows_processed = isub + 1 - last_progress_row
-                                rate = rows_processed / (current_time - last_progress_log)
-                                remaining = (nsubint - isub - 1) / max(rate, 0.001)
-                                
-                                logger.info(
-                                    f"Streaming progress: {isub+1:,}/{nsubint:,} subints ({progress_pct:.1f}%) | "
-                                    f"Buffer: {len(buffer_blocks):,} blocks, {buffer_total_samples:,} samples | "
-                                    f"Rate: {rate:.1f} subints/s | ETA: {remaining:.1f}s"
-                                )
-                                
-                                last_progress_log = current_time
-                                last_progress_row = isub + 1
-                        
-                        # CRITICAL: Check buffer more aggressively for large chunks
-                        # For large chunks, check every subint to prevent buffer explosion
-                        # For normal chunks, check every N subints to reduce overhead
-                        check_frequency = 1 if chunk_samples > 1_000_000 else buffer_check_interval
-                        
-                        # OPTIMIZATION: Check buffer based on size and block count
-                        # Use buffer_total_samples (tracked without concatenation) to estimate
-                        # This avoids expensive concatenation until we're ready to emit
-                        if isub % check_frequency == 0 or isub == nsubint - 1:
-                            # Check multiple conditions:
-                            # 1. Have enough for complete chunk
-                            # 2. Buffer exceeds memory limit
-                            # 3. Too many blocks (will cause slow concatenation)
-                            needs_chunk_emission = (
-                                buffer_total_samples >= (chunk_samples + overlap_samples * 2) or
-                                buffer_total_samples > max_buffer_samples or
-                                len(buffer_blocks) > max_buffer_blocks
-                            )
-                            
-                            # Warn if buffer is growing too large
-                            if buffer_total_samples > max_buffer_samples * 0.8:
-                                logger.warning(
-                                    f"Buffer approaching limit: {buffer_total_samples:,}/{max_buffer_samples:,} samples "
-                                    f"({len(buffer_blocks):,} blocks). Will emit chunk soon to prevent OOM."
-                                )
-                        else:
-                            needs_chunk_emission = False
-                        
-                        # Only concatenate when we actually need to emit a chunk
-                        if needs_chunk_emission:
-                            # CRITICAL: Warn if concatenation will be expensive
-                            if len(buffer_blocks) > 100:
-                                logger.warning(
-                                    f"Concatenating large buffer: {len(buffer_blocks):,} blocks, "
-                                    f"{buffer_total_samples:,} samples (~{buffer_total_samples * bytes_per_sample / (1024**3):.2f} GB). "
-                                    f"This may take several seconds. Consider reducing chunk size for better performance."
-                                )
-                            elif len(buffer_blocks) > 50:
-                                logger.info(
-                                    f"Preparing chunk emission at subint {isub+1:,}/{nsubint:,}: "
-                                    f"{len(buffer_blocks):,} blocks, {buffer_total_samples:,} samples"
-                                )
-                            
-                            # Measure concatenation time
-                            import time
-                            concat_start = time.time()
-                            out_buf = _concatenate_buffer()
-                            concat_time = time.time() - concat_start
-                            
-                            if concat_time > 2.0:
-                                logger.warning(
-                                    f"Buffer concatenation took {concat_time:.2f}s for {len(buffer_blocks):,} blocks. "
-                                    f"This is slow and may cause system freeze. Consider reducing chunk size."
-                                )
-                            
-                            buffer_too_large = out_buf.shape[0] > max_buffer_samples
-                            has_complete_chunk = out_buf.shape[0] >= (chunk_samples + overlap_samples * 2)
-                        else:
-                            # Don't concatenate yet - continue accumulating
-                            buffer_too_large = False
-                            has_complete_chunk = False
-                            out_buf = None  # Not computed yet
-                        
-                        # Emit chunk if we have a complete chunk OR if buffer is too large
-                        while needs_chunk_emission and (has_complete_chunk or (buffer_too_large and out_buf is not None and out_buf.shape[0] >= chunk_samples)):
-                            chunk_counter += 1
-                            
-                            # CRITICAL: If buffer is too large, emit smaller chunks aggressively
-                            # For very large chunks, emit partial chunks to prevent system freeze
-                            if buffer_too_large:
-                                # Calculate safe chunk size: use 50-80% of buffer to leave room
-                                # This prevents system freeze by not using all available memory
-                                safe_chunk_ratio = 0.7 if chunk_samples > 1_000_000 else 0.9
-                                max_safe_chunk = int(out_buf.shape[0] * safe_chunk_ratio)
-                                actual_chunk_size = min(chunk_samples, max_safe_chunk, out_buf.shape[0])
-                                
-                                # Ensure we have at least some overlap for continuity
-                                if actual_chunk_size < overlap_samples * 2:
-                                    actual_chunk_size = min(overlap_samples * 2, out_buf.shape[0])
-                                
-                                start_with_overlap = 0
-                                end_with_overlap = min(actual_chunk_size + overlap_samples * 2, out_buf.shape[0])
-                                valid_start = overlap_samples if end_with_overlap > overlap_samples * 2 else 0
-                                valid_end = valid_start + actual_chunk_size
-                                
-                                if actual_chunk_size < chunk_samples:
-                                    logger.warning(
-                                        f"Buffer too large ({out_buf.shape[0]:,} samples, {out_buf.shape[0] * bytes_per_sample / (1024**3):.2f} GB). "
-                                        f"Emitting partial chunk of {actual_chunk_size:,} samples "
-                                        f"(requested: {chunk_samples:,}) to prevent system freeze. "
-                                        f"Buffer limit: {max_buffer_samples:,} samples."
-                                    )
-                                else:
-                                    logger.warning(
-                                        f"Buffer too large ({out_buf.shape[0]:,} samples), "
-                                        f"emitting emergency chunk of {actual_chunk_size:,} samples "
-                                        f"(buffer limit: {max_buffer_samples:,})"
-                                    )
-                                
-                                # Buffer event recorded at pipeline level via collector parameter
-                            else:
-                                # Normal case: emit full chunk with overlap
-                                start_with_overlap = 0
-                                end_with_overlap = chunk_samples + overlap_samples * 2
-                                valid_start = overlap_samples
-                                valid_end = valid_start + chunk_samples
-                                actual_chunk_size = chunk_samples
-                            
-                            # Ensure out_buf is concatenated before extracting chunk
-                            if out_buf is None:
-                                out_buf = _concatenate_buffer()
-
-                            # At the very beginning of the file there is no
-                            # preceding data, so nothing can be left overlap:
-                            # keeping valid_start > 0 here discards the first
-                            # overlap_samples of every FITS file. stream_fil
-                            # already clamps this via max(0, valid_start - overlap).
-                            if emitted - out_buf.shape[0] <= 0 and valid_start > 0:
-                                valid_start = 0
-                                valid_end = valid_start + actual_chunk_size
-
-                            block_out = out_buf[start_with_overlap:end_with_overlap].copy()
-
-                            # This path performed no reversal at all, while the
-                            # duplicated copy of it below (reached only through
-                            # `except Exception`) did. Any install without the
-                            # `your` library streamed descending PSRFITS with the
-                            # channel axis untouched (audit P1-02, third instance).
-                            if config.DATA_NEEDS_REVERSAL:
-                                block_out = block_out[:, :, ::-1]
-
-                            start_sample_idx = emitted - out_buf.shape[0] + valid_start
-                            end_sample_idx = start_sample_idx + actual_chunk_size
-                                         
-                            log_stream_fits_block_generation(
-                                chunk_counter,
-                                block_out.shape,
-                                str(block_out.dtype),
-                                start_sample_idx,
-                                end_sample_idx,
-                                start_with_overlap,
-                                end_with_overlap,
-                                chunk_samples,
-                            )
-                            metadata = {
-                                "chunk_idx": start_sample_idx // chunk_samples,
-                                "start_sample": start_sample_idx,
-                                "end_sample": end_sample_idx,
-                                "actual_chunk_size": actual_chunk_size,
-                                "block_start_sample": emitted - out_buf.shape[0],
-                                "block_end_sample": emitted - out_buf.shape[0] + end_with_overlap,
-                                # Derived from the real geometry, not assumed:
-                                # the first chunk of a file has no left overlap
-                                # and the last one has no right overlap. Hardcoding
-                                # overlap_samples made _process_block trim data
-                                # that was never overlap.
-                                "overlap_left": valid_start - start_with_overlap,
-                                "overlap_right": max(0, end_with_overlap - valid_end),
-                                "total_samples": total_samples,
-                                "nchans": nchan,
-                                "nifs": 1,
-                                "dtype": str(block_out.dtype),
-                                "shape": block_out.shape,
-                                "file_type": "fits",
-                                                                                           
-                                "tbin_sec": tbin,
-                                "t_rel_start_sec": start_sample_idx * tbin,
-                                "t_rel_end_sec": end_sample_idx * tbin,
-                                                                            
-                                "tstart_mjd": tstart_mjd,
-                                "tstart_mjd_corr": tstart_mjd + (nsuboffs * tsub) / 86400.0,
-                                "tsubint_sec": tsub,
-                            }
-                            yield block_out, metadata
-                                                                         
-                            # Remove emitted chunk from buffer (keep overlap for next chunk)
-                            # Always advance by exactly the valid span. Dropping
-                            # end_with_overlap (= actual + 2*overlap) in the
-                            # emergency path left a 2*overlap hole between
-                            # consecutive chunks that was never searched.
-                            samples_to_remove = actual_chunk_size
-                            
-                            # Update buffer: remove emitted samples, keep overlap
-                            # Rebuild buffer_blocks list from remaining data
-                            if samples_to_remove >= out_buf.shape[0]:
-                                # All buffer was emitted
-                                buffer_blocks = []
-                                buffer_total_samples = 0
-                            else:
-                                # Keep tail of buffer (overlap)
-                                remaining_buf = out_buf[samples_to_remove:]
-                                if remaining_buf.shape[0] > 0:
-                                    # Rebuild buffer_blocks with remaining data
-                                    buffer_blocks = [(remaining_buf, emitted - remaining_buf.shape[0])]
-                                    buffer_total_samples = remaining_buf.shape[0]
-                                else:
-                                    buffer_blocks = []
-                                    buffer_total_samples = 0
-                            
-                            # Update buffer size check for next iteration
-                            if buffer_blocks:
-                                out_buf = _concatenate_buffer()
-                                buffer_too_large = out_buf.shape[0] > max_buffer_samples
-                                has_complete_chunk = out_buf.shape[0] >= (chunk_samples + overlap_samples * 2)
-                            else:
-                                out_buf = None
-                                buffer_too_large = False
-                                has_complete_chunk = False
-                            
-                            # Recalculate needs_chunk_emission for next iteration
-                            needs_chunk_emission = (
-                                buffer_total_samples >= (chunk_samples + overlap_samples * 2) or
-                                buffer_total_samples > max_buffer_samples
-                            )
-                    
-                                            
-                    # Handle remaining buffer at end of file.
-                    #
-                    # out_buf is set to None above whenever a chunk consumed the
-                    # whole buffer, so when the last chunk emptied it exactly --
-                    # FILE_LENG % chunk_samples == 0 with no overlap, which is
-                    # divisibility, not a rare case -- buffer_blocks is empty,
-                    # out_buf is still None, and this raised AttributeError.
-                    #
-                    # stream_fits is a GENERATOR and the `except Exception` that
-                    # catches it sits outside this already-yielding loop, so the
-                    # error never reached the caller: the duplicated reader
-                    # reopened the file and re-emitted it from sample 0. Measured
-                    # on a 512-sample file with chunk=256, the consumer received
-                    # [(0,256),(256,512),(0,256),(256,512)] -- every sample twice
-                    # -- with only a generic "falling back to astropy" log line.
-                    out_buf = _concatenate_buffer() if buffer_blocks else None
-                    if out_buf is not None and out_buf.shape[0] > 0:
-                        chunk_counter += 1
-                                                                                     
-                        valid_start = 0
-                        valid_end = out_buf.shape[0]
-                        block_out = out_buf.copy()
-                        if config.DATA_NEEDS_REVERSAL:
-                            block_out = block_out[:, :, ::-1]
-                        log_stream_fits_block_generation(
-                            chunk_counter,
-                            block_out.shape,
-                            str(block_out.dtype),
-                            emitted - out_buf.shape[0] + valid_start,
-                            emitted - out_buf.shape[0] + valid_end,
-                            valid_start,
-                            valid_end,
-                            valid_end - valid_start,
-                        )
-                        metadata = {
-                            "chunk_idx": (emitted - out_buf.shape[0]) // max(1, chunk_samples),
-                            "start_sample": emitted - out_buf.shape[0] + valid_start,
-                            "end_sample": emitted,
-                            "actual_chunk_size": valid_end - valid_start,
-                            "block_start_sample": emitted - out_buf.shape[0],
-                            "block_end_sample": emitted,
-                            "overlap_left": 0,
-                            "overlap_right": 0,
-                            "total_samples": total_samples,
-                            "nchans": nchan,
-                            "nifs": 1,
-                            "dtype": str(block_out.dtype),
-                            "shape": block_out.shape,
-                            "file_type": "fits",
-                                                                                       
-                            "tbin_sec": tbin,
-                            "t_rel_start_sec": (emitted - out_buf.shape[0] + valid_start) * tbin,
-                            "t_rel_end_sec": emitted * tbin,
-                                                                        
-                            "tstart_mjd": tstart_mjd,
-                            "tstart_mjd_corr": tstart_mjd + (nsuboffs * tsub) / 86400.0,
-                            "tsubint_sec": tsub,
-                        }
-                        yield block_out, metadata
-
-                    log_stream_fits_summary(chunk_counter)
-                    return
-
-                                                                     
-                _, h = _read_fits_like_fitsio(file_name)
-                nsamples = safe_int(h.get("NAXIS2", 1)) * safe_int(h.get("NSBLK", 1))
-                npols = safe_int(h.get("NPOL", 2))
-                nchans = safe_int(h.get("NCHAN", 512))
-                logger.info(
-                    "FITS data detected: samples=%d, polarisations=%d, channels=%d",
-                    nsamples,
-                    npols,
-                    nchans,
-                )
-                log_stream_fits_parameters(nsamples, chunk_samples, overlap_samples, None, nchans, npols, None)
-                data_array = _load_fits_non_subint(file_name)
-                use_memmap = False
-                                                           
-                chunk_counter = 0
-                for chunk_start in range(0, nsamples, chunk_samples):
-                    chunk_counter += 1
-                    valid_start = chunk_start
-                    valid_end = min(chunk_start + chunk_samples, nsamples)
-                    start_with_overlap = max(0, valid_start - overlap_samples)
-                    end_with_overlap = min(nsamples, valid_end + overlap_samples)
-                    block = data_array[start_with_overlap:end_with_overlap].copy()
-                    log_stream_fits_block_generation(
-                        chunk_counter,
-                        block.shape,
-                        str(block.dtype),
-                        valid_start,
-                        valid_end,
-                        start_with_overlap,
-                        end_with_overlap,
-                        valid_end - valid_start,
-                    )
-                    metadata = {
-                        "chunk_idx": valid_start // chunk_samples,
-                        "start_sample": valid_start,
-                        "end_sample": valid_end,
-                        "actual_chunk_size": valid_end - valid_start,
-                        "block_start_sample": start_with_overlap,
-                        "block_end_sample": end_with_overlap,
-                        "overlap_left": valid_start - start_with_overlap,
-                        "overlap_right": end_with_overlap - valid_end,
-                        "total_samples": nsamples,
-                        "nchans": nchans,
-                        "nifs": npols,
-                        "dtype": str(block.dtype),
-                        "shape": block.shape,
-                        "file_type": "fits",
-                                                                     
-                        "tbin_sec": float(config.TIME_RESO) if hasattr(config, 'TIME_RESO') else None,
-                        "t_rel_start_sec": (valid_start * float(config.TIME_RESO)) if hasattr(config, 'TIME_RESO') else None,
-                        "t_rel_end_sec": (valid_end * float(config.TIME_RESO)) if hasattr(config, 'TIME_RESO') else None,
-                    }
-                    yield block, metadata
-                log_stream_fits_summary(chunk_counter)
-        except Exception as e:
-            logger.warning("Error with 'your' PSRFITS implementation (%s); falling back to astropy", e)
-
-            with fits.open(file_name, memmap=True) as hdul:
-                if "SUBINT" in [hdu.name for hdu in hdul] and "DATA" in hdul["SUBINT"].columns.names:
-                    subint = hdul["SUBINT"]
-                    hdr = subint.header
-
-                    try:
-                        tbl = subint.data
-                    except (TypeError, ValueError, OSError) as e:
-                        if "buffer is too small" in str(e) or "truncated" in str(e).lower():
-                            logger.warning(
-                                "Truncated FITS file detected (%s): %s. Skipping.",
-                                file_name,
-                                e,
-                            )
-                            raise ValueError(f"Truncated FITS file: {file_name}") from e
-                        else:
-                            raise
-                    nsubint = safe_int(hdr.get("NAXIS2", 0))
-                    nchan = safe_int(hdr.get("NCHAN", 0))
-                    npol = safe_int(hdr.get("NPOL", 0))
-                    nsblk = safe_int(hdr.get("NSBLK", 1))
-                    nbits = safe_int(hdr.get("NBITS", 8))
-                    zero_off = safe_float(hdr.get("ZERO_OFF", 0.0))
-                    tbin = safe_float(hdr.get("TBIN"))
-                                                             
-                    tsub = safe_float(hdr.get("TSUBINT", nsblk * tbin))
-                                                                             
-                    primary = hdul["PRIMARY"].header if "PRIMARY" in [h.name for h in hdul] else {}
-                    tstart_mjd = safe_float(primary.get("TSTART", 0.0))
-                    nsuboffs = safe_int(primary.get("NSUBOFFS", 0))
-                    
-                    # Assign TSTART_MJD to config for MJD calculations in candidate detection
-                    if tstart_mjd > 0:
-                        config.TSTART_MJD = tstart_mjd
-                        config.TSTART_MJD_CORR = tstart_mjd + (nsuboffs * tsub) / 86400.0
-                    else:
-                        logger.warning("TSTART not found or zero in FITS PRIMARY header")
-                        config.TSTART_MJD = None
-                        config.TSTART_MJD_CORR = None
-                    
-                    logger.info(
-                        "Streaming PSRFITS (astropy fallback): nsubint=%d, nchan=%d, npol=%d, tbin=%s",
-                        nsubint,
-                        nchan,
-                        npol,
-                        tbin,
-                    )
-                    logger.info(
-                        "NOTE: Using astropy fallback for PSRFITS. This is slower but more compatible. "
-                        f"For large files ({nsubint:,} subints), this may take several minutes. "
-                        "Progress will be logged every 5 seconds during streaming."
-                    )
-                    
-                                                                        
-                    pol_type = str(hdr.get("POL_TYPE", "")).upper() if hdr.get("POL_TYPE") is not None else ""
-                    
-                                                          
-                    total_samples = nsubint * nsblk
-                    logger.info(
-                        f"[STREAMING] Starting subint processing (astropy fallback): {nsubint:,} subints, "
-                        f"chunk_samples={chunk_samples:,}, overlap={overlap_samples:,} samples"
-                    )
-                    log_stream_fits_parameters(total_samples, chunk_samples, overlap_samples, None, nchan, npol, None)
-                    
-                                                           
-                    # OPTIMIZATION: Use list to accumulate blocks, only concatenate when needed
-                    # This avoids O(N^2) complexity from repeated np.concatenate calls
-                    buffer_blocks = []  # List of (block, emitted_samples) tuples
-                    buffer_total_samples = 0  # Track total samples without concatenating
-                    emitted = 0
-                    chunk_counter = 0
-                    
-                    # Memory safety: limit buffer growth to prevent OOM
-                    # CRITICAL: For very large chunks, we need stricter limits
-                    # Calculate based on available memory to prevent system freeze
-                    import psutil
-                    vm = psutil.virtual_memory()
-                    available_ram_gb = vm.available / (1024**3)
-                    
-                    # Conservative limit: use max 30% of available RAM for buffer
-                    # This prevents system freeze even with very large chunks
-                    max_buffer_gb = min(available_ram_gb * 0.3, 8.0)  # Cap at 8 GB
-                    bytes_per_sample = 4 * nchan  # float32 = 4 bytes
-                    max_buffer_bytes = max_buffer_gb * (1024**3)
-                    max_buffer_samples = int(max_buffer_bytes / bytes_per_sample)
-                    
-                    # Also enforce: buffer should not exceed 2x chunk size
-                    # But for very large chunks, use memory-based limit instead
-                    if chunk_samples > 1_000_000:  # Chunks > 1M samples
-                        # For large chunks, use memory-based limit (more conservative)
-                        max_buffer_samples = min(max_buffer_samples, chunk_samples + overlap_samples * 2)
-                        logger.warning(
-                            f"Large chunk detected ({chunk_samples:,} samples). "
-                            f"Using conservative buffer limit: {max_buffer_samples:,} samples "
-                            f"({max_buffer_gb:.2f} GB) to prevent system freeze."
-                        )
-                    else:
-                        # For normal chunks, allow 2x chunk size
-                        max_buffer_samples = max(max_buffer_samples, chunk_samples * 2)
-                    
-                    # Additional safety: limit number of blocks before forcing concatenation
-                    # Too many blocks = slow concatenation = system freeze
-                    max_buffer_blocks = 200  # Force concatenation if >200 blocks
-                    
-                    logger.info(
-                        f"Buffer limits: max_samples={max_buffer_samples:,} "
-                        f"({max_buffer_samples * bytes_per_sample / (1024**3):.2f} GB), "
-                        f"max_blocks={max_buffer_blocks}, chunk_samples={chunk_samples:,}"
-                    )
-                    
-                    def _concatenate_buffer():
-                        """Concatenate all blocks in buffer_blocks into a single array.
-                        
-                        OPTIMIZATION: Uses pre-allocation when possible to reduce memory
-                        reallocation overhead during concatenation.
-                        """
-                        if not buffer_blocks:
-                            return np.zeros((0, 1, nchan), dtype=np.float32)
-                        if len(buffer_blocks) == 1:
-                            return buffer_blocks[0][0]
-                        
-                        # Log warning if concatenation might be slow
-                        if len(buffer_blocks) > 100:
-                            logger.warning(
-                                f"Concatenating large buffer: {len(buffer_blocks):,} blocks "
-                                f"(~{buffer_total_samples:,} samples). This may take a few seconds..."
-                            )
-                        
-                        import time
-                        start_time = time.time()
-                        
-                        # OPTIMIZATION: Pre-allocate result array to avoid repeated reallocation
-                        # This is faster than np.concatenate for many blocks
-                        result = np.empty((buffer_total_samples, 1, nchan), dtype=np.float32)
-                        current_idx = 0
-                        for block, _ in buffer_blocks:
-                            block_len = block.shape[0]
-                            result[current_idx:current_idx + block_len] = block
-                            current_idx += block_len
-                        
-                        elapsed = time.time() - start_time
-                        
-                        if elapsed > 1.0:
-                            logger.warning(
-                                f"Buffer concatenation took {elapsed:.2f}s for {len(buffer_blocks):,} blocks "
-                                f"({buffer_total_samples:,} samples). Consider reducing chunk size if this is frequent."
-                            )
-                        
-                        return result
-                    
-                    # Progress tracking
-                    import time
-                    last_progress_log = time.time()
-                    progress_interval = 5.0  # Log progress every 5 seconds
-                    last_progress_row = 0
-                    
-                    logger.info(
-                        f"Starting PSRFITS streaming: {nsubint:,} subints, "
-                        f"chunk_size={chunk_samples:,}, overlap={overlap_samples:,}"
-                    )
-                    logger.info(
-                        f"Expected processing time: ~{nsubint * 0.01:.1f}s (estimated ~0.01s per subint). "
-                        f"Large files may take longer."
-                    )
-                                               
-                    # OPTIMIZATION: Pre-verify column existence
-                    has_offs_sub_astropy = "OFFS_SUB" in subint.columns.names
-                    buffer_check_interval_astropy = 10
-                    
-                    for i, row in enumerate(tbl):
-                                                             
-                        expected_start = i * nsblk
-                        
-                                                 
-                        if expected_start > emitted:
-                            gap = expected_start - emitted
-                            # OPTIMIZATION: Use np.empty + fill instead of np.zeros
-                            pad = np.empty((gap, 1, nchan), dtype=np.float32)
-                            pad.fill(0.0)
-                            buffer_blocks.append((pad, emitted))
-                            buffer_total_samples += gap
-                            emitted += gap
-                        
-                                                           
-                        block = _row_to_block(row["DATA"], row, subint, nbits, nsblk, npol, nchan, zero_off, pol_type)
-                        buffer_blocks.append((block, emitted))
-                        buffer_total_samples += block.shape[0]
-                        emitted += block.shape[0]
-                        
-                        # OPTIMIZATION: Only check time every N subints (reduces overhead)
-                        # Progress logging every 5 seconds
-                        if i % buffer_check_interval_astropy == 0:
-                            current_time = time.time()
-                            if current_time - last_progress_log >= progress_interval:
-                                progress_pct = (i + 1) / nsubint * 100
-                                rows_processed = i + 1 - last_progress_row
-                                rate = rows_processed / (current_time - last_progress_log)
-                                remaining = (nsubint - i - 1) / max(rate, 0.001)
-                                
-                                logger.info(
-                                    f"Streaming progress: {i+1:,}/{nsubint:,} subints ({progress_pct:.1f}%) | "
-                                    f"Buffer: {len(buffer_blocks):,} blocks, {buffer_total_samples:,} samples | "
-                                    f"Rate: {rate:.1f} subints/s | ETA: {remaining:.1f}s"
-                                )
-                                
-                                last_progress_log = current_time
-                                last_progress_row = i + 1
-                        
-                        # CRITICAL: Check buffer more aggressively for large chunks
-                        # For large chunks, check every subint to prevent buffer explosion
-                        # For normal chunks, check every N subints to reduce overhead
-                        check_frequency_astropy = 1 if chunk_samples > 1_000_000 else buffer_check_interval_astropy
-                        
-                        # OPTIMIZATION: Check buffer based on size and block count
-                        # Use buffer_total_samples (tracked without concatenation) to estimate
-                        # This avoids expensive concatenation until we're ready to emit
-                        if i % check_frequency_astropy == 0 or i == nsubint - 1:
-                            # Check multiple conditions:
-                            # 1. Have enough for complete chunk
-                            # 2. Buffer exceeds memory limit
-                            # 3. Too many blocks (will cause slow concatenation)
-                            needs_chunk_emission = (
-                                buffer_total_samples >= (chunk_samples + overlap_samples * 2) or
-                                buffer_total_samples > max_buffer_samples or
-                                len(buffer_blocks) > max_buffer_blocks
-                            )
-                            
-                            # Warn if buffer is growing too large
-                            if buffer_total_samples > max_buffer_samples * 0.8:
-                                logger.warning(
-                                    f"Buffer approaching limit: {buffer_total_samples:,}/{max_buffer_samples:,} samples "
-                                    f"({len(buffer_blocks):,} blocks). Will emit chunk soon to prevent OOM."
-                                )
-                        else:
-                            needs_chunk_emission = False
-                        
-                        # Only concatenate when we actually need to emit a chunk
-                        # This reduces concatenation frequency from every 10 subints to only when needed
-                        if needs_chunk_emission:
-                            # Concatenate buffer only when we're ready to emit
-                            if len(buffer_blocks) > 1:
-                                # Only log if we have many blocks (indicates we've been accumulating)
-                                if len(buffer_blocks) > 50:
-                                    logger.debug(
-                                        f"Preparing chunk emission at row {i+1:,}/{nsubint:,}: "
-                                        f"{len(buffer_blocks):,} blocks, {buffer_total_samples:,} samples"
-                                    )
-                            out_buf = _concatenate_buffer()
-                            buffer_too_large = out_buf.shape[0] > max_buffer_samples
-                            has_complete_chunk = out_buf.shape[0] >= (chunk_samples + overlap_samples * 2)
-                            
-                            if buffer_too_large:
-                                logger.warning(
-                                    f"Buffer exceeded limit at row {i+1:,}/{nsubint:,}: "
-                                    f"{out_buf.shape[0]:,} samples > {max_buffer_samples:,}. "
-                                    f"Emitting emergency chunk to prevent OOM."
-                                )
-                        else:
-                            # Don't concatenate yet - continue accumulating
-                            buffer_too_large = False
-                            has_complete_chunk = False
-                            out_buf = None  # Not computed yet
-                        
-                        # Emit chunk if we have a complete chunk OR if buffer is too large
-                        while needs_chunk_emission and (has_complete_chunk or (buffer_too_large and out_buf is not None and out_buf.shape[0] >= chunk_samples)):
-                            chunk_counter += 1
-                            
-                            # Ensure buffer is concatenated for chunk extraction
-                            # (should already be concatenated from the if needs_chunk_emission block above)
-                            if out_buf is None:
-                                out_buf = _concatenate_buffer()
-                            
-                            # CRITICAL: If buffer is too large, emit smaller chunks aggressively
-                            # For very large chunks, emit partial chunks to prevent system freeze
-                            if buffer_too_large:
-                                # Calculate safe chunk size: use 50-80% of buffer to leave room
-                                # This prevents system freeze by not using all available memory
-                                safe_chunk_ratio = 0.7 if chunk_samples > 1_000_000 else 0.9
-                                max_safe_chunk = int(out_buf.shape[0] * safe_chunk_ratio)
-                                actual_chunk_size = min(chunk_samples, max_safe_chunk, out_buf.shape[0])
-                                
-                                # Ensure we have at least some overlap for continuity
-                                if actual_chunk_size < overlap_samples * 2:
-                                    actual_chunk_size = min(overlap_samples * 2, out_buf.shape[0])
-                                
-                                start_with_overlap = 0
-                                end_with_overlap = min(actual_chunk_size + overlap_samples * 2, out_buf.shape[0])
-                                valid_start = overlap_samples if end_with_overlap > overlap_samples * 2 else 0
-                                valid_end = valid_start + actual_chunk_size
-                                
-                                if actual_chunk_size < chunk_samples:
-                                    logger.warning(
-                                        f"Buffer too large ({out_buf.shape[0]:,} samples, {out_buf.shape[0] * bytes_per_sample / (1024**3):.2f} GB). "
-                                        f"Emitting partial chunk of {actual_chunk_size:,} samples "
-                                        f"(requested: {chunk_samples:,}) to prevent system freeze. "
-                                        f"Buffer limit: {max_buffer_samples:,} samples."
-                                    )
-                                else:
-                                    logger.warning(
-                                        f"Buffer too large ({out_buf.shape[0]:,} samples), "
-                                        f"emitting emergency chunk of {actual_chunk_size:,} samples "
-                                        f"(buffer limit: {max_buffer_samples:,})"
-                                    )
-                                
-                                # Buffer event recorded at pipeline level via collector parameter
-                            else:
-                                # Normal case: emit full chunk with overlap
-                                start_with_overlap = 0
-                                end_with_overlap = chunk_samples + overlap_samples * 2
-                                valid_start = overlap_samples
-                                valid_end = valid_start + chunk_samples
-                                actual_chunk_size = chunk_samples
-
-                            # At the very beginning of the file there is no
-                            # preceding data, so nothing can be left overlap:
-                            # keeping valid_start > 0 here discards the first
-                            # overlap_samples of every FITS file.
-                            if emitted - out_buf.shape[0] <= 0 and valid_start > 0:
-                                valid_start = 0
-                                valid_end = valid_start + actual_chunk_size
-
-                            block_out = out_buf[start_with_overlap:end_with_overlap].copy()
-
-
-                            if config.DATA_NEEDS_REVERSAL:
-                                block_out = block_out[:, :, ::-1]
-                            
-                                                                                                                 
-                                                                           
-                            start_sample_idx = emitted - out_buf.shape[0] + valid_start
-                            end_sample_idx = start_sample_idx + actual_chunk_size
-                            
-                                         
-                            log_stream_fits_block_generation(
-                                chunk_counter,
-                                block_out.shape,
-                                str(block_out.dtype),
-                                start_sample_idx,
-                                end_sample_idx,
-                                start_with_overlap,
-                                end_with_overlap,
-                                actual_chunk_size,
-                            )
-                            metadata = {
-                                "chunk_idx": start_sample_idx // chunk_samples,
-                                "start_sample": start_sample_idx,
-                                "end_sample": end_sample_idx,
-                                "actual_chunk_size": actual_chunk_size,
-                                "block_start_sample": emitted - out_buf.shape[0],
-                                "block_end_sample": emitted - out_buf.shape[0] + end_with_overlap,
-                                # Derived from the real geometry, not assumed:
-                                # the first chunk of a file has no left overlap
-                                # and the last one has no right overlap. Hardcoding
-                                # overlap_samples made _process_block trim data
-                                # that was never overlap.
-                                "overlap_left": valid_start - start_with_overlap,
-                                "overlap_right": max(0, end_with_overlap - valid_end),
-                                "total_samples": total_samples,
-                                "nchans": nchan,
-                                "nifs": 1,
-                                "dtype": str(block_out.dtype),
-                                "shape": block_out.shape,
-                                "file_type": "fits",
-                                                                                           
-                                "tbin_sec": tbin,
-                                "t_rel_start_sec": start_sample_idx * tbin,
-                                "t_rel_end_sec": end_sample_idx * tbin,
-                                                                            
-                                "tstart_mjd": tstart_mjd,
-                                "tstart_mjd_corr": tstart_mjd + (nsuboffs * tsub) / 86400.0,
-                                "tsubint_sec": tsub,
-                            }
-                            yield block_out, metadata
-                                                                         
-                            # Remove emitted chunk from buffer (keep overlap for next chunk)
-                            # Always advance by exactly the valid span. Dropping
-                            # end_with_overlap (= actual + 2*overlap) in the
-                            # emergency path left a 2*overlap hole between
-                            # consecutive chunks that was never searched.
-                            samples_to_remove = actual_chunk_size
-                            
-                            # Update buffer: remove emitted samples, keep overlap
-                            # Rebuild buffer_blocks list from remaining data
-                            if samples_to_remove >= out_buf.shape[0]:
-                                # All buffer was emitted
-                                buffer_blocks = []
-                                buffer_total_samples = 0
-                            else:
-                                # Keep tail of buffer (overlap)
-                                remaining_buf = out_buf[samples_to_remove:]
-                                if remaining_buf.shape[0] > 0:
-                                    # Rebuild buffer_blocks with remaining data
-                                    buffer_blocks = [(remaining_buf, emitted - remaining_buf.shape[0])]
-                                    buffer_total_samples = remaining_buf.shape[0]
-                                else:
-                                    buffer_blocks = []
-                                    buffer_total_samples = 0
-                            
-                            out_buf = _concatenate_buffer() if buffer_blocks else np.zeros((0, 1, nchan), dtype=np.float32)
-                            
-                            # Update buffer size check for next iteration
-                            buffer_total_samples = out_buf.shape[0]  # Update tracked total
-                            buffer_too_large = out_buf.shape[0] > max_buffer_samples
-                            has_complete_chunk = out_buf.shape[0] >= (chunk_samples + overlap_samples * 2)
-                            needs_chunk_emission = has_complete_chunk or buffer_too_large
-                    
-                                            
-                    # Handle remaining buffer at end of file.
-                    #
-                    # out_buf is set to None above whenever a chunk consumed the
-                    # whole buffer, so when the last chunk emptied it exactly --
-                    # FILE_LENG % chunk_samples == 0 with no overlap, which is
-                    # divisibility, not a rare case -- buffer_blocks is empty,
-                    # out_buf is still None, and this raised AttributeError.
-                    #
-                    # stream_fits is a GENERATOR and the `except Exception` that
-                    # catches it sits outside this already-yielding loop, so the
-                    # error never reached the caller: the duplicated reader
-                    # reopened the file and re-emitted it from sample 0. Measured
-                    # on a 512-sample file with chunk=256, the consumer received
-                    # [(0,256),(256,512),(0,256),(256,512)] -- every sample twice
-                    # -- with only a generic "falling back to astropy" log line.
-                    out_buf = _concatenate_buffer() if buffer_blocks else None
-                    if out_buf is not None and out_buf.shape[0] > 0:
-                        chunk_counter += 1
-                                                                                     
-                        valid_start = 0
-                        valid_end = out_buf.shape[0]
-                        block_out = out_buf.copy()
-                        
-                                                                     
-                        if config.DATA_NEEDS_REVERSAL:
-                            block_out = block_out[:, :, ::-1]
-                        
-                        log_stream_fits_block_generation(
-                            chunk_counter,
-                            block_out.shape,
-                            str(block_out.dtype),
-                            emitted - out_buf.shape[0],                                     
-                            emitted,                                   
-                            valid_start,
-                            valid_end,
-                            valid_end - valid_start,
-                        )
-                        metadata = {
-                            "chunk_idx": (emitted - out_buf.shape[0]) // max(1, chunk_samples),
-                            "start_sample": emitted - out_buf.shape[0],                                     
-                            "end_sample": emitted,
-                            "actual_chunk_size": valid_end - valid_start,
-                            "block_start_sample": emitted - out_buf.shape[0],
-                            "block_end_sample": emitted,
-                            "overlap_left": 0,
-                            "overlap_right": 0,
-                            "total_samples": total_samples,
-                            "nchans": nchan,
-                            "nifs": 1,
-                            "dtype": str(block_out.dtype),
-                            "shape": block_out.shape,
-                            "file_type": "fits",
-                                                                                       
-                            "tbin_sec": tbin,
-                            "t_rel_start_sec": (emitted - out_buf.shape[0]) * tbin,
-                            "t_rel_end_sec": emitted * tbin,
-                                                                        
-                            "tstart_mjd": tstart_mjd,
-                            "tstart_mjd_corr": tstart_mjd + (nsuboffs * tsub) / 86400.0,
-                            "tsubint_sec": tsub,
-                        }
-                        yield block_out, metadata
-                    
-                    log_stream_fits_summary(chunk_counter)
-                    return
-                else:
-                    raise ValueError(
-                        f"FITS file does not have a valid SUBINT structure: {file_name}"
-                    )
-        
+        yield from _open_fits_reader(file_name, chunk_samples, overlap_samples)
     except Exception as e:
         logger.error("Error in stream_fits: %s", e)
         raise ValueError(f"Could not read FITS file {file_name}") from e

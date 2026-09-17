@@ -22,13 +22,20 @@ _CONFIG_SNAPSHOT_KEYS = [
     "DM_CHUNKING_THRESHOLD_GB", "MAX_DM_CUBE_SIZE_GB", "SLICE_LEN",
     "TSTART_MJD", "TSTART_MJD_CORR",
     "SOURCE_RA", "SOURCE_DEC", "REF_FREQ_MHZ", "OBSERVATORY", "EPHEMERIS",
+    # Created by get_obparams from a PSRFITS header; absent until it runs.
+    "NBITS", "NPOL", "POL_TYPE", "NSUBOFFS", "TSUBINT", "NEED_FLIPBAND",
 ]
+
+# Marks a key that did not exist on the module before the test, so restoring
+# means deleting it again rather than leaving the value the test created.
+_ABSENT = object()
 
 
 def _snapshot_config() -> dict:
     snap: dict = {}
     for key in _CONFIG_SNAPSHOT_KEYS:
         if not hasattr(_config_module, key):
+            snap[key] = _ABSENT
             continue
         val = getattr(_config_module, key)
         if isinstance(val, np.ndarray):
@@ -45,7 +52,10 @@ def _snapshot_config() -> dict:
 
 def _restore_config(snap: dict) -> None:
     for key, val in snap.items():
-        if isinstance(val, np.ndarray):
+        if val is _ABSENT:
+            if hasattr(_config_module, key):
+                delattr(_config_module, key)
+        elif isinstance(val, np.ndarray):
             setattr(_config_module, key, val.copy())
         else:
             setattr(_config_module, key, val)

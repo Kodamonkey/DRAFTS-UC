@@ -8,7 +8,7 @@
 # ==============================================================================
 # Stage 1: Base CPU
 # ==============================================================================
-FROM python:3.12-slim as base-cpu
+FROM python:3.12-slim AS base-cpu
 
 LABEL maintainer="Sebastian Salgado Polanco"
 LABEL description="DRAFTS-UC/DRAFTS++: Pipeline FRB"
@@ -34,7 +34,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # CFITSIO for FITS file handling
     libcfitsio-dev \
     # OpenCV dependencies (headless)
-    libgl1-mesa-glx \
+    # libgl1, not libgl1-mesa-glx: that name was dropped in Debian trixie,
+    # which is what python:3.12-slim resolves to now, and the CI build failed
+    # on it with "has no installation candidate". libgl1 is the real provider
+    # and exists on trixie and on the Ubuntu 22.04 base the GPU stage uses, so
+    # this no longer depends on which distribution the base image tracks.
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
@@ -56,7 +61,7 @@ RUN useradd -m -u 1000 -s /bin/bash draftsuser
 # ==============================================================================
 # Stage 2: Builder CPU - Python dependencies installation
 # ==============================================================================
-FROM base-cpu as builder-cpu
+FROM base-cpu AS builder-cpu
 
 WORKDIR /tmp
 
@@ -74,7 +79,7 @@ RUN pip install --no-cache-dir \
 # ==============================================================================
 # Stage 3: Final CPU image
 # ==============================================================================
-FROM base-cpu as cpu-final
+FROM base-cpu AS cpu-final
 
 # Copy installed Python packages
 COPY --from=builder-cpu /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
@@ -107,7 +112,7 @@ CMD []
 # than the toolkit. The 11.8 tag no longer matches the wheels and should be
 # revisited on a machine with a GPU, which is why it is left explicit here
 # instead of being changed untested.
-FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 as base-gpu
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 AS base-gpu
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -136,7 +141,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # CFITSIO
     libcfitsio-dev \
     # OpenCV (headless, no GUI)
-    libgl1-mesa-glx \
+    # libgl1, not libgl1-mesa-glx: that name was dropped in Debian trixie,
+    # which is what python:3.12-slim resolves to now, and the CI build failed
+    # on it with "has no installation candidate". libgl1 is the real provider
+    # and exists on trixie and on the Ubuntu 22.04 base the GPU stage uses, so
+    # this no longer depends on which distribution the base image tracks.
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
@@ -162,7 +172,7 @@ RUN useradd -m -u 1000 -s /bin/bash draftsuser
 # ==============================================================================
 # Stage 5: Builder GPU - Python dependencies installation
 # ==============================================================================
-FROM base-gpu as builder-gpu
+FROM base-gpu AS builder-gpu
 
 WORKDIR /tmp
 
@@ -176,7 +186,7 @@ RUN pip install --no-cache-dir --require-hashes -r requirements.lock.txt
 # ==============================================================================
 # Stage 6: Final GPU image
 # ==============================================================================
-FROM base-gpu as gpu-final
+FROM base-gpu AS gpu-final
 
 # Copy installed Python packages
 COPY --from=builder-gpu /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages

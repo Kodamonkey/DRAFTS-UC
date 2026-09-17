@@ -6,16 +6,16 @@ from typing import Iterable
 
 import numpy as np
 
-K_DM_MS = 4.148808e3  # Dispersion constant: gives SECONDS when freq in MHz, DM in pc/cm³
+# SPEC-DM-001: the constant and the delay relation are defined in the domain
+# layer, which depends on nothing. They are re-exported here so the many callers
+# that import them from this module keep working.
+from ..domain.physics import K_DM_MS, dispersion_delay_ms, dispersion_delay_s
 
-
-def dispersion_delay_ms(dm: float, freq_low_mhz: float, freq_high_mhz: float) -> float:
-    """Delay across a band in milliseconds."""
-    if freq_low_mhz <= 0 or freq_high_mhz <= 0:
-        return 0.0
-    nu_lo = min(float(freq_low_mhz), float(freq_high_mhz))
-    nu_hi = max(float(freq_low_mhz), float(freq_high_mhz))
-    return K_DM_MS * float(dm) * (nu_lo ** -2 - nu_hi ** -2) * 1000.0
+__all__ = [
+    "K_DM_MS", "dispersion_delay_ms", "dispersion_delay_s",
+    "dm_step_for_smearing", "estimate_dm_uncertainty", "post_trials_sigma",
+    "physical_consistency_score",
+]
 
 
 def dm_step_for_smearing(max_smearing_ms: float, freq_low_mhz: float, freq_high_mhz: float) -> float:

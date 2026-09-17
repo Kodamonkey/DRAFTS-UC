@@ -8,7 +8,8 @@ import logging
 
                      
 import numpy as np
-from ..analysis.science_metrics import K_DM_MS
+from ..domain.physics import K_DM_MS
+from ..config.derived import calculate_dm_values
 
 try:
     from numba import cuda
@@ -253,7 +254,6 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
             )
     else:
         try:
-            from ..core.pipeline_parameters import calculate_dm_values
             dm_values_full = calculate_dm_values(dm_min, dm_max).astype(np.float32)
             if dm_values_full.size != height:
                 dm_values_full = np.linspace(dm_min, dm_max, height, dtype=np.float32)

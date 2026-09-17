@@ -19,7 +19,7 @@ except ImportError:
     ASTROPY_AVAILABLE = False
     logging.warning("astropy not available - barycentric MJD calculations will be disabled")
 
-from ..analysis.science_metrics import K_DM_MS
+from ..domain.physics import K_DM_MS
 from ..config import config
 
 logger = logging.getLogger(__name__)

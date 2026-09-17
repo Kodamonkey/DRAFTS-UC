@@ -15,7 +15,8 @@ from typing import Dict, List, Optional
 
 import psutil
 
-from ..analysis.science_metrics import K_DM_MS
+from ..domain.physics import K_DM_MS
+from ..config.derived import calculate_dm_height, calculate_frequency_downsampled
 from ..config import config
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,6 @@ class ValidationMetricsCollector:
         
     def record_data_characteristics(self):
         """Registra las características de los datos."""
-        from ..core.pipeline_parameters import calculate_frequency_downsampled
         
         try:
             freq_ds = calculate_frequency_downsampled()
@@ -95,7 +95,6 @@ class ValidationMetricsCollector:
         
     def record_dm_cube(self, budget_diagnostics: Dict):
         """Registra información del cubo DM-tiempo."""
-        from ..core.pipeline_parameters import calculate_dm_height
         
         height_dm = calculate_dm_height()
         

@@ -11,8 +11,9 @@ import numpy as np
 import psutil
 
                
-from ..analysis.science_metrics import K_DM_MS
+from ..domain.physics import K_DM_MS
 from ..config import config
+from ..config.derived import calculate_dm_height, calculate_frequency_downsampled
 
               
 logger = logging.getLogger(__name__)
@@ -121,7 +122,6 @@ def calculate_memory_safe_chunk_size(
         return slice_len * 200, {"reason": "metadata_unavailable"}
     
     # ===== PHASE A: Calculate Cost and Budget =====
-    from ..core.pipeline_parameters import calculate_dm_height, calculate_frequency_downsampled
     
     # Get DM cube height
     height_dm = calculate_dm_height()
@@ -405,7 +405,6 @@ def calculate_optimal_chunk_size(slice_len: Optional[int] = None) -> int:
     
     # Calculate DM cube overhead
     # DM-time cube size: (3, height_dm, width) where width = chunk_samples
-    from ..core.pipeline_parameters import calculate_dm_height
     height_dm = calculate_dm_height()
     dm_cube_overhead = 3 * height_dm  # 3 channels (total, mid, diff) × DM height
     
@@ -477,7 +476,6 @@ def calculate_optimal_chunk_size(slice_len: Optional[int] = None) -> int:
     # IMPORTANT: The limit must be calculated for DECIMATED samples, not RAW
     # because the DM-time cube is built from the decimated block
     # CRITICAL: The chunk that arrives includes overlap, so we must account for that
-    from ..core.pipeline_parameters import calculate_dm_height, calculate_frequency_downsampled
     height_dm = calculate_dm_height()
     max_cube_size_gb = getattr(config, 'MAX_DM_CUBE_SIZE_GB', 2.0)  # Default 2 GB
     
@@ -574,7 +572,6 @@ def get_processing_parameters() -> dict:
 
                                 
         # Calculate memory considering dedispersion overhead
-        from ..core.pipeline_parameters import calculate_dm_height
         height_dm = calculate_dm_height()
         dm_cube_bytes_per_sample = 3 * height_dm * 4  # 3 planes × DM height × float32
         memory_per_sample = (bytes_per_sample + dm_cube_bytes_per_sample) * 1.2

@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from src.analysis.science_metrics import K_DM_MS
+from src.domain.physics import K_DM_MS
 import pandas as pd
 from scipy.interpolate import interp1d
 from skimage.transform import resize

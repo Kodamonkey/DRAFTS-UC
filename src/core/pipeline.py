@@ -41,7 +41,7 @@ from .data_flow_manager import (
 )
 from .contracts import ChunkPlan, DMGrid, ObservationMetadata, PipelineConfigSnapshot
 from .pipeline_parameters import calculate_absolute_slice_time, calculate_dm_values, calculate_frequency_downsampled, should_use_hf_pipeline
-from ..analysis.science_metrics import K_DM_MS
+from ..domain.physics import K_DM_MS
 from ..input.parameter_extractor import extract_parameters_auto
 from ..input.streaming_orchestrator import get_streaming_function
 from .high_freq_pipeline import _process_file_chunked_high_freq

@@ -14,7 +14,7 @@ import numpy as np
 from matplotlib import gridspec
 
                
-from ..analysis.science_metrics import K_DM_MS
+from ..domain.physics import K_DM_MS
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..config import config
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm

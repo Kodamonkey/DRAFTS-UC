@@ -100,7 +100,7 @@ If you set `results_dir` to a path outside `./Results` (e.g. only `./ResultsThes
 |------|-------------|
 | **Models** | `cent_resnet18.pth` and `class_resnet18.pth` in `src/models/` (see table above). |
 | **Data** | `.fits` or `.fil` in the folder given by `data.input_dir`. |
-| **Python** | **3.11+** (tested on 3.11–3.14). The Docker image pins its own self-contained 3.10 stack. |
+| **Python** | **3.11+** (tested on 3.11–3.14). The Docker image pins its own self-contained 3.12 stack. |
 | **GPU (optional)** | For local CUDA acceleration, install PyTorch with CUDA matching your driver. With Docker, use the `drafts-gpu` service and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html). |
 
 Typical `config.yaml` tweaks: `data.input_dir`, `data.results_dir`, `data.targets`, `dm_min` / `dm_max`, detection and classification thresholds. The `advanced-config/` folder holds extra options (performance, visualization, models, logging).

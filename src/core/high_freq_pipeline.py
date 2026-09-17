@@ -12,7 +12,8 @@ import numpy as np
 # Local imports
 from ..config import config
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
-from ..analysis.science_metrics import K_DM_MS, physical_consistency_score, post_trials_sigma
+from ..analysis.science_metrics import physical_consistency_score, post_trials_sigma
+from ..domain.physics import K_DM_MS
 from ..log_utils.logging_config import get_global_logger
 from ..output.candidate_manager import (
     Candidate,

@@ -6,7 +6,7 @@ import numpy as np
 import logging
 from typing import Tuple, Dict, List, Any
 
-from ..analysis.science_metrics import K_DM_MS
+from ..domain.physics import K_DM_MS
 
 logger = logging.getLogger(__name__)
 

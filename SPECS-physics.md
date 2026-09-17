@@ -5,11 +5,19 @@ Tests: `tests/test_scientific_physics.py`, `tests/test_dedispersion_parity.py`,
 `tests/test_downsampler.py`, `tests/test_audit_fixes.py`, `tests/test_contracts.py`.
 
 ## SPEC-DM-001 — Constante de dispersión única
-Fuente única `K_DM_MS = 4.148808e3` en `src/analysis/science_metrics.py`.
-Re-exportada en `src/domain/physics.py`; todos los módulos del pipeline importan desde allí.
+Fuente única `K_DM_MS = 4.148808e3` en `src/domain/physics.py`, que no importa
+nada del proyecto; todos los módulos del pipeline importan desde allí.
+`src/analysis/science_metrics.py` la re-exporta para los llamadores que ya la
+pedían ahí.
 Delay (s) = `K_DM_MS * DM * (nu^-2)` con `nu` en MHz (PRESTO `delay_from_dm`).
-Prohibido redefinir literales `4.148808e3`, `4.1488e3`, `4.15e3` fuera de `science_metrics.py`.
-Enforcement: `tests/test_spec_constants.py::test_no_hardcoded_kdm_literals` escanea `src/`.
+Prohibido redefinir literales `4.148808e3`, `4.1488e3`, `4.15e3` fuera de `domain/physics.py`.
+Enforcement: `tests/test_spec_constants.py::test_no_hardcoded_kdm_literals` escanea `src/`,
+y `::test_pipeline_modules_import_from_the_domain_layer` fija la dirección del import.
+
+> Hasta 2026-09 esta SPEC describía el estado deseado, no el real: la constante se
+> definía en `science_metrics.py`, `domain/physics.py` la importaba de ahí — la
+> dirección contraria a la documentada — y **ningún** módulo de producción
+> importaba desde `domain`. Ahora sí.
 Verifica: `test_dedispersion_parity` (parity CPU/GPU), `test_spec_constants`.
 
 ## SPEC-DM-002 — Delay dispersivo monotónico
@@ -79,9 +87,19 @@ Paridad numérica con alloc directa debe mantenerse.
 Verifica: `test_cube_windowed_parity`, `test_memmap_cube_parity`.
 
 ## SPEC-CAND-001 — Salida de candidatos unificada
-Ambas rutas de detección (CenterNet LF y SNR-peak HF) usan `finalize_patch()`
+Ambas rutas de **detección** (CenterNet LF y SNR-peak HF) usan `finalize_patch()`
 para producir (proc_patch, class_prob, snr_val, peak_idx_patch, width_ms, start_sample).
-El CSV de candidatos debe ser byte-idéntico antes/después de la refactorización.
+
+Alcance exacto, porque antes se leía como algo más amplio de lo que es: la Fase 3b
+del pipeline HF —la clasificación sobre polarización Linear— **no** pasa por
+`finalize_patch()`. Encadena a mano `dedisperse_patch` + `compute_snr_profile` +
+`classify_patch` (`high_freq_pipeline.py`, Fase 3b) y usa su propio umbral
+`CLASS_PROB_LINEAR`. No es una ruta de detección sino una segunda clasificación
+sobre el mismo candidato, así que la SPEC no la cubría; unificarla sigue siendo
+deseable y no está hecho.
+
+El CSV de candidatos debe ser byte-idéntico antes/después de la refactorización:
+`tests/test_golden_csv.py` lo fija celda a celda contra una línea base guardada.
 Verifica: `tests/test_candidate_finalizer.py`.
 
 ## SPEC-PURE-001 — Dedispersión sin mutar config global

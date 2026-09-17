@@ -32,5 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Technical Details
 
 - Built on PyTorch 2.0+ with CUDA support
-- Python 3.8+ compatibility
+- Python 3.11+ (`pyproject.toml` requires >=3.11; CI runs 3.11 and 3.12 and
+  the Docker image pins 3.12). An earlier entry claimed 3.8+, which was
+  never true of this fork -- the code uses 3.10 syntax throughout.
 - Based on original DRAFTS by Zhang et al. (arXiv:2410.03200)

@@ -697,9 +697,15 @@ def stream_fits_multi_pol(
                     if arr_raw.ndim != 3:
                         raise ValueError("Unexpected shape in 'your' get_data")
                     
-                    # Reverse frequency if needed
+                    # Reverse frequency if needed. Same criterion as every other
+                    # reader: DATA_NEEDS_REVERSAL means the file stores channels
+                    # descending, and config.FREQ is always ascending. `your`
+                    # returns channels in the file's native DAT_FREQ order -- it
+                    # normalises nothing (need_flipband is hardcoded False and the
+                    # flip is commented out in your/formats/psrfits.py). This used
+                    # to test `foff > 0`, the opposite condition (audit P1-02).
                     try:
-                        if getattr(pf, 'foff', 0.0) > 0:
+                        if getattr(config, 'DATA_NEEDS_REVERSAL', False):
                             arr_raw = arr_raw[:, :, ::-1]
                     except Exception:
                         pass
@@ -848,20 +854,27 @@ def stream_fits(
                         raise ValueError("Unexpected shape in 'your' get_data")
                                                                                   
                     block = _select_polarization(arr, getattr(pf, 'pol_type', 'IQUV'), getattr(config, 'POLARIZATION_MODE', 'intensity'), getattr(config, 'POLARIZATION_INDEX', 0))
-                    # UNRESOLVED (audit P1-02): this branch reverses on foff > 0
-                    # (channels stored ascending) while every other reader path --
-                    # the astropy branches here and stream_fil -- reverses on
-                    # config.DATA_NEEDS_REVERSAL, which is set when DAT_FREQ is
-                    # DESCENDING. Those two criteria are opposites, so at most one
-                    # of them can leave the channel axis matching the ascending
-                    # config.FREQ that dedispersion indexes against. Getting this
-                    # wrong inverts the dispersive sweep and no real burst is
-                    # recovered, silently.
+                    # RESOLVED (audit P1-02). This branch used to reverse on
+                    # foff > 0, the opposite of every other reader path, which
+                    # reverses on config.DATA_NEEDS_REVERSAL -- set when DAT_FREQ
+                    # is DESCENDING. Only one criterion can leave the channel axis
+                    # matching the ascending config.FREQ that dedispersion indexes
+                    # against, and it is DATA_NEEDS_REVERSAL:
                     #
-                    # Behaviour is deliberately left unchanged until it is checked
-                    # against a real file: flipping it on a guess is worse than the
-                    # current state. The warning below fires exactly when the two
-                    # criteria disagree, so one run over one PSRFITS settles it.
+                    #   - your/formats/psrfits.py returns channels in the file's
+                    #     native DAT_FREQ order. It normalises nothing: the flip is
+                    #     commented out at its lines 447-453 and need_flipband is
+                    #     hardcoded False at 485. Measured on synthetic PSRFITS in
+                    #     both orientations; blimpy agrees through a round trip.
+                    #   - A burst injected at DM 500 into a descending-axis file
+                    #     recovers at exactly DM 500 under DATA_NEEDS_REVERSAL, and
+                    #     at DM 748 with S/N 10.4 under foff > 0. The failure mode
+                    #     is not a missed burst -- it is a burst with a fabricated
+                    #     DM that still clears the detection threshold.
+                    #
+                    # The mismatch warning below is kept as a live detector: it now
+                    # fires when `your` would disagree with the rule we follow, on
+                    # a file whose header we have not seen before.
                     _foff = getattr(pf, 'foff', 0.0)
                     _your_says_reverse = bool(_foff > 0)
                     _rest_says_reverse = bool(getattr(config, 'DATA_NEEDS_REVERSAL', False))
@@ -869,16 +882,16 @@ def stream_fits(
                         logger.warning(
                             "FREQ-ORDER MISMATCH (audit P1-02): the 'your' reader would %s "
                             "channels (foff=%.6f) but DATA_NEEDS_REVERSAL=%s says %s. "
-                            "One of the two is wrong and the dispersive sweep may be "
-                            "inverted. Verify against a known pulsar before trusting "
-                            "candidates from this file.",
+                            "DATA_NEEDS_REVERSAL is the criterion this reader follows "
+                            "(see the note above); the 'your' criterion is recorded here "
+                            "only so an unusual header shows up in the log.",
                             "reverse" if _your_says_reverse else "keep",
                             _foff,
                             _rest_says_reverse,
                             "reverse" if _rest_says_reverse else "keep",
                         )
                     try:
-                        if _your_says_reverse:
+                        if _rest_says_reverse:
                             block = block[:, :, ::-1]
                     except Exception:
                         pass
@@ -1267,6 +1280,14 @@ def stream_fits(
 
                             block_out = out_buf[start_with_overlap:end_with_overlap].copy()
 
+                            # This path performed no reversal at all, while the
+                            # duplicated copy of it below (reached only through
+                            # `except Exception`) did. Any install without the
+                            # `your` library streamed descending PSRFITS with the
+                            # channel axis untouched (audit P1-02, third instance).
+                            if config.DATA_NEEDS_REVERSAL:
+                                block_out = block_out[:, :, ::-1]
+
                             start_sample_idx = emitted - out_buf.shape[0] + valid_start
                             end_sample_idx = start_sample_idx + actual_chunk_size
                                          
@@ -1361,6 +1382,8 @@ def stream_fits(
                         valid_start = 0
                         valid_end = out_buf.shape[0]
                         block_out = out_buf.copy()
+                        if config.DATA_NEEDS_REVERSAL:
+                            block_out = block_out[:, :, ::-1]
                         log_stream_fits_block_generation(
                             chunk_counter,
                             block_out.shape,

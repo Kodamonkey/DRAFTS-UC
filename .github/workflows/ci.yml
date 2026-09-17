@@ -33,8 +33,13 @@ jobs:
       # guaranteed NameError on a fallback path that this rule alone catches.
       # Widen the selection as the existing findings are cleared, not before,
       # so the gate stays meaningful instead of being disabled for noise.
+      #
+      # E999 is NOT in the list: ruff removed it as a selectable rule, and
+      # selecting it is a hard error rather than a no-op, which is how this
+      # job failed the first time it ran. Nothing is lost -- ruff always
+      # reports syntax errors now, whatever is selected.
       - name: Ruff (errors only)
-        run: ruff check --select F821,F811,F601,E999 src tests main.py
+        run: ruff check --select F821,F811,F601 src tests main.py
 
   test:
     name: Tests

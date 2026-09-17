@@ -180,6 +180,35 @@ CPU_THREADS = int(_parallel_config.get('cpu_threads', 0))
 
 
 # =============================================================================
+# VISUALIZATION (from advanced-config/visualization.yaml)
+# =============================================================================
+# These values existed twice: as YAML nobody read, and as literals in config.py.
+# Editing the YAML did nothing. The YAML is the source of truth now, and the
+# defaults below are the literals config.py used to carry, so behaviour is
+# unchanged for an existing installation.
+_visualization_advanced = _config.get('visualization_advanced', {})
+_snr_vis = _visualization_advanced.get('snr', {})
+_adaptive_dm = _visualization_advanced.get('adaptive_dm', {})
+_dm_plotting = _visualization_advanced.get('dm_plotting', {})
+_styling = _visualization_advanced.get('styling', {})
+_export = _visualization_advanced.get('export', {})
+
+SNR_HIGHLIGHT_COLOR = str(_snr_vis.get('highlight_color', 'red'))
+SNR_SHOW_PEAK_LINES = bool(_snr_vis.get('show_peak_lines', False))
+
+DM_RANGE_MIN_WIDTH = float(_adaptive_dm.get('range_min_width', 80.0))
+DM_RANGE_MAX_WIDTH = float(_adaptive_dm.get('range_max_width', 300.0))
+DM_RANGE_FACTOR = float(_adaptive_dm.get('range_factor', 0.3))
+DM_DYNAMIC_RANGE_ENABLE = bool(_adaptive_dm.get('dynamic_range_enable', False))
+DM_RANGE_DEFAULT_VISUALIZATION = str(_dm_plotting.get('default_visualization', 'detailed'))
+
+# Figure output. dpi dominates the cost of a render, and every plot was pinned
+# at 300 with no way to lower it (audit P1-23 / PERF-01).
+PLOT_DPI = int(_styling.get('dpi', 300))
+PLOT_BBOX_INCHES = _export.get('bbox_inches', 'tight') or None
+PLOT_PAD_INCHES = float(_export.get('pad_inches', 0.1))
+
+# =============================================================================
 # LOGGING (from advanced-config/logging.yaml)
 # =============================================================================
 # These keys were loaded and then never read by anything, so editing them had

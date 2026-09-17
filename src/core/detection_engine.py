@@ -73,7 +73,9 @@ def detect_and_classify_candidates_in_band(
     
     img_tensor = preprocess_img(band_img)
     top_conf, top_boxes = detect(det_model, img_tensor)
-    img_rgb = postprocess_img(img_tensor)
+    # postprocess_img() is deliberately NOT called here: its only consumer is the
+    # composite plot, and with force_plots off most slices never draw one. It ran
+    # once per band per slice regardless (PERF, audit P1-23).
     if top_boxes is None:
         top_conf = []
         top_boxes = []
@@ -394,7 +396,7 @@ def detect_and_classify_candidates_in_band(
         "first_patch": final_patch,                                
         "first_start": final_start,                                
         "first_dm": final_dm,                                      
-        "img_rgb": img_rgb,
+        "img_tensor": img_tensor,  # postprocess_img() is applied at the plot site
         "cand_counter": cand_counter,
         "n_bursts": n_bursts,
         "n_no_bursts": n_no_bursts,
@@ -576,7 +578,7 @@ def process_slice_with_multiple_bands(
             save_all_plots(
                 waterfall_block,
                 dedisp_block,
-                band_result["img_rgb"],
+                postprocess_img(band_result["img_tensor"]) if band_result.get("img_tensor") is not None else None,
                 band_result["first_patch"],
                 band_result["first_start"],
                 band_result["first_dm"],

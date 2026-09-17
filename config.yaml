@@ -337,9 +337,19 @@ debug:
   # Useful for diagnosing frequency ordering issues
   show_frequency_info: false
 
-  # Force plot generation even without candidates
-  # Useful for verifying data quality and debugging
-  force_plots: true
+  # Force plot generation even without candidates.
+  #
+  # Default changed from true to false. With it on, EVERY slice renders four
+  # PNGs at 300 dpi whether or not anything was detected, and that dominates
+  # the run: on a 5.5 TiB file at 1000 ms slices it is roughly 1.94 million
+  # slices x 4 images, between 860 and 3200 CPU-hours of matplotlib, one to two
+  # orders of magnitude more than dedispersion and inference combined, plus tens
+  # of TB of PNGs. What it buys is the visual inspection of slices with no
+  # candidate, which is exactly the set that carries no information.
+  #
+  # Turn it back on for a short diagnostic run when you are checking data
+  # quality or debugging a detection you expected and did not get.
+  force_plots: false
 # ==============================================================================
 # ADVANCED CONFIGURATIONS
 # ==============================================================================

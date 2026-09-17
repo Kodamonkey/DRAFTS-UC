@@ -370,6 +370,7 @@ def save_dm_time_plot(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     
                      
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
+    plt.savefig(out_path, dpi=config.PLOT_DPI, bbox_inches=config.PLOT_BBOX_INCHES,
+                pad_inches=config.PLOT_PAD_INCHES, facecolor="white", edgecolor="none")
     plt.close(fig)
 

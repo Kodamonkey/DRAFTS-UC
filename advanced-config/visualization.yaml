@@ -159,18 +159,17 @@ styling:
 # EXPORT SETTINGS
 # =============================================================================
 export:
-  # Default format for saved plots
-  # Options: png, pdf, svg, eps, jpg
-  format: "png"
-  
-  # Quality for raster formats (0-100)
-  quality: 95
-  
-  # Transparent background for saved plots
-  transparent: false
-  
-  # Bbox inches setting for tight layout
+  # Bbox inches setting for tight layout. LIVE.
+  # "tight" re-renders the figure once to measure its extent; null skips that.
   bbox_inches: "tight"
-  
-  # Pad inches around the figure when bbox_inches is 'tight'
+
+  # Pad inches around the figure when bbox_inches is 'tight'. LIVE.
   pad_inches: 0.1
+
+  # REMOVED: `format`. The output format follows the extension of the path the
+  # pipeline builds, and every one of those is .png, in src/core, not here.
+  # REMOVED: `quality`. It was a JPEG-only savefig argument, removed from
+  # matplotlib in 3.5; this project pins >=3.10, so passing it would raise.
+  # REMOVED: `transparent`. Every savefig call sets facecolor="white", which
+  # transparent=True would override; wiring it means deciding that interaction
+  # first.

@@ -294,7 +294,7 @@ def snr_detect_and_classify_candidates_in_band(
             "first_patch": None,
             "first_start": None,
             "first_dm": None,
-            "img_rgb": None,
+            "img_tensor": None,
             "cand_counter": 0,
             "n_bursts": 0,
             "n_no_bursts": 0,
@@ -412,7 +412,7 @@ def snr_detect_and_classify_candidates_in_band(
                 "first_patch": None,
                 "first_start": None,
                 "first_dm": None,
-                "img_rgb": None,
+                "img_tensor": None,
                 "cand_counter": 0,
                 "n_bursts": 0,
                 "n_no_bursts": 0,
@@ -972,7 +972,7 @@ def snr_detect_and_classify_candidates_in_band(
     
     # Generate an RGB image using the same colour pipeline as the standard flow.
     img_tensor = preprocess_img(band_img)
-    img_rgb = postprocess_img(img_tensor)
+    # Applied at the plot site instead; see the note in detection_engine.
     
     # =========================================================================
     # PREPARE MULTI-POLARIZATION WATERFALLS FOR PLOTTING
@@ -1023,7 +1023,7 @@ def snr_detect_and_classify_candidates_in_band(
         "first_patch": best_patch,
         "first_start": best_start,
         "first_dm": best_dm,
-        "img_rgb": img_rgb,
+        "img_tensor": img_tensor,  # postprocess_img() is applied at the plot site
         "cand_counter": cand_counter,
         "n_bursts": n_bursts,
         "n_no_bursts": n_no_bursts,
@@ -1209,7 +1209,7 @@ def process_slice_with_multiple_bands_high_freq(
             save_all_plots(
                 waterfall_block,
                 dedisp_block_intensity,
-                result["img_rgb"],
+                postprocess_img(result["img_tensor"]) if result.get("img_tensor") is not None else None,
                 result["first_patch"],
                 result["first_start"],
                 result["first_dm"],

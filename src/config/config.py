@@ -45,6 +45,16 @@ try:
         REF_FREQ_MHZ,
         OBSERVATORY,
         EPHEMERIS,
+        SNR_HIGHLIGHT_COLOR,
+        SNR_SHOW_PEAK_LINES,
+        DM_RANGE_MIN_WIDTH,
+        DM_RANGE_MAX_WIDTH,
+        DM_RANGE_FACTOR,
+        DM_DYNAMIC_RANGE_ENABLE,
+        DM_RANGE_DEFAULT_VISUALIZATION,
+        PLOT_DPI,
+        PLOT_BBOX_INCHES,
+        PLOT_PAD_INCHES,
         DET_PROB,
         CLASS_PROB,
         CLASS_PROB_LINEAR,
@@ -97,6 +107,16 @@ except ImportError:
             REF_FREQ_MHZ,
             OBSERVATORY,
             EPHEMERIS,
+            SNR_HIGHLIGHT_COLOR,
+            SNR_SHOW_PEAK_LINES,
+            DM_RANGE_MIN_WIDTH,
+            DM_RANGE_MAX_WIDTH,
+            DM_RANGE_FACTOR,
+            DM_DYNAMIC_RANGE_ENABLE,
+            DM_RANGE_DEFAULT_VISUALIZATION,
+            PLOT_DPI,
+            PLOT_BBOX_INCHES,
+            PLOT_PAD_INCHES,
             DET_PROB,
             CLASS_PROB,
             CLASS_PROB_LINEAR,
@@ -200,23 +220,28 @@ DM_CUBE_MEMMAP_THRESHOLD_GB: float = 4.0  # SPEC-MEM-001: use memmap for cubes >
 # ==============================================================================
 
 # Adaptive DM range
-DM_RANGE_MIN_WIDTH: float = 80.0                                                  
-DM_RANGE_MAX_WIDTH: float = 300.0                                                 
-DM_RANGE_FACTOR: float = 0.3
-DM_DYNAMIC_RANGE_ENABLE: bool = False
+DM_RANGE_MIN_WIDTH: float = globals().get("DM_RANGE_MIN_WIDTH", 80.0)
+DM_RANGE_MAX_WIDTH: float = globals().get("DM_RANGE_MAX_WIDTH", 300.0)
+DM_RANGE_FACTOR: float = globals().get("DM_RANGE_FACTOR", 0.3)
+DM_DYNAMIC_RANGE_ENABLE: bool = globals().get("DM_DYNAMIC_RANGE_ENABLE", False)
 DM_GRID_MODE: str = globals().get("DM_GRID_MODE", "legacy_uniform")
 MAX_DM_SMEARING_MS = globals().get("MAX_DM_SMEARING_MS", "auto")
                                          
 # DM plotting ranges
-DM_RANGE_DEFAULT_VISUALIZATION: str = "detailed"                                     
+DM_RANGE_DEFAULT_VISUALIZATION: str = globals().get("DM_RANGE_DEFAULT_VISUALIZATION", "detailed")
                                
 # ==============================================================================
 # SNR AND VISUALIZATION CONFIGURATION
 # ==============================================================================
 
 # SNR off-pulse regions (for noise estimation)
-SNR_HIGHLIGHT_COLOR = "red"                                                  
-SNR_SHOW_PEAK_LINES: bool = False                                                              
+SNR_HIGHLIGHT_COLOR = globals().get("SNR_HIGHLIGHT_COLOR", "red")
+SNR_SHOW_PEAK_LINES: bool = globals().get("SNR_SHOW_PEAK_LINES", False)
+
+# Figure output, from advanced-config/visualization.yaml.
+PLOT_DPI: int = globals().get("PLOT_DPI", 300)
+PLOT_BBOX_INCHES = globals().get("PLOT_BBOX_INCHES", "tight")
+PLOT_PAD_INCHES: float = globals().get("PLOT_PAD_INCHES", 0.1)
 DETECTION_WIDTHS_MS = globals().get("DETECTION_WIDTHS_MS", [])
 TRIAL_CORRECTION: str = globals().get("TRIAL_CORRECTION", "gaussian_extreme")
 
@@ -266,6 +291,9 @@ _KNOWN_CONFIG_KEYS = {
     "HIGH_FREQ_DM_POLICY", "POLARIZATION_LINEAR_DEBIAS",
     "DEBUG_FREQUENCY_ORDER", "FORCE_PLOTS",
     "SOURCE_RA", "SOURCE_DEC", "REF_FREQ_MHZ", "OBSERVATORY", "EPHEMERIS",
+    "SNR_HIGHLIGHT_COLOR", "SNR_SHOW_PEAK_LINES", "DM_RANGE_MIN_WIDTH",
+    "DM_RANGE_MAX_WIDTH", "DM_RANGE_FACTOR", "DM_DYNAMIC_RANGE_ENABLE",
+    "DM_RANGE_DEFAULT_VISUALIZATION", "PLOT_DPI", "PLOT_BBOX_INCHES", "PLOT_PAD_INCHES",
     "MAX_CHUNK_SAMPLES", "MAX_RAM_FRACTION", "MAX_DM_CUBE_SIZE_GB",
     "DM_CHUNKING_THRESHOLD_GB", "OVERHEAD_FACTOR",
     "FREQ", "FREQ_RESO", "TIME_RESO", "FILE_LENG", "DATA_NEEDS_REVERSAL",

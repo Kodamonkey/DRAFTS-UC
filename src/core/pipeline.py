@@ -20,6 +20,8 @@ except ImportError:
     torch = None
 
 try:
+    from ..visualization.mpl_backend import select_headless_backend
+    select_headless_backend()
     import matplotlib.pyplot as plt
 except ImportError:
     plt = None
@@ -323,8 +325,8 @@ def _process_block(
     # otherwise. Without it each large chunk leaves a multi-GB file behind.
     release_dm_cube_buffer(dm_time_full)
     del dm_time_full
-    import gc
-    gc.collect()
+    gc.collect()  # gc is imported at module scope; a local import here would
+                  # make the name function-local for the whole function.
 
     _trace_info(
         "[TRACE] Chunk %03d: valid_start_ds=%d valid_end_ds=%d (N_valid=%d)",
@@ -463,9 +465,18 @@ def _process_block(
         if j % 10 == 0:
             _optimize_memory(aggressive=False)
         else:
+            # plt.close('all') stays per slice: matplotlib keeps every figure
+            # alive in its own registry until it is closed, so skipping it leaks.
+            #
+            # gc.collect() does not. The `del` above releases the slice arrays by
+            # refcount, immediately and without a traversal; a full generational
+            # collection per slice only buys the cyclic garbage, and the
+            # _optimize_memory call every tenth slice already does that. At the
+            # scale this pipeline targets -- about 1.9 million slices for a
+            # 5.5 TiB file -- the per-slice collection was measured by the audit
+            # at roughly 11 hours of pure GC (PERF-04).
             if plt is not None:
                 plt.close('all')
-            gc.collect()
 
     # CRITICAL: Free all chunk-level arrays after processing all slices
     del block, dm_time

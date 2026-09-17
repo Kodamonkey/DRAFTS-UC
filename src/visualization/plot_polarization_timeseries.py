@@ -353,7 +353,11 @@ def save_polarization_timeseries_plot(
     
     if out_path is not None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(out_path, dpi=150, bbox_inches='tight', facecolor='white', edgecolor='none')
+        # Deliberately half the configured resolution: this is a diagnostic
+        # panel, not a publication figure.
+        fig.savefig(out_path, dpi=max(1, config.PLOT_DPI // 2),
+                    bbox_inches=config.PLOT_BBOX_INCHES, pad_inches=config.PLOT_PAD_INCHES,
+                    facecolor='white', edgecolor='none')
         logger.debug(f"Saved polarization time series plot to {out_path}")
     
     plt.close(fig)

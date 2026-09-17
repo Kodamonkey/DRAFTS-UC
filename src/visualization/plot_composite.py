@@ -316,6 +316,13 @@ def create_composite_plot(
     )
     time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
 
+    # Shared by the dispersed and the dedispersed waterfall panels. It used to be
+    # computed inside the dispersed panel, which is guarded on wf_block, and read
+    # inside the dedispersed one, which is guarded on dw_block: an empty waterfall
+    # next to a non-empty dedispersed block raised NameError here.
+    n_freq_ticks = 6
+    freq_tick_positions = np.linspace(freq_ds.min(), freq_ds.max(), n_freq_ticks)
+
     # Determine if we're in multi-polarization mode (HF pipeline)
     multi_pol_mode = (dedisp_block_linear is not None and dedisp_block_circular is not None)
     
@@ -900,8 +907,6 @@ def create_composite_plot(
         ax_wf.set_xlim(raw_waterfall_start, raw_waterfall_end)
         ax_wf.set_ylim(freq_ds.min(), freq_ds.max())
 
-        n_freq_ticks = 6
-        freq_tick_positions = np.linspace(freq_ds.min(), freq_ds.max(), n_freq_ticks)
         ax_wf.set_yticks(freq_tick_positions)
 
         n_time_ticks = 5
@@ -1178,7 +1183,8 @@ def save_composite_plot(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     
                                
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor="white", edgecolor="none")
+    plt.savefig(out_path, dpi=config.PLOT_DPI, bbox_inches=config.PLOT_BBOX_INCHES,
+                pad_inches=config.PLOT_PAD_INCHES, facecolor="white", edgecolor="none")
     plt.close(fig)
     
                                             
@@ -1222,9 +1228,11 @@ def save_composite_plot(
     # Generate polarization time series plots for each candidate
     if candidate_times_abs is not None and len(candidate_times_abs) > 0:
         try:
+            # `config` is imported at module scope; re-importing it here made it
+            # a function-local name, so every earlier reference to it in this
+            # function raised UnboundLocalError.
             from .plot_polarization_timeseries import save_polarization_timeseries_plot
-            from ..config import config
-            
+
             logger.info(f"Generating polarization time series plots for {len(candidate_times_abs)} candidate(s)")
             
             # Calculate frequency array

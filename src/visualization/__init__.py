@@ -2,6 +2,10 @@
 
 """Visualization module for FRB pipeline."""
 
+# Must come first: every module below imports matplotlib.pyplot at module
+# scope, and importing pyplot is what instantiates the backend.
+from . import mpl_backend  # noqa: F401
+
 from . import plot_composite
 from . import plot_dm_time
 from . import plot_waterfall_dispersed

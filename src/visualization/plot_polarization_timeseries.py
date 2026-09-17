@@ -12,6 +12,7 @@ import numpy as np
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from ..config import config
+from .normalization import normalize_block, percentile_limits
 
 logger = logging.getLogger(__name__)
 
@@ -149,16 +150,10 @@ def create_polarization_timeseries_plot(
     dw_circular = dedisp_circular.copy() if dedisp_circular is not None else None
     
     if normalize:
-        # Apply EXACTLY the same normalization as in create_composite_plot() (lines 192-204)
-        blocks_to_norm = [dw_intensity, dw_linear, dw_circular]
-        for block in blocks_to_norm:
-            if block is not None:
-                block += 1
-                block /= np.mean(block, axis=0)
-                vmin, vmax = np.nanpercentile(block, [5, 95])
-                block[:] = np.clip(block, vmin, vmax)
-                block -= block.min()
-                block /= block.max() - block.min()
+        # The same normalization create_composite_plot() applies to its panels.
+        dw_intensity = normalize_block(dw_intensity)
+        dw_linear = normalize_block(dw_linear)
+        dw_circular = normalize_block(dw_circular)
     
     # Compute SNR profile for intensity (EXACTLY as in plot_multi_pol_panels.py line 84)
     # This uses PRESTO-style SNR calculation which may have different length than n_time
@@ -244,13 +239,15 @@ def create_polarization_timeseries_plot(
     # Use imshow with extent (not pcolormesh) to match other plots
     # IMPORTANT: Use freq_ds (f) directly, and ensure it matches the data shape
     # The waterfall_display should be (n_time, n_freq) and we transpose to (n_freq, n_time) for imshow
+    # One percentile pass feeds both the image and the colorbar below.
+    display_vmin, display_vmax = percentile_limits(waterfall_display)
     ax[1].imshow(
         waterfall_display.T,  # Transpose: (n_freq, n_time) for imshow
         origin="lower",
         cmap="magma",  # Rosadito como el usuario prefiere
         aspect="auto",
-        vmin=np.nanpercentile(waterfall_display, 1),
-        vmax=np.nanpercentile(waterfall_display, 99),
+        vmin=display_vmin,
+        vmax=display_vmax,
         extent=[slice_start_abs, slice_end_abs, f.min(), f.max()],
     )
     ax[1].set_xlim(slice_start_abs, slice_end_abs)
@@ -282,8 +279,8 @@ def create_polarization_timeseries_plot(
     # Create a ScalarMappable for the colorbar
     from matplotlib.cm import ScalarMappable
     from matplotlib.colors import Normalize
-    sm = ScalarMappable(cmap="magma", norm=Normalize(vmin=np.nanpercentile(waterfall_display, 1), 
-                                                      vmax=np.nanpercentile(waterfall_display, 99)))  # Rosadito como el usuario prefiere
+    sm = ScalarMappable(cmap="magma",  # Rosadito como el usuario prefiere
+                        norm=Normalize(vmin=display_vmin, vmax=display_vmax))
     sm.set_array([])
     cbar = plt.colorbar(sm, cax=cax, orientation='vertical')
     cbar.ax.set_ylabel('intensity (arbitrary units)', fontsize=17)

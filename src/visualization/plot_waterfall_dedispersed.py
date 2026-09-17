@@ -17,6 +17,7 @@ from matplotlib import gridspec
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..config import config
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
+from .normalization import normalize_block, percentile_limits
 
               
 logger = logging.getLogger(__name__)
@@ -90,13 +91,7 @@ def create_waterfall_dedispersed_plot(
         dw_block = None
     
     if normalize:
-        if dw_block is not None:
-            dw_block += 1
-            dw_block /= np.mean(dw_block, axis=0)
-            vmin, vmax = np.nanpercentile(dw_block, [5, 95])
-            dw_block[:] = np.clip(dw_block, vmin, vmax)
-            dw_block -= dw_block.min()
-            dw_block /= dw_block.max() - dw_block.min()
+        dw_block = normalize_block(dw_block)
 
                                                             
     if absolute_start_time is not None:
@@ -220,13 +215,14 @@ def create_waterfall_dedispersed_plot(
             print(f"[DEBUG PLOT DW] freq_ds[0]: {freq_ds[0]:.2f} MHz (should be the lowest)")
             print(f"[DEBUG PLOT DW] freq_ds[-1]: {freq_ds[-1]:.2f} MHz (should be the highest)")
         
+        dw_vmin, dw_vmax = percentile_limits(dw_block)
         im_dw = ax_dw.imshow(
             dw_block.T,                                                  
             origin="lower",
             cmap="mako",
             aspect="auto",
-            vmin=np.nanpercentile(dw_block, 1),
-            vmax=np.nanpercentile(dw_block, 99),
+            vmin=dw_vmin,
+            vmax=dw_vmax,
             extent=[slice_start_abs, slice_end_abs, freq_ds.min(), freq_ds.max()],
         )
         ax_dw.set_xlim(slice_start_abs, slice_end_abs)

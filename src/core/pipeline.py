@@ -40,24 +40,33 @@ from .data_flow_manager import (
     validate_slice_indices,
 )
 from .contracts import ChunkPlan, DMGrid, ObservationMetadata, PipelineConfigSnapshot
+from .file_driver import (
+    ChunkLoopState,
+    begin_chunk,
+    check_file_length,
+    compute_overlap_raw,
+    export_validation_metrics,
+    finalize_file_status,
+    finish_chunk,
+    log_chunk_arrival_latency,
+    optimize_memory as _optimize_memory,
+    prepare_chunked_run,
+    record_chunk_failure,
+    record_oom,
+    start_arrival_clock,
+)
 from .pipeline_parameters import calculate_absolute_slice_time, calculate_dm_values, calculate_frequency_downsampled, should_use_hf_pipeline
-from ..domain.physics import K_DM_MS
 from ..input.parameter_extractor import extract_parameters_auto
 from ..input.streaming_orchestrator import get_streaming_function
 from .high_freq_pipeline import _process_file_chunked_high_freq
 from ..input.file_finder import find_data_files
 from ..log_utils import (
-    log_block_processing,
     log_pipeline_file_completion,
     log_pipeline_file_processing,
     log_processing_summary,
     log_streaming_parameters,
 )
-from ..output.candidate_manager import (
-    CandidateWriter,
-    ensure_csv_header,
-    rotate_previous_candidates,
-)
+from ..output.candidate_manager import CandidateWriter, rotate_previous_candidates
 from ..output.phase_metrics import PhaseMetricsTracker
 
               
@@ -139,44 +148,10 @@ def _trace_info(message: str, *args) -> None:
     except Exception:
         logger.info(message, *args)
 
-def finalize_file_status(base_status: str, failed_chunks: int, processed_chunks: int) -> str:
-    """Resolve the per-file status accounting for swallowed chunk errors.
-
-    SPEC-IO-002: a file with failed chunks must NOT report success silently.
-    - failed > 0 and some chunks processed -> ``<base>_PARTIAL``
-    - failed > 0 and nothing processed     -> ``ERROR_ALL_CHUNKS_FAILED``
-    - failed == 0                          -> ``base_status``
-    """
-    if failed_chunks <= 0:
-        return base_status
-    if processed_chunks <= 0:
-        return "ERROR_ALL_CHUNKS_FAILED"
-    return f"{base_status}_PARTIAL"
-
-
-def _optimize_memory(aggressive: bool = False) -> None:
-    """Release cached resources to keep the pipeline within memory limits.
-
-    Args:
-        aggressive: When ``True`` also clear GPU caches and pause briefly.
-    """
-
-    gc.collect()
-
-
-    if plt is not None:
-        plt.close('all')                                          
-    
-                                         
-    if torch is not None and torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        
-        if aggressive:
-                                           
-            torch.cuda.synchronize()
-            torch.cuda.reset_peak_memory_stats()
-    
-    # No sleep — gc.collect() and torch.cuda.empty_cache() are synchronous.
+# ``finalize_file_status`` and ``_optimize_memory`` moved to ``core.file_driver``
+# so the high-frequency driver can reach them without importing this module,
+# which imports it. They stay importable from here: callers and tests use
+# ``src.core.pipeline.finalize_file_status``.
 
 
 def _load_detection_model() -> torch.nn.Module:
@@ -554,9 +529,6 @@ def _process_file_chunked(
                                                           
     logger.info("Inspecting file structure: %s", fits_path.name)
     
-                                                                                       
-    total_samples = config.FILE_LENG                              
-    
     if chunk_samples <= 0:
         raise ValueError("chunk_samples must be greater than zero")
 
@@ -565,145 +537,30 @@ def _process_file_chunked(
     collector = ValidationMetricsCollector(fits_path.name)
     collector.record_data_characteristics()
 
-    # ===== ADAPTIVE MEMORY BUDGETING: Calculate memory-safe chunk size =====
-    # This ensures we never exceed available RAM, even with large DM ranges
-    from ..preprocessing.slice_len_calculator import calculate_memory_safe_chunk_size
-    
-    try:
-        safe_chunk_samples, budget_diagnostics = calculate_memory_safe_chunk_size()
-        
-        # Record budget diagnostics
-        collector.record_memory_budget(budget_diagnostics)
-        collector.record_dm_cube(budget_diagnostics)
-        collector.record_chunk_calculation(budget_diagnostics)
-        
-        # Calculate physical lower bound (minimum samples required for overlap/decimation)
-        # budget_diagnostics['required_min_size'] is in DECIMATED domain
-        min_required_raw = budget_diagnostics.get('required_min_size', 0) * max(1, config.DOWN_TIME_RATE)
-        
-        # Logic to determine final chunk_samples:
-        # 1. Upper Bound: Must not exceed available RAM (safe_chunk_samples)
-        # 2. Lower Bound: Must meet physical constraints (min_required_raw)
-        
-        if chunk_samples < min_required_raw:
-            logger.warning(
-                f"Requested chunk size ({chunk_samples:,}) is too small for physical constraints "
-                f"(overlap + slice_len requires {min_required_raw:,} raw samples). "
-                f"Upgrading to memory-safe calculated size: {safe_chunk_samples:,}."
-            )
-            chunk_samples = safe_chunk_samples
-            
-        elif chunk_samples > safe_chunk_samples:
-            logger.info(
-                f"Adaptive budgeting: Reducing chunk size from {chunk_samples:,} to {safe_chunk_samples:,} samples "
-                f"to fit in available memory ({budget_diagnostics['usable_bytes_gb']:.2f} GB usable). "
-                f"Scenario: {budget_diagnostics['scenario']}."
-            )
-            if budget_diagnostics['will_use_dm_chunking']:
-                logger.info(
-                    f"Expected DM-time cube size: {budget_diagnostics['expected_cube_gb']:.2f} GB. "
-                    f"DM chunking will activate automatically."
-                )
-            chunk_samples = safe_chunk_samples
-        else:
-            logger.debug(
-                f"Requested chunk size ({chunk_samples:,}) is within safe limits "
-                f"(min={min_required_raw:,}, max={safe_chunk_samples:,}). Proceeding with requested size."
-            )
-    except Exception as e:
-        logger.warning(
-            f"Failed to calculate memory-safe chunk size: {e}. "
-            f"Using requested chunk_samples={chunk_samples:,} (may cause OOM with large DM ranges)."
-        )
-
-    # Check performance limits to prevent system hangs
-    max_chunk_limit = getattr(config, 'MAX_CHUNK_SAMPLES', 1000000)  # Default 1M samples
-    
-    if total_samples <= chunk_samples and total_samples <= max_chunk_limit:
-        logger.info(
-            "Small file detected (%s samples); running in a single optimised chunk",
-            f"{total_samples:,}",
-        )
-                                                                    
-        effective_chunk_samples = total_samples
-        chunk_count = 1
-        logger.info(
-            "Using single chunk optimisation • chunk_samples=%s (entire file)",
-            f"{effective_chunk_samples:,}",
-        )
-    elif total_samples <= chunk_samples and total_samples > max_chunk_limit:
-        logger.info(
-            "File size (%s samples) exceeds maximum chunk limit (%s samples); using chunked processing",
-            f"{total_samples:,}",
-            f"{max_chunk_limit:,}",
-        )
-        effective_chunk_samples = min(chunk_samples, max_chunk_limit)
-        chunk_count = (total_samples + effective_chunk_samples - 1) // effective_chunk_samples
-    else:
-        effective_chunk_samples = chunk_samples
-        chunk_count = (total_samples + chunk_samples - 1) // chunk_samples
-        logger.info("Standard chunking • estimated chunks=%d", chunk_count)
-
-    total_duration_sec = total_samples * config.TIME_RESO
-    chunk_duration_sec = effective_chunk_samples * config.TIME_RESO
-
-    logger.info(
-        "File summary • chunks=%d • samples=%s • duration=%.2fs (%.1f min) • chunk_size=%s (%.2fs)",
-        chunk_count,
-        f"{total_samples:,}",
-        total_duration_sec,
-        total_duration_sec / 60,
-        f"{effective_chunk_samples:,}",
-        chunk_duration_sec,
+    plan = prepare_chunked_run(
+        fits_path,
+        save_dir,
+        chunk_samples,
+        collector,
+        # Check performance limits to prevent system hangs.
+        max_chunk_limit=getattr(config, 'MAX_CHUNK_SAMPLES', 1000000),  # Default 1M samples
     )
-    logger.info("Starting streaming processing...")
+    chunk_samples = plan.chunk_samples
+    total_samples = plan.total_samples
+    effective_chunk_samples = plan.effective_chunk_samples
+    chunk_count = plan.chunk_count
+    csv_file = plan.csv_file
     
-    # Create Summary directory structure: Summary/(file_name)/
-    summary_dir = save_dir / "Summary" / fits_path.stem
-    summary_dir.mkdir(parents=True, exist_ok=True)
-    csv_file = summary_dir / f"{fits_path.stem}.candidates.csv"
-    ensure_csv_header(csv_file)                                               
-    
-    t_start = time.time()                                     
-    actual_chunk_count = 0                                
-    failed_chunk_count = 0
+    t_start = time.time()
+    state = ChunkLoopState()
     file_stats = DetectionStats()
-    
-    try:
-        if total_samples <= 0:
-            raise ValueError(f"Invalid file length: {total_samples} samples")
-        if total_samples > 1_000_000_000:                      
-            logger.warning(
-                "Large file detected (%s samples); processing may take longer",
-                f"{total_samples:,}",
-            )
-        
-                                                               
-        try:
-            freq_ds = calculate_frequency_downsampled()
-        except ValueError as exc:
-            logger.warning(
-                "Failed to compute frequency downsampling (%s); using original axis.",
-                exc,
-            )
-            if config.FREQ is None or len(config.FREQ) == 0:
-                raise
-            freq_ds = config.FREQ
-        nu_min = float(freq_ds.min())
-        nu_max = float(freq_ds.max())
-        dt_max_sec = K_DM_MS * config.DM_max * (nu_min**-2 - nu_max**-2)
 
-        if config.TIME_RESO <= 0:
-            logger.warning(
-                "Invalid TIME_RESO (%s); using default overlap window",
-                config.TIME_RESO,
-            )
-            overlap_raw = 1024
-        else:
-            overlap_raw = max(0, int(np.ceil(dt_max_sec / config.TIME_RESO)))
-        
-        # PRESTO-style: Calculate optimal chunk size based on dispersion delay
-        # This ensures we read enough data for dedispersion without reading too much
+    try:
+        check_file_length(total_samples)
+
+        # PRESTO-style: the overlap covers the worst-case dispersion delay, so a
+        # burst that straddles a chunk boundary is still whole in one of them.
+        overlap_raw = compute_overlap_raw()
 
                                                                         
         streaming_func, file_type = get_streaming_function(fits_path) 
@@ -752,9 +609,8 @@ def _process_file_chunked(
 
         # PRESTO-style: Process each block immediately (read → process → write → free)
         # This ensures we never accumulate multiple chunks in memory
-        stream_start_time = time.time()
-        chunk_processing_times = []
-        last_chunk_arrival_time = stream_start_time
+
+        start_arrival_clock(state)
 
         # Checkpoint/resume: skip already-completed chunks
         from ..core.checkpoint import (
@@ -782,34 +638,18 @@ def _process_file_chunked(
             if should_skip_chunk(chunk_idx, resume_after):
                 logger.debug("Skipping chunk %d (already completed)", chunk_idx)
                 continue
-            chunk_start_time = time.time()
-            actual_chunk_count += 1                                               
-            
-            log_block_processing(actual_chunk_count, block.shape, str(block.dtype), metadata)
-            
+            begin_chunk(state, block, metadata)
+
             logger.info(
                 f"Processing chunk {chunk_idx}/{chunk_count} ({chunk_idx/chunk_count*100:.1f}%) • "
                 f"samples {metadata['start_sample']:,}→{metadata['end_sample']:,} • "
                 f"shape={block.shape}"
             )
-            
-            # Log time since last chunk arrived from file
-            chunk_arrival_time = time.time()
-            if chunk_idx > 1:
-                time_since_last = chunk_arrival_time - last_chunk_arrival_time
-                if time_since_last > 10:
-                    logger.warning(
-                        f"Chunk {chunk_idx} took {time_since_last:.1f}s to arrive from file. "
-                        f"This may indicate slow I/O or large buffer concatenation. "
-                        f"Consider reducing chunk size if this is frequent."
-                    )
-                elif time_since_last > 5:
-                    logger.info(
-                        f"Chunk {chunk_idx} arrived after {time_since_last:.1f}s. "
-                        f"File I/O is proceeding normally."
-                    )
-            last_chunk_arrival_time = chunk_arrival_time
-            
+
+            # Gated on the stream sequence number, which is what this driver has
+            # always used; the HF driver gates on chunks actually processed.
+            log_chunk_arrival_latency(state, chunk_idx, is_first=chunk_idx <= 1)
+
             # PRESTO-style: Process immediately, write results immediately, then free
             # Results (candidates, plots) are written during _process_block via append_candidate()
             chunk_succeeded = False
@@ -829,41 +669,20 @@ def _process_file_chunked(
                 file_stats.merge(block_stats)
                 chunk_succeeded = True
             except MemoryError as mem_error:
-                collector.record_oom_error()
-                logger.exception(f"Out of memory processing chunk {metadata['chunk_idx']:03d}: {mem_error}")
+                record_oom(collector, metadata['chunk_idx'], mem_error)
                 raise
             except Exception as chunk_error:
-                # SPEC-IO-002: do not silently drop chunks; count failures so the
-                # file is reported as PARTIAL instead of SUCCESS.
-                failed_chunk_count += 1
-                logger.exception(f"Error processing chunk {metadata['chunk_idx']:03d}: {chunk_error}")
+                record_chunk_failure(state, metadata['chunk_idx'], chunk_error)
 
-            # Track chunk processing time
-            chunk_processing_time = time.time() - chunk_start_time
-            chunk_processing_times.append(chunk_processing_time)
-            
-            if chunk_processing_time > 30:
-                logger.warning(
-                    f"Chunk {chunk_idx} processing took {chunk_processing_time:.1f}s. "
-                    f"This is unusually long. Check system resources."
-                )
-            
-            # Estimate remaining time
-            if chunk_idx > 1:
-                avg_time = sum(chunk_processing_times) / len(chunk_processing_times)
-                remaining_chunks = chunk_count - chunk_idx
-                eta_seconds = remaining_chunks * avg_time
-                if eta_seconds > 60:
-                    logger.info(
-                        f"Chunk {chunk_idx} processed in {chunk_processing_time:.1f}s. "
-                        f"Average: {avg_time:.1f}s/chunk. ETA: {eta_seconds/60:.1f} min"
-                    )
-                else:
-                    logger.debug(
-                        f"Chunk {chunk_idx} processed in {chunk_processing_time:.1f}s. "
-                        f"Average: {avg_time:.1f}s/chunk. ETA: {eta_seconds:.1f}s"
-                    )
-            
+            # This driver knows the exact chunk count up front, so its ETA is
+            # exact; the HF driver has to estimate one.
+            finish_chunk(
+                state,
+                chunk_idx,
+                remaining_chunks=chunk_count - chunk_idx,
+                report_eta=chunk_idx > 1,
+            )
+
             # Checkpoint ONLY after a chunk that actually completed. A failed
             # chunk must stay un-checkpointed, otherwise a later resume skips it
             # for good and the recovery run reports success without recovering
@@ -878,10 +697,10 @@ def _process_file_chunked(
 
             # CRITICAL: Free block immediately after processing (PRESTO-style)
             del block
-            _optimize_memory(aggressive=(actual_chunk_count % 5 == 0))
+            _optimize_memory(aggressive=(state.actual_chunk_count % 5 == 0))
 
                                                         
-        log_processing_summary(actual_chunk_count, chunk_count, file_stats.n_candidates, file_stats.n_bursts)
+        log_processing_summary(state.actual_chunk_count, chunk_count, file_stats.n_candidates, file_stats.n_bursts)
 
         # Flush any buffered CSV rows
         CandidateWriter.flush_all()
@@ -889,18 +708,12 @@ def _process_file_chunked(
         # Clear checkpoint on successful completion
         clear_checkpoint(save_dir, fits_path.stem)
 
-        # Export validation metrics
-        try:
-            validation_dir = save_dir / "Validation" / fits_path.stem
-            collector.export_to_json(validation_dir)
-            logger.info(f"Validation metrics exported to: {validation_dir}")
-        except Exception as e:
-            logger.warning(f"Failed to export validation metrics: {e}")
+        export_validation_metrics(collector, save_dir, fits_path)
 
         runtime = time.time() - t_start                      
         logger.info(
             "File completed • chunks=%d • candidates=%d • max_prob=%.2f • runtime=%.1fs",
-            actual_chunk_count,
+            state.actual_chunk_count,
             file_stats.n_candidates,
             file_stats.max_prob,
             runtime,
@@ -908,12 +721,12 @@ def _process_file_chunked(
 
         n_candidates, n_bursts, n_no_bursts = file_stats.effective_counts(config.SAVE_ONLY_BURST)
 
-        successful_chunks = actual_chunk_count - failed_chunk_count
-        status = finalize_file_status("SUCCESS_CHUNKED", failed_chunk_count, successful_chunks)
-        if failed_chunk_count > 0:
+        successful_chunks = state.actual_chunk_count - state.failed_chunk_count
+        status = finalize_file_status("SUCCESS_CHUNKED", state.failed_chunk_count, successful_chunks)
+        if state.failed_chunk_count > 0:
             logger.warning(
                 "File %s completed with %d/%d chunks failed -> status=%s",
-                fits_path.name, failed_chunk_count, actual_chunk_count, status,
+                fits_path.name, state.failed_chunk_count, state.actual_chunk_count, status,
             )
 
         return {
@@ -924,8 +737,8 @@ def _process_file_chunked(
             "max_prob": file_stats.max_prob,
             "mean_snr": file_stats.mean_snr(),
             "status": status,
-            "failed_chunks": failed_chunk_count,
-            "chunks_processed": actual_chunk_count,
+            "failed_chunks": state.failed_chunk_count,
+            "chunks_processed": state.actual_chunk_count,
             "total_chunks": chunk_count,
             "file_size_samples": total_samples,
             "processing_mode": "small_file_optimized" if total_samples <= chunk_samples else "standard_chunking"
@@ -936,40 +749,40 @@ def _process_file_chunked(
         status = "ERROR_MEMORY"
         return _error_result(
             status, e, t_start, file_stats,
-            chunks_processed=actual_chunk_count,
-            failed_chunks=failed_chunk_count,
+            chunks_processed=state.actual_chunk_count,
+            failed_chunks=state.failed_chunk_count,
         )
     except FileNotFoundError as e:
         logger.error("File not found: %s - %s", fits_path.name, e)
         status = "ERROR_FILE_NOT_FOUND"
         return _error_result(
             status, e, t_start, file_stats,
-            chunks_processed=actual_chunk_count,
-            failed_chunks=failed_chunk_count,
+            chunks_processed=state.actual_chunk_count,
+            failed_chunks=state.failed_chunk_count,
         )
     except PermissionError as e:
         logger.error("Permission error processing %s: %s", fits_path.name, e)
         status = "ERROR_PERMISSION"
         return _error_result(
             status, e, t_start, file_stats,
-            chunks_processed=actual_chunk_count,
-            failed_chunks=failed_chunk_count,
+            chunks_processed=state.actual_chunk_count,
+            failed_chunks=state.failed_chunk_count,
         )
     except ValueError as e:
         logger.error("Invalid/corrupted file %s: %s", fits_path.name, e)
         status = "ERROR_CORRUPTED_FILE"
         return _error_result(
             status, e, t_start, file_stats,
-            chunks_processed=actual_chunk_count,
-            failed_chunks=failed_chunk_count,
+            chunks_processed=state.actual_chunk_count,
+            failed_chunks=state.failed_chunk_count,
         )
     except Exception as e:
         logger.error("Unhandled error processing %s: %s", fits_path.name, e)
         status = "ERROR_CHUNKED"
         return _error_result(
             status, e, t_start, file_stats,
-            chunks_processed=actual_chunk_count,
-            failed_chunks=failed_chunk_count,
+            chunks_processed=state.actual_chunk_count,
+            failed_chunks=state.failed_chunk_count,
         )
     finally:
         # Every exit path -- success, early return, or any of the handlers above --

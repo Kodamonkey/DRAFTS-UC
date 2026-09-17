@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from matplotlib import gridspec
 
                
+from .normalization import normalize_block, percentile_limits
 from .plot_dm_time import save_dm_time_plot
 from .plot_waterfall_dispersed import save_waterfall_dispersed_plot
 from .plot_waterfall_dedispersed import save_waterfall_dedispersed_plot
@@ -139,13 +140,14 @@ def save_polarization_waterfall_plot(
         ax_prof.set_title(title, fontsize=9, fontweight="bold")
         
         # Plot waterfall (EXACTLY lines 121-129)
+        pol_vmin, pol_vmax = percentile_limits(pol_data)
         ax_waterfall.imshow(
             pol_data.T,
             origin="lower",
             cmap="mako",
             aspect="auto",
-            vmin=np.nanpercentile(pol_data, 1),
-            vmax=np.nanpercentile(pol_data, 99),
+            vmin=pol_vmin,
+            vmax=pol_vmax,
             extent=[slice_start_abs, slice_end_abs, freq_ds.min(), freq_ds.max()],
         )
         ax_waterfall.set_xlim(slice_start_abs, slice_end_abs)
@@ -316,16 +318,10 @@ def generate_individual_plots(
             dw_circular = _to_float(dedisp_block_circular.copy()) if dedisp_block_circular is not None and dedisp_block_circular.size > 0 else None
             
             if normalize:
-                # Apply EXACTLY the same normalization as in create_composite_plot() (lines 192-204)
-                blocks_to_norm = [dw_intensity, dw_linear, dw_circular]
-                for block in blocks_to_norm:
-                    if block is not None:
-                        block += 1
-                        block /= np.mean(block, axis=0)
-                        vmin, vmax = np.nanpercentile(block, [5, 95])
-                        block[:] = np.clip(block, vmin, vmax)
-                        block -= block.min()
-                        block /= block.max() - block.min()
+                # The same normalization create_composite_plot() applies to its panels.
+                dw_intensity = normalize_block(dw_intensity)
+                dw_linear = normalize_block(dw_linear)
+                dw_circular = normalize_block(dw_circular)
             
             # Generate Intensity waterfall (using normalized data)
             intensity_path = individual_dir / f"{base_filename}_waterfall_dedispersed_intensity.png"

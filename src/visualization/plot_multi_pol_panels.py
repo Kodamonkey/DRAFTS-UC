@@ -18,6 +18,7 @@ from matplotlib import gridspec
 
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..config import config
+from .normalization import percentile_limits
 
 logger = logging.getLogger(__name__)
 
@@ -174,13 +175,14 @@ def create_multi_pol_panels(
             ax_prof.set_title(title, fontsize=9, fontweight="bold", pad=12)
             
             # Plot waterfall
+            pol_vmin, pol_vmax = percentile_limits(pol_data)
             ax_waterfall.imshow(
                 pol_data.T,
                 origin="lower",
                 cmap="mako",
                 aspect="auto",
-                vmin=np.nanpercentile(pol_data, 1),
-                vmax=np.nanpercentile(pol_data, 99),
+                vmin=pol_vmin,
+                vmax=pol_vmax,
                 extent=[slice_start_abs, slice_end_abs, freq_ds.min(), freq_ds.max()],
             )
             ax_waterfall.set_xlim(slice_start_abs, slice_end_abs)

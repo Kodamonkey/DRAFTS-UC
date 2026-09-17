@@ -17,6 +17,7 @@ from matplotlib import gridspec
 from ..domain.physics import K_DM_MS
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..config import config
+from .normalization import normalize_block, percentile_limits
 
               
 logger = logging.getLogger(__name__)
@@ -90,13 +91,7 @@ def create_waterfall_dispersed_plot(
         wf_block = None
     
     if normalize:
-        if wf_block is not None:
-            wf_block += 1
-            wf_block /= np.mean(wf_block, axis=0)
-            vmin, vmax = np.nanpercentile(wf_block, [5, 95])
-            wf_block[:] = np.clip(wf_block, vmin, vmax)
-            wf_block -= wf_block.min()
-            wf_block /= wf_block.max() - wf_block.min()
+        wf_block = normalize_block(wf_block)
 
                                                             
     if absolute_start_time is not None:
@@ -209,13 +204,14 @@ def create_waterfall_dispersed_plot(
             print(f"[DEBUG PLOT] freq_ds[0]: {freq_ds[0]:.2f} MHz (should be the lowest)")
             print(f"[DEBUG PLOT] freq_ds[-1]: {freq_ds[-1]:.2f} MHz (should be the highest)")
         
+        wf_vmin, wf_vmax = percentile_limits(wf_block)
         im_wf = ax_wf.imshow(
             wf_block.T,                                                  
             origin="lower",
             cmap="mako",
             aspect="auto",
-            vmin=np.nanpercentile(wf_block, 1),
-            vmax=np.nanpercentile(wf_block, 99),
+            vmin=wf_vmin,
+            vmax=wf_vmax,
             extent=[burst_start_time_corrected, waterfall_end_time, freq_ds.min(), freq_ds.max()],
         )
         ax_wf.set_xlim(burst_start_time_corrected, waterfall_end_time)

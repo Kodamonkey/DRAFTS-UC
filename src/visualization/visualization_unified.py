@@ -4,15 +4,14 @@ from __future__ import annotations
 
                           
 import logging
-from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
+from typing import Iterable, Optional
 
                      
 import cv2
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-from matplotlib.colors import ListedColormap
 
                
 from .plot_composite import save_composite_plot
@@ -20,12 +19,19 @@ from .plot_composite import save_composite_plot
               
 logger = logging.getLogger(__name__)
 
-                                                    
+# Seven modules in this package pass cmap="mako" to imshow without registering
+# it themselves, so importing this one is what makes that name resolve. What
+# registers it today is `import seaborn` above; the guard is the fallback for a
+# seaborn that stops doing that. Two things had to change for the fallback to
+# be able to run at all:
+#   * plt.register_cmap was removed in matplotlib 3.9 and this project needs
+#     >= 3.10, so the call itself raised AttributeError.
+#   * the colormap came from sns.color_palette("mako"), which resolves the name
+#     through matplotlib's own registry -- the thing the guard says is missing.
+#     It raised ValueError: 'mako' is not a valid palette name.
+# seaborn's colormap object carries the same 256 colors and needs no registry.
 if "mako" not in plt.colormaps():
-    plt.register_cmap(
-        name="mako",
-        cmap=ListedColormap(sns.color_palette("mako", as_cmap=True)(np.linspace(0, 1, 256)))
-    )
+    matplotlib.colormaps.register(sns.cm.mako, name="mako")
 
 
 
@@ -69,10 +75,8 @@ def save_all_plots(
     off_regions,
     thresh_snr,
     band_idx,
-    patch_path,
     absolute_start_time=None,
-    chunk_idx=None,  
-    force_plots: bool = False,
+    chunk_idx=None,
     candidate_times_abs: Optional[Iterable[float]] = None,
     dedisp_block_linear: Optional[np.ndarray] = None,
     dedisp_block_circular: Optional[np.ndarray] = None,
@@ -119,30 +123,32 @@ def save_all_plots(
             else slice_len
         )
 
-                                                                                
-        save_slice_summary(
-            waterfall_block,
-            dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block,
-            img_rgb,
-            first_patch,
-            first_start if first_start is not None else 0.0,
-            first_dm if first_dm is not None else 0.0,
-            top_conf if len(top_conf) > 0 else [],
-            top_boxes if len(top_boxes) > 0 else [],
-            class_probs_list,
-            comp_path,
-            j,
-            time_slice,
-            band_name,
-            band_suffix,
-            fits_stem,
-            slice_len,
+
+        save_composite_plot(
+            waterfall_block=waterfall_block,
+            dedispersed_block=(
+                dedisp_block if dedisp_block is not None and dedisp_block.size > 0 else waterfall_block
+            ),
+            img_rgb=img_rgb,
+            patch_img=first_patch,
+            patch_start=first_start if first_start is not None else 0.0,
+            dm_val=first_dm if first_dm is not None else 0.0,
+            top_conf=top_conf if len(top_conf) > 0 else [],
+            top_boxes=top_boxes if len(top_boxes) > 0 else [],
+            class_probs=class_probs_list,
+            out_path=comp_path,
+            slice_idx=j,
+            time_slice=time_slice,
+            band_name=band_name,
+            band_suffix=band_suffix,
+            fits_stem=fits_stem,
+            slice_len=slice_len,
             normalize=normalize,
             off_regions=off_regions,
             thresh_snr=thresh_snr,
             band_idx=band_idx,
-            absolute_start_time=absolute_start_time,  
-            chunk_idx=chunk_idx,  
+            absolute_start_time=absolute_start_time,
+            chunk_idx=chunk_idx,
             slice_samples=real_slice_samples,
             candidate_times_abs=candidate_times_abs,
             dedisp_block_linear=dedisp_block_linear,
@@ -153,78 +159,7 @@ def save_all_plots(
             snr_waterfall_intensity=snr_waterfall_intensity_list,  # NEW: Pass SNR from Intensity waterfall
             snr_patch_intensity=snr_patch_intensity_list,  # NEW: Pass SNR from dedispersed Intensity patch
         )
-        
+
         logger.info(f"Composite plot generated at: {comp_path}")
         logger.info(f"Individual plots automatically generated in: {comp_path.parent}/individual_plots/")
-
-
-
-
-def save_slice_summary(
-    waterfall_block: np.ndarray,
-    dedispersed_block: np.ndarray,
-    img_rgb: np.ndarray,
-    patch_img: np.ndarray,
-    patch_start: float,
-    dm_val: float,
-    top_conf: Iterable,
-    top_boxes: Iterable | None,
-    class_probs: Iterable | None,
-    out_path: Path,
-    slice_idx: int,
-    time_slice: int,
-    band_name: str,
-    band_suffix: str,
-    fits_stem: str,
-    slice_len: int,
-    normalize: bool = False,
-    off_regions: Optional[List[Tuple[int, int]]] = None,
-    thresh_snr: Optional[float] = None,
-    band_idx: int = 0,                                        
-    absolute_start_time: Optional[float] = None, 
-    chunk_idx: Optional[int] = None,  
-    slice_samples: Optional[int] = None,  
-    candidate_times_abs: Optional[Iterable[float]] = None,
-    dedisp_block_linear: Optional[np.ndarray] = None,
-    dedisp_block_circular: Optional[np.ndarray] = None,
-    class_probs_linear: Optional[Iterable[float]] = None,  # NEW: Linear classification probs
-    snr_waterfall_linear: Optional[Iterable[float | None]] = None,  # NEW: SNR from Linear waterfall
-    snr_patch_linear: Optional[Iterable[float | None]] = None,  # NEW: SNR from dedispersed Linear patch
-    snr_waterfall_intensity: Optional[Iterable[float | None]] = None,  # NEW: SNR from Intensity waterfall
-    snr_patch_intensity: Optional[Iterable[float | None]] = None,  # NEW: SNR from dedispersed Intensity patch
-) -> None:
-    
-    save_composite_plot(
-        waterfall_block=waterfall_block,
-        dedispersed_block=dedispersed_block,
-        img_rgb=img_rgb,
-        patch_img=patch_img,
-        patch_start=patch_start,
-        dm_val=dm_val,
-        top_conf=top_conf,
-        top_boxes=top_boxes,
-        class_probs=class_probs,
-        out_path=out_path,
-        slice_idx=slice_idx,
-        time_slice=time_slice,
-        band_name=band_name,
-        band_suffix=band_suffix,
-        fits_stem=fits_stem,
-        slice_len=slice_len,
-        normalize=normalize,
-        off_regions=off_regions,
-        thresh_snr=thresh_snr,
-        band_idx=band_idx,
-        absolute_start_time=absolute_start_time,
-        chunk_idx=chunk_idx,
-        slice_samples=slice_samples,
-        candidate_times_abs=candidate_times_abs,
-        dedisp_block_linear=dedisp_block_linear,
-        dedisp_block_circular=dedisp_block_circular,
-        class_probs_linear=class_probs_linear,  # NEW: Pass Linear probs
-        snr_waterfall_linear=snr_waterfall_linear,  # NEW: Pass SNR from Linear waterfall
-        snr_patch_linear=snr_patch_linear,  # NEW: Pass SNR from dedispersed Linear patch
-        snr_waterfall_intensity=snr_waterfall_intensity,  # NEW: Pass SNR from Intensity waterfall
-        snr_patch_intensity=snr_patch_intensity,  # NEW: Pass SNR from dedispersed Intensity patch
-    )
 

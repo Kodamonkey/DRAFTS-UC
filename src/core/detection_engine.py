@@ -596,10 +596,8 @@ def process_slice_with_multiple_bands(
                 off_regions=None,
                 thresh_snr=config.SNR_THRESH,
                 band_idx=band_idx,
-                patch_path=band_result["patch_path"],
                 absolute_start_time=absolute_start_time,
                 chunk_idx=chunk_idx, 
-                force_plots=force_plots,
                 snr_waterfall_intensity_list=band_result.get("snr_waterfall_intensity_list"),  # NEW: SNR from Intensity waterfall
                 snr_patch_intensity_list=band_result.get("snr_patch_intensity_list"),  # NEW: SNR from dedispersed Intensity patch
             )

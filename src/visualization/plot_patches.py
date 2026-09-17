@@ -16,6 +16,7 @@ from matplotlib import gridspec
                
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..config import config
+from .normalization import normalize_block, percentile_limits
 
               
 logger = logging.getLogger(__name__)
@@ -85,13 +86,7 @@ def create_patches_plot(
         patch_data = None
     
     if normalize:
-        if patch_data is not None:
-            patch_data += 1
-            patch_data /= np.mean(patch_data, axis=0)
-            vmin, vmax = np.nanpercentile(patch_data, [5, 95])
-            patch_data[:] = np.clip(patch_data, vmin, vmax)
-            patch_data -= patch_data.min()
-            patch_data /= patch_data.max() - patch_data.min()
+        patch_data = normalize_block(patch_data)
 
                                                             
     if absolute_start_time is not None:
@@ -149,13 +144,14 @@ def create_patches_plot(
     ax_patch = fig.add_subplot(gs_patch_nested[1, 0])
     
     if patch_data is not None and patch_data.size > 0:
+        patch_vmin, patch_vmax = percentile_limits(patch_data)
         ax_patch.imshow(
             patch_data.T,
             origin="lower",
             aspect="auto",
             cmap="mako",
-            vmin=np.nanpercentile(patch_data, 1),
-            vmax=np.nanpercentile(patch_data, 99),
+            vmin=patch_vmin,
+            vmax=patch_vmax,
             extent=[patch_time_axis[0], patch_time_axis[-1], freq_ds.min(), freq_ds.max()],
         )
         ax_patch.set_xlim(patch_time_axis[0], patch_time_axis[-1])

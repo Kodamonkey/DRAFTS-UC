@@ -19,6 +19,7 @@ from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..config import config
 from ..preprocessing.dm_candidate_extractor import extract_candidate_dm
 from ..core.mjd_utils import calculate_candidate_mjd
+from .normalization import normalize_block, percentile_limits
 from .visualization_ranges import get_dynamic_dm_range_for_candidate
 
               
@@ -367,18 +368,11 @@ def create_composite_plot(
     dw_block = _coerce_float_image(dw_block)
     
     if normalize:
-        blocks_to_norm = [wf_block, dw_block]
+        wf_block = normalize_block(wf_block)
+        dw_block = normalize_block(dw_block)
         if multi_pol_mode:
-            blocks_to_norm.extend([dw_linear, dw_circular])
-        
-        for block in blocks_to_norm:
-            if block is not None:
-                block += 1
-                block /= np.mean(block, axis=0)
-                vmin, vmax = np.nanpercentile(block, [5, 95])
-                block[:] = np.clip(block, vmin, vmax)
-                block -= block.min()
-                block /= block.max() - block.min()
+            dw_linear = normalize_block(dw_linear)
+            dw_circular = normalize_block(dw_circular)
 
                                     
     if absolute_start_time is not None:
@@ -895,13 +889,14 @@ def create_composite_plot(
         # Use the already calculated raw_waterfall_start/end from above
         # (calculated before the SNR profile to ensure consistency)
         
+        wf_vmin, wf_vmax = percentile_limits(wf_block)
         im_wf = ax_wf.imshow(
             wf_block.T,
             origin="lower",
             cmap="mako",
             aspect="auto",
-            vmin=np.nanpercentile(wf_block, 1),
-            vmax=np.nanpercentile(wf_block, 99),
+            vmin=wf_vmin,
+            vmax=wf_vmax,
             extent=[raw_waterfall_start, raw_waterfall_end, freq_ds.min(), freq_ds.max()],
         )
         ax_wf.set_xlim(raw_waterfall_start, raw_waterfall_end)
@@ -1043,13 +1038,14 @@ def create_composite_plot(
         ax_dw = fig.add_subplot(gs_dedisp_nested[1, 0])
     
     if not _skip_standard_panels and dw_block is not None and dw_block.size > 0:
+        dw_vmin, dw_vmax = percentile_limits(dw_block)
         im_dw = ax_dw.imshow(
             dw_block.T,
             origin="lower",
             cmap="mako",
             aspect="auto",
-            vmin=np.nanpercentile(dw_block, 1),
-            vmax=np.nanpercentile(dw_block, 99),
+            vmin=dw_vmin,
+            vmax=dw_vmax,
             extent=[slice_start_abs, slice_end_abs, freq_ds.min(), freq_ds.max()],
         )
         ax_dw.set_xlim(slice_start_abs, slice_end_abs)
@@ -1269,20 +1265,12 @@ def save_composite_plot(
                 if dedisp_block_circular is not None and dedisp_block_circular.size > 0:
                     dw_circular = dedisp_block_circular.copy()
             
-            # Apply normalization EXACTLY as in create_composite_plot (lines 192-204)
+            # Apply the same normalization as create_composite_plot
             if normalize:
-                blocks_to_norm = [dw_block]
+                dw_block = normalize_block(dw_block)
                 if has_multipol:
-                    blocks_to_norm.extend([dw_linear, dw_circular])
-                
-                for block in blocks_to_norm:
-                    if block is not None:
-                        block += 1
-                        block /= np.mean(block, axis=0)
-                        vmin, vmax = np.nanpercentile(block, [5, 95])
-                        block[:] = np.clip(block, vmin, vmax)
-                        block -= block.min()
-                        block /= block.max() - block.min()
+                    dw_linear = normalize_block(dw_linear)
+                    dw_circular = normalize_block(dw_circular)
             
             # Generate plot for each candidate
             for cand_idx, cand_time_abs in enumerate(candidate_times_abs):

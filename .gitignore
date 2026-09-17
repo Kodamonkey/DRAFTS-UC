@@ -44,7 +44,10 @@ src/training/binary_classification/logs*/
 # =============================================================================
 # DOCUMENTATION AND TEXT FILES
 # =============================================================================
-docs/
+# Generated documentation stays out; the audit is tracked on purpose, because
+# commit messages and code comments cite its identifiers (P0-1, REF-03, ...).
+docs/*
+!docs/AUDITORIA-DRAFTS-UC.md
 *.pdf
 *.doc
 *.docx

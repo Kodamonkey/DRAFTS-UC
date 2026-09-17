@@ -50,9 +50,51 @@ from ..config import config
 from ..domain.physics import K_DM_MS
 from ..log_utils import log_block_processing
 from ..output.candidate_manager import ensure_csv_header
-from .pipeline_parameters import calculate_frequency_downsampled
+from .contracts import PipelineConfigSnapshot
+from .pipeline_parameters import calculate_frequency_downsampled, should_use_hf_pipeline
 
 logger = logging.getLogger(__name__)
+
+
+# --------------------------------------------------------------------------- #
+# which driver runs this file
+# --------------------------------------------------------------------------- #
+
+def select_pipeline_path() -> tuple[bool, str]:
+    """Decide, once per file, whether this run takes the high-frequency path.
+
+    Returns ``(use_hf, reason)``; *reason* is the sentence the caller logs.
+
+    This decision used to be taken about 190 lines into ``_process_file_chunked``
+    -- after the validation collector, the adaptive memory budget, the chunk plan
+    and the candidate CSV had all been built -- and the high-frequency driver then
+    built every one of them again for itself. Taken here, before any of that, the
+    driver that does not run does no setup at all (audit REF-02).
+
+    Two behaviours are preserved deliberately. Any failure computing the bow-tie
+    criterion falls back to the low-frequency pipeline, because that is the path
+    with a golden-CSV regression test behind it. And ``AUTO_HIGH_FREQ_PIPELINE``
+    is folded into the boolean rather than left for the caller to re-test, so
+    there is one answer and not two conditions that have to be kept in step.
+    """
+
+    try:
+        freq_ds = calculate_frequency_downsampled()
+        snapshot = PipelineConfigSnapshot.from_config(config)
+        use_hf, reason = should_use_hf_pipeline(
+            freq_low_mhz=float(np.min(freq_ds)),
+            freq_high_mhz=float(np.max(freq_ds)),
+            dm_max=float(snapshot.dm_max),
+            time_reso_s=float(config.TIME_RESO),
+            down_time_rate=int(config.DOWN_TIME_RATE),
+            collapse_ratio=float(snapshot.bowtie_collapse_ratio),
+        )
+    except Exception:
+        return False, "error computing bow-tie criterion — falling back to standard pipeline"
+
+    if use_hf and not bool(getattr(config, "AUTO_HIGH_FREQ_PIPELINE", True)):
+        return False, f"automatic high-frequency selection is disabled ({reason})"
+    return use_hf, reason
 
 
 # --------------------------------------------------------------------------- #

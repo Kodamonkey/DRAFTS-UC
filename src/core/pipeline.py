@@ -53,9 +53,10 @@ from .file_driver import (
     prepare_chunked_run,
     record_chunk_failure,
     record_oom,
+    select_pipeline_path,
     start_arrival_clock,
 )
-from .pipeline_parameters import calculate_absolute_slice_time, calculate_dm_values, calculate_frequency_downsampled, should_use_hf_pipeline
+from .pipeline_parameters import calculate_absolute_slice_time, calculate_dm_values, calculate_frequency_downsampled
 from ..input.parameter_extractor import extract_parameters_auto
 from ..input.streaming_orchestrator import get_streaming_function
 from .high_freq_pipeline import _process_file_chunked_high_freq
@@ -517,6 +518,80 @@ def _process_block(
     return chunk_stats
 
 
+#: Per-file error status by exception type, in the order ``_process_file_chunked``
+#: tests them in its handler chain. ``_run_high_freq_file`` reports failures under
+#: the same names, because the high-frequency driver used to be called from inside
+#: that chain and its failures surfaced through it.
+_FILE_ERROR_STATUS: tuple[tuple[type[BaseException], str, str], ...] = (
+    (MemoryError, "ERROR_MEMORY", "Memory error while processing %s: %s"),
+    (FileNotFoundError, "ERROR_FILE_NOT_FOUND", "File not found: %s - %s"),
+    (PermissionError, "ERROR_PERMISSION", "Permission error processing %s: %s"),
+    (ValueError, "ERROR_CORRUPTED_FILE", "Invalid/corrupted file %s: %s"),
+    (Exception, "ERROR_CHUNKED", "Unhandled error processing %s: %s"),
+)
+
+
+def _run_high_freq_file(
+    cls_model: torch.nn.Module,
+    fits_path: Path,
+    save_dir: Path,
+    chunk_samples: int,
+    reason: str,
+) -> dict:
+    """Hand *fits_path* to the high-frequency driver and report what it returned.
+
+    This is the whole low-frequency involvement in a high-frequency run. It used
+    to be an early ``return`` some 190 lines into ``_process_file_chunked``,
+    reached only after that function had built a validation collector, run the
+    adaptive memory budget, planned the chunk geometry and created the candidate
+    CSV -- all of which ``_process_file_chunked_high_freq`` then built again for
+    itself. REF-02 moved the decision above that setup; this function keeps the
+    two things the early return was still providing.
+
+    The first is the error mapping: the high-frequency driver re-raises rather
+    than returning a result, so its failures were converted to a per-file status
+    by the low-frequency handler chain. They still are, by the same table.
+
+    The second is ``CandidateWriter.flush_all()`` on every exit. The
+    high-frequency driver flushes on its success path only, so without this a
+    failed run would drop up to a buffer's worth of rows that were already
+    counted. Both are stop-gaps for a driver that should return its own result;
+    that remains open and deliberately untouched here.
+
+    ``chunk_samples`` is the size this file asked for, not a planned one. It used
+    to be ``effective_chunk_samples`` -- the output of the low-frequency chunk
+    plan -- which the high-frequency driver then planned a second time. Feeding a
+    plan's output back in as its input is what let ``MAX_CHUNK_SAMPLES`` reach a
+    driver documented as never applying it, and only for one shape of input: a
+    file shorter than the requested chunk size but longer than the cap. That is
+    now consistently not applied, which is what every comment about it already
+    claimed.
+    """
+
+    logger.info("Switching to high-frequency pipeline (SNR-based detection)")
+    logger.info("Reason: %s", reason)
+
+    t_start = time.time()
+    try:
+        return _process_file_chunked_high_freq(
+            cls_model=cls_model,
+            fits_path=fits_path,
+            save_dir=save_dir,
+            chunk_samples=chunk_samples,
+        )
+    except Exception as error:
+        for error_type, status, message in _FILE_ERROR_STATUS:
+            if isinstance(error, error_type):
+                logger.error(message, fits_path.name, error)
+                # The counts are zero because the high-frequency driver keeps its
+                # own and loses them when it raises; that is the open defect, not
+                # a claim that nothing was written.
+                return _error_result(status, error, t_start, DetectionStats())
+        raise
+    finally:
+        CandidateWriter.flush_all()
+
+
 def _process_file_chunked(
     det_model: torch.nn.Module,
     cls_model: torch.nn.Module,
@@ -525,12 +600,21 @@ def _process_file_chunked(
     chunk_samples: int,
 ) -> dict:
     """Process a file in streaming chunks using ``stream_fil`` or ``stream_fits``."""
-    
-                                                          
+
+
     logger.info("Inspecting file structure: %s", fits_path.name)
-    
+
     if chunk_samples <= 0:
         raise ValueError("chunk_samples must be greater than zero")
+
+    # REF-02: decide which driver runs this file before either one's setup, not
+    # after this one's. Everything below here is low-frequency setup, and the
+    # high-frequency driver builds its own equivalent of all of it.
+    use_hf, hf_reason = select_pipeline_path()
+    if use_hf:
+        return _run_high_freq_file(cls_model, fits_path, save_dir, chunk_samples, hf_reason)
+
+    logger.info("Using standard pipeline. %s", hf_reason)
 
     # ===== VALIDATION METRICS COLLECTOR =====
     from ..output.validation_metrics import ValidationMetricsCollector
@@ -572,40 +656,6 @@ def _process_file_chunked(
         
         # Log streaming parameters with the adjusted chunk size (after adaptive budgeting)
         log_streaming_parameters(effective_chunk_samples, overlap_raw, total_samples, effective_chunk_samples, streaming_func, file_type)
-        
-        # Decide LF vs HF pipeline based on bow-tie collapse physics
-        try:
-            freq_ds_local = calculate_frequency_downsampled()
-            hf_snap = PipelineConfigSnapshot.from_config(config)
-            use_hf, hf_reason = should_use_hf_pipeline(
-                freq_low_mhz=float(np.min(freq_ds_local)),
-                freq_high_mhz=float(np.max(freq_ds_local)),
-                dm_max=float(hf_snap.dm_max),
-                time_reso_s=float(config.TIME_RESO),
-                down_time_rate=int(config.DOWN_TIME_RATE),
-                collapse_ratio=float(hf_snap.bowtie_collapse_ratio),
-            )
-        except Exception:
-            use_hf = False
-            hf_reason = "error computing bow-tie criterion — falling back to standard pipeline"
-
-        auto_high_freq_enabled = bool(getattr(config, 'AUTO_HIGH_FREQ_PIPELINE', True))
-
-        if auto_high_freq_enabled and use_hf:
-            logger.info(
-                "Switching to high-frequency pipeline (SNR-based detection)")
-            logger.info("Reason: %s", hf_reason)
-            result = _process_file_chunked_high_freq(
-                cls_model=cls_model,
-                fits_path=fits_path,
-                save_dir=save_dir,
-                chunk_samples=effective_chunk_samples,
-                streaming_func=streaming_func,
-            )
-            return result
-        else:
-            if auto_high_freq_enabled:
-                logger.info("Using standard pipeline. %s", hf_reason)
 
         # PRESTO-style: Process each block immediately (read → process → write → free)
         # This ensures we never accumulate multiple chunks in memory

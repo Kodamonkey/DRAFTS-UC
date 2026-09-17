@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 # Standard library imports
+from dataclasses import dataclass
 from pathlib import Path
 import gc
 import logging
@@ -13,6 +14,7 @@ import numpy as np
 from ..config import config
 from ..analysis.snr_utils import compute_snr_profile, find_snr_peak
 from ..analysis.science_metrics import physical_consistency_score, post_trials_sigma
+from ..detection.model_interface import classify_patch
 from ..domain.physics import K_DM_MS
 from ..log_utils.logging_config import get_global_logger
 from ..output.candidate_manager import (
@@ -189,6 +191,438 @@ def _dm_from_image_at_time(dm_time_band_img: np.ndarray, time_idx: int) -> float
     return float(dm_val)
 
 
+# --------------------------------------------------------------------------- #
+# the per-candidate steps, extracted from the band loop (audit REF-05)
+#
+# ``snr_detect_and_classify_candidates_in_band`` was 866 lines carrying about
+# forty live locals, and it had reached the point of asking ``'x' in locals()``
+# to find out what its own earlier branches had done. Each function below is one
+# step of the per-candidate work, taking what it needs as keyword-only arguments
+# and reading no configuration the caller could have passed -- the shape
+# ``decide_candidate`` above already uses, for the same reason: the four
+# combinations of "which phase ran" can then be exercised without a model, a
+# file and a DM-time cube.
+# --------------------------------------------------------------------------- #
+
+@dataclass(frozen=True)
+class IntensityVerdict:
+    """What Phase 3a concluded about one candidate, or that it concluded nothing."""
+
+    proc_patch: np.ndarray | None
+    class_prob: float | None
+    is_burst: bool | None
+    snr_val: float
+    width_ms: float | None
+
+
+@dataclass(frozen=True)
+class LinearVerdict:
+    """What Phase 3b concluded about one candidate, or that it concluded nothing."""
+
+    proc_patch: np.ndarray | None
+    class_prob: float | None
+    is_burst: bool | None
+    snr_val: float | None
+
+
+@dataclass(frozen=True)
+class CandidateScore:
+    """The trials correction and physical plausibility of one candidate."""
+
+    n_trials: int
+    post_sigma: float
+    physical_score: float
+    rank_score: float
+
+
+def _empty_band_result(metrics_tracker: PhaseMetricsTracker | None) -> dict:
+    """The band result for a slice that produced no candidate.
+
+    Both early exits -- no SNR peak in Intensity at all, and no peak surviving
+    the Phase 2 Linear check -- returned this dict, spelled out twice. Every key
+    here is one that ``process_slice_with_multiple_bands_high_freq`` reads with
+    ``[]`` rather than ``.get()``, so a key dropped from one copy turns a quiet
+    "nothing found" into a KeyError on the path that finds nothing, which is the
+    common one.
+    """
+
+    return {
+        "top_conf": [],
+        "top_boxes": [],
+        "class_probs_list": [],
+        "first_patch": None,
+        "first_start": None,
+        "first_dm": None,
+        "img_tensor": None,
+        "cand_counter": 0,
+        "n_bursts": 0,
+        "n_no_bursts": 0,
+        "prob_max": 0.0,
+        "patch_path": None,
+        "best_is_burst": False,
+        "total_candidates": 0,
+        "candidate_times_abs": [],
+        "phase_metrics": metrics_tracker if metrics_tracker else None,
+    }
+
+
+def locate_candidate_box(
+    *,
+    peak_idx: int,
+    img_w: int,
+    img_h: int,
+    half_w: int,
+    scale_x: float,
+    scale_y: float,
+    effective_len: int,
+    time_reso_ds: float,
+) -> tuple[int, tuple[int, int, int, int], int, float]:
+    """Place one SNR peak in the DM-time image and in time.
+
+    Returns ``(cx, box, t_sample_real, t_sec_real)``: the peak's column in the
+    band image, its box in the 512x512 frame the classifier sees, and the sample
+    and second the box centre corresponds to.
+
+    The box spans the **full** DM axis, row 0 to ``img_h - 1``, and that is the
+    regression this shape prevents. A box drawn around an assumed DM makes the
+    DM read back out of it a function of the box, so the reported DM tracks the
+    guess rather than the data and clusters at whatever edge the box happened to
+    have. Detection here comes from boxcar matching, which locates a peak in
+    time only, so the DM axis is left whole and the DM is measured separately by
+    ``resolve_candidate_dm``.
+
+    ``effective_len`` is the slice's real sample count, which is not always
+    ``slice_len``: the last slice of a chunk is short, and scaling its columns by
+    the nominal length would place every candidate in it late by the difference.
+    """
+
+    cx = int(max(0, min(img_w - 1, peak_idx)))
+
+    x1_raw = max(0, cx - half_w)
+    x2_raw = min(img_w - 1, cx + half_w)
+    y1_raw = 0  # Start at DM_min (row 0)
+    y2_raw = img_h - 1  # End at DM_max (row img_h-1)
+
+    # Time from the centre of the box.
+    center_x = (x1_raw + x2_raw) / 2.0
+    sample_off = (center_x / max(img_w - 1, 1)) * effective_len
+    t_sample_real = int(sample_off)
+    t_sec_real = float(sample_off) * time_reso_ds
+
+    # Transform the box to 512x512 coordinates to match img_rgb.
+    box = (
+        int(round(x1_raw * scale_x)),
+        int(round(y1_raw * scale_y)),
+        int(round(x2_raw * scale_x)),
+        int(round(y2_raw * scale_y)),
+    )
+    return cx, box, t_sample_real, t_sec_real
+
+
+def resolve_candidate_dm(
+    *,
+    dm_img: np.ndarray,
+    cx: int,
+    dm_min: float,
+    dm_max: float,
+    dm_policy: str,
+) -> tuple[float, str, float | None]:
+    """Return ``(dm_val, dm_status, dm_uncertainty)`` for the column at *cx*.
+
+    At the frequencies this pipeline exists for, the dispersive sweep across the
+    band can be smaller than one sample, and then every DM trial produces the
+    same column: the cube is flat and the row of maximum intensity means nothing.
+    That is what the ``col_std < 1e-6`` test detects, and why the answer is a
+    status as well as a number.
+
+    ``dm_status`` is the regression this shape prevents. Returning the midpoint
+    of the DM range as though it had been measured -- which is what
+    ``HIGH_FREQ_DM_POLICY`` still does when set to something other than
+    ``unresolved``/``estimate_if_resolved`` -- puts a fabricated DM in the CSV
+    that nothing downstream can distinguish from a real one. Under the default
+    policy the value is NaN and the status says the band could not resolve it.
+
+    The DM row lookup runs first and unconditionally, as it always did, because
+    its two log lines are how a flat cube is recognised in a run log.
+    """
+
+    dm_val_approx = _dm_from_image_at_time(dm_img, cx)
+
+    intensity_column = dm_img[:, cx] if cx < dm_img.shape[1] else dm_img[:, 0]
+    col_std = float(np.std(intensity_column))
+
+    if col_std >= 1e-6:
+        logger.info(
+            f"[DM_CALC] Calculated DM: {dm_val_approx:.2f} "
+            f"(from _dm_from_image_at_time, std={col_std:.6f})"
+        )
+        return dm_val_approx, "measured", 0.5
+
+    if str(dm_policy).lower() in {"unresolved", "estimate_if_resolved"}:
+        dm_val: float = float("nan")
+        dm_status = "unresolved_high_freq"
+        dm_uncertainty: float | None = None
+    else:
+        dm_val = (dm_min + dm_max) / 2.0
+        dm_status = "catalog_prior"
+        dm_uncertainty = (dm_max - dm_min) / 2.0
+
+    logger.info(
+        f"[DM_CALC] No DM variation detected (std={col_std:.6f}) - typical at very high frequencies. "
+        f"dm_status={dm_status} (range: {dm_min:.2f}-{dm_max:.2f})"
+    )
+    return dm_val, dm_status, dm_uncertainty
+
+
+def classify_intensity_patch(
+    *,
+    enabled: bool,
+    cls_model,
+    data_block: np.ndarray,
+    freq_down: np.ndarray,
+    dm_for_dedisp: float,
+    global_sample: int,
+    time_reso_ds: float,
+    snr_peak: float,
+    class_prob_threshold: float,
+) -> IntensityVerdict:
+    """Phase 3a: dedisperse the Intensity patch at this DM and classify it.
+
+    A disabled phase returns ``class_prob`` and ``is_burst`` as ``None``. That is
+    the shape audit P1-10 is about: the disabled branch used to hand back
+    in-range stand-ins -- ``0.0``/``False`` in one place and ``1.0``/``True`` in
+    another -- which neither the CSV nor ``decide_candidate`` could tell apart
+    from a real classification, so with Phase 3a switched off every saved
+    candidate was labelled a burst and the burst count equalled the candidate
+    count.
+
+    ``snr_val`` is always a number, because it is what the candidate's
+    ``snr_post_dedisp`` column holds: the dedispersed-patch SNR when there is
+    one, and the waterfall peak *snr_peak* when the patch yielded nothing.
+
+    ``time_reso_ds`` and ``class_prob_threshold`` are arguments rather than
+    config reads so that the caller keeps deciding when configuration is
+    consulted. The Phase 3a block used to recompute the time resolution from
+    config per candidate under the name ``time_reso_ds``, which was also the
+    enclosing function's parameter -- so it rebound it for every line that
+    followed. The two values are equal today; nothing made them stay equal.
+    """
+
+    if not enabled:
+        return IntensityVerdict(
+            proc_patch=None,
+            class_prob=None,
+            is_burst=None,
+            snr_val=float(snr_peak),
+            width_ms=None,
+        )
+
+    # ``_finalize_patch`` also reports the in-patch peak index and the patch's
+    # first sample; the band loop has never used either.
+    proc_patch, class_prob, snr_from_patch, _peak_idx_patch, width_ms, _start_sample = _finalize_patch(
+        data_block, freq_down, dm_for_dedisp, global_sample, cls_model, time_reso_ds
+    )
+    return IntensityVerdict(
+        proc_patch=proc_patch,
+        class_prob=class_prob,
+        is_burst=class_prob >= float(class_prob_threshold),
+        snr_val=snr_from_patch if snr_from_patch > 0.0 else float(snr_peak),
+        width_ms=width_ms,
+    )
+
+
+def classify_linear_patch(
+    *,
+    enabled: bool,
+    cls_model,
+    data_block_linear: np.ndarray | None,
+    freq_down: np.ndarray,
+    dm_for_dedisp: float,
+    global_sample: int,
+    class_prob_threshold: float,
+) -> LinearVerdict:
+    """Phase 3b: dedisperse the Linear-polarisation patch and classify it.
+
+    Three distinct situations produce the same absent verdict -- the phase is
+    disabled, the file carries no multi-polarisation data, or the dedispersed
+    patch came back empty -- and they must, because none of them is a negative
+    classification. Their difference is a log line at the call site, not a value
+    here.
+
+    The Linear threshold is separate from the Intensity one (``CLASS_PROB_LINEAR``
+    against ``CLASS_PROB``) and arrives as an argument for the same reason as in
+    ``classify_intensity_patch``: so that a caller can ask what this phase would
+    conclude at a given threshold without reaching into configuration.
+    """
+
+    if not enabled or data_block_linear is None:
+        return LinearVerdict(proc_patch=None, class_prob=None, is_burst=None, snr_val=None)
+
+    patch_linear, _ = dedisperse_patch(data_block_linear, freq_down, dm_for_dedisp, global_sample)
+    if patch_linear is None or patch_linear.size == 0:
+        return LinearVerdict(proc_patch=None, class_prob=None, is_burst=None, snr_val=None)
+
+    snr_val: float | None = None
+    snr_profile_linear_patch, _, _ = compute_snr_profile(patch_linear)
+    if snr_profile_linear_patch.size > 0:
+        snr_val = float(np.max(snr_profile_linear_patch))
+
+    class_prob, proc_patch = classify_patch(cls_model, patch_linear)
+    return LinearVerdict(
+        proc_patch=proc_patch,
+        class_prob=class_prob,
+        is_burst=class_prob >= class_prob_threshold,
+        snr_val=snr_val,
+    )
+
+
+def score_candidate(
+    *,
+    snr_pre_dedisp: float,
+    snr_post_dedisp: float,
+    dm_status: str,
+    linear_fraction: float | None,
+    class_prob_intensity: float | None,
+    class_prob_linear: float | None,
+    n_snr_samples: int,
+    dm_min: float,
+    dm_max: float,
+    trial_correction: str,
+) -> CandidateScore:
+    """Convert one candidate's measurements into its trials-corrected ranking.
+
+    ``rank_score`` is the product of a morphology term and a physics term, and
+    the morphology term is the *highest* probability among the phases that
+    actually classified. Substituting a default for a phase that did not run
+    would silently reorder the candidate list -- a 0.0 would bury every
+    single-phase candidate, a 1.0 would float them all to the top -- so an absent
+    probability is dropped from the maximum rather than replaced, and a candidate
+    with no classification at all scores 0.0 and ranks last.
+
+    ``dm_status`` reaches the physics term unchanged: a DM the band could not
+    resolve must not be scored as though it had been measured.
+    """
+
+    n_trials = max(1, int((dm_max - dm_min + 1) * max(1, n_snr_samples)))
+    post_sigma = post_trials_sigma(float(snr_post_dedisp), n_trials, trial_correction)
+    phys_score = physical_consistency_score(
+        post_sigma,
+        snr_pre_dedisp,
+        snr_post_dedisp,
+        dm_status,
+        linear_fraction,
+    )
+
+    available_probs = [p for p in (class_prob_intensity, class_prob_linear) if p is not None]
+    morphology_prob = max(float(p) for p in available_probs) if available_probs else 0.0
+
+    return CandidateScore(
+        n_trials=n_trials,
+        post_sigma=post_sigma,
+        physical_score=phys_score,
+        rank_score=morphology_prob * phys_score,
+    )
+
+
+def build_candidate_record(
+    *,
+    fits_name: str,
+    chunk_idx: int | None,
+    slice_idx: int,
+    band_idx: int,
+    conf: float,
+    dm_val: float,
+    dm_status: str,
+    dm_uncertainty: float | None,
+    detection_time_dm_time: float,
+    peak_time_waterfall: float | None,
+    t_sample_real: int,
+    box: tuple[int, int, int, int],
+    snr_waterfall: float | None,
+    snr_waterfall_linear: float | None,
+    snr_pre_dedisp: float,
+    linear_fraction: float | None,
+    intensity: IntensityVerdict,
+    linear: LinearVerdict,
+    score: CandidateScore,
+    is_burst: bool | None,
+    patch_file: str,
+    mjd_data: dict,
+) -> Candidate:
+    """Assemble the CSV row for one high-frequency candidate.
+
+    Every classification column is ``None`` or a value, never a stand-in, and
+    that is the regression this function's shape prevents (audit P1-10). The
+    three verdict-bearing arguments arrive as records rather than as a dozen
+    loose floats and bools precisely so that "Phase 3b did not run" cannot be
+    spelled one way here and another way in the decision that produced
+    *is_burst*.
+
+    The two time columns are two different measurements of the same event and
+    both are kept: ``detection_time_dm_time`` is where the DM-time plot puts it,
+    ``peak_time_waterfall`` is where the waterfall SNR peaks. They disagree by
+    the width of the pulse, and collapsing them to one column is how a
+    discrepancy that means something becomes a discrepancy that looks like a bug.
+    """
+
+    return Candidate(
+        fits_name,
+        chunk_idx if chunk_idx is not None else 0,
+        slice_idx,
+        band_idx,
+        float(conf),
+        float(dm_val),  # DM calculated with extract_candidate_dm (same as plot)
+        float(detection_time_dm_time),  # Time from DM-time plot (same as plot label)
+        peak_time_waterfall,  # Time from waterfall SNR peak (different method)
+        int(t_sample_real),  # Sample index
+        tuple(map(int, box)),
+        snr_waterfall,  # SNR from waterfall raw (peak_snr_wf) - Intensity
+        float(intensity.snr_val),  # SNR from dedispersed patch - Intensity
+        snr_waterfall_linear=snr_waterfall_linear,
+        snr_patch_dedispersed_linear=linear.snr_val,
+        width_ms=intensity.width_ms,
+        dm_uncertainty=dm_uncertainty,
+        dm_status=dm_status,
+        best_width_ms=intensity.width_ms,
+        n_trials=score.n_trials,
+        post_trials_sigma=score.post_sigma,
+        snr_pre_dedisp=snr_pre_dedisp,
+        snr_post_dedisp=float(intensity.snr_val),
+        linear_fraction=linear_fraction,
+        physical_score=score.physical_score,
+        rank_score=score.rank_score,
+        class_prob_intensity=None if intensity.class_prob is None else float(intensity.class_prob),
+        is_burst_intensity=None if intensity.is_burst is None else bool(intensity.is_burst),
+        class_prob_linear=None if linear.class_prob is None else float(linear.class_prob),
+        is_burst_linear=None if linear.is_burst is None else bool(linear.is_burst),
+        is_burst=None if is_burst is None else bool(is_burst),  # Final verdict, from the decision table
+        patch_file=patch_file,
+        mjd_utc=mjd_data.get('mjd_utc'),
+        mjd_bary_utc=mjd_data.get('mjd_bary_utc'),
+        mjd_bary_tdb=mjd_data.get('mjd_bary_tdb'),
+        mjd_bary_utc_inf=mjd_data.get('mjd_bary_utc_inf'),
+        mjd_bary_tdb_inf=mjd_data.get('mjd_bary_tdb_inf'),
+        mjd_bary_status=mjd_data.get('mjd_bary_status'),
+    )
+
+
+def count_candidate(*, is_burst: bool | None) -> tuple[int, int, int]:
+    """Return the ``(candidates, bursts, no_bursts)`` deltas for one candidate.
+
+    ``is_burst`` is ``None`` when no classification phase produced a verdict, and
+    an absent verdict is neither a burst nor a non-burst: the candidate is
+    counted once and in neither column, so ``bursts + no_bursts`` can be less
+    than ``candidates`` and that difference is the number of unclassified rows.
+
+    Written the obvious way -- ``if is_burst: ... else: ...`` -- every absent
+    verdict is filed under NO-BURST, which is the reporting half of audit P1-10:
+    a run with Phase 3a and Phase 3b both off would report a confident column of
+    non-detections it never made.
+    """
+
+    return 1, 1 if is_burst is True else 0, 1 if is_burst is False else 0
+
+
 def snr_detect_and_classify_candidates_in_band(
     cls_model,
     band_img: np.ndarray,  # DM x time image used for visualisation
@@ -303,25 +737,8 @@ def snr_detect_and_classify_candidates_in_band(
     # If no peaks detected in Intensity, return empty result immediately
     if len(peaks_intensity) == 0:
         logger.info("Phase 1: No peaks detected in Intensity - skipping phases 2 & 3")
-        return {
-            "top_conf": [],
-            "top_boxes": [],
-            "class_probs_list": [],
-            "first_patch": None,
-            "first_start": None,
-            "first_dm": None,
-            "img_tensor": None,
-            "cand_counter": 0,
-            "n_bursts": 0,
-            "n_no_bursts": 0,
-            "prob_max": 0.0,
-            "patch_path": None,
-            "best_is_burst": False,
-            "total_candidates": 0,
-            "candidate_times_abs": [],
-            "phase_metrics": metrics_tracker if metrics_tracker else None,
-        }
-    
+        return _empty_band_result(metrics_tracker)
+
     # =========================================================================
     # PHASE 2: RE-EVALUATE IN LINEAR POLARIZATION - CONDITIONAL
     # =========================================================================
@@ -421,24 +838,7 @@ def snr_detect_and_classify_candidates_in_band(
         
         if len(peaks_final) == 0:
             logger.info("Phase 2: No peaks passed Linear check - skipping Phase 3")
-            return {
-                "top_conf": [],
-                "top_boxes": [],
-                "class_probs_list": [],
-                "first_patch": None,
-                "first_start": None,
-                "first_dm": None,
-                "img_tensor": None,
-                "cand_counter": 0,
-                "n_bursts": 0,
-                "n_no_bursts": 0,
-                "prob_max": 0.0,
-                "patch_path": None,
-                "best_is_burst": False,
-                "total_candidates": 0,
-                "candidate_times_abs": [],
-                "phase_metrics": metrics_tracker if metrics_tracker else None,
-            }
+            return _empty_band_result(metrics_tracker)
     else:
         # Phase 2 disabled or no multi-pol data available
         if not enable_phase2 and has_multipol:
@@ -515,10 +915,7 @@ def snr_detect_and_classify_candidates_in_band(
     # =========================================================================
     # Classification control flags already defined in configuration summary above
     # enable_intensity_class, enable_linear_class, class_prob_linear_thresh
-    
-    # Import classify_patch here so it's available for both Phase 3a and 3b
-    from ..detection.model_interface import classify_patch
-    
+
     logger.info("Phase 3: Proceeding with %d validated peaks", len(peaks))
     if not has_multipol and enable_linear_class:
         logger.warning("  - Linear classification requested but no multi-pol data - will be skipped for this slice")
@@ -562,17 +959,20 @@ def snr_detect_and_classify_candidates_in_band(
             snr_waterfall_linear = None
     
     for peak_idx in peaks:
-        # Create a box centred on the temporal peak (detected by boxcar matching)
-        # The box spans the FULL DM range (DM_min to DM_max) for accurate DM calculation
-        cx = int(max(0, min(img_w - 1, peak_idx)))
-        
-        # Box spans full DM range: from row 0 to row img_h-1
-        # This ensures DM is calculated from the entire DM range, not limited to a small box
-        x1_raw = max(0, cx - half_w)
-        x2_raw = min(img_w - 1, cx + half_w)
-        y1_raw = 0  # Start at DM_min (row 0)
-        y2_raw = img_h - 1  # End at DM_max (row img_h-1)
-        
+        # Create a box centred on the temporal peak (detected by boxcar matching).
+        # The box spans the FULL DM range (DM_min to DM_max) so the DM measured
+        # below is a property of the data and not of the box; see the function.
+        cx, box, t_sample_real, t_sec_real = locate_candidate_box(
+            peak_idx=peak_idx,
+            img_w=img_w,
+            img_h=img_h,
+            half_w=half_w,
+            scale_x=scale_x,
+            scale_y=scale_y,
+            effective_len=slice_samples if slice_samples is not None else slice_len,
+            time_reso_ds=config.TIME_RESO * config.DOWN_TIME_RATE,
+        )
+
         # CRITICAL: Calculate DM from the peak position in the DM-time cube
         # Since we don't know the exact DM from boxcar matching (only temporal position),
         # we find the DM with maximum intensity at this temporal position
@@ -588,51 +988,17 @@ def snr_detect_and_classify_candidates_in_band(
             dm_img_for_calc = band_img
         
         logger.info(f"[DM_CALC] Calculating DM for peak_idx={peak_idx}, cx={cx}, dm_img shape={dm_img_for_calc.shape}")
-        dm_val_approx = _dm_from_image_at_time(dm_img_for_calc, cx)
-        
-        # Check if DM calculation is valid (has variation in DM dimension)
-        # In very high frequencies (e.g., ALMA), dispersion is negligible, so DM-time cube
-        # may not have variation. In this case, we use the middle DM as approximation.
-        intensity_column = dm_img_for_calc[:, cx] if cx < dm_img_for_calc.shape[1] else dm_img_for_calc[:, 0]
-        col_std = float(np.std(intensity_column))
-        
-        dm_status = "measured"
-        dm_uncertainty = 0.5
-        if col_std < 1e-6:
-            dm_policy = str(getattr(config, "HIGH_FREQ_DM_POLICY", "unresolved")).lower()
-            dm_min = float(config.DM_min)
-            dm_max = float(config.DM_max)
-            if dm_policy in {"unresolved", "estimate_if_resolved"}:
-                dm_val = float("nan")
-                dm_status = "unresolved_high_freq"
-                dm_uncertainty = None
-            else:
-                dm_val = (dm_min + dm_max) / 2.0
-                dm_status = "catalog_prior"
-                dm_uncertainty = (dm_max - dm_min) / 2.0
-            logger.info(
-                f"[DM_CALC] No DM variation detected (std={col_std:.6f}) - typical at very high frequencies. "
-                f"dm_status={dm_status} (range: {dm_min:.2f}-{dm_max:.2f})"
-            )
-        else:
-            # Normal case: use the DM with maximum intensity at the peak time
-            dm_val = dm_val_approx
-            dm_status = "measured"
-            logger.info(f"[DM_CALC] Calculated DM: {dm_val:.2f} (from _dm_from_image_at_time, std={col_std:.6f})")
-        
-        # Calculate time from the center of the box (temporal position)
-        center_x = (x1_raw + x2_raw) / 2.0
-        effective_len_det = slice_samples if slice_samples is not None else slice_len
-        sample_off = (center_x / max(img_w - 1, 1)) * effective_len_det
-        t_sample_real = int(sample_off)
-        t_sec_real = float(sample_off) * config.TIME_RESO * config.DOWN_TIME_RATE
-        
-        # Transform the box to 512x512 coordinates to match img_rgb.
-        x1 = int(round(x1_raw * scale_x))
-        x2 = int(round(x2_raw * scale_x))
-        y1 = int(round(y1_raw * scale_y))
-        y2 = int(round(y2_raw * scale_y))
-        box = (x1, y1, x2, y2)
+
+        # In very high frequencies (e.g. ALMA) dispersion across the band is
+        # negligible, so the DM-time cube has no variation to read a DM from;
+        # resolve_candidate_dm says so in dm_status instead of inventing one.
+        dm_val, dm_status, dm_uncertainty = resolve_candidate_dm(
+            dm_img=dm_img_for_calc,
+            cx=cx,
+            dm_min=float(config.DM_min),
+            dm_max=float(config.DM_max),
+            dm_policy=str(getattr(config, "HIGH_FREQ_DM_POLICY", "unresolved")),
+        )
 
         # Confidence derived from the SNR value in Intensity (clipped to a sensible range).
         snr_peak = float(snr_profile_intensity[peak_idx])
@@ -645,74 +1011,59 @@ def snr_detect_and_classify_candidates_in_band(
         # PHASE 3a: ResNet Classification on INTENSITY (conditional)
         # =====================================================================
         # None means "Phase 3a produced no verdict for this candidate", which is
-        # what the CSV and the decision table must both see. These used to be
-        # 0.0/False here and 1.0/True in the disabled branch below -- in-range
-        # values indistinguishable from a real classification (audit P1-10).
-        class_prob_intensity = None
-        is_burst_intensity = None
-        snr_val_intensity = snr_peak
-        peak_idx_patch = None
-        width_ms_intensity = None
-        start_sample = None
-        proc_patch_intensity = None
+        # what the CSV and the decision table must both see (audit P1-10); see
+        # classify_intensity_patch.
+        intensity = classify_intensity_patch(
+            enabled=enable_intensity_class,
+            cls_model=cls_model,
+            data_block=data_block,
+            freq_down=freq_down,
+            dm_for_dedisp=dm_for_dedisp,
+            global_sample=global_sample,
+            time_reso_ds=config.TIME_RESO * config.DOWN_TIME_RATE,
+            snr_peak=snr_peak,
+            class_prob_threshold=float(config.CLASS_PROB),
+        )
+        class_prob_intensity = intensity.class_prob
+        is_burst_intensity = intensity.is_burst
+        snr_val_intensity = intensity.snr_val
+        proc_patch_intensity = intensity.proc_patch
 
         if enable_intensity_class:
-            time_reso_ds = config.TIME_RESO * config.DOWN_TIME_RATE
-            proc_patch_intensity, class_prob_intensity, snr_intensity_fp, peak_idx_patch, width_ms_intensity, start_sample = _finalize_patch(
-                data_block, freq_down, dm_for_dedisp, global_sample, cls_model, time_reso_ds
-            )
-            if snr_intensity_fp > 0.0:
-                snr_val_intensity = snr_intensity_fp
-            is_burst_intensity = class_prob_intensity >= float(config.CLASS_PROB)
             logger.debug(
                 "Phase 3a: Intensity classification - DM=%.2f t_idx=%d class_prob=%.3f is_burst=%s",
                 dm_val, peak_idx, class_prob_intensity, is_burst_intensity,
             )
         else:
             logger.debug("Phase 3a: DISABLED - Skipping Intensity classification for peak_idx=%d", peak_idx)
-            start_sample = None
-            peak_idx_patch = None
-        
+
         # =====================================================================
         # PHASE 3b: ResNet Classification on LINEAR POLARIZATION (conditional)
         # =====================================================================
         # Same contract as Phase 3a: None until Phase 3b actually classifies.
-        class_prob_linear = None
-        is_burst_linear = None
-        snr_val_linear = None
-        proc_patch_linear = None  # set in Phase 3b if linear data available
+        linear = classify_linear_patch(
+            enabled=enable_linear_class,
+            cls_model=cls_model,
+            data_block_linear=data_block_linear,
+            freq_down=freq_down,
+            dm_for_dedisp=dm_for_dedisp,
+            global_sample=global_sample,
+            class_prob_threshold=class_prob_linear_thresh,
+        )
+        class_prob_linear = linear.class_prob
+        is_burst_linear = linear.is_burst
+        snr_val_linear = linear.snr_val
+        proc_patch_linear = linear.proc_patch
 
-        if enable_linear_class and data_block_linear is not None:
-            # Dedisperse Linear polarization patch at same DM and time
-            patch_linear, _ = dedisperse_patch(data_block_linear, freq_down, dm_for_dedisp, global_sample)
-            
-            if patch_linear is not None and patch_linear.size > 0:
-                # Calculate SNR from dedispersed Linear patch (similar to Intensity)
-                snr_profile_linear_patch, _, _ = compute_snr_profile(patch_linear)
-                if snr_profile_linear_patch.size > 0:
-                    snr_val_linear = float(np.max(snr_profile_linear_patch))
-                
-                class_prob_linear, proc_patch_linear = classify_patch(cls_model, patch_linear)
-                # Use independent threshold for Linear classification
-                is_burst_linear = class_prob_linear >= class_prob_linear_thresh
-                
-                logger.debug(
-                    "Phase 3b: Linear classification - DM=%.2f t_idx=%d SNR_L=%.2f class_prob=%.3f is_burst=%s (threshold=%.2f)",
-                    dm_val, peak_idx, snr_val_linear if snr_val_linear is not None else 0.0, 
-                    class_prob_linear, is_burst_linear, class_prob_linear_thresh
-                )
-        elif not enable_linear_class:
-            # Phase 3b disabled: no verdict. The decision table below already
-            # falls back to Intensity alone, so no "neutral" stand-in is needed
-            # -- and a stand-in of 1.0/True was persisted as a real Linear
-            # classification (audit P1-10).
+        if not enable_linear_class:
             logger.debug("Phase 3b: DISABLED - Skipping Linear classification for peak_idx=%d", peak_idx)
-            snr_val_linear = None
-            proc_patch_linear = None  # Initialize to None when Phase 3b is disabled
-        else:
-            # Phase 3b disabled due to no multi-pol data
-            proc_patch_linear = None
-        
+        elif class_prob_linear is not None:
+            logger.debug(
+                "Phase 3b: Linear classification - DM=%.2f t_idx=%d SNR_L=%.2f class_prob=%.3f is_burst=%s (threshold=%.2f)",
+                dm_val, peak_idx, snr_val_linear if snr_val_linear is not None else 0.0,
+                class_prob_linear, is_burst_linear, class_prob_linear_thresh
+            )
+
         # =====================================================================
         # DECISION LOGIC: Determine if candidate should be saved
         # =====================================================================
@@ -836,7 +1187,12 @@ def snr_detect_and_classify_candidates_in_band(
         else:
             logger.warning("snr_profile_intensity is None or empty - cannot get SNR Intensity for peak_idx=%d", peak_idx)
         snr_waterfall_intensity_list.append(snr_intensity_at_peak)
-        snr_patch_intensity_list.append(snr_val_intensity if 'snr_val_intensity' in locals() else None)
+        # ``snr_val_intensity if 'snr_val_intensity' in locals() else None`` --
+        # the function asking itself which of its own branches had run. Phase 3a
+        # always answers, with the dedispersed-patch SNR or with the waterfall
+        # peak it falls back to, so the test was always true and the None arm
+        # unreachable.
+        snr_patch_intensity_list.append(snr_val_intensity)
         
         # Log for debugging
         if snr_linear_at_peak is not None:
@@ -869,19 +1225,18 @@ def snr_detect_and_classify_candidates_in_band(
             best_is_burst = is_burst
 
         # width_ms already computed by _finalize_patch (Phase 3a)
-        width_ms = width_ms_intensity
-        n_trials = max(1, int((config.DM_max - config.DM_min + 1) * max(1, len(snr_profile_intensity))))
-        post_sigma = post_trials_sigma(float(snr_val_intensity), n_trials, getattr(config, "TRIAL_CORRECTION", "gaussian_extreme"))
-        phys_score = physical_consistency_score(
-            post_sigma,
-            snr_peak,
-            snr_val_intensity,
-            dm_status,
-            linear_fraction,
+        score = score_candidate(
+            snr_pre_dedisp=snr_peak,
+            snr_post_dedisp=snr_val_intensity,
+            dm_status=dm_status,
+            linear_fraction=linear_fraction,
+            class_prob_intensity=class_prob_intensity,
+            class_prob_linear=class_prob_linear,
+            n_snr_samples=len(snr_profile_intensity),
+            dm_min=float(config.DM_min),
+            dm_max=float(config.DM_max),
+            trial_correction=getattr(config, "TRIAL_CORRECTION", "gaussian_extreme"),
         )
-        _available_probs = [p for p in (class_prob_intensity, class_prob_linear) if p is not None]
-        morphology_prob = max(float(p) for p in _available_probs) if _available_probs else 0.0
-        rank_score = morphology_prob * phys_score
 
         # Calculate MJD values for the candidate (using DM-time detection time, same as plot)
         mjd_data = calculate_candidate_mjd(
@@ -890,51 +1245,34 @@ def snr_detect_and_classify_candidates_in_band(
             dm=float(dm_val) if np.isfinite(float(dm_val)) else None,
         )
 
-        cand = Candidate(
-            fits_path.name,
-            chunk_idx if chunk_idx is not None else 0,
-            j,
-            band_idx,
-            float(conf),
-            float(dm_val),  # DM calculated with extract_candidate_dm (same as plot)
-            float(detection_time_dm_time),  # Time from DM-time plot (same as plot label)
-            peak_time_waterfall,  # Time from waterfall SNR peak (different method)
-            int(t_sample_real),  # Sample index
-            tuple(map(int, box)),
-            snr_waterfall,  # SNR from waterfall raw (peak_snr_wf) - Intensity
-            float(snr_val_intensity),  # SNR from dedispersed patch - Intensity
-            snr_waterfall_linear=snr_linear_at_peak,  # NEW: SNR from Linear waterfall at peak
-            snr_patch_dedispersed_linear=snr_val_linear,  # NEW: SNR from dedispersed Linear patch
-            width_ms=width_ms,
-            dm_uncertainty=dm_uncertainty,
+        cand = build_candidate_record(
+            fits_name=fits_path.name,
+            chunk_idx=chunk_idx,
+            slice_idx=j,
+            band_idx=band_idx,
+            conf=conf,
+            dm_val=dm_val,
             dm_status=dm_status,
-            best_width_ms=width_ms,
-            n_trials=n_trials,
-            post_trials_sigma=post_sigma,
+            dm_uncertainty=dm_uncertainty,
+            detection_time_dm_time=detection_time_dm_time,
+            peak_time_waterfall=peak_time_waterfall,
+            t_sample_real=t_sample_real,
+            box=box,
+            snr_waterfall=snr_waterfall,
+            snr_waterfall_linear=snr_linear_at_peak,
             snr_pre_dedisp=snr_peak,
-            snr_post_dedisp=float(snr_val_intensity),
             linear_fraction=linear_fraction,
-            physical_score=phys_score,
-            rank_score=rank_score,
-            class_prob_intensity=None if class_prob_intensity is None else float(class_prob_intensity),  # Classification probability in Intensity (I)
-            is_burst_intensity=None if is_burst_intensity is None else bool(is_burst_intensity),  # BURST classification in Intensity (I)
-            class_prob_linear=None if class_prob_linear is None else float(class_prob_linear),  # Classification probability in Linear (L) - HF only
-            is_burst_linear=None if is_burst_linear is None else bool(is_burst_linear),  # BURST classification in Linear (L) - HF only
-            is_burst=None if is_burst is None else bool(is_burst),  # Final verdict, from the decision table above
+            intensity=intensity,
+            linear=linear,
+            score=score,
+            is_burst=is_burst,
             patch_file=patch_path.name,
-            mjd_utc=mjd_data.get('mjd_utc'),
-            mjd_bary_utc=mjd_data.get('mjd_bary_utc'),
-            mjd_bary_tdb=mjd_data.get('mjd_bary_tdb'),
-            mjd_bary_utc_inf=mjd_data.get('mjd_bary_utc_inf'),
-            mjd_bary_tdb_inf=mjd_data.get('mjd_bary_tdb_inf'),
-            mjd_bary_status=mjd_data.get('mjd_bary_status'),
+            mjd_data=mjd_data,
         )
-        cand_counter += 1
-        if is_burst is True:
-            n_bursts += 1
-        elif is_burst is False:
-            n_no_bursts += 1
-        # is_burst None: no phase produced a verdict, so it is neither.
+        cand_delta, burst_delta, no_burst_delta = count_candidate(is_burst=is_burst)
+        cand_counter += cand_delta
+        n_bursts += burst_delta
+        n_no_bursts += no_burst_delta
         prob_max = max(prob_max, float(conf))
 
         # Save candidate based on dual-polarization filtering logic
@@ -1267,14 +1605,20 @@ def _process_file_chunked_high_freq(
     fits_path: Path,
     save_dir: Path,
     chunk_samples: int,
-    streaming_func,
 ) -> dict:
     """High-frequency pipeline with multi-polarization detection.
-    
+
     This pipeline implements a 3-phase detection strategy:
     1. SNR peak detection in Intensity (Stokes I) - MANDATORY
     2. Re-evaluation with Linear Polarization - ONLY if detected in Intensity
     3. ResNet classification - ONLY if detected in BOTH polarizations
+
+    There is no ``streaming_func`` parameter any more. There was one, the caller
+    resolved a reader with ``get_streaming_function`` and passed it, and this
+    function handed it to ``log_streaming_parameters`` and then iterated
+    ``stream_fits_multi_pol`` regardless -- so the log named a reader that was
+    not running, and the only honest way to read the log was to know it was
+    wrong. The reader is now named where it is used, once (audit REF-02).
     """
     from .data_flow_manager import (
         build_dm_time_cube,
@@ -1333,8 +1677,14 @@ def _process_file_chunked_high_freq(
         logger.info("High-frequency pipeline: Multi-polarization detection enabled")
         logger.info("Detection flow: Intensity → Linear → ResNet (if both pass)")
         
-        # Log streaming parameters with the adjusted chunk size (after adaptive budgeting)
-        log_streaming_parameters(effective_chunk_samples, overlap_raw, total_samples, effective_chunk_samples, streaming_func, "fits/fil")
+        # Log streaming parameters with the adjusted chunk size (after adaptive
+        # budgeting). The reader named here is the one the loop below iterates,
+        # which is the whole point of naming it here rather than taking it as an
+        # argument that was never used.
+        log_streaming_parameters(
+            effective_chunk_samples, overlap_raw, total_samples,
+            effective_chunk_samples, stream_fits_multi_pol, "fits/multi-pol",
+        )
 
         # Use multi-polarization streaming for HF pipeline
         start_arrival_clock(state)

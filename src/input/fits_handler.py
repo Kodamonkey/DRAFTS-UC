@@ -875,20 +875,28 @@ def stream_fits(
                     # The mismatch warning below is kept as a live detector: it now
                     # fires when `your` would disagree with the rule we follow, on
                     # a file whose header we have not seen before.
+                    # Anomaly detector, and it has to compare two things that
+                    # normally AGREE. The first version compared `foff > 0`
+                    # against DATA_NEEDS_REVERSAL, which are opposite by
+                    # construction -- descending DAT_FREQ means foff < 0 and
+                    # DATA_NEEDS_REVERSAL True -- so it fired once per chunk on
+                    # every ordinary file: constant noise, not a signal.
+                    #
+                    # What is worth reporting is a header that contradicts
+                    # itself: foff's sign disagreeing with the ordering
+                    # normalize_frequency_axis derived from DAT_FREQ.
                     _foff = getattr(pf, 'foff', 0.0)
-                    _your_says_reverse = bool(_foff > 0)
                     _rest_says_reverse = bool(getattr(config, 'DATA_NEEDS_REVERSAL', False))
-                    if _your_says_reverse != _rest_says_reverse:
+                    _foff_says_descending = bool(_foff < 0)
+                    if _foff and _foff_says_descending != _rest_says_reverse:
                         logger.warning(
-                            "FREQ-ORDER MISMATCH (audit P1-02): the 'your' reader would %s "
-                            "channels (foff=%.6f) but DATA_NEEDS_REVERSAL=%s says %s. "
-                            "DATA_NEEDS_REVERSAL is the criterion this reader follows "
-                            "(see the note above); the 'your' criterion is recorded here "
-                            "only so an unusual header shows up in the log.",
-                            "reverse" if _your_says_reverse else "keep",
+                            "FREQ-ORDER ANOMALY (audit P1-02): foff=%.6f implies %s channels "
+                            "but DAT_FREQ was read as %s. The file's own header disagrees with "
+                            "itself; this reader follows DAT_FREQ. Check candidates from this "
+                            "file against a known pulsar.",
                             _foff,
-                            _rest_says_reverse,
-                            "reverse" if _rest_says_reverse else "keep",
+                            "descending" if _foff_says_descending else "ascending",
+                            "descending" if _rest_says_reverse else "ascending",
                         )
                     try:
                         if _rest_says_reverse:
@@ -1373,10 +1381,23 @@ def stream_fits(
                             )
                     
                                             
-                    # Handle remaining buffer at end of file
-                    if buffer_blocks:
-                        out_buf = _concatenate_buffer()
-                    if out_buf.shape[0] > 0:
+                    # Handle remaining buffer at end of file.
+                    #
+                    # out_buf is set to None above whenever a chunk consumed the
+                    # whole buffer, so when the last chunk emptied it exactly --
+                    # FILE_LENG % chunk_samples == 0 with no overlap, which is
+                    # divisibility, not a rare case -- buffer_blocks is empty,
+                    # out_buf is still None, and this raised AttributeError.
+                    #
+                    # stream_fits is a GENERATOR and the `except Exception` that
+                    # catches it sits outside this already-yielding loop, so the
+                    # error never reached the caller: the duplicated reader
+                    # reopened the file and re-emitted it from sample 0. Measured
+                    # on a 512-sample file with chunk=256, the consumer received
+                    # [(0,256),(256,512),(0,256),(256,512)] -- every sample twice
+                    # -- with only a generic "falling back to astropy" log line.
+                    out_buf = _concatenate_buffer() if buffer_blocks else None
+                    if out_buf is not None and out_buf.shape[0] > 0:
                         chunk_counter += 1
                                                                                      
                         valid_start = 0
@@ -1888,10 +1909,23 @@ def stream_fits(
                             needs_chunk_emission = has_complete_chunk or buffer_too_large
                     
                                             
-                    # Handle remaining buffer at end of file
-                    if buffer_blocks:
-                        out_buf = _concatenate_buffer()
-                    if out_buf.shape[0] > 0:
+                    # Handle remaining buffer at end of file.
+                    #
+                    # out_buf is set to None above whenever a chunk consumed the
+                    # whole buffer, so when the last chunk emptied it exactly --
+                    # FILE_LENG % chunk_samples == 0 with no overlap, which is
+                    # divisibility, not a rare case -- buffer_blocks is empty,
+                    # out_buf is still None, and this raised AttributeError.
+                    #
+                    # stream_fits is a GENERATOR and the `except Exception` that
+                    # catches it sits outside this already-yielding loop, so the
+                    # error never reached the caller: the duplicated reader
+                    # reopened the file and re-emitted it from sample 0. Measured
+                    # on a 512-sample file with chunk=256, the consumer received
+                    # [(0,256),(256,512),(0,256),(256,512)] -- every sample twice
+                    # -- with only a generic "falling back to astropy" log line.
+                    out_buf = _concatenate_buffer() if buffer_blocks else None
+                    if out_buf is not None and out_buf.shape[0] > 0:
                         chunk_counter += 1
                                                                                      
                         valid_start = 0

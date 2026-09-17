@@ -12,15 +12,17 @@ import pandas as pd
 import yaml
 from pathlib import Path
 from typing import Dict, Tuple
-from openpyxl.styles import Font, PatternFill, Alignment
-from openpyxl.utils import get_column_letter
 
-# Importar funciones del script anterior
+# Código compartido con compare_validated_with_detections.py (extraído en REF-14).
 import sys
 sys.path.append(str(Path(__file__).parent))
-from compare_validated_with_detections import (
-    normalize_filename,
-    filter_special_files
+from _matching_common import (
+    EXCLUDE_VALIDATED_COLS_PHASES,
+    canonical_alma_key,
+    find_matches,
+    load_detected_candidates,
+    postprocess_dedupe_columns,
+    save_to_excel,
 )
 
 
@@ -49,7 +51,7 @@ def load_validated_candidates(excel_path: str) -> Tuple[pd.DataFrame, pd.DataFra
     
     # Normalizar nombres de archivo
     if 'nombre_archivo' in df.columns:
-        df['nombre_archivo_normalized'] = df['nombre_archivo'].apply(normalize_filename)
+        df['nombre_archivo_normalized'] = df['nombre_archivo'].apply(canonical_alma_key)
     else:
         print("⚠ Advertencia: No se encontró la columna 'nombre_archivo'")
         df['nombre_archivo_normalized'] = ''
@@ -84,196 +86,6 @@ def load_validated_candidates(excel_path: str) -> Tuple[pd.DataFrame, pd.DataFra
     
     print(f"  [OK] Cargados {len(canonicos_df)} canónicos y {len(extras_df)} extras")
     return canonicos_df, extras_df
-
-
-def load_detected_candidates(csv_path: str) -> pd.DataFrame:
-    """
-    Carga y normaliza los candidatos detectados automáticamente.
-    
-    Args:
-        csv_path: Ruta al archivo combined_candidates-*.csv
-        
-    Returns:
-        DataFrame con candidatos detectados normalizados
-    """
-    print(f"Cargando candidatos detectados desde: {csv_path}")
-    df = pd.read_csv(csv_path, encoding='utf-8')
-    
-    # Filtrar archivos especiales con tiempos en el nombre
-    df = filter_special_files(df)
-    
-    # Normalizar campo 'file' para matching consistente
-    if 'file' in df.columns:
-        df['file_clean'] = df['file'].apply(normalize_filename)
-    else:
-        print("⚠ Advertencia: No se encontró la columna 'file'")
-        df['file_clean'] = ''
-    
-    # Asegurar que t_sec_dm_time sea numérico
-    if 't_sec_dm_time' in df.columns:
-        df['t_sec_dm_time'] = pd.to_numeric(df['t_sec_dm_time'], errors='coerce')
-    else:
-        print("⚠ Advertencia: No se encontró la columna 't_sec_dm_time'")
-        df['t_sec_dm_time'] = None
-    
-    print(f"  [OK] Cargados {len(df)} candidatos detectados (después de filtrar archivos especiales)")
-    return df
-
-
-def find_matches(validated_df: pd.DataFrame, detected_df: pd.DataFrame, 
-                 source_name: str) -> pd.DataFrame:
-    """
-    Encuentra matches entre candidatos validados y detectados.
-    También incluye candidatos detectados que no tienen match (etiquetados como "new").
-    
-    Args:
-        validated_df: DataFrame con candidatos validados (canónicos o extras)
-        detected_df: DataFrame con candidatos detectados
-        source_name: Nombre del archivo fuente
-        
-    Returns:
-        DataFrame con todos los matches y candidatos nuevos
-    """
-    results = []
-    matched_detected_indices = set()
-    
-    # Procesar todos los candidatos validados
-    for idx, validated_row in validated_df.iterrows():
-        nombre_archivo_normalized = validated_row.get('nombre_archivo_normalized', '')
-        candidato_tiempo = validated_row.get('candidato_tiempo_clean')
-        
-        if pd.isna(nombre_archivo_normalized) or nombre_archivo_normalized == '' or pd.isna(candidato_tiempo):
-            result_row = validated_row.to_dict()
-            result_row['has_match'] = False
-            result_row['num_matches'] = 0
-            result_row['source_file'] = source_name
-            result_row['match_type'] = 'validated'
-            for col in detected_df.columns:
-                if col not in ['file_clean']:
-                    result_row[f'detected_{col}'] = None
-            results.append(result_row)
-            continue
-        
-        # Filtrar por archivo usando nombres normalizados
-        file_matches = detected_df[
-            detected_df['file_clean'] == nombre_archivo_normalized
-        ].copy()
-        
-        if len(file_matches) == 0:
-            result_row = validated_row.to_dict()
-            result_row['has_match'] = False
-            result_row['num_matches'] = 0
-            result_row['source_file'] = source_name
-            result_row['match_type'] = 'validated'
-            for col in detected_df.columns:
-                if col not in ['file_clean']:
-                    result_row[f'detected_{col}'] = None
-            results.append(result_row)
-            continue
-        
-        # Filtrar por tiempo (diferencia < 0.1 segundos)
-        file_matches['time_diff'] = abs(file_matches['t_sec_dm_time'] - candidato_tiempo)
-        time_matches = file_matches[file_matches['time_diff'] < 0.1].copy()
-        
-        num_matches = len(time_matches)
-        
-        if num_matches == 0:
-            result_row = validated_row.to_dict()
-            result_row['has_match'] = False
-            result_row['num_matches'] = 0
-            result_row['source_file'] = source_name
-            result_row['match_type'] = 'validated'
-            for col in detected_df.columns:
-                if col not in ['file_clean', 'time_diff']:
-                    result_row[f'detected_{col}'] = None
-            results.append(result_row)
-        else:
-            # Hay matches - crear una fila por cada match
-            for match_idx, match_row in time_matches.iterrows():
-                matched_detected_indices.add(match_idx)
-                result_row = validated_row.to_dict()
-                result_row['has_match'] = True
-                result_row['num_matches'] = num_matches
-                result_row['source_file'] = source_name
-                result_row['match_type'] = 'validated'
-                for col in detected_df.columns:
-                    if col not in ['file_clean', 'time_diff']:
-                        result_row[f'detected_{col}'] = match_row[col]
-                results.append(result_row)
-    
-    # Agregar candidatos detectados que NO tienen match (etiquetados como "new")
-    unmatched_detected = detected_df[~detected_df.index.isin(matched_detected_indices)].copy()
-    
-    for idx, detected_row in unmatched_detected.iterrows():
-        result_row = {}
-        # Columnas validated_ vacías
-        for col in validated_df.columns:
-            if col not in ['candidato_tiempo_clean', 'nombre_archivo_normalized', 'is_canonical']:
-                if col.startswith('validated_'):
-                    result_row[col] = None
-                elif col == 'Folder':
-                    result_row['validated_Folder'] = None
-                elif col == 'subfolder':
-                    result_row['validated_subfolder'] = None
-                elif col == 'nombre_archivo':
-                    result_row['validated_nombre_archivo'] = None
-                elif col == 'candidato tiempo':
-                    result_row['validated_candidato_tiempo'] = None
-                elif col == 'SNR':
-                    result_row['validated_SNR'] = None
-                elif col == 'choosen':
-                    result_row['validated_choosen'] = None
-                else:
-                    result_row[f'validated_{col}'] = None
-        
-        result_row['has_match'] = False
-        result_row['num_matches'] = 0
-        result_row['source_file'] = source_name
-        result_row['match_type'] = 'new'
-        
-        # Agregar todas las columnas detected_
-        for col in detected_df.columns:
-            if col not in ['file_clean', 'time_diff']:
-                result_row[f'detected_{col}'] = detected_row[col]
-        
-        results.append(result_row)
-    
-    # Crear DataFrame resultado
-    result_df = pd.DataFrame(results)
-    
-    # Limpiar columnas duplicadas (mantener la primera)
-    result_df = result_df.loc[:, ~result_df.columns.duplicated()].copy()
-    
-    # Renombrar columnas validated_ si no tienen prefijo
-    column_mapping = {}
-    for col in result_df.columns:
-        if not col.startswith('validated_') and col not in ['candidato_tiempo_clean', 'nombre_archivo_normalized', 'is_canonical', 'has_match', 'num_matches', 'match_type', 'source_file']:
-            if col == 'Folder':
-                column_mapping[col] = 'validated_Folder'
-            elif col == 'subfolder':
-                column_mapping[col] = 'validated_subfolder'
-            elif col == 'nombre_archivo':
-                column_mapping[col] = 'validated_nombre_archivo'
-            elif col == 'candidato tiempo':
-                column_mapping[col] = 'validated_candidato_tiempo'
-            elif col == 'SNR':
-                column_mapping[col] = 'validated_SNR'
-            elif col == 'choosen':
-                column_mapping[col] = 'validated_choosen'
-    
-    if column_mapping:
-        result_df = result_df.rename(columns=column_mapping)
-    
-    # Eliminar columnas auxiliares
-    columns_to_drop = ['candidato_tiempo_clean', 'nombre_archivo_normalized', 'is_canonical']
-    for col in columns_to_drop:
-        if col in result_df.columns:
-            result_df = result_df.drop(columns=[col])
-    
-    # Limpiar nuevamente después de renombrar
-    result_df = result_df.loc[:, ~result_df.columns.duplicated()].copy()
-    
-    return result_df
 
 
 def order_columns_by_relevance(df: pd.DataFrame) -> pd.DataFrame:
@@ -701,66 +513,6 @@ def calculate_metrics(matches_df: pd.DataFrame, canonicos_df: pd.DataFrame,
     return metrics
 
 
-def save_to_excel(df: pd.DataFrame, output_path: str) -> None:
-    """
-    Guarda el DataFrame en formato Excel con formato mejorado y columnas ordenadas.
-    
-    Args:
-        df: DataFrame a guardar
-        output_path: Ruta del archivo Excel de salida
-    """
-    print(f"\nGuardando resultados en: {output_path}")
-    
-    # Reordenar columnas por relevancia
-    df_ordered = order_columns_by_relevance(df)
-    
-    try:
-        with pd.ExcelWriter(output_path, engine='openpyxl', mode='w') as writer:
-            df_ordered.to_excel(writer, index=False, sheet_name='Matches')
-            
-            worksheet = writer.sheets['Matches']
-            
-            # Formatear encabezado
-            header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
-            header_font = Font(bold=True, color="FFFFFF")
-            header_alignment = Alignment(horizontal="center", vertical="center")
-            
-            for cell in worksheet[1]:
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = header_alignment
-            
-            # Ajustar ancho de columnas
-            for idx, col in enumerate(df_ordered.columns, start=1):
-                try:
-                    col_max = df_ordered[col].astype(str).map(len).max()
-                    if pd.isna(col_max):
-                        col_max = 0
-                    max_length = max(int(col_max), len(str(col))) + 2
-                    max_length = min(max_length, 50)
-                    col_letter = get_column_letter(idx)
-                    worksheet.column_dimensions[col_letter].width = max_length
-                except Exception:
-                    col_letter = get_column_letter(idx)
-                    worksheet.column_dimensions[col_letter].width = 15
-            
-            # Congelar primera fila
-            worksheet.freeze_panes = 'A2'
-        
-        print(f"  [OK] Archivo Excel guardado exitosamente")
-        
-    except PermissionError as e:
-        print(f"  [ERROR] No se puede escribir el archivo. Por favor, cierra el archivo Excel si está abierto.")
-        print(f"  Error: {e}")
-        raise
-    except ImportError:
-        print("⚠ openpyxl no está instalado. Instalando...")
-        import subprocess
-        import sys
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
-        save_to_excel(df, output_path)
-
-
 def get_phase_config(config: Dict, phase_name: str) -> Dict:
     """
     Obtiene la configuración de fases para un caso específico.
@@ -857,7 +609,14 @@ def main():
         detected_df = load_detected_candidates(str(detection_path))
         
         # Encontrar matches
-        matches_df = find_matches(all_validated_df, detected_df, detection_file)
+        matches_df = find_matches(
+            all_validated_df,
+            detected_df,
+            detection_file,
+            exclude_validated_cols=EXCLUDE_VALIDATED_COLS_PHASES,
+            postprocess=postprocess_dedupe_columns,
+            verbose=False,
+        )
         
         # Calcular métricas
         metrics = calculate_metrics(matches_df, canonicos_df, extras_df)
@@ -866,7 +625,8 @@ def main():
         # Guardar en Excel
         output_path = base_path / output_file
         try:
-            save_to_excel(matches_df, str(output_path))
+            save_to_excel(matches_df, str(output_path),
+                          order_columns=order_columns_by_relevance)
         except PermissionError:
             print(f"  ⚠ Saltando {output_file} - archivo está abierto. Por favor ciérralo y vuelve a ejecutar.")
             continue

@@ -229,14 +229,15 @@ def identify_canonical_pulses(df_validated):
     
     return canonical_indices, canonical_info
 
-def clean_column_name(col):
-    """Limpia nombres de columnas duplicadas."""
-    if col.endswith('.1'):
-        return col[:-2]
-    return col
+def normalize_filename_hyphen(filename):
+    """
+    Normaliza nombres de archivo a una clave separada por GUIONES, sin extensión.
 
-def normalize_filename(filename):
-    """Normaliza nombres de archivo para comparación."""
+    OJO: no es intercambiable con canonical_alma_key (_matching_common.py), que
+    produce claves separadas por guiones bajos, ni con
+    normalize_filename_underscore_keep_ext (analizar_canonicos_extras.py), que
+    conserva la extensión .fits. Los espacios de claves son disjuntos.
+    """
     if pd.isna(filename):
         return ""
     filename = str(filename).lower().strip()
@@ -247,27 +248,6 @@ def normalize_filename(filename):
     # Remover espacios extra
     filename = filename.replace(' ', '')
     return filename
-
-def files_match(file1, file2):
-    """Verifica si dos nombres de archivo coinciden después de normalización."""
-    norm1 = normalize_filename(file1)
-    norm2 = normalize_filename(file2)
-    
-    # Comparación exacta
-    if norm1 == norm2:
-        return True
-    
-    # Comparación por partes (para manejar variaciones)
-    parts1 = set([p for p in norm1.split('-') if len(p) > 2])
-    parts2 = set([p for p in norm2.split('-') if len(p) > 2])
-    
-    # Si tienen suficientes partes en común
-    if len(parts1) > 0 and len(parts2) > 0:
-        common = parts1.intersection(parts2)
-        if len(common) >= min(3, len(parts1), len(parts2)):
-            return True
-    
-    return False
 
 def analyze_case(matches_file, df_validated, canonical_indices, canonical_info):
     """Analiza un caso específico."""

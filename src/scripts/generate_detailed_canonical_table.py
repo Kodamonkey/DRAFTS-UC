@@ -35,8 +35,14 @@ CASE_MAPPING = {
     "matches_no-phase2.xlsx": "f",
 }
 
-def normalize_filename(filename):
-    """Normaliza nombres de archivo."""
+def normalize_filename_hyphen(filename):
+    """
+    Normaliza nombres de archivo a una clave separada por GUIONES, sin extensión.
+
+    Equivalente byte a byte a normalize_filename_hyphen de
+    analyze_alma_validation.py. NO es intercambiable con canonical_alma_key
+    (_matching_common.py), que separa con guiones bajos.
+    """
     if pd.isna(filename):
         return ""
     filename = str(filename).lower().strip().replace('.fits', '').replace('_', '-').replace(' ', '')
@@ -44,8 +50,8 @@ def normalize_filename(filename):
 
 def files_match(file1, file2):
     """Verifica si dos nombres coinciden."""
-    norm1 = normalize_filename(file1)
-    norm2 = normalize_filename(file2)
+    norm1 = normalize_filename_hyphen(file1)
+    norm2 = normalize_filename_hyphen(file2)
     if norm1 == norm2:
         return True
     parts1 = set([p for p in norm1.split('-') if len(p) > 2])

@@ -17,24 +17,25 @@ Version: 1.0
 
 from __future__ import annotations
 
-import argparse
-import json
 import csv
-import sys
 from pathlib import Path
 from typing import Dict, List, Any, Tuple
-import logging
 
-# Setup path
-script_dir = Path(__file__).parent
-parent_dir = script_dir.parent
-sys.path.insert(0, str(parent_dir))
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+# Plomería compartida con los demás analyze_case_*.py (REF-18). El directorio
+# del script ya está en sys.path al ejecutarlo como
+# `python src/scripts/analyze_case_alma_psr1745.py`.
+#
+# OJO: este script necesita TODOS los CSV que casan con el patrón, no sólo el
+# primero, así que usa find_candidates_csvs (plural). b0355 y frb121102 usan
+# find_candidates_csv (singular, Optional[Path]). Antes eran dos funciones
+# distintas con el mismo nombre en scripts distintos.
+from _case_common import (
+    build_arg_parser,
+    emit_report,
+    find_candidates_csvs,
+    logger,
+    resolve_results_dir,
 )
-logger = logging.getLogger(__name__)
 
 # Ground truth: 8 canonical pulses
 GROUND_TRUTH = {
@@ -45,17 +46,6 @@ GROUND_TRUTH = {
     '230_0003': [36.548],
     '242_0005': [44.919],
 }
-
-
-def find_candidates_csv(results_dir: Path, file_pattern: str) -> List[Path]:
-    """Find all candidate CSV files matching pattern."""
-    csv_files = []
-    for summary_dir in results_dir.glob('Summary/*'):
-        if file_pattern in summary_dir.name:
-            csv_file = summary_dir / f"{summary_dir.name}.candidates.csv"
-            if csv_file.exists():
-                csv_files.append(csv_file)
-    return csv_files
 
 
 def load_candidates_csv(csv_path: Path) -> List[Dict[str, Any]]:
@@ -184,7 +174,7 @@ def analyze_ground_truth_validation(results_dir: Path) -> Dict[str, Any]:
         logger.info(f"Processing {file_stem}...")
         
         # Find CSV files for this file
-        csv_files = find_candidates_csv(results_dir, file_stem)
+        csv_files = find_candidates_csvs(results_dir, file_stem)
         
         if not csv_files:
             logger.warning(f"No CSV files found for {file_stem}")
@@ -250,7 +240,7 @@ def analyze_extended_validation(results_dir: Path) -> Dict[str, Any]:
     
     all_candidates = []
     for pattern in alma_patterns:
-        csv_files = find_candidates_csv(results_dir, pattern)
+        csv_files = find_candidates_csvs(results_dir, pattern)
         for csv_file in csv_files:
             candidates = load_candidates_csv(csv_file)
             all_candidates.extend(candidates)
@@ -326,61 +316,26 @@ def print_summary(report: Dict[str, Any]):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Analyze ALMA PSR J1745-2900 case study HF pipeline validation'
+    parser = build_arg_parser(
+        description='Analyze ALMA PSR J1745-2900 case study HF pipeline validation',
+        default_results_dir='Results-polarization',
     )
-    parser.add_argument(
-        '--results-dir',
-        type=str,
-        default='Results-polarization',
-        help='Results directory (default: Results-polarization)'
-    )
-    parser.add_argument(
-        '--output',
-        type=str,
-        default=None,
-        help='Output JSON report file (optional)'
-    )
-    parser.add_argument(
-        '--summary',
-        action='store_true',
-        help='Print summary statistics'
-    )
-    
     args = parser.parse_args()
-    
+
     # Resolve paths
-    script_dir = Path(__file__).parent
-    project_root = script_dir.parent.parent
-    results_dir = project_root / args.results_dir
-    
-    if not results_dir.exists():
-        logger.error(f"Results directory does not exist: {results_dir}")
-        sys.exit(1)
-    
+    project_root, results_dir = resolve_results_dir(args.results_dir)
+
     # Analyze ground truth validation
     gt_validation = analyze_ground_truth_validation(results_dir)
-    
+
     # Analyze extended validation
     extended_validation = analyze_extended_validation(results_dir)
-    
+
     # Generate report
     report = generate_report(gt_validation, extended_validation)
-    
-    # Save report if requested
-    if args.output:
-        output_path = project_root / args.output
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(report, f, indent=2, ensure_ascii=False)
-        logger.info(f"Report saved to {output_path}")
-    
-    # Print summary
-    if args.summary:
-        print_summary(report)
-    else:
-        logger.info("Analysis complete")
-        logger.info("Use --summary to see detailed statistics")
+
+    emit_report(report, args, project_root, print_summary,
+                "Analysis complete")
 
 
 if __name__ == '__main__':

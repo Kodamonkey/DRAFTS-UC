@@ -16,24 +16,23 @@ Version: 1.0
 
 from __future__ import annotations
 
-import argparse
-import json
 import csv
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-import logging
 
-# Setup path
-script_dir = Path(__file__).parent
-parent_dir = script_dir.parent
-sys.path.insert(0, str(parent_dir))
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+# Plomería compartida con los demás analyze_case_*.py (REF-18). El directorio
+# del script ya está en sys.path al ejecutarlo como
+# `python src/scripts/analyze_case_frb121102.py`.
+from _case_common import (
+    build_arg_parser,
+    emit_report,
+    find_candidates_csv,
+    find_validation_json,
+    load_validation_metrics,
+    logger,
+    resolve_results_dir,
 )
-logger = logging.getLogger(__name__)
 
 # FRB 121102 files
 FRB121102_FILES = ['3096_0001_00_8bit', '3097_0001_00_8bit', '3098_0001_00_8bit',
@@ -42,51 +41,6 @@ FRB121102_FILES = ['3096_0001_00_8bit', '3097_0001_00_8bit', '3098_0001_00_8bit'
 
 # Ground truth: 24 known events
 GROUND_TRUTH_COUNT = 24
-
-
-def find_validation_json(results_dir: Path, file_stem: str) -> Optional[Path]:
-    """Find validation JSON file for a given file stem."""
-    # Look in Validation/ directory (direct files)
-    validation_dir = results_dir / 'Validation'
-    if validation_dir.exists():
-        # Try direct match
-        for json_file in validation_dir.glob(f'*{file_stem}*.json'):
-            return json_file
-        # Try in subdirectories
-        for subdir in validation_dir.iterdir():
-            if subdir.is_dir() and file_stem in subdir.name:
-                for json_file in subdir.glob(f'*{file_stem}*.json'):
-                    return json_file
-    
-    # Look in Summary/*/Validation/validation_metrics.json (legacy structure)
-    for summary_dir in results_dir.glob('Summary/*'):
-        if file_stem in summary_dir.name:
-            validation_dir = summary_dir / 'Validation'
-            if validation_dir.exists():
-                json_file = validation_dir / 'validation_metrics.json'
-                if json_file.exists():
-                    return json_file
-    return None
-
-
-def find_candidates_csv(results_dir: Path, file_stem: str) -> Optional[Path]:
-    """Find candidates CSV file for a given file stem."""
-    for summary_dir in results_dir.glob('Summary/*'):
-        if file_stem in summary_dir.name:
-            csv_file = summary_dir / f"{summary_dir.name}.candidates.csv"
-            if csv_file.exists():
-                return csv_file
-    return None
-
-
-def load_validation_metrics(json_path: Path) -> Dict[str, Any]:
-    """Load validation metrics from JSON file."""
-    try:
-        with open(json_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"Error loading {json_path}: {e}")
-        return {}
 
 
 def extract_scalability_metrics(metrics: Dict) -> Dict[str, Any]:
@@ -256,38 +210,15 @@ def print_summary(report: Dict[str, Any]):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Analyze FRB 121102 case study scalability'
+    parser = build_arg_parser(
+        description='Analyze FRB 121102 case study scalability',
+        default_results_dir='Results-polarization-finales',
     )
-    parser.add_argument(
-        '--results-dir',
-        type=str,
-        default='Results-polarization-finales',
-        help='Results directory (default: Results-polarization-finales)'
-    )
-    parser.add_argument(
-        '--output',
-        type=str,
-        default=None,
-        help='Output JSON report file (optional)'
-    )
-    parser.add_argument(
-        '--summary',
-        action='store_true',
-        help='Print summary statistics'
-    )
-    
     args = parser.parse_args()
-    
+
     # Resolve paths
-    script_dir = Path(__file__).parent
-    project_root = script_dir.parent.parent
-    results_dir = project_root / args.results_dir
-    
-    if not results_dir.exists():
-        logger.error(f"Results directory does not exist: {results_dir}")
-        sys.exit(1)
-    
+    project_root, results_dir = resolve_results_dir(args.results_dir)
+
     # Analyze each FRB 121102 file
     analyses = []
     for file_stem in FRB121102_FILES:
@@ -302,21 +233,9 @@ def main():
     
     # Generate report
     report = generate_report(analyses)
-    
-    # Save report if requested
-    if args.output:
-        output_path = project_root / args.output
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(report, f, indent=2, ensure_ascii=False)
-        logger.info(f"Report saved to {output_path}")
-    
-    # Print summary
-    if args.summary:
-        print_summary(report)
-    else:
-        logger.info(f"Analyzed {len(analyses)} files")
-        logger.info("Use --summary to see detailed statistics")
+
+    emit_report(report, args, project_root, print_summary,
+                f"Analyzed {len(analyses)} files")
 
 
 if __name__ == '__main__':

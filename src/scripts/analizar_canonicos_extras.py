@@ -5,23 +5,34 @@ import pandas as pd
 import re
 from pathlib import Path
 
-# Importar función de analyze_alma_validation.py
+# Importar función de analyze_alma_validation.py.
+# Se usa sys.path.append (no insert) con una ruta absoluta derivada de __file__:
+#  - absoluta, para no depender de que el CWD sea la raíz del repo (antes se
+#    insertaba el string relativo 'src/scripts');
+#  - append y no insert, para que este directorio quede al FINAL de sys.path y
+#    nunca pueda ensombrecer un módulo de la biblioteca estándar.
 import sys
-sys.path.insert(0, 'src/scripts')
+sys.path.append(str(Path(__file__).resolve().parent))
 from analyze_alma_validation import load_canonical_pulses_from_config
 
 # Cargar tabla_transformada para identificar canónicos
 tabla_path = Path("ResultsThesis/tabla_transformada.csv")
 df_validated = pd.read_csv(tabla_path, sep='\t', encoding='utf-8')
 
-# Normalizar nombre_archivo para matching
-def normalize_filename(filename: str) -> str:
+# Normalizar nombre_archivo para matching.
+# OJO: esta variante NO quita la extensión .fits y separa con guiones bajos, así
+# que sus claves NO son comparables con normalize_filename_hyphen
+# (analyze_alma_validation.py, generate_detailed_canonical_table.py) ni con
+# canonical_alma_key (_matching_common.py). No importar entre scripts.
+def normalize_filename_underscore_keep_ext(filename: str) -> str:
     if pd.isna(filename) or filename == '':
         return ''
     filename = str(filename).strip().replace('-', '_').lower()
     return filename
 
-df_validated['nombre_archivo_normalized'] = df_validated['nombre_archivo'].apply(normalize_filename)
+df_validated['nombre_archivo_normalized'] = df_validated['nombre_archivo'].apply(
+    normalize_filename_underscore_keep_ext
+)
 
 # Limpiar tiempo de candidato
 df_validated['candidato_tiempo_clean'] = df_validated['candidato tiempo'].astype(str).apply(
@@ -43,7 +54,7 @@ for canon in canonical_pulses:
     
     # Buscar matches
     file_match = df_validated['nombre_archivo_normalized'].str.contains(
-        normalize_filename(file_pattern), case=False, na=False
+        normalize_filename_underscore_keep_ext(file_pattern), case=False, na=False
     )
     subfolder_match = (
         (df_validated['subfolder'].astype(str) == subfolder) |

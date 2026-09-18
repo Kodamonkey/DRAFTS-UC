@@ -67,3 +67,48 @@ def _isolate_config():
     before = _snapshot_config()
     yield
     _restore_config(before)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _keep_astropy_off_the_network():
+    """Stop astropy reaching for the network mid-test.
+
+    Two paths do. The site registry is one, and ``tests/observatory.py`` deals
+    with it by pinning a position instead of a name. The other is the IERS
+    Earth-orientation table: astropy tries two mirrors, waits out both
+    timeouts, warns, and falls back to the IERS-A table bundled in
+    ``astropy-iers-data``.
+
+    The fallback is not an approximation worth avoiding here -- the bundled
+    table reproduces every barycentric column of
+    ``tests/golden/lf_candidates.csv`` to its full twelve decimals. So the
+    download changes no assertion in this suite and costs two timeouts per
+    call. Turning it off makes the run deterministic and faster, and it makes a
+    genuine network dependency fail loudly rather than after a wait.
+    """
+    try:
+        from astropy.utils import iers
+    except ImportError:
+        yield
+        return
+    before = iers.conf.auto_download
+    iers.conf.auto_download = False
+    try:
+        yield
+    finally:
+        iers.conf.auto_download = before
+
+
+@pytest.fixture(autouse=True)
+def _forget_resolved_observatories():
+    """Keep ``mjd_utils``' site cache from leaking between tests.
+
+    It remembers failures as well as successes (deliberately -- see
+    ``_resolve_site``), which within one process would otherwise make a test
+    that pins a bad site name change the outcome of one that does not.
+    """
+    from src.core import mjd_utils
+
+    mjd_utils.clear_site_cache()
+    yield
+    mjd_utils.clear_site_cache()

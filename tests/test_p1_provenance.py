@@ -20,6 +20,7 @@ from src.config import config
 from src.core import mjd_utils
 from src.core.high_freq_pipeline import decide_candidate
 from src.output.candidate_manager import CANDIDATE_HEADER, Candidate
+from tests.observatory import effelsberg
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 HF_SOURCE = PROJECT_ROOT / "src" / "core" / "high_freq_pipeline.py"
@@ -34,7 +35,11 @@ def _configure_source(monkeypatch, *, ra="05:31:58.70", dec="33:08:52.5"):
     monkeypatch.setattr(config, "SOURCE_RA", ra, raising=False)
     monkeypatch.setattr(config, "SOURCE_DEC", dec, raising=False)
     monkeypatch.setattr(config, "REF_FREQ_MHZ", 1400.0, raising=False)
-    monkeypatch.setattr(config, "OBSERVATORY", "Effelsberg", raising=False)
+    # A pinned EarthLocation rather than the name: see tests/observatory.py.
+    # Resolving "Effelsberg" downloads astropy's site registry, so these tests
+    # asserted that the correction succeeds while depending on the network to
+    # let it.
+    monkeypatch.setattr(config, "OBSERVATORY", effelsberg(), raising=False)
     monkeypatch.setattr(config, "EPHEMERIS", _NO_DOWNLOAD_EPHEM, raising=False)
 
 
@@ -148,6 +153,74 @@ class TestDegradationIsRecorded:
         assert result["mjd_bary_status"] == "ok"
         assert result["mjd_bary_utc"] is not None
         assert result["mjd_bary_utc"] != result["mjd_utc"]
+
+
+class TestTheObservatoryIsResolvedOncePerRun:
+    """``EarthLocation.of_site`` is a network call, and this is a hot path.
+
+    Astropy stopped bundling the site registry, so resolving a site *name*
+    downloads ``sites.json``. ``calculate_candidate_mjd`` runs once per
+    candidate, so without a cache a 500-candidate run makes 500 lookups -- and
+    when the download cannot succeed, astropy retries both of its mirrors and
+    waits out both timeouts every single time, to reach the same failure.
+    """
+
+    def _count_lookups(self, monkeypatch, site):
+        calls = []
+
+        def _spy(name):
+            calls.append(name)
+            raise RuntimeError("no network in this test")
+
+        from astropy.coordinates import EarthLocation
+
+        monkeypatch.setattr(EarthLocation, "of_site", staticmethod(_spy))
+        _configure_source(monkeypatch)
+        monkeypatch.setattr(config, "OBSERVATORY", site, raising=False)
+        for _ in range(5):
+            mjd_utils.calculate_candidate_mjd(
+                t_sec=1.0, tstart_mjd=60000.0, compute_bary=True, dm=100.0
+            )
+        return calls
+
+    def test_a_failing_lookup_is_not_retried_per_candidate(self, monkeypatch):
+        """The expensive case: the answer is a failure, so it is not cached by
+        anything that only remembers return values."""
+        pytest.importorskip("astropy")
+        calls = self._count_lookups(monkeypatch, "NoSuchSiteOnEarth")
+        assert len(calls) == 1, (
+            f"the site was looked up {len(calls)} times for 5 candidates; a "
+            "failed lookup must be remembered too, or an offline run pays two "
+            "HTTP timeouts per candidate"
+        )
+
+    def test_the_failure_still_reaches_the_status_every_time(self, monkeypatch):
+        """Caching must not turn a reported failure into a silent success."""
+        pytest.importorskip("astropy")
+        calls = []
+
+        def _spy(name):
+            calls.append(name)
+            raise RuntimeError("no network in this test")
+
+        from astropy.coordinates import EarthLocation
+
+        monkeypatch.setattr(EarthLocation, "of_site", staticmethod(_spy))
+        _configure_source(monkeypatch)
+        monkeypatch.setattr(config, "OBSERVATORY", "NoSuchSiteOnEarth", raising=False)
+        for _ in range(3):
+            result = mjd_utils.calculate_candidate_mjd(
+                t_sec=1.0, tstart_mjd=60000.0, compute_bary=True, dm=100.0
+            )
+            assert result["mjd_bary_status"] == "unavailable:error"
+            assert result["mjd_bary_utc"] is None
+
+    def test_a_pinned_earthlocation_is_never_looked_up(self, monkeypatch):
+        """How the golden suites stay off the network: pass the position, not
+        the name. ``get_barycentric_mjd`` takes either."""
+        pytest.importorskip("astropy")
+        calls = self._count_lookups(monkeypatch, effelsberg())
+        assert calls == [], f"an EarthLocation was resolved through of_site: {calls}"
 
     def test_not_requesting_the_correction_is_distinct_from_failing_at_it(self):
         result = mjd_utils.calculate_candidate_mjd(

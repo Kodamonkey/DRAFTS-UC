@@ -25,6 +25,50 @@ from ..config import config
 logger = logging.getLogger(__name__)
 
 
+# ``EarthLocation.of_site`` is a network call. Astropy no longer ships the site
+# registry -- ``astropy/coordinates/data/`` holds only constellation files -- so
+# the name is resolved by downloading ``sites.json`` from data.astropy.org and
+# is served from ``~/.astropy`` only once that download has succeeded at least
+# once on this machine.
+#
+# When it cannot succeed -- an air-gapped run, a proxy that does not allow the
+# host, the server being down -- astropy tries both of its mirrors, with their
+# timeouts, and raises. ``get_barycentric_mjd`` is called once per candidate, so
+# a run that produced 500 candidates made 1000 failed HTTP requests and paid
+# every one of their timeouts, to arrive at the same failure each time.
+#
+# The observatory does not move during a run. Resolve it once and remember the
+# answer -- including the failure, which is why this is not ``lru_cache``: that
+# caches returns and not raises, which is exactly the case that costs here.
+_SITE_CACHE: dict[str, object] = {}
+
+
+def clear_site_cache() -> None:
+    """Forget resolved observatory positions. For tests; a run never needs it."""
+    _SITE_CACHE.clear()
+
+
+def _resolve_site(name: str):
+    """``EarthLocation.of_site(name)``, but at most once per name per process.
+
+    Raises whatever ``of_site`` raised, so the caller's error handling and the
+    resulting ``mjd_bary_status`` are unchanged -- it just raises it from memory
+    instead of going back to the network for the same answer.
+    """
+    cached = _SITE_CACHE.get(name)
+    if cached is not None:
+        if isinstance(cached, Exception):
+            raise cached
+        return cached
+    try:
+        location = EarthLocation.of_site(name)
+    except Exception as exc:
+        _SITE_CACHE[name] = exc
+        raise
+    _SITE_CACHE[name] = location
+    return location
+
+
 def get_topocentric_mjd(tstart_mjd: float, t_sec: float) -> float:
     """
     Calculate topocentric MJD (UTC) from file start MJD and relative time.
@@ -92,8 +136,10 @@ def get_barycentric_mjd(
         return None, None, None, None, "unavailable:astropy-missing"
 
     try:
-        # 1) Site location
-        loc = EarthLocation.of_site(location) if isinstance(location, str) else location
+        # 1) Site location. A name is looked up (once -- see _resolve_site); an
+        # EarthLocation is used as given, which is how a caller pins a position
+        # without needing the registry at all.
+        loc = _resolve_site(location) if isinstance(location, str) else location
         
         # 2) Time with location; work explicitly in TDB
         times_utc = Time(topo_mjd, format="mjd", scale="utc", location=loc)

@@ -112,6 +112,7 @@ from src.visualization.plot_composite import (
     save_composite_plot,
 )
 from src.visualization.visualization_unified import save_all_plots
+from tests.observatory import effelsberg
 
 GOLDEN_DIR = Path(__file__).resolve().parent / "golden" / "images"
 ENV_STAMP = GOLDEN_DIR / "environment.json"
@@ -196,11 +197,15 @@ def _pin_every_config_key_the_figure_depends_on(monkeypatch) -> None:
         "TSTART_MJD_CORR": None,
         # Barycentric correction runs (create_composite_plot hardcodes
         # compute_bary=True). The bundled ephemeris means no download, no
-        # network and the same answer on every machine.
+        # network and the same answer on every machine -- and so does the
+        # pinned EarthLocation, which replaces the name "Effelsberg" because
+        # resolving that name is a network call. See tests/observatory.py: when
+        # the lookup fails, every candidate annotation silently loses its
+        # MJD_bary_inf line, which moves both the digest and the pixels.
         "SOURCE_RA": "05:31:58.70",
         "SOURCE_DEC": "33:08:52.5",
         "REF_FREQ_MHZ": 1400.0,
-        "OBSERVATORY": "Effelsberg",
+        "OBSERVATORY": effelsberg(),
         "EPHEMERIS": "builtin",
     }
     for key, val in values.items():

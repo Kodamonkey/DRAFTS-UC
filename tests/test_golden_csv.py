@@ -46,6 +46,7 @@ import pytest
 from src.config import config
 from src.core import detection_engine as de
 from src.output.candidate_manager import CANDIDATE_HEADER, CandidateWriter
+from tests.observatory import effelsberg
 from tests.synthetic_filterbank import write_filterbank
 from tests.test_e2e_pipeline import DM_TRUE, TSAMP, _configure, _install_peak_detector
 
@@ -81,11 +82,31 @@ FLOAT_TOLERANT = {
     "class_prob_linear": 1e-3,
 }
 
-#: Columns that require astropy, its site registry and its ephemeris. Compared
-#: only when the baseline and the current run agree that the correction ran.
+#: Columns that require astropy and its ephemeris. Compared only when the
+#: baseline and the current run agree that the correction ran.
+#:
+#: ``mjd_bary_status`` belongs on this list and was missing from it. The four
+#: value columns move together with the status -- when the correction is
+#: unavailable all four are empty and the status says why -- so leaving the
+#: status out meant the suite tolerated the correction being unavailable and
+#: then failed on the single column that recorded it. That is how a first run
+#: on a machine without a warm astropy cache reported one failure per row about
+#: a column whose entire job is to describe the skip.
+#:
+#: The tolerance is narrow on purpose: with the site position pinned (see
+#: ``tests/observatory.py``) and the ephemeris bundled, the only thing left
+#: that can legitimately turn the correction off is astropy being absent
+#: altogether, and ``_the_reason_is_one_we_recognise`` below asserts as much.
 BARYCENTRIC = [
     "mjd_bary_utc", "mjd_bary_tdb", "mjd_bary_utc_inf", "mjd_bary_tdb_inf",
+    "mjd_bary_status",
 ]
+
+#: Statuses ``get_barycentric_mjd`` is allowed to report instead of "ok".
+#: Anything else is a defect, not a degraded environment.
+KNOWN_UNAVAILABLE = {
+    "unavailable:astropy-missing", "unavailable:ephemeris", "unavailable:error",
+}
 
 
 def _pin_every_config_key_the_csv_depends_on(tmp_path: Path) -> None:
@@ -105,7 +126,10 @@ def _pin_every_config_key_the_csv_depends_on(tmp_path: Path) -> None:
     config.SOURCE_RA = "05:31:58.70"
     config.SOURCE_DEC = "33:08:52.5"
     config.REF_FREQ_MHZ = 1400.0
-    config.OBSERVATORY = "Effelsberg"
+    # A pinned EarthLocation, not the name "Effelsberg": resolving the name is a
+    # network call, and this suite claims to need none. See tests/observatory.py
+    # -- the pinned position reproduces the stored baseline exactly.
+    config.OBSERVATORY = effelsberg()
     # The bundled ephemeris: no download, no network, same answer everywhere.
     config.EPHEMERIS = "builtin"
 
@@ -221,6 +245,29 @@ class TestTheOutputMatchesTheStoredBaseline:
             + "\n\nIf the change was intended, regenerate with "
               "DRAFTS_UPDATE_GOLDEN=1 and say in the commit message what moved."
         )
+
+    def test_the_barycentric_correction_ran_or_says_why(self, current):
+        """The skip above must not become a place for a defect to hide.
+
+        ``test_every_cell_matches`` stops comparing the barycentric columns when
+        the run could not compute them. That is the right call for a machine
+        without astropy, and the wrong one for a machine where the correction
+        broke -- and from inside that test the two look identical. So the reason
+        is asserted here: either the correction ran, or it failed for a reason
+        this project recognises.
+        """
+        for i, row in enumerate(_rows(current)):
+            status = row.get("mjd_bary_status")
+            assert status == "ok" or status in KNOWN_UNAVAILABLE, (
+                f"row {i}: mjd_bary_status is {status!r}, which is neither 'ok' "
+                f"nor one of {sorted(KNOWN_UNAVAILABLE)}"
+            )
+            if status != "ok":
+                assert all(not row.get(c) for c in BARYCENTRIC[:4]), (
+                    f"row {i}: status is {status!r} but a barycentric value is "
+                    "populated -- P1-08 was exactly this, a topocentric time "
+                    "wearing a barycentric name"
+                )
 
     def test_the_tolerant_columns_are_still_close(self, current):
         """A tolerance that silently absorbs a real change is worse than none.

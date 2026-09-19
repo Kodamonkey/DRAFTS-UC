@@ -245,3 +245,183 @@ class TestAFailedRunStillReportsWhatItWrote:
 
         assert result["status"].startswith("ERROR")
         assert "simulated read failure" in result.get("error_details", "")
+
+
+class TestAFailedChunkStillReleasesItsArrays:
+    """The third HF defect: cleanup sat inside the per-chunk ``try``.
+
+    ``del block_ds, dm_time, block_raw_ds`` and ``optimize_memory`` were the
+    last statements of the try body, just before ``chunk_succeeded = True``. A
+    chunk that raised anywhere in the slice loop skipped all of it, so its
+    arrays stayed referenced until the next iteration rebound the names -- and
+    the chunk most likely to raise is the one that ran out of memory, which is
+    exactly when holding a cube and two blocks longer than necessary is worst.
+
+    The obvious fix is wrong and was not made. Mirroring the low-frequency
+    driver -- moving the ``del`` after the handler -- works there because LF's
+    ``block`` is bound by the ``for`` statement, before its try. Every name here
+    is bound INSIDE the try, so on the failure path the move raises NameError
+    while handling the original error, losing it.
+    """
+
+    def _fail_one_chunk(self, monkeypatch, counter, fail_on_chunk: int):
+        """Real rows for every chunk, an exception raised inside chunk N."""
+        from src.core import high_freq_pipeline as hfp
+        from src.output.candidate_manager import append_candidate
+
+        def _slice(**kwargs):
+            counter.setdefault("chunks", set()).add(kwargs["chunk_idx"])
+            if kwargs["chunk_idx"] == fail_on_chunk:
+                raise RuntimeError("simulated slice failure")
+            for _ in range(ROWS_PER_SLICE):
+                row = [""] * len(CANDIDATE_HEADER)
+                row[0] = str(kwargs["fits_path"].name)
+                row[1] = kwargs["chunk_idx"]
+                row[2] = kwargs["j"]
+                row[3] = 0
+                row[4] = 0.9
+                append_candidate(kwargs["csv_file"], row)
+                counter["rows"] += 1
+            return ROWS_PER_SLICE, ROWS_PER_SLICE, 0, 0.9
+
+        monkeypatch.setattr(
+            hfp, "process_slice_with_multiple_bands_high_freq", _slice
+        )
+
+    def _spy_on_optimize_memory(self, monkeypatch):
+        from src.core import file_driver, high_freq_pipeline as hfp
+
+        calls = []
+        real = file_driver.optimize_memory
+
+        def _spy(*args, **kwargs):
+            calls.append(kwargs.get("aggressive"))
+            return real(*args, **kwargs)
+
+        # Bound into the driver's namespace at import, so patch it there.
+        monkeypatch.setattr(hfp, "optimize_memory", _spy)
+        return calls
+
+    def test_memory_is_reclaimed_for_a_chunk_that_failed(self, hf_run):
+        fits_path, save_dir, counter, monkeypatch = hf_run
+        self._fail_one_chunk(monkeypatch, counter, fail_on_chunk=1)
+        calls = self._spy_on_optimize_memory(monkeypatch)
+
+        result = _run(fits_path, save_dir)
+
+        assert result["failed_chunks"] >= 1, (
+            f"no chunk was recorded as failed, so this proves nothing: {result}"
+        )
+        n_chunks = len(counter["chunks"])
+        assert n_chunks > 1, "only one chunk ran; there is no failed one to check"
+        assert len(calls) == n_chunks, (
+            f"optimize_memory ran {len(calls)} times for {n_chunks} chunks "
+            f"(one of which failed); the failed chunk skipped its cleanup"
+        )
+
+    def test_the_downsampled_block_is_not_kept_alive_by_the_failure(
+        self, hf_run, caplog
+    ):
+        """The assertion that actually looks at the arrays.
+
+        A weakref to the block the failing chunk downsampled must be dead once
+        that chunk is over. If cleanup is skipped, the name still refers to it.
+
+        ``caplog.clear()`` is load-bearing and took a while to find.
+        ``record_chunk_failure`` calls ``logger.exception``, which attaches
+        ``exc_info`` -- and therefore the traceback, the frame and every local
+        in it -- to the LogRecord. pytest's logging plugin keeps those records
+        for the duration of the test, so the block stayed reachable through the
+        captured record and this test failed against correct code. Verified by
+        running it under ``-p no:logging``, where it passes either way.
+
+        Production does not have that problem: ``log_utils.logging_config``
+        installs only a StreamHandler and a RotatingFileHandler, and neither
+        retains records.
+        """
+        import gc
+        import weakref
+
+        from src.core import data_flow_manager as dfm
+
+        fits_path, save_dir, counter, monkeypatch = hf_run
+        self._fail_one_chunk(monkeypatch, counter, fail_on_chunk=1)
+
+        refs: list = []
+        real_downsample = dfm.downsample_chunk
+
+        def _tracking_downsample(block):
+            out, dt = real_downsample(block)
+            refs.append(weakref.ref(out))
+            return out, dt
+
+        # The driver imports this from data_flow_manager at call time.
+        monkeypatch.setattr(dfm, "downsample_chunk", _tracking_downsample)
+
+        _run(fits_path, save_dir)
+
+        # Drop every captured LogRecord before looking: see the docstring.
+        # pytest attaches more than one record-retaining handler to the root
+        # logger, so caplog.clear() alone leaves the traceback reachable.
+        import logging
+
+        caplog.clear()
+        for handler in list(logging.getLogger().handlers):
+            records = getattr(handler, "records", None)
+            if isinstance(records, list):
+                records.clear()
+        gc.collect()
+
+        assert refs, "downsample_chunk was never called"
+        alive = [i for i, r in enumerate(refs) if r() is not None]
+        assert not alive, (
+            f"{len(alive)} downsampled block(s) still referenced after the run: "
+            f"chunk indices {alive}. A failed chunk skipped its cleanup."
+        )
+
+    def test_a_chunk_that_fails_before_its_arrays_exist_is_still_just_one_chunk(
+        self, hf_run
+    ):
+        """The case that decides the SHAPE of the fix, not just its presence.
+
+        The failure above happens in the slice loop, by which point all three
+        names are bound -- so freeing them after the handler, as the
+        low-frequency driver does, would work there. It is a failure EARLIER in
+        the chunk body that separates the two: with the names bound only inside
+        the try, an unguarded ``del`` raises NameError while the real error is
+        being handled, and that NameError escapes the chunk loop. One bad chunk
+        becomes a dead file.
+
+        Pre-binding the names to None is what makes the ``finally`` safe, and
+        this is the test that says so. Verified against the alternative: the
+        naive after-the-handler variant passes the test above and fails this
+        one.
+        """
+        from src.core import data_flow_manager as dfm
+
+        fits_path, save_dir, counter, monkeypatch = hf_run
+
+        real_downsample = dfm.downsample_chunk
+        seen = {"n": 0}
+
+        def _fail_first_downsample(block):
+            seen["n"] += 1
+            if seen["n"] == 2:            # chunk index 1, before anything binds
+                raise RuntimeError("simulated failure before block_ds exists")
+            return real_downsample(block)
+
+        monkeypatch.setattr(dfm, "downsample_chunk", _fail_first_downsample)
+
+        result = _run(fits_path, save_dir)
+
+        assert seen["n"] > 2, "the run stopped at the failing chunk"
+        assert result["failed_chunks"] == 1, (
+            f"expected exactly one failed chunk, got {result['failed_chunks']}; "
+            f"status={result['status']}"
+        )
+        assert result["status"].startswith("SUCCESS"), (
+            f"one chunk failing early killed the whole file: {result['status']} "
+            f"({result.get('error_details', '')})"
+        )
+        rows = _rows_on_disk(save_dir, fits_path.stem)
+        assert rows, "the surviving chunks wrote nothing"

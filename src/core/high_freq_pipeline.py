@@ -1729,6 +1729,15 @@ def _process_file_chunked_high_freq(
             )
             
             chunk_succeeded = False
+            # Bound BEFORE the try so the finally below can always release them.
+            # This is the whole reason the obvious fix for this defect does not
+            # work: the low-frequency driver can free its block after the
+            # handler because `block` is bound by its `for` statement, outside
+            # the try. Every name here is bound inside it, so on a failure path
+            # some or none of them exist, and an unguarded `del` would raise
+            # NameError while the original error was being handled -- losing the
+            # error and replacing it with a worse one.
+            block_ds = dm_time = block_raw_ds = None
             try:
                 # DIAGNOSTIC: Log block_raw shape before downsampling
                 if block_raw is not None:
@@ -1893,15 +1902,23 @@ def _process_file_chunked_high_freq(
                     report_eta=state.actual_chunk_count > 1,
                 )
 
-                # CRITICAL: Free chunk-level arrays after processing all slices
-                del block_ds, dm_time, block_raw_ds
-                optimize_memory(aggressive=(state.actual_chunk_count % 5 == 0))
                 chunk_succeeded = True
             except MemoryError as mem_error:
                 record_oom(collector, metadata['chunk_idx'], mem_error)
                 raise
             except Exception as chunk_error:
                 record_chunk_failure(state, metadata['chunk_idx'], chunk_error)
+            finally:
+                # CRITICAL: free the chunk-level arrays whatever happened.
+                # These were the last statements of the try body, so a chunk
+                # that raised anywhere in the slice loop skipped them and held a
+                # cube and two blocks until the next iteration rebound the
+                # names. The chunk most likely to raise is the one that ran out
+                # of memory, which is precisely when that costs most -- and on
+                # the MemoryError path this now runs before the exception
+                # propagates out of the loop.
+                del block_ds, dm_time, block_raw_ds
+                optimize_memory(aggressive=(state.actual_chunk_count % 5 == 0))
 
             # Only a chunk that completed may advance the checkpoint, and its
             # rows have to be on disk before it does.

@@ -14,7 +14,6 @@ import numpy as np
 
 def compute_snr_profile(
     waterfall: np.ndarray,
-    off_regions: Optional[List[Tuple[int, int]]] = None,
     dt_seconds: Optional[float] = None,
     widths_ms: Optional[List[float]] = None,
     channel_mask: Optional[np.ndarray] = None,
@@ -27,8 +26,10 @@ def compute_snr_profile(
     - Apply matched filtering with boxcars normalized by ``√width``
     - Return the per-sample maximum SNR and effective sigma≈1.0
 
-    The ``off_regions`` parameter is kept for compatibility but is unused because
-    block normalization already stabilizes the RMS.
+    Off-pulse regions are not a parameter: block normalization already
+    stabilizes the RMS, so there is nothing for one to change. There used to be
+    an ``off_regions`` argument, threaded through eleven modules and never read
+    by anything (audit REF-12).
 
     Returns
     -------

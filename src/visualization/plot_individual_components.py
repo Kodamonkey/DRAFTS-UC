@@ -36,7 +36,6 @@ def save_polarization_waterfall_plot(
     freq_ds: np.ndarray,
     time_reso_ds: float,
     thresh_snr: Optional[float],
-    off_regions: Optional[List[Tuple[int, int]]],
     out_path: Path,
     slice_idx: int,
     time_slice: int,
@@ -65,7 +64,6 @@ def save_polarization_waterfall_plot(
         freq_ds: Downsampled frequency axis
         time_reso_ds: Temporal resolution after downsampling
         thresh_snr: SNR threshold for highlighting
-        off_regions: Off-pulse regions for SNR computation
         out_path: Output file path
         ... (other parameters for metadata)
     """
@@ -103,7 +101,7 @@ def save_polarization_waterfall_plot(
     if pol_data is not None and pol_data.size > 0:
         if pol_data.dtype == object or not np.issubdtype(pol_data.dtype, np.number):
             pol_data = np.asarray(pol_data, dtype=np.float64)
-        snr_prof, _, best_w = compute_snr_profile(pol_data, off_regions)
+        snr_prof, _, best_w = compute_snr_profile(pol_data)
         peak_snr, _, peak_idx = find_snr_peak(snr_prof)
         
         time_axis = np.linspace(slice_start_abs, slice_end_abs, len(snr_prof))
@@ -210,7 +208,6 @@ def generate_individual_plots(
     fits_stem: str,
     slice_len: int,
     normalize: bool = False,
-    off_regions: Optional[List[Tuple[int, int]]] = None,
     thresh_snr: Optional[float] = None,
     band_idx: int = 0,
     absolute_start_time: Optional[float] = None,
@@ -335,7 +332,6 @@ def generate_individual_plots(
                 freq_ds=freq_ds,
                 time_reso_ds=time_reso_ds,
                 thresh_snr=thresh_snr,
-                off_regions=off_regions,
                 out_path=intensity_path,
                 slice_idx=slice_idx,
                 time_slice=time_slice,
@@ -362,7 +358,6 @@ def generate_individual_plots(
                 freq_ds=freq_ds,
                 time_reso_ds=time_reso_ds,
                 thresh_snr=thresh_snr,
-                off_regions=off_regions,
                 out_path=linear_path,
                 slice_idx=slice_idx,
                 time_slice=time_slice,
@@ -389,7 +384,6 @@ def generate_individual_plots(
                 freq_ds=freq_ds,
                 time_reso_ds=time_reso_ds,
                 thresh_snr=thresh_snr,
-                off_regions=off_regions,
                 out_path=circular_path,
                 slice_idx=slice_idx,
                 time_slice=time_slice,
@@ -422,7 +416,6 @@ def generate_individual_plots(
             fits_stem=fits_stem,
             slice_len=slice_len,
             normalize=normalize,
-            off_regions=off_regions,
             thresh_snr=thresh_snr,
             band_idx=band_idx,
             absolute_start_time=absolute_start_time,
@@ -447,7 +440,6 @@ def generate_individual_plots(
             fits_stem=fits_stem,
             slice_len=slice_len,
             normalize=normalize,
-            off_regions=off_regions,
             thresh_snr=thresh_snr,
             band_idx=band_idx,
             absolute_start_time=absolute_start_time,

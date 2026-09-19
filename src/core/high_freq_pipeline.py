@@ -712,8 +712,7 @@ def snr_detect_and_classify_candidates_in_band(
     logger.info("Phase 1: SNR peak detection in Intensity (waterfall_block shape: %s)", waterfall_block.shape)
     
     # Compute the SNR profile on the waterfall (time × frequency) - INTENSITY
-    # Use off_regions=None for consistency (same as Linear calculation)
-    snr_profile_intensity, _, _ = compute_snr_profile(waterfall_block, off_regions=None)
+    snr_profile_intensity, _, _ = compute_snr_profile(waterfall_block)
     logger.debug("Calculated snr_profile_intensity: size=%d, shape=%s", 
                 len(snr_profile_intensity) if snr_profile_intensity is not None else 0,
                 snr_profile_intensity.shape if snr_profile_intensity is not None else None)
@@ -777,14 +776,13 @@ def snr_detect_and_classify_candidates_in_band(
             logger.warning("data_block_raw not available for Phase 3b classification")
     
         # Compute SNR profile in Linear Polarization ONCE (reused in Phase 2 and for labels)
-        # Use off_regions=None for consistency with Intensity calculation
         try:
             # Verify waterfall blocks have compatible shapes
             if waterfall_block.shape[0] != waterfall_block_linear.shape[0]:
                 logger.warning("Waterfall block size mismatch: Intensity=%d, Linear=%d. This may cause SNR profile size mismatch.",
                              waterfall_block.shape[0], waterfall_block_linear.shape[0])
             
-            snr_profile_linear, _, _ = compute_snr_profile(waterfall_block_linear, off_regions=None)
+            snr_profile_linear, _, _ = compute_snr_profile(waterfall_block_linear)
             logger.info("Calculated snr_profile_linear: size=%d (waterfall_block_linear shape=%s, waterfall_block shape=%s)", 
                         len(snr_profile_linear) if snr_profile_linear is not None else 0,
                         waterfall_block_linear.shape, waterfall_block.shape)
@@ -930,7 +928,7 @@ def snr_detect_and_classify_candidates_in_band(
     peak_time_waterfall = None
     if waterfall_block is not None and waterfall_block.size > 0:
         try:
-            snr_wf, _, _ = compute_snr_profile(waterfall_block, off_regions=None)
+            snr_wf, _, _ = compute_snr_profile(waterfall_block)
             if snr_wf.size > 0:
                 peak_snr_wf, _, peak_idx_wf = find_snr_peak(snr_wf)
                 snr_waterfall = float(peak_snr_wf)
@@ -953,7 +951,7 @@ def snr_detect_and_classify_candidates_in_band(
     # Calculate SNR from Linear waterfall if available
     if waterfall_block_linear is not None and waterfall_block_linear.size > 0:
         try:
-            snr_wf_linear, _, _ = compute_snr_profile(waterfall_block_linear, off_regions=None)
+            snr_wf_linear, _, _ = compute_snr_profile(waterfall_block_linear)
             if snr_wf_linear.size > 0:
                 peak_snr_wf_linear, _, _ = find_snr_peak(snr_wf_linear)
                 snr_waterfall_linear = float(peak_snr_wf_linear)
@@ -1581,7 +1579,6 @@ def process_slice_with_multiple_bands_high_freq(
                 fits_stem,
                 end_idx - start_idx,
                 normalize=True,
-                off_regions=None,
                 thresh_snr=config.SNR_THRESH,
                 band_idx=band_idx,
                 absolute_start_time=absolute_start_time,

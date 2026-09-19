@@ -35,7 +35,6 @@ def create_multi_pol_panels(
     freq_ds: np.ndarray,
     time_reso_ds: float,
     thresh_snr: Optional[float],
-    off_regions: Optional[list] = None,
     candidate_time_abs: Optional[float] = None,  # Absolute time of candidate for marking position (Linear)
     candidate_time_intensity: Optional[float] = None,  # Absolute time of candidate for marking position (Intensity)
     candidate_snr_intensity_wf: Optional[float] = None,  # SNR from detection (PRESTO-style) for Intensity waterfall title
@@ -55,7 +54,6 @@ def create_multi_pol_panels(
         freq_ds: Downsampled frequency axis
         time_reso_ds: Temporal resolution after downsampling
         thresh_snr: SNR threshold for highlighting
-        off_regions: Off-pulse regions for SNR computation
     """
     
     # Common time tick positions for all panels
@@ -87,7 +85,7 @@ def create_multi_pol_panels(
         if pol_data is not None and pol_data.size > 0:
             if pol_data.dtype == object or not np.issubdtype(pol_data.dtype, np.number):
                 pol_data = np.asarray(pol_data, dtype=np.float64)
-            snr_prof, _, best_w = compute_snr_profile(pol_data, off_regions)
+            snr_prof, _, best_w = compute_snr_profile(pol_data)
             peak_snr, _, peak_idx = find_snr_peak(snr_prof)
             
             time_axis = np.linspace(slice_start_abs, slice_end_abs, len(snr_prof))

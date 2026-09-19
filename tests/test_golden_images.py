@@ -279,7 +279,6 @@ def _common(**over) -> dict:
         fits_stem="golden_scene",
         slice_len=N_TIME,
         normalize=True,
-        off_regions=None,
         thresh_snr=5.0,
         band_idx=0,
         absolute_start_time=1.0,
@@ -725,7 +724,6 @@ class TestTheWrapperPathDrawsTheSameFigure:
             k["fits_stem"],
             k["slice_len"],
             k["normalize"],
-            k["off_regions"],
             k["thresh_snr"],
             k["band_idx"],
             absolute_start_time=k["absolute_start_time"],
@@ -814,7 +812,7 @@ class TestThePanelsDrawIndependently:
         try:
             profile = draw_raw_snr_profile(
                 ax_prof, block, raw_window=raw_window, thresh_snr=5.0,
-                off_regions=None, **_one_candidate(),
+                **_one_candidate(),
             )
             assert profile is not None
             assert "Raw Waterfall" in ax_prof.get_title()
@@ -841,7 +839,7 @@ class TestThePanelsDrawIndependently:
         try:
             profile = draw_dedispersed_snr_profile(
                 ax_prof, block, window=window, candidate_snr_intensity=None,
-                thresh_snr=5.0, off_regions=None, **_one_candidate(),
+                thresh_snr=5.0, **_one_candidate(),
             )
             assert profile is not None
             assert ax_prof.get_title().startswith("Dedispersed Waterfall")
@@ -885,14 +883,14 @@ class TestThePanelsDrawIndependently:
         try:
             assert draw_raw_snr_profile(
                 ax_raw, None, raw_window=raw_window, thresh_snr=5.0,
-                off_regions=None, top_conf=[], top_boxes=[],
+                top_conf=[], top_boxes=[],
                 candidate_times_abs=None,
             ) is None
             assert ax_raw.get_title() == "No Raw Waterfall Data"
 
             assert draw_dedispersed_snr_profile(
                 ax_dedisp, np.zeros((0, 0)), window=window,
-                candidate_snr_intensity=None, thresh_snr=5.0, off_regions=None,
+                candidate_snr_intensity=None, thresh_snr=5.0, 
                 top_conf=[], top_boxes=[], candidate_times_abs=None,
             ) is None
             assert ax_dedisp.get_title() == "No Dedispersed Data"

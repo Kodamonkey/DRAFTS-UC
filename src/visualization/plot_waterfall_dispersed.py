@@ -60,7 +60,6 @@ def create_waterfall_dispersed_plot(
     fits_stem: str,
     slice_len: int,
     normalize: bool = False,
-    off_regions: Optional[List[Tuple[int, int]]] = None,
     thresh_snr: Optional[float] = None,
     band_idx: int = 0,
     absolute_start_time: Optional[float] = None, 
@@ -136,7 +135,7 @@ def create_waterfall_dispersed_plot(
     ax_prof_wf = fig.add_subplot(gs_waterfall_nested[0, 0])
     
     if wf_block is not None and wf_block.size > 0:
-        snr_wf, sigma_wf, best_w = compute_snr_profile(wf_block, off_regions)
+        snr_wf, sigma_wf, best_w = compute_snr_profile(wf_block)
         peak_snr_wf, peak_time_wf, peak_idx_wf = find_snr_peak(snr_wf)
         width_ms_wf = float(best_w[int(peak_idx_wf)]) * time_reso_ds * 1000.0 if len(best_w) == len(snr_wf) else None
         
@@ -322,7 +321,6 @@ def save_waterfall_dispersed_plot(
     fits_stem: str,
     slice_len: int,
     normalize: bool = False,
-    off_regions: Optional[List[Tuple[int, int]]] = None,
     thresh_snr: Optional[float] = None,
     band_idx: int = 0,
     absolute_start_time: Optional[float] = None, 
@@ -342,7 +340,6 @@ def save_waterfall_dispersed_plot(
         fits_stem=fits_stem,
         slice_len=slice_len,
         normalize=normalize,
-        off_regions=off_regions,
         thresh_snr=thresh_snr,
         band_idx=band_idx,
         absolute_start_time=absolute_start_time,

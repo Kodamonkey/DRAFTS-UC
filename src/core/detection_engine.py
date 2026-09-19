@@ -50,7 +50,6 @@ def detect_and_classify_candidates_in_band(
     slice_start_idx: int | None = None,
     waterfall_block=None,  # time x frequency slice block for waterfall SNR calculation
     slice_samples: int | None = None,  # actual slice samples (may differ from slice_len)
-    off_regions=None,  # off-pulse regions for SNR calculation
     dm_values=None,
 ):
     """Run detection and classification for a specific frequency band.
@@ -117,7 +116,7 @@ def detect_and_classify_candidates_in_band(
     peak_time_waterfall = None
     if waterfall_block is not None and waterfall_block.size > 0:
         try:
-            snr_wf, _, _ = compute_snr_profile(waterfall_block, off_regions)
+            snr_wf, _, _ = compute_snr_profile(waterfall_block)
             snr_wf_profile = snr_wf  # Store profile for per-candidate SNR calculation
             if snr_wf.size > 0:
                 peak_snr_wf, _, peak_idx_wf = find_snr_peak(snr_wf)
@@ -540,7 +539,6 @@ def process_slice_with_multiple_bands(
             slice_start_idx=start_idx,
             waterfall_block=waterfall_block,  # Pass waterfall block for SNR calculation
             slice_samples=end_idx - start_idx,  # Actual slice samples
-            off_regions=None,  # Can be passed if available
             dm_values=dm_values,
         )
         cand_counter += band_result["cand_counter"]
@@ -593,7 +591,6 @@ def process_slice_with_multiple_bands(
                 fits_stem,
                 end_idx - start_idx,
                 normalize=True,
-                off_regions=None,
                 thresh_snr=config.SNR_THRESH,
                 band_idx=band_idx,
                 absolute_start_time=absolute_start_time,

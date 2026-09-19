@@ -157,7 +157,7 @@ def create_polarization_timeseries_plot(
     
     # Compute SNR profile for intensity (EXACTLY as in plot_multi_pol_panels.py line 84)
     # This uses PRESTO-style SNR calculation which may have different length than n_time
-    snr_prof_intensity, _, best_w_intensity = compute_snr_profile(dw_intensity, off_regions=None)
+    snr_prof_intensity, _, best_w_intensity = compute_snr_profile(dw_intensity)
     peak_snr_intensity, _, peak_idx_intensity = find_snr_peak(snr_prof_intensity)
     
     # Time axis - EXACTLY as in plot_multi_pol_panels.py line 87
@@ -181,7 +181,7 @@ def create_polarization_timeseries_plot(
         
         # Circular (Stokes V)
         if dw_circular is not None:
-            snr_prof_circular, _, _ = compute_snr_profile(dw_circular, off_regions=None)
+            snr_prof_circular, _, _ = compute_snr_profile(dw_circular)
             peak_snr_circular, _, peak_idx_circular = find_snr_peak(snr_prof_circular)
             snr_profiles.append((snr_prof_circular, "circular polarization", "blue", peak_snr_circular, peak_idx_circular))
         else:
@@ -189,7 +189,7 @@ def create_polarization_timeseries_plot(
         
         # Linear (sqrt(Q²+U²))
         if dw_linear is not None:
-            snr_prof_linear, _, _ = compute_snr_profile(dw_linear, off_regions=None)
+            snr_prof_linear, _, _ = compute_snr_profile(dw_linear)
             peak_snr_linear, _, peak_idx_linear = find_snr_peak(snr_prof_linear)
             snr_profiles.append((snr_prof_linear, "linear polarization", "red", peak_snr_linear, peak_idx_linear))
         else:

@@ -714,7 +714,7 @@ def annotate_candidates(ax_det, *, top_conf, top_boxes, class_probs,
 
 def draw_multi_pol_row(fig, gs_bottom_row, *, dw_block, dw_linear, dw_circular,
                        dm_val: float, window: SliceWindow, thresh_snr,
-                       off_regions, top_conf, top_boxes, candidate_times_abs,
+                       top_conf, top_boxes, candidate_times_abs,
                        candidate_snr: CandidateSnr) -> None:
     """The HF pipeline's bottom row: dedispersed I, L and V side by side."""
     candidate_time_abs = None
@@ -756,7 +756,6 @@ def draw_multi_pol_row(fig, gs_bottom_row, *, dw_block, dw_linear, dw_circular,
         freq_ds=window.freq_ds,
         time_reso_ds=window.time_reso_ds,
         thresh_snr=thresh_snr,
-        off_regions=off_regions,
         candidate_time_abs=candidate_time_abs,
         candidate_time_intensity=candidate_time_intensity,
         candidate_snr_intensity_wf=candidate_snr_intensity_wf,
@@ -808,14 +807,14 @@ def raw_waterfall_window(*, window: SliceWindow, top_conf, top_boxes,
 
 
 def draw_raw_snr_profile(ax, wf_block, *, raw_window: RawWaterfallWindow,
-                         thresh_snr, off_regions, top_conf, top_boxes,
+                         thresh_snr, top_conf, top_boxes,
                          candidate_times_abs) -> Optional[SnrProfilePanel]:
     """Panel 2: the SNR profile of the still-dispersed waterfall."""
     if wf_block is None or wf_block.size == 0:
         _no_data_profile(ax, 'No waterfall data\navailable', "No Raw Waterfall Data")
         return None
 
-    snr_wf, _, _ = compute_snr_profile(wf_block, off_regions)
+    snr_wf, _, _ = compute_snr_profile(wf_block)
     peak_snr_wf, _, peak_idx_wf = find_snr_peak(snr_wf)
 
     candidate_snr_intensity = raw_window.candidate_snr_intensity
@@ -894,7 +893,7 @@ def draw_raw_waterfall(ax, wf_block, *, raw_window: RawWaterfallWindow,
 
 
 def draw_dedispersed_snr_profile(ax, dw_block, *, window: SliceWindow,
-                                 candidate_snr_intensity, thresh_snr, off_regions,
+                                 candidate_snr_intensity, thresh_snr, 
                                  top_conf, top_boxes,
                                  candidate_times_abs) -> Optional[SnrProfilePanel]:
     """Panel 4: the SNR profile of the dedispersed waterfall."""
@@ -902,7 +901,7 @@ def draw_dedispersed_snr_profile(ax, dw_block, *, window: SliceWindow,
         _no_data_profile(ax, 'No dedispersed\ndata available', "No Dedispersed Data")
         return None
 
-    snr_dw, _, _ = compute_snr_profile(dw_block, off_regions)
+    snr_dw, _, _ = compute_snr_profile(dw_block)
     peak_snr_dw, _, peak_idx_dw = find_snr_peak(snr_dw)
 
     display_snr_dw = (candidate_snr_intensity if candidate_snr_intensity is not None
@@ -977,7 +976,7 @@ def draw_dedispersed_waterfall(ax, dw_block, *, window: SliceWindow,
 
 def draw_classic_bottom_row(fig, gs_bottom_row, *, wf_block, dw_block,
                             window: SliceWindow, raw_window: RawWaterfallWindow,
-                            thresh_snr, off_regions, top_conf, top_boxes,
+                            thresh_snr, top_conf, top_boxes,
                             candidate_times_abs) -> None:
     """The classic pipeline's bottom row: raw waterfall left, dedispersed right.
 
@@ -990,7 +989,7 @@ def draw_classic_bottom_row(fig, gs_bottom_row, *, wf_block, dw_block,
     ax_prof_wf = fig.add_subplot(gs_waterfall_nested[0, 0])
     raw_profile = draw_raw_snr_profile(
         ax_prof_wf, wf_block,
-        raw_window=raw_window, thresh_snr=thresh_snr, off_regions=off_regions,
+        raw_window=raw_window, thresh_snr=thresh_snr, 
         top_conf=top_conf, top_boxes=top_boxes,
         candidate_times_abs=candidate_times_abs,
     )
@@ -1005,7 +1004,7 @@ def draw_classic_bottom_row(fig, gs_bottom_row, *, wf_block, dw_block,
     dedisp_profile = draw_dedispersed_snr_profile(
         ax_prof_dw, dw_block, window=window,
         candidate_snr_intensity=raw_window.candidate_snr_intensity,
-        thresh_snr=thresh_snr, off_regions=off_regions,
+        thresh_snr=thresh_snr, 
         top_conf=top_conf, top_boxes=top_boxes,
         candidate_times_abs=candidate_times_abs,
     )
@@ -1035,7 +1034,6 @@ def create_composite_plot(
     fits_stem: str,
     slice_len: int,
     normalize: bool = False,
-    off_regions: Optional[List[Tuple[int, int]]] = None,
     thresh_snr: Optional[float] = None,
     band_idx: int = 0,
     absolute_start_time: Optional[float] = None,
@@ -1161,7 +1159,7 @@ def create_composite_plot(
             fig, gs_bottom_row,
             dw_block=dw_block, dw_linear=dw_linear, dw_circular=dw_circular,
             dm_val=dm_val, window=window, thresh_snr=thresh_snr,
-            off_regions=off_regions, top_conf=top_conf, top_boxes=top_boxes,
+            top_conf=top_conf, top_boxes=top_boxes,
             candidate_times_abs=candidate_times_abs, candidate_snr=candidate_snr,
         )
     else:
@@ -1176,7 +1174,7 @@ def create_composite_plot(
                 slice_len=slice_len, slice_samples=slice_samples,
                 band_idx=band_idx, candidate_snr=candidate_snr,
             ),
-            thresh_snr=thresh_snr, off_regions=off_regions,
+            thresh_snr=thresh_snr, 
             top_conf=top_conf, top_boxes=top_boxes,
             candidate_times_abs=candidate_times_abs,
         )
@@ -1205,7 +1203,6 @@ def save_composite_plot(
     fits_stem: str,
     slice_len: int,
     normalize: bool = False,
-    off_regions: Optional[List[Tuple[int, int]]] = None,
     thresh_snr: Optional[float] = None,
     band_idx: int = 0,
     absolute_start_time: Optional[float] = None, 
@@ -1250,7 +1247,6 @@ def save_composite_plot(
         fits_stem=fits_stem,
         slice_len=slice_len,
         normalize=normalize,
-        off_regions=off_regions,
         thresh_snr=thresh_snr,
         band_idx=band_idx,
         absolute_start_time=absolute_start_time,
@@ -1297,7 +1293,6 @@ def save_composite_plot(
                 fits_stem=fits_stem,
                 slice_len=slice_len,
                 normalize=normalize,
-                off_regions=off_regions,
                 thresh_snr=thresh_snr,
                 band_idx=band_idx,
                 absolute_start_time=absolute_start_time,

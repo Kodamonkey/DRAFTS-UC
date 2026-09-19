@@ -58,7 +58,6 @@ def create_patches_plot(
     fits_stem: str,
     slice_len: int,
     normalize: bool = False,
-    off_regions: Optional[List[Tuple[int, int]]] = None,
     thresh_snr: Optional[float] = None,
     band_idx: int = 0,
     absolute_start_time: Optional[float] = None, 
@@ -105,7 +104,7 @@ def create_patches_plot(
     ax_patch_prof = fig.add_subplot(gs_patch_nested[0, 0])
     
     if patch_data is not None and patch_data.size > 0:
-        snr_patch, sigma_patch, best_w_patch = compute_snr_profile(patch_data, off_regions)
+        snr_patch, sigma_patch, best_w_patch = compute_snr_profile(patch_data)
         peak_snr_patch, peak_time_patch, peak_idx_patch = find_snr_peak(snr_patch)
         
         patch_start_abs = patch_start
@@ -240,7 +239,6 @@ def save_patches_plot(
     fits_stem: str,
     slice_len: int,
     normalize: bool = False,
-    off_regions: Optional[List[Tuple[int, int]]] = None,
     thresh_snr: Optional[float] = None,
     band_idx: int = 0,
     absolute_start_time: Optional[float] = None, 
@@ -260,7 +258,6 @@ def save_patches_plot(
         fits_stem=fits_stem,
         slice_len=slice_len,
         normalize=normalize,
-        off_regions=off_regions,
         thresh_snr=thresh_snr,
         band_idx=band_idx,
         absolute_start_time=absolute_start_time,

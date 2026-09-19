@@ -61,7 +61,6 @@ def create_waterfall_dedispersed_plot(
     fits_stem: str,
     slice_len: int,
     normalize: bool = False,
-    off_regions: Optional[List[Tuple[int, int]]] = None,
     thresh_snr: Optional[float] = None,
     band_idx: int = 0,
     absolute_start_time: Optional[float] = None, 
@@ -128,7 +127,7 @@ def create_waterfall_dedispersed_plot(
         snr_val_candidate = 0.0
     
     if dw_block is not None and dw_block.size > 0:
-        snr_dw, sigma_dw, best_w_dw = compute_snr_profile(dw_block, off_regions)
+        snr_dw, sigma_dw, best_w_dw = compute_snr_profile(dw_block)
         peak_snr_dw, peak_time_dw, peak_idx_dw = find_snr_peak(snr_dw)
         width_ms_dw = float(best_w_dw[int(peak_idx_dw)]) * time_reso_ds * 1000.0 if len(best_w_dw) == len(snr_dw) else None
         
@@ -313,7 +312,6 @@ def save_waterfall_dedispersed_plot(
     fits_stem: str,
     slice_len: int,
     normalize: bool = False,
-    off_regions: Optional[List[Tuple[int, int]]] = None,
     thresh_snr: Optional[float] = None,
     band_idx: int = 0,
     absolute_start_time: Optional[float] = None, 
@@ -335,7 +333,6 @@ def save_waterfall_dedispersed_plot(
         fits_stem=fits_stem,
         slice_len=slice_len,
         normalize=normalize,
-        off_regions=off_regions,
         thresh_snr=thresh_snr,
         band_idx=band_idx,
         absolute_start_time=absolute_start_time,

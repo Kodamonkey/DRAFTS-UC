@@ -12,7 +12,7 @@ Por eso el documento vive en el repositorio y no fuera de él.
 ## Resumen
 
 **41 de los 43 ítems del plan de la sección 37 están cerrados**, y REF-10
-(ítem 33) está empezado. La suite pasó de 205 a 423 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
+(ítem 33) está empezado. La suite pasó de 205 a 430 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
 Ningún cierre se dio por bueno sin verificación: cada corrección se comprobó
 revirtiéndola en aislamiento y confirmando que un test falla, y los refactors
 grandes se verificaron con arneses diferenciales contra el código anterior.
@@ -209,8 +209,8 @@ hizo este trabajo no tiene GPU, así que no se pueden verificar aquí.
     (`test_p0_regressions.py:363-377` y `:379-396`; `test_p2_reliability.py:245-255`,
     `:257-260` y `:293-301`), y fijan los bloques de checkpoint, resume y
     rotación. Necesitan un test de recuperación extremo a extremo por driver.
-- **Cuatro defectos del pipeline HF** destapados por REF-01. Los dos primeros,
-  **cerrados** (`ae6d678`); los otros dos siguen abiertos.
+- **Cuatro defectos del pipeline HF** destapados por REF-01. Tres **cerrados**
+  (`ae6d678`, `af1d7ad`); el cuarto, fijado y pendiente de decisión (`2c36426`).
   - El más serio (cerrado): HF relanzaba en vez de devolver un resultado, así
     que sus contadores —variables locales— morían con el marco y el llamador
     reconstruía el resultado con unas `DetectionStats` **vacías**. Una corrida
@@ -222,15 +222,27 @@ hizo este trabajo no tiene GPU, así que no se pueden verificar aquí.
     no podía alcanzar `_error_result` sin un ciclo. Ahora vive en `file_driver`.
   - Cerrado de paso: HF sólo vaciaba el buffer de candidatos en su camino de
     éxito.
-  - **Abierto**: un chunk fallido se salta `del block_ds, dm_time, block_raw_ds`
-    y `optimize_memory`, porque están dentro del `try` por chunk. La corrección
-    obvia —moverlos detrás del handler, como en LF— **no es válida**: en LF
-    `block` se liga en el `for` antes del `try`, y en HF todos esos nombres se
-    ligan dentro, así que el movimiento provoca `NameError` justo en el camino
-    de fallo que pretende arreglar.
-  - **Abierto**: `MAX_CHUNK_SAMPLES` lo aplica LF y no HF. Es una diferencia
-    deliberada y documentada; cambiarla mueve la geometría de chunks de la ruta
-    que procesa las observaciones reales.
+  - **Cerrado** (`af1d7ad`): un chunk fallido se saltaba
+    `del block_ds, dm_time, block_raw_ds` y `optimize_memory`. Ahora están en un
+    `finally` con los nombres preligados a `None`. Lo segundo no es cosmético:
+    la corrección "obvia" —moverlos detrás del handler como en LF— se midió y
+    **falla**, porque en LF `block` se liga en el `for` antes del `try` y aquí
+    todos los nombres se ligan dentro. Las tres formas, medidas:
+    `finally` + preligado = pasa; detrás del handler sin preligar = falla;
+    `finally` sin preligar = falla. Las dos que fallan lo hacen igual: el
+    `NameError` escapa del bucle mientras se maneja el error real y la corrida
+    se detiene en el chunk malo en vez de continuar. Un chunk malo mataba el
+    fichero entero.
+  - **Fijado, pendiente de decisión** (`2c36426`): `MAX_CHUNK_SAMPLES`. Medirlo
+    lo redujo bastante respecto a como lo resume esta auditoría. El tope se
+    aplica de verdad en `slice_len_calculator`, por donde pasan **los dos**
+    drivers; dentro de `plan_chunking` sólo se consulta cuando el fichero es
+    más CORTO que el chunk pedido, así que todo fichero más largo que su chunk
+    —toda observación grande, que es para lo que existe el tope— toma la misma
+    rama en ambos. Difieren en exactamente una forma de entrada: fichero más
+    corto que el chunk pedido pero más largo que el tope (LF lo parte en dos,
+    HF lo procesa entero). Cerrarlo mueve fronteras de chunk en datos reales sin
+    línea base dorada para HF, así que queda como decisión del proyecto.
 - **REF-12**: **cerrado** (`ebae01d`). `off_regions` eliminado de los 11
   módulos. No se cableó porque no existía productor alguno: todas las ligaduras
   eran `None` literal o el reenvío `off_regions=off_regions`, y `config.py`

@@ -27,7 +27,7 @@ from ..output.phase_metrics import PhaseMetricsTracker
 from ..preprocessing.dedispersion import dedisperse_block, dedisperse_patch
 from ..visualization.visualization_unified import preprocess_img, postprocess_img
 from .candidate_finalization import finalize_patch as _finalize_patch
-from .contracts import DMGrid
+from .contracts import DMGrid, ObservationMetadata, PipelineConfigSnapshot
 from .file_driver import (
     ChunkLoopState,
     begin_resumable_run,
@@ -1663,6 +1663,13 @@ def _process_file_chunked_high_freq(
     chunk_count = plan.chunk_count
     csv_file = plan.csv_file
 
+    # REF-10. The low-frequency driver reads its search configuration from
+    # contracts taken once; this one read the mutable global seventeen times.
+    # Built here, before the first read, and valid for the whole call: nothing
+    # in src/core writes to config, which tests/test_layering.py pins.
+    obs_meta = ObservationMetadata.from_config(config)
+    pipe_snap = PipelineConfigSnapshot.from_config(config)
+
     t_start = time.time()
     cand_counter_total = 0
     n_bursts_total = 0
@@ -1753,9 +1760,9 @@ def _process_file_chunked_high_freq(
                 height = chunk_params['height']
                 freq_low = float(freq_down.min())
                 freq_high = float(freq_down.max())
-                dm_range = float(config.DM_max) - float(config.DM_min)
+                dm_range = pipe_snap.dm_max - pipe_snap.dm_min
                 dm_delay_s = K_DM_MS * dm_range * (freq_low ** -2 - freq_high ** -2)
-                dm_smear_samples = dm_delay_s / (config.TIME_RESO * config.DOWN_TIME_RATE)
+                dm_smear_samples = dm_delay_s / obs_meta.effective_time_reso
                 if dm_smear_samples < 1.0:
                     logger.info(
                         "SPEC-HF-002: DM unresolved (%.4f samples at %.0f-%.0f MHz) — "
@@ -1775,7 +1782,10 @@ def _process_file_chunked_high_freq(
                     valid_end_ds = block_ds.shape[0] - overlap_right_ds
                     block_ds = block_ds[valid_start_ds:valid_end_ds]
                 else:
-                    dm_time_full = build_dm_time_cube(block_ds, height=height, dm_min=config.DM_min, dm_max=config.DM_max, collector=collector)
+                    dm_time_full = build_dm_time_cube(
+                        block_ds, height=height, dm_min=pipe_snap.dm_min,
+                        dm_max=pipe_snap.dm_max, collector=collector,
+                    )
                     block_ds, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(block_ds, dm_time_full, overlap_left_ds, overlap_right_ds)
                     release_dm_cube_buffer(dm_time_full)
                     del dm_time_full
@@ -1801,20 +1811,20 @@ def _process_file_chunked_high_freq(
                             logger.debug("Downsampling multi-pol block: input shape=%s", block_raw.shape)
                             
                             # Manual downsampling that preserves polarization dimension
-                            n_time = (block_raw.shape[0] // config.DOWN_TIME_RATE) * config.DOWN_TIME_RATE
+                            n_time = (block_raw.shape[0] // obs_meta.down_time_rate) * obs_meta.down_time_rate
                             n_pol = block_raw.shape[1]
-                            n_freq = (block_raw.shape[2] // config.DOWN_FREQ_RATE) * config.DOWN_FREQ_RATE
+                            n_freq = (block_raw.shape[2] // obs_meta.down_freq_rate) * obs_meta.down_freq_rate
                             
                             # Trim to divisible sizes
                             block_trimmed = block_raw[:n_time, :, :n_freq]
                             
                             # Reshape to separate downsample axes
                             block_reshaped = block_trimmed.reshape(
-                                n_time // config.DOWN_TIME_RATE,
-                                config.DOWN_TIME_RATE,
+                                n_time // obs_meta.down_time_rate,
+                                obs_meta.down_time_rate,
                                 n_pol,
-                                n_freq // config.DOWN_FREQ_RATE,
-                                config.DOWN_FREQ_RATE,
+                                n_freq // obs_meta.down_freq_rate,
+                                obs_meta.down_freq_rate,
                             )
                             # Shape: (n_time_ds, DOWN_TIME_RATE, n_pol, n_freq_ds, DOWN_FREQ_RATE)
                             
@@ -1849,7 +1859,7 @@ def _process_file_chunked_high_freq(
                 composite_dir, detections_dir, patches_dir, summary_dir = create_chunk_directories(save_dir, fits_path, metadata['chunk_idx'])
 
                 # Match the classic pipeline's chunk start time computation.
-                chunk_start_time_sec = metadata["start_sample"] * config.TIME_RESO
+                chunk_start_time_sec = metadata["start_sample"] * obs_meta.time_reso
 
                 for j, start_idx, end_idx in slices_to_process:
                     cands, bursts, nobursts, pmax = process_slice_with_multiple_bands_high_freq(
@@ -1959,7 +1969,7 @@ def _process_file_chunked_high_freq(
             failed_chunks=state.failed_chunk_count,
         )
 
-    if config.SAVE_ONLY_BURST:
+    if pipe_snap.save_only_burst:
         effective_cand_counter_total = n_bursts_total
         effective_n_bursts_total = n_bursts_total
         effective_n_no_bursts_total = 0

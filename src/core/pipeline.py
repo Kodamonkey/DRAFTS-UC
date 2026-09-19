@@ -377,7 +377,7 @@ def _process_block(
             save_dir,
             freq_down,
             csv_file,
-            config.TIME_RESO * config.DOWN_TIME_RATE,
+            obs_meta.effective_time_reso,
             band_configs,
             snr_list,
             config,
@@ -439,7 +439,7 @@ def _process_block(
     except ImportError:
         pass
 
-    if not config.SAVE_ONLY_BURST and chunk_stats.n_bursts > 0:
+    if not pipe_snap.save_only_burst and chunk_stats.n_bursts > 0:
         file_folder_name = fits_path.stem
         chunk_folder_name = f"chunk{chunk_idx:03d}"
         try:
@@ -469,7 +469,7 @@ def _process_block(
                 logger.warning("Chunk directory %s is missing; cannot move chunk %03d", chunk_dir, chunk_idx)
         except Exception as e:
             logger.error("Failed to move chunk %03d to ChunksWithFRBs: %s", chunk_idx, e)
-    elif config.SAVE_ONLY_BURST and chunk_stats.n_bursts > 0:
+    elif pipe_snap.save_only_burst and chunk_stats.n_bursts > 0:
         logger.info(
             "Chunk %03d contains %d burst candidates (SAVE_ONLY_BURST=True, no reorganisation)",
             chunk_idx,

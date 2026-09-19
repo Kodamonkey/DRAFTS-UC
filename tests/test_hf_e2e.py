@@ -46,8 +46,12 @@ NCHAN = 32
 TSAMP = 1.0e-3
 CHUNK_SAMPLES = 1024
 
-#: Rows the stubbed slice processor writes per slice.
+#: Rows the stubbed slice processor writes per slice, and how many of them it
+#: reports as bursts. They differ on purpose: with every row a burst,
+#: SAVE_ONLY_BURST's two arms return the same number and the flag cannot be
+#: observed at all.
 ROWS_PER_SLICE = 5
+BURSTS_PER_SLICE = 2
 
 
 def _write_hf_file(tmp_path: Path) -> Path:
@@ -103,7 +107,8 @@ def _stub_slices(monkeypatch, counter: dict) -> None:
             row[t_sample] = kwargs["chunk_idx"] * 100_000 + kwargs["j"] * 100 + i
             append_candidate(kwargs["csv_file"], row)
             counter["rows"] += 1
-        return ROWS_PER_SLICE, ROWS_PER_SLICE, 0, 0.9
+        return (ROWS_PER_SLICE, BURSTS_PER_SLICE,
+                ROWS_PER_SLICE - BURSTS_PER_SLICE, 0.9)
 
     monkeypatch.setattr(
         hfp, "process_slice_with_multiple_bands_high_freq", _fake_slice
@@ -520,3 +525,106 @@ class TestTheChunkLimitDivergenceBetweenTheDrivers:
             f"the HF driver passed {seen} as max_chunk_limit; if the cap is now "
             "applied, this class describes behaviour that no longer exists"
         )
+
+
+class TestTheDriverReadsItsSnapshotNotTheGlobal:
+    """REF-10 reached this driver last, and these are the sites it touched.
+
+    It read the mutable global seventeen times; it takes an
+    ``ObservationMetadata`` and a ``PipelineConfigSnapshot`` once now. The
+    substitutions are value-identical by construction, but "value-identical"
+    is only worth as much as the test that would notice if it stopped being
+    true -- and mutation testing showed the three sites had NO coverage at all:
+
+      * ``SAVE_ONLY_BURST`` was vacuous because the stub reported every row as a
+        burst, so both arms of the branch returned the same number.
+      * the DM range never ran, because at 350 GHz SPEC-HF-002 finds the DM
+        unresolved and skips the cube entirely.
+      * the smearing test could not tell ``time_reso`` from
+        ``effective_time_reso``, because the fixture pins DOWN_TIME_RATE to 1.
+
+    One test each.
+    """
+
+    def test_save_only_burst_reports_bursts_not_candidates(self, hf_run):
+        """The flag lives on the snapshot, and it decides the reported counts."""
+        fits_path, save_dir, counter, monkeypatch = hf_run
+        monkeypatch.setattr(config, "SAVE_ONLY_BURST", True, raising=False)
+
+        result = _run(fits_path, save_dir)
+
+        rows = _rows_on_disk(save_dir, fits_path.stem)
+        n_slices = len(rows) // ROWS_PER_SLICE
+        assert n_slices > 0
+        assert result["n_candidates"] == n_slices * BURSTS_PER_SLICE, (
+            "with SAVE_ONLY_BURST the reported candidate count must be the "
+            f"burst count ({n_slices * BURSTS_PER_SLICE}), not every row "
+            f"({len(rows)}); got {result['n_candidates']}"
+        )
+        assert result["n_no_bursts"] == 0
+
+    def test_without_the_flag_every_candidate_is_reported(self, hf_run):
+        """The control, and the reason the two arms are distinguishable."""
+        fits_path, save_dir, counter, monkeypatch = hf_run
+        monkeypatch.setattr(config, "SAVE_ONLY_BURST", False, raising=False)
+
+        result = _run(fits_path, save_dir)
+
+        rows = _rows_on_disk(save_dir, fits_path.stem)
+        n_slices = len(rows) // ROWS_PER_SLICE
+        assert result["n_candidates"] == len(rows)
+        assert result["n_bursts"] == n_slices * BURSTS_PER_SLICE
+        assert result["n_no_bursts"] == n_slices * (ROWS_PER_SLICE - BURSTS_PER_SLICE)
+        assert result["n_bursts"] != result["n_candidates"], (
+            "bursts and candidates are the same number, so the test above "
+            "cannot tell the two arms apart"
+        )
+
+    def test_the_dm_cube_is_built_when_the_dm_is_resolved(self, tmp_path, monkeypatch):
+        """Reaches the line SPEC-HF-002 skips at 350 GHz.
+
+        The dispatch would send a band this low to the low-frequency driver, so
+        the HF driver is called directly -- this is a driver test, not a
+        dispatch test, and TestTheHighFrequencyDriverIsReached covers the
+        dispatch separately.
+        """
+        pytest.importorskip("astropy")
+        from src.core import data_flow_manager as dfm
+        from src.core.high_freq_pipeline import _process_file_chunked_high_freq
+        from src.input.fits_handler import get_obparams
+        from tests.synthetic_psrfits import write_psrfits
+
+        path = tmp_path / "hf_lowband.fits"
+        # 1.4 GHz: the DM sweep is many samples wide, so the cube gets built.
+        write_psrfits(
+            path, nsubint=NSUBINT, nsblk=NSBLK, nchan=NCHAN, npol=4,
+            pol_type="IQUV", tsamp=TSAMP, fch1=1500.0, foff=-10.0,
+            dm=300.0, burst_time_s=0.1,
+        )
+        get_obparams(str(path))
+        save_dir = _configure_hf(monkeypatch, tmp_path)
+        _stub_slices(monkeypatch, {"rows": 0})
+
+        seen = []
+        real_build = dfm.build_dm_time_cube
+
+        def _spy(block, height, dm_min, dm_max, collector=None):
+            seen.append((float(dm_min), float(dm_max)))
+            return real_build(block, height=height, dm_min=dm_min,
+                              dm_max=dm_max, collector=collector)
+
+        monkeypatch.setattr(dfm, "build_dm_time_cube", _spy)
+
+        _process_file_chunked_high_freq(
+            cls_model=None, fits_path=path, save_dir=save_dir, chunk_samples=1024
+        )
+
+        assert seen, (
+            "the DM cube was never built, so the DM range this test exists to "
+            "check was never read"
+        )
+        for dm_min, dm_max in seen:
+            assert (dm_min, dm_max) == (config.DM_min, config.DM_max), (
+                f"the cube was built over DM {dm_min}-{dm_max}, not the "
+                f"configured {config.DM_min}-{config.DM_max}"
+            )

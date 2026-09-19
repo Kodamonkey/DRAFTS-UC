@@ -41,13 +41,47 @@ from src.core.data_flow_manager import (
 )
 from src.core.pipeline_parameters import calculate_dm_height
 from src.detection.model_interface import CNN_IMG_SIZE
+from src.input import fits_handler
+from src.input import psrfits_chunking
 from src.input.filterbank_handler import get_obparams_fil, stream_fil
 from src.output.candidate_manager import CandidateWriter, ensure_csv_header
 from src.preprocessing.dedispersion import d_dm_time_g
 from tests.synthetic_filterbank import write_filterbank
+# The PSRFITS harness TestFitsChunkGeometry needs. It lives in the
+# characterization module because that is where the readers' behaviour is
+# recorded; these are the same helpers its own geometry tests use, so the two
+# modules cannot drift apart on what "the valid window" means.
+from tests.test_fits_reader_characterization import (
+    NCHAN as _FITS_NCHAN,
+    NSBLK as _FITS_NSBLK,
+    NSUBINT as _FITS_NSUBINT,
+    TSAMP as _FITS_TSAMP,
+    TSTART as _FITS_TSTART,
+    _use_astropy_fallback,
+    _use_astropy_primary,
+    _valid_window,
+)
+from tests.synthetic_psrfits import write_psrfits
 
 FITS_HANDLER = PROJECT_ROOT / "src/input/fits_handler.py"
 HF_PIPELINE = PROJECT_ROOT / "src/core/high_freq_pipeline.py"
+
+
+def _write_psrfits_for_geometry(tmp_path) -> dict:
+    """A 512-sample PSRFITS, and its header loaded onto ``config``.
+
+    The same file the characterization module measures, written here rather than
+    imported so the two modules' geometry numbers are directly comparable:
+    16 subints of 32 samples, 16 channels, 1 ms each, so ``chunk_samples=128``
+    needs four chunks.
+    """
+    truth = write_psrfits(
+        tmp_path / "geometry.fits",
+        nsubint=_FITS_NSUBINT, nsblk=_FITS_NSBLK, nchan=_FITS_NCHAN,
+        tsamp=_FITS_TSAMP, tstart=_FITS_TSTART, dtype="float32", seed=3,
+    )
+    fits_handler.get_obparams(str(truth["path"]))
+    return truth
 
 
 def _function_ast(module_path: Path, name: str) -> ast.FunctionDef:
@@ -274,49 +308,175 @@ class TestSnrPreDedispersionComesFromTheWaterfall:
 # --------------------------------------------------------------------------- #
 
 class TestFitsChunkGeometry:
-    """Both astropy emission paths in stream_fits must agree on the geometry.
+    """P1-04/05/06: the geometry both buffered astropy readers emit.
 
-    Driving these needs a real PSRFITS; the three defects are single expressions
-    inside a 600-line generator, so the contract is asserted on the source. The
-    behavioural counterpart lives in test_e2e_pipeline, which exercises the same
-    invariants over the filterbank reader.
+    These four assertions used to be made against the literal source text of
+    ``src/input/fits_handler.py`` -- ``src.count(...) == 2`` and friends --
+    because when they were written nothing in the suite could open a PSRFITS at
+    all. ``tests/synthetic_psrfits.py`` can, so they are made against what the
+    readers produce now.
+
+    The source-text form was not only indirect, it was actively obstructive: the
+    counts pinned the number of *copies* of each expression, so deduplicating the
+    two near-identical astropy readers failed them by construction. Both REF-01
+    and REF-03 ran into that and had to leave the duplication in place; three
+    source files still carry comments naming this class as the reason
+    (``fits_handler.py`` twice, ``psrfits_chunking.py`` once). Deleting those
+    comments, and the duplication, is now unblocked.
+
+    What is asserted instead is the contract those literals stood for:
+
+    P1-04  ``start_sample`` is the first *valid* sample of the chunk, not the
+           first sample of the block that carries it -- checked against the
+           bytes, which is stronger than checking the expression that computes
+           it.
+    P1-05  the buffer advances by the valid span, on the emergency
+           (``buffer_too_large``) path as well as the normal one.
+    P1-06  the first chunk of a file declares no left overlap, and every
+           metadata overlap is derived from the geometry rather than being the
+           constant ``overlap_samples``.
+
+    The spans are pinned exactly as the readers produce them TODAY, gap and
+    duplicate included. That gap is divergence D1, a live defect of this same
+    family, pinned deliberately in
+    ``tests/test_fits_reader_characterization.py::TestValidWindowsTile``.
+    Fixing it is a separate and intentional change; these tests exist so that a
+    refactor cannot make it move by accident.
     """
 
-    def test_start_sample_is_the_valid_regions_start(self):
-        src = FITS_HANDLER.read_text(encoding="utf-8")
-        bare = src.count("start_sample_idx = emitted - out_buf.shape[0]\n")
-        withval = src.count("start_sample_idx = emitted - out_buf.shape[0] + valid_start")
-        assert bare == 0, (
-            "a chunk still reports the block's start as start_sample; every "
-            "absolute time in it is early by the full overlap"
-        )
-        assert withval == 2, f"expected both emission paths to be fixed, found {withval}"
+    # Both buffered astropy readers, which is what the ``== 2`` counts were
+    # really reaching for: the primary copy and the duplicated one behind
+    # ``except Exception``.
+    BRANCHES = [_use_astropy_primary, _use_astropy_fallback]
 
-    def test_buffer_advances_by_the_valid_span_only(self):
-        src = FITS_HANDLER.read_text(encoding="utf-8")
-        assert "samples_to_remove = actual_chunk_size if not buffer_too_large" not in src, (
-            "the emergency path drops 2*overlap extra samples between chunks"
-        )
-        assert src.count("samples_to_remove = actual_chunk_size") == 2
+    @staticmethod
+    def _blocks(truth, **kwargs):
+        return list(fits_handler.stream_fits(str(truth["path"]), **kwargs))
 
-    def test_first_chunk_declares_no_left_overlap(self):
-        src = FITS_HANDLER.read_text(encoding="utf-8")
-        assert src.count("if emitted - out_buf.shape[0] <= 0 and valid_start > 0:") == 2, (
-            "the opening overlap_samples of each file are still discarded"
-        )
+    @pytest.mark.parametrize("take_branch", BRANCHES)
+    def test_start_sample_is_the_valid_regions_start(self, tmp_path, monkeypatch, take_branch):
+        """P1-04. The defect reported the block's start, so every absolute time
+        in the chunk was early by the full left overlap.
 
-    def test_metadata_overlaps_are_derived_not_assumed(self):
-        src = FITS_HANDLER.read_text(encoding="utf-8")
-        # The defect was reporting a constant overlap regardless of where the
-        # chunk actually sits in the file.
-        assert '"overlap_left": overlap_samples,' not in src
-        assert '"overlap_right": overlap_samples,' not in src
-        # Every metadata dict either derives the overlap from the geometry or
-        # states 0 explicitly (the tail emissions).
-        derived = src.count('"overlap_left": valid_start - start_with_overlap,')
-        explicit_zero = src.count('"overlap_left": 0,')
-        assert derived + explicit_zero == src.count('"overlap_left"'), (
-            "some metadata dict reports an overlap that is neither derived nor zero"
+        Asserted against the data: the window the metadata declares valid must
+        hold exactly the file's samples ``[start_sample, end_sample)``. If
+        ``start_sample`` were the block's start, the slice taken from the file
+        would be shifted and the bytes would not line up.
+        """
+        truth = _write_psrfits_for_geometry(tmp_path)
+        take_branch(monkeypatch)
+        full = truth["data_ascending"][:, 0, :]
+
+        blocks = self._blocks(truth, chunk_samples=128, overlap_samples=16)
+        assert blocks, "the reader yielded nothing to check"
+        for block, meta in blocks:
+            assert np.array_equal(
+                _valid_window(block, meta),
+                full[meta["start_sample"]:meta["end_sample"]],
+            ), (
+                f"chunk {meta['chunk_idx']} declares [{meta['start_sample']}, "
+                f"{meta['end_sample']}) but does not carry those samples"
+            )
+            assert meta["start_sample"] >= meta["block_start_sample"]
+
+    @pytest.mark.parametrize("take_branch", BRANCHES)
+    def test_first_chunk_declares_no_left_overlap(self, tmp_path, monkeypatch, take_branch):
+        """P1-06. The defect declared a left overlap the first chunk does not
+        have, so the opening ``overlap_samples`` of every file were discarded."""
+        truth = _write_psrfits_for_geometry(tmp_path)
+        take_branch(monkeypatch)
+
+        (_, first), *_ = self._blocks(truth, chunk_samples=128, overlap_samples=16)
+        assert first["start_sample"] == 0, "the file's first sample is not searched"
+        assert first["overlap_left"] == 0
+        assert first["block_start_sample"] == 0
+
+    @pytest.mark.parametrize("take_branch", BRANCHES)
+    def test_metadata_overlaps_are_derived_not_assumed(self, tmp_path, monkeypatch, take_branch):
+        """The defect reported a constant overlap regardless of where the chunk
+        sat in the file. Deriving it is observable: the real overlaps are not
+        all equal, and a constant ``overlap_samples`` would make them so."""
+        truth = _write_psrfits_for_geometry(tmp_path)
+        take_branch(monkeypatch)
+
+        metas = [m for _, m in self._blocks(truth, chunk_samples=128, overlap_samples=16)]
+        for meta in metas:
+            assert meta["overlap_left"] == meta["start_sample"] - meta["block_start_sample"]
+            assert meta["overlap_right"] == max(
+                0, meta["block_end_sample"] - meta["end_sample"]
+            )
+            assert meta["actual_chunk_size"] == meta["end_sample"] - meta["start_sample"]
+
+        # The concrete numbers, which a constant would flatten. The first chunk
+        # has no left context and the last has no right context.
+        assert [m["overlap_left"] for m in metas] == [0, 16, 16, 0]
+        assert [m["overlap_right"] for m in metas] == [32, 16, 16, 0]
+
+    @pytest.mark.parametrize("take_branch", BRANCHES)
+    def test_buffer_advances_by_the_valid_span_only(self, tmp_path, monkeypatch, take_branch):
+        """P1-05. The emergency path used to drop ``actual + 2 * overlap``
+        samples per chunk, leaving a hole nothing searched.
+
+        The emergency path is the one the source-text test could not reach and
+        this one can. It needs two levers: ``large_chunk`` flips
+        ``compute_buffer_limits`` from flooring the ceiling at ``2 * chunk`` to
+        capping it at ``chunk + 2 * overlap``, and a tiny RAM figure then puts
+        that ceiling below the buffer the reader accumulates. Without both, a
+        512-sample file can never fill a buffer far enough to trigger it -- which
+        is why this path shipped its defect for as long as it did.
+        """
+        monkeypatch.setattr(psrfits_chunking, "LARGE_CHUNK_SAMPLES", 1)
+        real_limits = psrfits_chunking.compute_buffer_limits
+        monkeypatch.setattr(
+            fits_handler, "compute_buffer_limits",
+            lambda chunk_samples, overlap_samples, nchan, available_ram_gb, **kw:
+                real_limits(chunk_samples, overlap_samples, nchan, 1e-7, **kw),
         )
-        # The two buffered emission paths are the ones the audit flagged.
-        assert src.count('"overlap_right": max(0, end_with_overlap - valid_end),') == 2
+        truth = _write_psrfits_for_geometry(tmp_path)
+        take_branch(monkeypatch)
+        full = truth["data_ascending"][:, 0, :]
+
+        blocks = self._blocks(truth, chunk_samples=128, overlap_samples=16)
+        metas = [m for _, m in blocks]
+
+        # The emergency path really ran: it emits early, so it produces more
+        # chunks than the four the normal path does, and short ones.
+        assert len(metas) == 5, f"the emergency path did not trigger: {len(metas)} chunks"
+        assert [m["actual_chunk_size"] for m in metas] == [128, 128, 128, 89, 39]
+
+        # PINNED AS-IS, including the D1 gap at 128..143 and the duplicate at
+        # 473..488. What P1-05 broke was the advance: dropping 2*overlap extra
+        # per chunk moves every span after the first and widens the gap.
+        spans = [(m["start_sample"], m["end_sample"]) for m in metas]
+        assert spans == [(0, 128), (144, 272), (272, 400), (400, 489), (473, 512)]
+
+        # Whatever the spans are, the bytes under them must still be right.
+        for block, meta in blocks:
+            assert np.array_equal(
+                _valid_window(block, meta),
+                full[meta["start_sample"]:meta["end_sample"]],
+            )
+
+    def test_the_emergency_window_is_planned_from_the_valid_span(self):
+        """The arithmetic half of P1-05, with no file involved at all.
+
+        ``plan_buffered_window`` is the pure function the readers share; this is
+        the unit test the module docstring says the split was for.
+        """
+        window = psrfits_chunking.plan_buffered_window(
+            buffer_len=400, chunk_samples=128, overlap_samples=16,
+            buffer_too_large=True, large_chunk=False,
+        )
+        assert window.emergency is True
+        assert window.actual_chunk_size == 128
+        assert window.valid_end - window.valid_start == window.actual_chunk_size
+        # The block carries context on both sides; the valid span is the chunk.
+        assert window.end_with_overlap - window.start_with_overlap == 160
+
+        normal = psrfits_chunking.plan_buffered_window(
+            buffer_len=400, chunk_samples=128, overlap_samples=16,
+            buffer_too_large=False, large_chunk=False,
+        )
+        assert normal.emergency is False
+        assert normal.actual_chunk_size == 128
+        assert normal.valid_end - normal.valid_start == normal.actual_chunk_size

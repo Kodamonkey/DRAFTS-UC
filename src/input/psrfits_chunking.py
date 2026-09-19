@@ -14,13 +14,14 @@ Nothing in this module touches a file, a header or :mod:`src.config`. Every
 function takes integers and returns integers or a small frozen record, so the
 geometry can be checked in a unit test without writing a PSRFITS first.
 
-What is deliberately NOT here: the first-chunk clamp
+Still NOT here, though nothing forbids it any more: the first-chunk clamp
 (``if emitted - out_buf.shape[0] <= 0 and valid_start > 0``) and the metadata
 dict of the two buffered astropy readers. ``tests/test_p1_regressions.py``
-asserts on the literal source text of those expressions inside
-``src/input/fits_handler.py`` and requires exactly two copies of each, so moving
-them here would fail a test this refactor is not allowed to edit. See the REF-03
-report.
+used to assert on the literal source text of those expressions inside
+``src/input/fits_handler.py`` and require exactly two copies of each, so moving
+them here failed a test that refactor was not allowed to edit. That test asserts
+on the readers' output now, so the move is unblocked -- it just has not been
+made.
 """
 from __future__ import annotations
 

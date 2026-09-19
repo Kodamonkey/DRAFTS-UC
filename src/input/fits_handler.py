@@ -1285,10 +1285,13 @@ def _emit_subint_primary_blocks(
           continuation file is zero-padded at the front and more samples are
           emitted than the file holds.
 
-    Near-identical to :func:`_emit_subint_fallback_blocks`. They are not merged
-    because ``tests/test_p1_regressions.py::TestFitsChunkGeometry`` asserts on
-    the literal source text of four expressions below and requires exactly two
-    copies of each; see the REF-03 report.
+    Near-identical to :func:`_emit_subint_fallback_blocks`, and still not
+    merged -- but no longer because a test forbids it.
+    ``tests/test_p1_regressions.py::TestFitsChunkGeometry`` used to count the
+    literal source text of four expressions below and require exactly two copies
+    of each, which made merging these two functions fail by construction. It
+    asserts on the readers' output now, so the merge is unblocked and is simply
+    not done yet; the geometry it pins covers both copies.
     """
     subint, tbl = source.subint, source.tbl
     nsubint, nchan, npol, nsblk = source.nsubint, source.nchan, source.npol, source.nsblk
@@ -1588,10 +1591,11 @@ def _emit_subint_fallback_blocks(
     A near-copy of :func:`_emit_subint_primary_blocks`; the chunk arithmetic is
     identical and the two differ only in where the epoch comes from (D2, decided
     in :func:`_open_subint_fallback`) and in placing subints at ``i * NSBLK``
-    instead of by ``OFFS_SUB`` (D4). They are not merged because
-    ``tests/test_p1_regressions.py::TestFitsChunkGeometry`` asserts on the
-    literal source text of four expressions below and requires exactly two
-    copies of each; see the REF-03 report.
+    instead of by ``OFFS_SUB`` (D4). Still not merged, but no longer because a
+    test forbids it: ``tests/test_p1_regressions.py::TestFitsChunkGeometry``
+    used to require exactly two textual copies of four expressions below and now
+    asserts on what both copies emit, so the merge is unblocked and simply not
+    done yet.
     """
     subint, tbl = source.subint, source.tbl
     nsubint, nchan, npol, nsblk = source.nsubint, source.nchan, source.npol, source.nsblk

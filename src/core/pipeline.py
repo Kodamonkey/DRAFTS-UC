@@ -42,6 +42,8 @@ from .data_flow_manager import (
 from .contracts import ChunkPlan, DMGrid, ObservationMetadata, PipelineConfigSnapshot
 from .file_driver import (
     ChunkLoopState,
+    begin_resumable_run,
+    checkpoint_completed_chunk,
     DetectionStats,
     FILE_ERROR_STATUS as _FILE_ERROR_STATUS,
     begin_chunk,
@@ -612,22 +614,14 @@ def _process_file_chunked(
 
         start_arrival_clock(state)
 
-        # Checkpoint/resume: skip already-completed chunks
-        from ..core.checkpoint import (
-            save_checkpoint,
-            load_checkpoint,
-            clear_checkpoint,
-            should_skip_chunk,
-            compute_run_fingerprint,
-        )
-        # Ties the checkpoint to this search and this input file, so a resume
-        # after a configuration change starts over instead of splicing two
-        # different searches into one CSV.
-        run_fingerprint = compute_run_fingerprint(fits_path, config)
-        resume_after = load_checkpoint(save_dir, fits_path.stem, run_fingerprint)
-        if resume_after < 0:
-            # Fresh run, not a resume: do not append to a previous run's CSV.
-            rotate_previous_candidates(csv_file)
+        # Checkpoint/resume: skip already-completed chunks. The fingerprint,
+        # the resume point and the fresh-run rotation are shared with the
+        # high-frequency driver (REF-01); what stays here is the log line below,
+        # which HF does not have.
+        from ..core.checkpoint import clear_checkpoint, should_skip_chunk
+
+        resume = begin_resumable_run(fits_path, save_dir, csv_file)
+        run_fingerprint, resume_after = resume.fingerprint, resume.resume_after
 
         logger.info(
             "Starting to read chunks from file.%s",
@@ -683,16 +677,13 @@ def _process_file_chunked(
                 report_eta=chunk_idx > 1,
             )
 
-            # Checkpoint ONLY after a chunk that actually completed. A failed
-            # chunk must stay un-checkpointed, otherwise a later resume skips it
-            # for good and the recovery run reports success without recovering
-            # anything. Flush first: the checkpoint claims the rows this chunk
-            # produced are durable, so they have to be on disk before it lands.
+            # Only a chunk that completed may advance the checkpoint, and its
+            # rows have to be on disk before it does. Both reasons live with the
+            # helper, shared with the high-frequency driver (REF-01).
             if chunk_succeeded:
-                CandidateWriter.flush_buffers()
-                save_checkpoint(
+                checkpoint_completed_chunk(
                     save_dir, fits_path.stem, chunk_idx, chunk_count,
-                    fingerprint=run_fingerprint,
+                    run_fingerprint,
                 )
 
             # CRITICAL: Free block immediately after processing (PRESTO-style)

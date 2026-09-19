@@ -30,6 +30,8 @@ from .candidate_finalization import finalize_patch as _finalize_patch
 from .contracts import DMGrid
 from .file_driver import (
     ChunkLoopState,
+    begin_resumable_run,
+    checkpoint_completed_chunk,
     DetectionStats,
     begin_chunk,
     check_file_length,
@@ -1689,21 +1691,13 @@ def _process_file_chunked_high_freq(
         # Use multi-polarization streaming for HF pipeline
         start_arrival_clock(state)
 
-        # Checkpoint/resume, matching the LF pipeline: an interrupted HF run
-        # used to restart from chunk 0 and, because the CSV is opened in
-        # append mode, duplicate every candidate it had already written.
-        from ..core.checkpoint import (
-            clear_checkpoint,
-            compute_run_fingerprint,
-            load_checkpoint,
-            save_checkpoint,
-            should_skip_chunk,
-        )
-        run_fingerprint = compute_run_fingerprint(fits_path, config)
-        resume_after = load_checkpoint(save_dir, fits_path.stem, run_fingerprint)
-        if resume_after < 0:
-            # Fresh run, not a resume: do not append to a previous run's CSV.
-            rotate_previous_candidates(csv_file)
+        # Checkpoint/resume: an interrupted HF run used to restart from chunk 0
+        # and, because the CSV is opened in append mode, duplicate every
+        # candidate it had already written. Shared with the LF driver (REF-01).
+        from ..core.checkpoint import clear_checkpoint, should_skip_chunk
+
+        resume = begin_resumable_run(fits_path, save_dir, csv_file)
+        run_fingerprint, resume_after = resume.fingerprint, resume.resume_after
 
         for chunk_seq, (block, block_raw, metadata, pol_type) in enumerate(
             stream_fits_multi_pol(
@@ -1921,12 +1915,11 @@ def _process_file_chunked_high_freq(
                 optimize_memory(aggressive=(state.actual_chunk_count % 5 == 0))
 
             # Only a chunk that completed may advance the checkpoint, and its
-            # rows have to be on disk before it does.
+            # rows have to be on disk before it does. Shared helper (REF-01).
             if chunk_succeeded:
-                CandidateWriter.flush_buffers()
-                save_checkpoint(
+                checkpoint_completed_chunk(
                     save_dir, fits_path.stem, chunk_seq, chunk_count,
-                    fingerprint=run_fingerprint,
+                    run_fingerprint,
                 )
 
         from ..log_utils import log_processing_summary

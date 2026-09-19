@@ -207,8 +207,13 @@ def _spy_on_save_checkpoint(driver: dict) -> list:
         observations.append((int(chunk_idx), on_disk))
         return real_save(results_dir, file_stem, chunk_idx, total_chunks, *a, **kw)
 
+    # Patch every module that holds a binding. Since REF-01 shared the block,
+    # the live call site is ``file_driver.checkpoint_completed_chunk``, so
+    # ``file_driver`` is the one that matters; the drivers are patched too in
+    # case a future change calls save_checkpoint directly again.
     driver["monkeypatch"].setattr(checkpoint_mod, "save_checkpoint", _spy)
-    for module_name in ("src.core.pipeline", "src.core.high_freq_pipeline"):
+    for module_name in ("src.core.file_driver", "src.core.pipeline",
+                        "src.core.high_freq_pipeline"):
         module = importlib.import_module(module_name)
         if hasattr(module, "save_checkpoint"):
             driver["monkeypatch"].setattr(module, "save_checkpoint", _spy)

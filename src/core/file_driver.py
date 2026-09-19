@@ -6,10 +6,14 @@
 # duplication had already produced real defects, each fixed in one copy long
 # before the other -- the missing ``CandidateWriter.flush_all()`` that silently
 # dropped up to 49 candidates per file (P0-2), checkpoint/resume, and the
-# flush-before-checkpoint discipline. One divergence is still open:
+# flush-before-checkpoint discipline. Those last two are no longer duplicated:
+# ``begin_resumable_run`` and ``checkpoint_completed_chunk`` below are the one
+# copy, which REF-01 could not write while three tests asserted on the shape of
+# the blocks in each driver. One divergence is still open:
 # ``config.MAX_CHUNK_SAMPLES`` is applied by the LF driver and not by the HF
 # one. That is preserved here as the ``max_chunk_limit`` parameter rather than
-# closed, because closing it would change the untested path.
+# closed, because closing it would change the untested path -- a decision the
+# project took deliberately, pinned in tests/test_hf_e2e.py.
 #
 # This module holds the shared steps so the two paths can no longer drift. Every
 # place where the two copies genuinely differ is a parameter here, not a choice:
@@ -49,7 +53,12 @@ except ImportError:
 from ..config import config
 from ..domain.physics import K_DM_MS
 from ..log_utils import log_block_processing
-from ..output.candidate_manager import ensure_csv_header
+from ..output.candidate_manager import (
+    CandidateWriter,
+    ensure_csv_header,
+    rotate_previous_candidates,
+)
+from .checkpoint import compute_run_fingerprint, load_checkpoint, save_checkpoint
 from .contracts import PipelineConfigSnapshot
 from .pipeline_parameters import calculate_frequency_downsampled, should_use_hf_pipeline
 
@@ -155,6 +164,77 @@ def status_for_error(error: BaseException) -> tuple[str, str]:
         if isinstance(error, error_type):
             return status, message
     return "ERROR_CHUNKED", "Unhandled error processing %s: %s"
+
+
+# --------------------------------------------------------------------------- #
+# checkpoint and resume, shared by both drivers
+# --------------------------------------------------------------------------- #
+# These two were written out identically in ``pipeline.py`` and
+# ``high_freq_pipeline.py``. The duplication was not an oversight: three tests
+# asserted on the SHAPE of those blocks -- one required the literal
+# ``if resume_after < 0:`` within 300 characters of
+# ``rotate_previous_candidates(csv_file)`` in BOTH files -- so sharing them
+# failed by construction, and REF-01 recorded it as a known limit.
+#
+# Those tests assert on behaviour now (``tests/test_driver_recovery.py``, which
+# runs both drivers through one parametrised suite), so the blocks can live in
+# one place. What is NOT shared is listed at each site below.
+
+
+@dataclass(frozen=True)
+class ResumePoint:
+    """Where a run picks up, and the fingerprint that licenses it."""
+
+    fingerprint: str
+    resume_after: int
+
+    @property
+    def is_fresh(self) -> bool:
+        """True when there was no checkpoint to resume from."""
+        return self.resume_after < 0
+
+
+def begin_resumable_run(fits_path: Path, save_dir: Path, csv_file: Path) -> ResumePoint:
+    """Resolve the resume point and, on a fresh run, move the old CSV aside.
+
+    The fingerprint ties the checkpoint to this search and this input file, so a
+    resume after a configuration change starts over instead of splicing two
+    different searches into one CSV.
+
+    Rotating only when fresh is the other half: the writer opens in append mode,
+    so without it a re-run interleaves both runs' detections in one file with
+    nothing to tell them apart -- while the plots, which are overwritten, show
+    only the newer run (P1-13). A resume must NOT rotate, or the interrupted
+    run's candidates are thrown away.
+    """
+    fingerprint = compute_run_fingerprint(fits_path, config)
+    resume_after = load_checkpoint(save_dir, fits_path.stem, fingerprint)
+    if resume_after < 0:
+        rotate_previous_candidates(csv_file)
+    return ResumePoint(fingerprint=fingerprint, resume_after=resume_after)
+
+
+def checkpoint_completed_chunk(
+    save_dir: Path,
+    file_stem: str,
+    chunk_number: int,
+    chunk_count: int,
+    fingerprint: str,
+) -> None:
+    """Record a chunk as done -- flushing its rows first.
+
+    Call this ONLY for a chunk that actually completed. A failed chunk that gets
+    checkpointed is skipped for good on resume, and the recovery run reports
+    success without having recovered anything (P0-4).
+
+    The flush is not incidental: the checkpoint claims this chunk's rows are
+    durable, so they have to be on disk before it lands. The writer buffers, so
+    without it a crash between the two loses rows the checkpoint vouches for.
+    """
+    CandidateWriter.flush_buffers()
+    save_checkpoint(
+        save_dir, file_stem, chunk_number, chunk_count, fingerprint=fingerprint
+    )
 
 
 # --------------------------------------------------------------------------- #

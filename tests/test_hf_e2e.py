@@ -425,3 +425,92 @@ class TestAFailedChunkStillReleasesItsArrays:
         )
         rows = _rows_on_disk(save_dir, fits_path.stem)
         assert rows, "the surviving chunks wrote nothing"
+
+
+class TestTheChunkLimitDivergenceBetweenTheDrivers:
+    """Audit HF defect 4, pinned as it is rather than fixed.
+
+    ``plan_chunking`` takes ``max_chunk_limit``: the LF driver passes
+    ``config.MAX_CHUNK_SAMPLES``, the HF driver passes ``None``. Changing that
+    moves chunk boundaries on the path that processes real observations, and
+    there is no golden baseline for HF output, so it is a decision for the
+    project rather than a cleanup. This records exactly what the difference is
+    so it cannot drift while that decision is outstanding -- the same bargain
+    ``test_fits_reader_characterization.py`` makes for D1-D7.
+
+    The scope is much narrower than "HF ignores MAX_CHUNK_SAMPLES", which is
+    how the audit's summary reads. Measured:
+
+      * The cap's main application is in ``slice_len_calculator``, which both
+        drivers go through, so the memory-safe chunk size IS capped for HF.
+      * In ``plan_chunking`` the cap is only ever consulted when the file is
+        SHORTER than the requested chunk. For any file longer than its chunk --
+        every large observation -- both drivers take the same ``else`` branch
+        and neither applies it.
+      * So the two differ on exactly one shape of input: a file shorter than
+        the requested chunk size but longer than the cap.
+    """
+
+    CAP = 1_000_000
+
+    def test_they_agree_on_every_large_file(self):
+        """The case that matters operationally: both drivers, same geometry."""
+        from src.core.file_driver import plan_chunking
+
+        for total, chunk in [
+            (50_000_000, 2_000_000),
+            (2_000_000_000, 4_000_000),
+            (10_000_000, 1_000_000),
+        ]:
+            lf = plan_chunking(total, chunk, self.CAP)
+            hf = plan_chunking(total, chunk, None)
+            assert lf == hf, (
+                f"total={total} chunk={chunk}: LF {lf} vs HF {hf}. The drivers "
+                "were believed to agree on every file longer than its chunk."
+            )
+
+    def test_they_agree_when_the_file_is_under_both(self):
+        from src.core.file_driver import plan_chunking
+
+        lf = plan_chunking(500_000, 2_000_000, self.CAP)
+        hf = plan_chunking(500_000, 2_000_000, None)
+        assert lf == hf == (500_000, 1)
+
+    def test_the_one_input_shape_where_they_differ(self):
+        """PINNED AS-IS. A file shorter than its chunk but longer than the cap.
+
+        LF splits it; HF runs it whole. If this ever starts agreeing, the
+        divergence was closed -- which is a real decision and wants a commit
+        message saying so, not a silently updated test.
+        """
+        from src.core.file_driver import plan_chunking
+
+        total, chunk = 1_500_000, 2_000_000
+        assert plan_chunking(total, chunk, self.CAP) == (1_000_000, 2)
+        assert plan_chunking(total, chunk, None) == (1_500_000, 1)
+
+    def test_the_hf_driver_really_is_the_one_passing_none(self, hf_run):
+        """Ties the arithmetic above to the driver that uses it.
+
+        Observed by watching the real run call ``plan_chunking``, not by reading
+        the source for ``max_chunk_limit=None`` -- counting source text is what
+        audit REF-03 spent two refactors trapped behind.
+        """
+        from src.core import file_driver
+
+        fits_path, save_dir, counter, monkeypatch = hf_run
+        seen = []
+        real = file_driver.plan_chunking
+
+        def _spy(total_samples, chunk_samples, max_chunk_limit=None):
+            seen.append(max_chunk_limit)
+            return real(total_samples, chunk_samples, max_chunk_limit)
+
+        monkeypatch.setattr(file_driver, "plan_chunking", _spy)
+        _run(fits_path, save_dir)
+
+        assert seen, "plan_chunking was never called"
+        assert seen == [None] * len(seen), (
+            f"the HF driver passed {seen} as max_chunk_limit; if the cap is now "
+            "applied, this class describes behaviour that no longer exists"
+        )

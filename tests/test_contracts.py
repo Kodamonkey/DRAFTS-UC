@@ -226,3 +226,79 @@ class TestSnapshotAndRecord(unittest.TestCase):
         snap = PipelineConfigSnapshot.from_config(config)
         self.assertFalse(snap.prewhiten_before_dm)
 
+
+
+class TestTheSnapshotsMatchTheGlobalsTheyReplace(unittest.TestCase):
+    """Parity for the REF-10 substitutions in ``_process_block``.
+
+    Each step of that migration swaps a ``config.X`` read for a contract field.
+    The golden CSV proves the swap changed nothing for one input; this proves
+    the equality the swap relies on, field by field, for arbitrary values --
+    including the derived ones, where a wrong formula would survive the golden
+    test whenever the factor happens to be 1.
+    """
+
+    FIELDS = [
+        # (contract attribute, config key, how the hot path used to write it)
+        ("time_reso", "TIME_RESO", lambda c: c.TIME_RESO),
+        ("down_time_rate", "DOWN_TIME_RATE", lambda c: int(c.DOWN_TIME_RATE)),
+        ("down_freq_rate", "DOWN_FREQ_RATE", lambda c: int(c.DOWN_FREQ_RATE)),
+        ("freq_reso", "FREQ_RESO", lambda c: int(c.FREQ_RESO)),
+        ("file_leng", "FILE_LENG", lambda c: int(c.FILE_LENG)),
+    ]
+
+    def _pin(self):
+        config.TIME_RESO = 8.192e-5
+        config.DOWN_TIME_RATE = 6          # not 1: a dropped factor must show
+        config.DOWN_FREQ_RATE = 3
+        config.FREQ_RESO = 512
+        config.FILE_LENG = 123_457
+        config.FREQ = np.linspace(1100.0, 1500.0, 512)
+        config.DM_min, config.DM_max = 12.0, 812.0
+        config.DM_GRID_MODE = "legacy_uniform"
+
+    def setUp(self):
+        self._old = (config.TIME_RESO, config.DOWN_TIME_RATE, config.DOWN_FREQ_RATE,
+                     config.FREQ_RESO, config.FILE_LENG, config.FREQ,
+                     config.DM_min, config.DM_max, config.DM_GRID_MODE)
+        self._pin()
+
+    def tearDown(self):
+        (config.TIME_RESO, config.DOWN_TIME_RATE, config.DOWN_FREQ_RATE,
+         config.FREQ_RESO, config.FILE_LENG, config.FREQ,
+         config.DM_min, config.DM_max, config.DM_GRID_MODE) = self._old
+
+    def test_each_migrated_field_equals_the_global_it_replaced(self):
+        meta = ObservationMetadata.from_config(config)
+        for attr, key, old_expression in self.FIELDS:
+            with self.subTest(field=attr):
+                self.assertEqual(
+                    getattr(meta, attr), old_expression(config),
+                    f"ObservationMetadata.{attr} no longer equals config.{key}",
+                )
+
+    def test_effective_time_reso_equals_the_expression_it_replaced(self):
+        """The hot path wrote ``config.TIME_RESO * config.DOWN_TIME_RATE`` in
+        three places. DOWN_TIME_RATE is 6 here on purpose: at 1 the property
+        would match even if it had dropped the factor entirely."""
+        meta = ObservationMetadata.from_config(config)
+        self.assertAlmostEqual(
+            meta.effective_time_reso,
+            config.TIME_RESO * config.DOWN_TIME_RATE,
+            places=15,
+        )
+        self.assertNotAlmostEqual(meta.effective_time_reso, config.TIME_RESO)
+
+    def test_the_dm_range_equals_the_globals_it_replaced(self):
+        snap = PipelineConfigSnapshot.from_config(config)
+        self.assertEqual(snap.dm_min, float(config.DM_min))
+        self.assertEqual(snap.dm_max, float(config.DM_max))
+
+    def test_a_snapshot_does_not_follow_the_global_afterwards(self):
+        """Which is the point of snapshotting, and the reason
+        TestOnlyTheReadersMutateConfig has to hold for the swap to be safe."""
+        meta = ObservationMetadata.from_config(config)
+        before = meta.time_reso
+        config.TIME_RESO = 1.0
+        self.assertEqual(meta.time_reso, before)
+        self.assertNotEqual(meta.time_reso, config.TIME_RESO)

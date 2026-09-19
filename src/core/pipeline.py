@@ -136,8 +136,25 @@ def _process_block(
     start_sample = int(metadata.get("start_sample", 0))
     end_sample = int(metadata.get("end_sample", start_sample + chunk_samples))
 
-    chunk_start_time_sec = start_sample * config.TIME_RESO
-    chunk_duration_sec = chunk_samples * config.TIME_RESO
+    # REF-10: the contracts are built HERE, before the first value is read out
+    # of them, rather than thirty lines further down. Safe to hoist because
+    # nothing between the two points writes to config -- downsample_chunk only
+    # reads, and the single write in preprocessing/slice_len_calculator sets
+    # SLICE_LEN, which no contract on this list captures.
+    # tests/test_layering.py::TestOnlyTheReadersMutateConfig pins that.
+    obs_meta = ObservationMetadata.from_config(config)
+    pipe_snap = PipelineConfigSnapshot.from_config(config)
+    dm_grid = DMGrid.from_config(config)
+    chunk_plan = ChunkPlan(
+        chunk_idx=int(chunk_idx),
+        start_sample=int(start_sample),
+        end_sample=int(end_sample),
+        overlap_left=int(metadata.get("overlap_left", 0)),
+        overlap_right=int(metadata.get("overlap_right", 0)),
+    )
+
+    chunk_start_time_sec = start_sample * obs_meta.time_reso
+    chunk_duration_sec = chunk_samples * obs_meta.time_reso
 
     logger.info(
         "Chunk %03d • samples=%s/%s • range=[%s→%s] • time=%.2fs-%.2fs (%.2fs) • progress=%.1f%%",
@@ -154,16 +171,6 @@ def _process_block(
 
     block, dt_ds = downsample_chunk(block)
 
-    obs_meta = ObservationMetadata.from_config(config)
-    pipe_snap = PipelineConfigSnapshot.from_config(config)
-    dm_grid = DMGrid.from_config(config)
-    chunk_plan = ChunkPlan(
-        chunk_idx=int(chunk_idx),
-        start_sample=int(start_sample),
-        end_sample=int(end_sample),
-        overlap_left=int(metadata.get("overlap_left", 0)),
-        overlap_right=int(metadata.get("overlap_right", 0)),
-    )
     logger.debug(
         "Chunk %03d contracts: band=[%.1f–%.1f] MHz duration=%.2fs DM_grid=%d rows",
         chunk_idx,
@@ -183,8 +190,8 @@ def _process_block(
     _trace_info(
         "[TRACE] Chunk %03d: tsamp=%.9fs DOWN_TIME_RATE=%dx Δt=%.9fs start_sample_raw=%d end_sample_raw=%d",
         chunk_idx,
-        config.TIME_RESO,
-        int(config.DOWN_TIME_RATE),
+        obs_meta.time_reso,
+        obs_meta.down_time_rate,
         dt_ds,
         metadata.get("start_sample", -1),
         metadata.get("end_sample", -1),
@@ -202,7 +209,7 @@ def _process_block(
         "Overlap raw→ds • left=%d→%d (rate=%d) • right=%d→%d",
         int(metadata.get("overlap_left", 0)),
         overlap_left_ds,
-        int(config.DOWN_TIME_RATE),
+        obs_meta.down_time_rate,
         int(metadata.get("overlap_right", 0)),
         overlap_right_ds,
     )
@@ -296,7 +303,7 @@ def _process_block(
 
         start_idx, end_idx = start_idx_ajustado, end_idx_ajustado
 
-        dt_ds_local = config.TIME_RESO * config.DOWN_TIME_RATE
+        dt_ds_local = obs_meta.effective_time_reso
         slice_abs_start_preview = chunk_start_time_sec + (start_idx * dt_ds_local)
         slice_info = {
             'slice_idx': j,
@@ -306,13 +313,13 @@ def _process_block(
             'block_shape': block.shape[0],
             'chunk_idx': chunk_idx,
             'tiempo_absoluto_inicio': slice_abs_start_preview,
-            'duracion_slice_esperada_ms': slice_len * config.TIME_RESO * config.DOWN_TIME_RATE * 1000,
+            'duracion_slice_esperada_ms': slice_len * obs_meta.effective_time_reso * 1000,
         }
 
         slice_cube = dm_time[:, :, start_idx:end_idx]
         waterfall_block = block[start_idx:end_idx]
 
-        slice_tiempo_real_ms = (end_idx - start_idx) * config.TIME_RESO * config.DOWN_TIME_RATE * 1000
+        slice_tiempo_real_ms = (end_idx - start_idx) * obs_meta.effective_time_reso * 1000
         logger.debug(
             "Slice %03d (chunk %03d) • samples=%d • abs=%.3fs • duration=%.1f ms • cube=%s • waterfall=%s",
             j,

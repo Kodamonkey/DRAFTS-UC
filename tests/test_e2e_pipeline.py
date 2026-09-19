@@ -213,3 +213,83 @@ class TestEndToEndPipeline:
         dm_a = sorted(float(r["dm_pc_cm-3"]) for r in rows_a)
         dm_b = sorted(float(r["dm_pc_cm-3"]) for r in rows_b)
         assert dm_a == pytest.approx(dm_b)
+
+
+class TestTemporalDownsamplingEndToEnd:
+    """A full run with ``DOWN_TIME_RATE > 1``, which nothing else does.
+
+    Every end-to-end test in this file and in ``test_golden_csv.py`` pins
+    ``DOWN_TIME_RATE = 1``. At 1, ``config.TIME_RESO`` and
+    ``TIME_RESO * DOWN_TIME_RATE`` are the same number, so the whole safety net
+    is blind to the difference between the sampling interval and the *effective*
+    one after decimation -- a confusion that puts every arrival time out by
+    exactly the decimation factor.
+
+    That mattered when REF-10 replaced those expressions with
+    ``ObservationMetadata.time_reso`` and ``.effective_time_reso``: swapping one
+    for the other changed nothing that any test could see. Verified by mutation
+    before this class existed -- both swaps passed the entire suite.
+
+    So this runs the real pipeline over a real file with the decimation on, and
+    asserts the burst still lands at the time it was injected. The absolute
+    time is the assertion that carries it: get the resolution wrong and the
+    arrival time moves by the factor.
+    """
+
+    DOWN_RATE = 2
+
+    def _run_downsampled(self, tmp_path, monkeypatch, *, burst_time,
+                         chunk_samples=4000):
+        from src.core import pipeline as pipeline_mod
+        from src.core.pipeline import run_pipeline
+
+        monkeypatch.setattr(pipeline_mod, "_load_detection_model", lambda: None)
+        monkeypatch.setattr(pipeline_mod, "_load_class_model", lambda: None)
+        monkeypatch.setattr(de, "save_all_plots", lambda *a, **k: None)
+
+        # Several chunks on purpose. With one chunk every start_sample is 0,
+        # so `start_sample * resolution` is 0 whichever resolution is used and
+        # the mix-up this class exists to catch cancels out exactly.
+        _configure(tmp_path, chunk_samples=chunk_samples)
+        config.DOWN_TIME_RATE = self.DOWN_RATE
+        config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        fil = config.DATA_DIR / "synthetic_burst.fil"
+        write_filterbank(
+            fil, nsamples=8000, dm=DM_TRUE, burst_time_s=burst_time, tsamp=TSAMP,
+        )
+        _install_peak_detector(monkeypatch)
+        run_pipeline()
+        return _read_candidates(config.RESULTS_DIR)
+
+    def test_the_burst_keeps_its_absolute_time_under_decimation(
+        self, tmp_path, monkeypatch
+    ):
+        # 6.0 s is sample 6000, so with 4000-sample chunks it lands in chunk 1
+        # and its chunk carries a non-zero start_sample.
+        rows = self._run_downsampled(tmp_path, monkeypatch, burst_time=6.0)
+        assert rows, "the pipeline produced no candidates with decimation on"
+
+        best = max(rows, key=lambda r: float(r["snr_patch_dedispersed"] or 0.0))
+        assert float(best["dm_pc_cm-3"]) == pytest.approx(DM_TRUE, abs=DM_TOLERANCE)
+        # The tolerance is one decimated sample either side, not the 0.1 s the
+        # undecimated tests use: a resolution mix-up moves this by a factor of
+        # DOWN_RATE, which at 1.5 s is 0.75 s -- far outside it.
+        assert float(best["t_sec_dm_time"]) == pytest.approx(
+            6.0, abs=4 * TSAMP * self.DOWN_RATE
+        ), (
+            "the burst's absolute time moved under temporal decimation; the "
+            "usual cause is TIME_RESO used where TIME_RESO * DOWN_TIME_RATE "
+            "belongs, or the reverse"
+        )
+
+    def test_a_burst_late_in_the_file_too(self, tmp_path, monkeypatch):
+        """A second offset, so the check cannot pass on a coincidence at one
+        point in the file."""
+        late = 3.0
+        rows = self._run_downsampled(tmp_path, monkeypatch, burst_time=late)
+        assert rows
+
+        best = max(rows, key=lambda r: float(r["snr_patch_dedispersed"] or 0.0))
+        assert float(best["t_sec_dm_time"]) == pytest.approx(
+            late, abs=4 * TSAMP * self.DOWN_RATE
+        )

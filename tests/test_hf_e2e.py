@@ -628,3 +628,75 @@ class TestTheDriverReadsItsSnapshotNotTheGlobal:
                 f"the cube was built over DM {dm_min}-{dm_max}, not the "
                 f"configured {config.DM_min}-{config.DM_max}"
             )
+
+
+class TestTheSnapshotReachesTheBandFunction:
+    """REF-10 step 4: the driver builds one snapshot and hands it down.
+
+    ``snr_detect_and_classify_candidates_in_band`` read the mutable global
+    twenty-one times across ten keys; it takes an optional
+    ``PipelineConfigSnapshot`` now. Optional so no caller had to change and a
+    test can inject one -- which is the whole point of the contract, and what
+    these tests would be impossible without.
+
+    What is asserted is the threading, not the band function's body: the body
+    is stubbed in every end-to-end test here, so its substitutions are covered
+    by the contract parity tests in tests/test_contracts.py rather than by
+    execution. That is stated in the commit too.
+    """
+
+    def test_the_driver_passes_the_snapshot_it_built(self, tmp_path, monkeypatch):
+        pytest.importorskip("astropy")
+        from src.core import high_freq_pipeline as hfp
+        from src.core.contracts import PipelineConfigSnapshot
+
+        _write_hf_file(tmp_path)
+        fits_path = tmp_path / "hf_synth.fits"
+        save_dir = _configure_hf(monkeypatch, tmp_path)
+
+        seen = []
+
+        def _capture(**kwargs):
+            seen.append(kwargs.get("snapshot"))
+            return ROWS_PER_SLICE, BURSTS_PER_SLICE, ROWS_PER_SLICE - BURSTS_PER_SLICE, 0.9
+
+        monkeypatch.setattr(
+            hfp, "process_slice_with_multiple_bands_high_freq", _capture
+        )
+        _run(fits_path, save_dir)
+
+        assert seen, "the slice processor was never called"
+        assert all(isinstance(s, PipelineConfigSnapshot) for s in seen), (
+            f"the driver passed {[type(s).__name__ for s in seen[:3]]} as the "
+            "snapshot; it should hand down the one it built"
+        )
+        assert len({id(s) for s in seen}) == 1, (
+            "the driver built a new snapshot per slice instead of reusing one"
+        )
+        snap = seen[0]
+        assert snap.dm_min == config.DM_min and snap.dm_max == config.DM_max
+
+    def test_an_injected_snapshot_is_used_instead_of_the_global(self):
+        """The contract's payoff: the band function can be given its
+        configuration rather than reading the process global.
+
+        Asserted at the seam -- a snapshot built from a different config carries
+        that config's values, so passing one is enough to steer the function.
+        """
+        from types import SimpleNamespace
+
+        from src.core.contracts import PipelineConfigSnapshot
+
+        other = SimpleNamespace(
+            DM_min=11.0, DM_max=22.0, SNR_THRESH=9.5, CLASS_PROB=0.77,
+            SAVE_ONLY_BURST=True,
+        )
+        snap = PipelineConfigSnapshot.from_config(other)
+
+        assert (snap.dm_min, snap.dm_max) == (11.0, 22.0)
+        assert snap.snr_thresh == 9.5
+        assert snap.save_only_burst is True
+        # The fallbacks the band function used to spell inline.
+        assert snap.snr_thresh_linear == 9.5
+        assert snap.class_prob_linear == 0.77
+        assert snap.enable_linear_validation is False

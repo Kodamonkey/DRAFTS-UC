@@ -652,6 +652,7 @@ def snr_detect_and_classify_candidates_in_band(
     slice_samples: int | None = None,  # actual slice samples (may differ from slice_len)
     dm_time_fullband: np.ndarray | None = None,  # DM-time cube band 0 (fullband average) for DM calculation
     metrics_tracker: PhaseMetricsTracker | None = None,  # Optional metrics tracker
+    snapshot: PipelineConfigSnapshot | None = None,
 ) -> dict:
     """Detect candidates from SNR peaks with multi-polarization validation.
     
@@ -672,22 +673,29 @@ def snr_detect_and_classify_candidates_in_band(
     logger.info("HIGH-FREQUENCY PIPELINE - CONFIGURATION SUMMARY")
     logger.info("=" * 80)
     logger.info("Phase 1 (Matched Filtering - Intensity): ALWAYS ENABLED")
-    logger.info("  └─ SNR threshold (Intensity): %.1f sigma", float(config.SNR_THRESH))
+    # REF-10. This read the mutable global twenty-one times across ten keys.
+    # ``snapshot`` is optional so the one production caller passes the one it
+    # already built, and a test can inject its own; without it the behaviour is
+    # exactly what it was, because from_config resolves the same fallbacks the
+    # reads below used to spell out inline.
+    snap = PipelineConfigSnapshot.from_config(config) if snapshot is None else snapshot
+
+    logger.info("  └─ SNR threshold (Intensity): %.1f sigma", snap.snr_thresh)
     
     # Read config values directly (not using getattr with defaults to catch errors)
-    enable_phase2 = config.ENABLE_LINEAR_VALIDATION if hasattr(config, 'ENABLE_LINEAR_VALIDATION') else False
+    enable_phase2 = snap.enable_linear_validation
     # Log the actual value read from config for debugging
     logger.info("Config check: ENABLE_LINEAR_VALIDATION = %s (type: %s, hasattr: %s)", 
                enable_phase2, type(enable_phase2).__name__, hasattr(config, 'ENABLE_LINEAR_VALIDATION'))
-    snr_threshold_linear = getattr(config, 'SNR_THRESH_LINEAR', config.SNR_THRESH)
+    snr_threshold_linear = snap.snr_thresh_linear
     logger.info("Phase 2 (SNR Validation - Linear): %s", "ENABLED" if enable_phase2 else "DISABLED")
     if enable_phase2:
         logger.info("  └─ SNR threshold (Linear): %.1f sigma", snr_threshold_linear)
     
     # Read config values directly (not using getattr with defaults to catch errors)
-    enable_intensity_class = config.ENABLE_INTENSITY_CLASSIFICATION if hasattr(config, 'ENABLE_INTENSITY_CLASSIFICATION') else True
-    enable_linear_class = config.ENABLE_LINEAR_CLASSIFICATION if hasattr(config, 'ENABLE_LINEAR_CLASSIFICATION') else True
-    class_prob_linear_thresh = getattr(config, 'CLASS_PROB_LINEAR', config.CLASS_PROB)
+    enable_intensity_class = snap.enable_intensity_classification
+    enable_linear_class = snap.enable_linear_classification
+    class_prob_linear_thresh = snap.class_prob_linear
     
     # Log all config values for debugging
     logger.info("Config check: ENABLE_INTENSITY_CLASSIFICATION = %s (hasattr: %s)", 
@@ -699,13 +707,13 @@ def snr_detect_and_classify_candidates_in_band(
     
     logger.info("Phase 3a (Classification - Intensity): %s", "ENABLED" if enable_intensity_class else "DISABLED")
     if enable_intensity_class:
-        logger.info("  └─ Classification threshold (Intensity): %.2f", float(config.CLASS_PROB))
+        logger.info("  └─ Classification threshold (Intensity): %.2f", snap.class_prob)
     
     logger.info("Phase 3b (Classification - Linear): %s", "ENABLED" if enable_linear_class else "DISABLED")
     if enable_linear_class:
         logger.info("  └─ Classification threshold (Linear): %.2f", class_prob_linear_thresh)
     
-    logger.info("Decision Mode: %s", "STRICT (require ALL enabled phases)" if config.SAVE_ONLY_BURST else "PERMISSIVE (require ANY enabled phase)")
+    logger.info("Decision Mode: %s", "STRICT (require ALL enabled phases)" if snap.save_only_burst else "PERMISSIVE (require ANY enabled phase)")
     logger.info("=" * 80)
 
     # =========================================================================
@@ -718,11 +726,11 @@ def snr_detect_and_classify_candidates_in_band(
     logger.debug("Calculated snr_profile_intensity: size=%d, shape=%s", 
                 len(snr_profile_intensity) if snr_profile_intensity is not None else 0,
                 snr_profile_intensity.shape if snr_profile_intensity is not None else None)
-    peaks_intensity = _find_snr_peaks(snr_profile_intensity, float(config.SNR_THRESH))
+    peaks_intensity = _find_snr_peaks(snr_profile_intensity, snap.snr_thresh)
     
     # Ensure the first candidate corresponds to the main SNR peak used downstream.
     peak_snr_global, _, peak_idx_global = find_snr_peak(snr_profile_intensity)
-    if peak_snr_global >= float(config.SNR_THRESH):
+    if peak_snr_global >= snap.snr_thresh:
         # Insert at the front if absent, otherwise move it to the front.
         peaks_intensity = [peak_idx_global] + [p for p in peaks_intensity if p != peak_idx_global]
     else:
@@ -803,7 +811,7 @@ def snr_detect_and_classify_candidates_in_band(
     # Phase 2: SNR validation in Linear (conditional)
     if enable_phase2 and has_multipol and snr_profile_linear is not None:
         # Use independent SNR threshold for Linear polarization
-        snr_threshold_linear = getattr(config, 'SNR_THRESH_LINEAR', config.SNR_THRESH)
+        snr_threshold_linear = snap.snr_thresh_linear
         logger.info("Phase 2: ENABLED - Re-evaluating %d peaks in Linear Polarization (threshold=%.1f)", 
                    len(peaks_intensity), snr_threshold_linear)
         
@@ -973,7 +981,7 @@ def snr_detect_and_classify_candidates_in_band(
             scale_x=scale_x,
             scale_y=scale_y,
             effective_len=slice_samples if slice_samples is not None else slice_len,
-            time_reso_ds=config.TIME_RESO * config.DOWN_TIME_RATE,
+            time_reso_ds=time_reso_ds,
         )
 
         # CRITICAL: Calculate DM from the peak position in the DM-time cube
@@ -998,8 +1006,8 @@ def snr_detect_and_classify_candidates_in_band(
         dm_val, dm_status, dm_uncertainty = resolve_candidate_dm(
             dm_img=dm_img_for_calc,
             cx=cx,
-            dm_min=float(config.DM_min),
-            dm_max=float(config.DM_max),
+            dm_min=snap.dm_min,
+            dm_max=snap.dm_max,
             dm_policy=str(getattr(config, "HIGH_FREQ_DM_POLICY", "unresolved")),
         )
 
@@ -1023,9 +1031,9 @@ def snr_detect_and_classify_candidates_in_band(
             freq_down=freq_down,
             dm_for_dedisp=dm_for_dedisp,
             global_sample=global_sample,
-            time_reso_ds=config.TIME_RESO * config.DOWN_TIME_RATE,
+            time_reso_ds=time_reso_ds,
             snr_peak=snr_peak,
-            class_prob_threshold=float(config.CLASS_PROB),
+            class_prob_threshold=snap.class_prob,
         )
         class_prob_intensity = intensity.class_prob
         is_burst_intensity = intensity.is_burst
@@ -1089,7 +1097,7 @@ def snr_detect_and_classify_candidates_in_band(
             is_burst_linear=is_burst_linear,
             class_prob_linear=class_prob_linear,
             enable_linear_class=enable_linear_class,
-            save_only_burst=bool(config.SAVE_ONLY_BURST),
+            save_only_burst=snap.save_only_burst,
         )
         if not has_intensity_result and not has_linear_result:
             logger.error("CRITICAL: No classification results available for peak_idx=%d", peak_idx)
@@ -1236,8 +1244,8 @@ def snr_detect_and_classify_candidates_in_band(
             class_prob_intensity=class_prob_intensity,
             class_prob_linear=class_prob_linear,
             n_snr_samples=len(snr_profile_intensity),
-            dm_min=float(config.DM_min),
-            dm_max=float(config.DM_max),
+            dm_min=snap.dm_min,
+            dm_max=snap.dm_max,
             trial_correction=getattr(config, "TRIAL_CORRECTION", "gaussian_extreme"),
         )
 
@@ -1421,6 +1429,7 @@ def process_slice_with_multiple_bands_high_freq(
     block_raw: np.ndarray | None = None,
     pol_type: str = "IQUV",
     metrics_tracker: PhaseMetricsTracker | None = None,
+    snapshot: PipelineConfigSnapshot | None = None,
 ) -> tuple[int, int, int, float]:
     """Process a slice using SNR peaks with multi-polarization detection.
     
@@ -1510,6 +1519,7 @@ def process_slice_with_multiple_bands_high_freq(
             slice_samples=end_idx - start_idx,  # Actual slice samples
             dm_time_fullband=dm_time_fullband,  # Pass band 0 for DM calculation
             metrics_tracker=metrics_tracker,  # Pass metrics tracker
+            snapshot=snapshot,  # REF-10: built once by the driver, per file
         )
         
         # Merge phase metrics from result if available
@@ -1873,6 +1883,7 @@ def _process_file_chunked_high_freq(
                         freq_down=freq_down,
                         csv_file=csv_file,
                         time_reso_ds=dt_ds,
+                        snapshot=pipe_snap,
                         band_configs=config.get_band_configs(),
                         snr_list=snr_list_total,
                         absolute_start_time=chunk_start_time_sec + start_idx * dt_ds,

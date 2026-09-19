@@ -302,3 +302,91 @@ class TestTheSnapshotsMatchTheGlobalsTheyReplace(unittest.TestCase):
         config.TIME_RESO = 1.0
         self.assertEqual(meta.time_reso, before)
         self.assertNotEqual(meta.time_reso, config.TIME_RESO)
+
+
+class TestTheHighFrequencyFieldsResolveTheSameFallbacks(unittest.TestCase):
+    """REF-10 step 4 parity: the snapshot must answer exactly as the inline
+    reads it replaced.
+
+    ``snr_detect_and_classify_candidates_in_band`` spelled these out by hand,
+    twenty-one times across ten keys. Five of them carried a non-obvious
+    fallback -- two defaulting to their intensity counterpart, three to a
+    literal -- and those fallbacks are the part a migration gets wrong. Each is
+    asserted here against the expression it replaced, with the key present and
+    with it absent.
+
+    What this does NOT cover is stated in the commit: the band function's own
+    body is stubbed out in the end-to-end tests, so the substitutions inside it
+    are value-identical by these assertions and not by execution.
+    """
+
+    KEYS = ("SNR_THRESH", "CLASS_PROB", "SNR_THRESH_LINEAR", "CLASS_PROB_LINEAR",
+            "ENABLE_LINEAR_VALIDATION", "ENABLE_INTENSITY_CLASSIFICATION",
+            "ENABLE_LINEAR_CLASSIFICATION")
+
+    def setUp(self):
+        self._saved = {k: getattr(config, k) for k in self.KEYS if hasattr(config, k)}
+        self._absent = [k for k in self.KEYS if not hasattr(config, k)]
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            setattr(config, k, v)
+        for k in self._absent:
+            if hasattr(config, k):
+                delattr(config, k)
+
+    def _clear(self, *names):
+        for n in names:
+            if hasattr(config, n):
+                delattr(config, n)
+
+    def test_the_linear_thresholds_fall_back_to_their_intensity_counterparts(self):
+        """``getattr(config, 'SNR_THRESH_LINEAR', config.SNR_THRESH)`` and the
+        CLASS_PROB equivalent, which is what the band function wrote."""
+        config.SNR_THRESH = 7.5
+        config.CLASS_PROB = 0.42
+        self._clear("SNR_THRESH_LINEAR", "CLASS_PROB_LINEAR")
+
+        snap = PipelineConfigSnapshot.from_config(config)
+
+        self.assertEqual(snap.snr_thresh_linear, 7.5)
+        self.assertEqual(snap.class_prob_linear, 0.42)
+        self.assertEqual(snap.snr_thresh_linear, snap.snr_thresh)
+        self.assertEqual(snap.class_prob_linear, snap.class_prob)
+
+    def test_the_linear_thresholds_are_used_when_they_are_set(self):
+        """And the fallback must not swallow a value that IS configured."""
+        config.SNR_THRESH = 7.5
+        config.CLASS_PROB = 0.42
+        config.SNR_THRESH_LINEAR = 3.25
+        config.CLASS_PROB_LINEAR = 0.11
+
+        snap = PipelineConfigSnapshot.from_config(config)
+
+        self.assertEqual(snap.snr_thresh_linear, 3.25)
+        self.assertEqual(snap.class_prob_linear, 0.11)
+        self.assertNotEqual(snap.snr_thresh_linear, snap.snr_thresh)
+
+    def test_the_phase_switches_default_the_way_the_inline_reads_did(self):
+        """``X if hasattr(config, 'X') else <default>``: False for the linear
+        validation phase, True for both classification phases. Getting one of
+        these backwards silently turns a detection phase on or off."""
+        self._clear("ENABLE_LINEAR_VALIDATION", "ENABLE_INTENSITY_CLASSIFICATION",
+                    "ENABLE_LINEAR_CLASSIFICATION")
+
+        snap = PipelineConfigSnapshot.from_config(config)
+
+        self.assertIs(snap.enable_linear_validation, False)
+        self.assertIs(snap.enable_intensity_classification, True)
+        self.assertIs(snap.enable_linear_classification, True)
+
+    def test_the_phase_switches_follow_the_config_when_present(self):
+        config.ENABLE_LINEAR_VALIDATION = True
+        config.ENABLE_INTENSITY_CLASSIFICATION = False
+        config.ENABLE_LINEAR_CLASSIFICATION = False
+
+        snap = PipelineConfigSnapshot.from_config(config)
+
+        self.assertIs(snap.enable_linear_validation, True)
+        self.assertIs(snap.enable_intensity_classification, False)
+        self.assertIs(snap.enable_linear_classification, False)

@@ -82,18 +82,43 @@ class PipelineConfigSnapshot:
     save_only_burst: bool = False
     prewhiten_before_dm: bool = False
     bowtie_collapse_ratio: float = 2.0
+    # The high-frequency path's own thresholds and phase switches. Their
+    # defaults are not arbitrary: they are what the code that read the global
+    # fell back to, so a config without them behaves as it always did. The two
+    # "_linear" thresholds fall back to their intensity counterparts, which is
+    # why they are resolved in ``from_config`` rather than defaulted here.
+    snr_thresh_linear: float = 5.0
+    class_prob_linear: float = 0.5
+    enable_linear_validation: bool = False
+    enable_intensity_classification: bool = True
+    enable_linear_classification: bool = True
 
     @classmethod
     def from_config(cls, config) -> "PipelineConfigSnapshot":
+        snr_thresh = float(getattr(config, "SNR_THRESH", 5.0))
+        class_prob = float(getattr(config, "CLASS_PROB", 0.5))
         return cls(
             dm_min=float(getattr(config, "DM_min", 0.0)),
             dm_max=float(getattr(config, "DM_max", 0.0)),
             dm_grid_mode=str(getattr(config, "DM_GRID_MODE", "legacy_uniform")).lower(),
-            snr_thresh=float(getattr(config, "SNR_THRESH", 5.0)),
-            class_prob=float(getattr(config, "CLASS_PROB", 0.5)),
+            snr_thresh=snr_thresh,
+            class_prob=class_prob,
             save_only_burst=bool(getattr(config, "SAVE_ONLY_BURST", False)),
             prewhiten_before_dm=bool(getattr(config, "PREWHITEN_BEFORE_DM", False)),
             bowtie_collapse_ratio=float(getattr(config, "BOWTIE_COLLAPSE_RATIO", 2.0)),
+            # `getattr(config, 'SNR_THRESH_LINEAR', config.SNR_THRESH)` is what
+            # the high-frequency band function wrote, twice.
+            snr_thresh_linear=float(getattr(config, "SNR_THRESH_LINEAR", snr_thresh)),
+            class_prob_linear=float(getattr(config, "CLASS_PROB_LINEAR", class_prob)),
+            enable_linear_validation=bool(
+                getattr(config, "ENABLE_LINEAR_VALIDATION", False)
+            ),
+            enable_intensity_classification=bool(
+                getattr(config, "ENABLE_INTENSITY_CLASSIFICATION", True)
+            ),
+            enable_linear_classification=bool(
+                getattr(config, "ENABLE_LINEAR_CLASSIFICATION", True)
+            ),
         )
 
 

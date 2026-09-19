@@ -11,8 +11,8 @@ Por eso el documento vive en el repositorio y no fuera de él.
 
 ## Resumen
 
-**40 de los 43 ítems del plan de la sección 37 están cerrados**, y REF-10
-(ítem 33) está empezado. La suite pasó de 205 a 421 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
+**41 de los 43 ítems del plan de la sección 37 están cerrados**, y REF-10
+(ítem 33) está empezado. La suite pasó de 205 a 423 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
 Ningún cierre se dio por bueno sin verificación: cada corrección se comprobó
 revirtiéndola en aislamiento y confirmando que un test falla, y los refactors
 grandes se verificaron con arneses diferenciales contra el código anterior.
@@ -73,7 +73,7 @@ grandes se verificaron con arneses diferenciales contra el código anterior.
 | 39 | REF-11, REF-13, REF-16 duplicación | cerrado | `a76ca85`, `4e54d8b` |
 | 40 | REF-04 `create_composite_plot` | cerrado | `d1c3856` |
 | 41 | REF-14, REF-15, REF-18 scripts | cerrado | `6f38a95` |
-| 42 | Reorganizar `src/scripts/` y `src/tests/` | **pendiente** | — |
+| 42 | Reorganizar `src/scripts/` y `src/tests/` | cerrado | `cc259c1` |
 | 43 | CHANGELOG, README y las 2 SPECs falsas | cerrado | `8256bb5` |
 
 ## 3. La suite en Linux: la pata de CI que nunca se había verificado
@@ -267,7 +267,25 @@ con el efectivo tras la decimación —que desplaza todo tiempo de llegada por e
 factor de decimación— pasaba la suite entera, golden CSV incluido. Cerrado con
 `TestTemporalDownsamplingEndToEnd`.
 
-El ítem 42, reorganizar `src/scripts/` y `src/tests/`, sigue abierto.
+El ítem 42 está **cerrado** (`cc259c1`): los 25 scripts sueltos salieron de
+`src/` a un `tools/` de primer nivel con la distribución que esta misma
+auditoría proponía, más el `tools/README.md` que pedía. Tres cosas que el
+movimiento destapó o habría roto:
+
+- `src/scripts/test_slicing_alignment.py` **sí lo recogía pytest**, por el
+  nombre, y sus dos tests daban ERROR por fixtures inexistentes. `pytest src/`
+  llevaba roto desde que existe ese fichero, y no se notaba porque nadie ejecuta
+  `pytest src/`. Renombrado a `diagnostics/check_slicing_alignment.py`.
+- El gate de ruff en CI era `src tests main.py`. Sacar 22 ficheros de `src/` los
+  habría dejado fuera del único control que los cubre —no los importa nadie, así
+  que un `NameError` en uno se descubre al ejecutarlo o no se descubre—. El
+  comando ahora incluye `tools`.
+- `tests/test_spec_constants.py` excluía `src/scripts` y `src/tests` del escaneo
+  de literales K_DM. Con ellos fuera de `src/`, la lista de exclusiones queda
+  **vacía**: el escaneo sobre la biblioteca ya no tiene agujeros. Las
+  herramientas no dejaron de comprobarse, pasaron a su propio test, con los tres
+  ficheros que ya traen un literal nombrados uno a uno para que uno *nuevo* siga
+  fallando.
 
 ## Entorno
 

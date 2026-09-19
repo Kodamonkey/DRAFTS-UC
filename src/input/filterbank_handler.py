@@ -554,8 +554,16 @@ def stream_fil(
             end_with_overlap = min(nsamples, valid_end + overlap_samples)
 
                                           
-            block = data_mmap[start_with_overlap:end_with_overlap].copy()
-            
+            # PERF-05. A view, not a copy. The memmap is opened mode="r", so
+            # this array is read-only: a consumer that tried to write to it
+            # would raise rather than corrupt the input file. Nothing does --
+            # the block's only consumer is downsample_data, which reads it.
+            #
+            # The copy cost a full chunk of resident memory per iteration, on
+            # top of the page cache already holding the same bytes. What is
+            # left is evictable page cache instead of anonymous RSS.
+            block = data_mmap[start_with_overlap:end_with_overlap]
+
                                                                    
             log_stream_fil_block_generation(chunk_counter, block.shape, str(block.dtype), valid_start, valid_end, start_with_overlap, end_with_overlap, actual_chunk_size)
             
@@ -564,9 +572,13 @@ def stream_fil(
                 block = np.ascontiguousarray(block[:, :, ::-1])
             
                                                    
-            if block.dtype != np.float32:
-                block = block.astype(np.float32)
-            
+            # PERF-05. The widening to float32 used to happen here, allocating a
+            # second full chunk -- four times the size of an 8-bit one. It is
+            # not needed: downsample_data casts element-wise as it accumulates,
+            # so it produces the same float32 output from the raw dtype. Parity
+            # over {uint8, int16, float32} x {reversed, not} is asserted in
+            # tests/test_perf_array_copies.py.
+
                                   
             metadata = {
                 "chunk_idx": valid_start // chunk_samples,
@@ -585,8 +597,11 @@ def stream_fil(
             }
             
             yield block, metadata
-            
-                             
+
+            # `block` is a view into data_mmap now (PERF-05), so dropping it
+            # frees the array object, not the bytes -- those are page cache the
+            # kernel reclaims under pressure. The del and collect stay because
+            # the consumer may still hold derived arrays that this releases.
             del block
             gc.collect()
         

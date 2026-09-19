@@ -324,6 +324,54 @@ def _build_dm_time_cube_chunked(
             f"Ensure sufficient RAM is available."
         )
     
+    import gc
+    import time
+
+    # The authoritative DM grid for the WHOLE cube. Each chunk gets a slice of
+    # it. Deriving a grid per chunk from its own (dm_min, dm_max) would make each
+    # chunk span its sub-range end to end, so the internal step becomes
+    # range_chunk/(C-1) instead of range_total/(H-1): boundary rows come out
+    # duplicated, every row is off by up to one DM unit, and DM_max is never
+    # actually searched. Downstream code (extract_candidate_dm,
+    # _dm_from_image_at_time) assumes a single uniform axis.
+    #
+    # Computed BEFORE the result array is allocated, so the single-window case
+    # below can return without allocating one at all. It does not depend on it.
+    try:
+        from .pipeline_parameters import calculate_dm_values
+        dm_values_global = calculate_dm_values(dm_min, dm_max).astype(np.float32)
+        if dm_values_global.size != height:
+            dm_values_global = np.linspace(dm_min, dm_max, height, dtype=np.float32)
+    except Exception:
+        dm_values_global = np.linspace(dm_min, dm_max, height, dtype=np.float32)
+
+    # PERF-03. One window is the ordinary case, not a special case: the
+    # non-chunking caller sets threshold_gb to cube_size_gb * 1.01 precisely so
+    # the whole cube is one window, and the shipped config.yaml never leaves it.
+    # The loop below would then allocate a second full cube and memcpy the one
+    # d_dm_time_g just produced into it, doubling peak RAM for the dedispersion
+    # step (measured 2.02x the cube) to no end. Hand back the cube itself.
+    #
+    # The arguments are exactly the ones the loop would pass for chunk 0 of 1 --
+    # the grid's own endpoints, not the requested dm_min/dm_max, which can
+    # differ when calculate_dm_values does not land on them -- so the result is
+    # identical, not merely equivalent. release_dm_cube_buffer is a no-op on a
+    # plain ndarray, so the caller's release still behaves.
+    if num_dm_chunks == 1:
+        logger.debug(
+            "[MEM] single DM window (height=%d width=%d): returning the cube "
+            "directly, no result-array copy",
+            height, width,
+        )
+        return d_dm_time_g(
+            block_ds,
+            height=height,
+            width=width,
+            dm_min=float(dm_values_global[0]),
+            dm_max=float(dm_values_global[-1]),
+            dm_values=dm_values_global,
+        )
+
     # Allocate full result array (required to combine DM chunks)
     # This is necessary because the rest of the pipeline expects the complete cube
     validate_memory_allocation(result_size_bytes, "DM-time cube result array", collector=collector)
@@ -335,24 +383,6 @@ def _build_dm_time_cube_chunked(
         dm_chunk_height,
         width,
     )
-
-    import gc
-    import time
-
-    # The authoritative DM grid for the WHOLE cube. Each chunk gets a slice of
-    # it. Deriving a grid per chunk from its own (dm_min, dm_max) would make each
-    # chunk span its sub-range end to end, so the internal step becomes
-    # range_chunk/(C-1) instead of range_total/(H-1): boundary rows come out
-    # duplicated, every row is off by up to one DM unit, and DM_max is never
-    # actually searched. Downstream code (extract_candidate_dm,
-    # _dm_from_image_at_time) assumes a single uniform axis.
-    try:
-        from .pipeline_parameters import calculate_dm_values
-        dm_values_global = calculate_dm_values(dm_min, dm_max).astype(np.float32)
-        if dm_values_global.size != height:
-            dm_values_global = np.linspace(dm_min, dm_max, height, dtype=np.float32)
-    except Exception:
-        dm_values_global = np.linspace(dm_min, dm_max, height, dtype=np.float32)
 
     # Process each DM chunk
     dm_chunk_start_time = time.time()
@@ -539,9 +569,15 @@ def trim_valid_window(
     if valid_end_ds <= valid_start_ds:
         valid_start_ds, valid_end_ds = 0, block_ds.shape[0]
     
-    # .copy() is critical: a view would keep the full cube alive in memory
-    # even after `del dm_time_full` in the caller, because the view holds
-    # a reference to the underlying buffer.
+    # .copy() is critical, and not for the reason this comment used to give.
+    # It said a view would keep the full cube alive after `del dm_time_full`.
+    # The real consequence is worse: when the cube is memmap-backed
+    # (DM_CUBE_MEMMAP_THRESHOLD_GB), the caller hands it to
+    # release_dm_cube_buffer, which closes the mapping and unlinks the file --
+    # and a view into it then points at unmapped address space. Reading the
+    # returned array SEGFAULTS the interpreter, exit 139, verified.
+    # tests/test_perf_array_copies.py pins both halves: that the result does
+    # not alias its input, and that it survives the release.
     dm_time = dm_time_full[:, :, valid_start_ds:valid_end_ds].copy()
     block_valid = block_ds[valid_start_ds:valid_end_ds]
     return block_valid, dm_time, valid_start_ds, valid_end_ds

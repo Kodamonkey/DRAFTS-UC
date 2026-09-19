@@ -239,8 +239,15 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
             f"This will use significant GPU/CPU memory."
         )
     
-    result = np.zeros((3, height, width), dtype=np.float32)
-    
+    # PERF-03. The full-cube allocation that used to sit here is now made only
+    # by the Numba-CUDA branch below, which is the only route that fills it.
+    # The torch-GPU route rebinds `result` with its own array and the CPU route
+    # returns without ever looking at it, so on both of those this was a whole
+    # cube of address space reserved and discarded. (On Linux np.zeros is
+    # calloc, so the measured RSS cost was ~0 -- the pages are only faulted in
+    # on write -- but the reservation is real and matters under a strict
+    # overcommit policy.)
+
                                                         
     if dm_min is None:
         dm_min = config.DM_min
@@ -334,7 +341,11 @@ def d_dm_time_g(data: np.ndarray, height: int, width: int, chunk_size: int = 128
         
         # Use default chunk_size (128) - don't modify dynamically to avoid breaking detection
         # The chunking is already optimized in the GPU kernels
-        
+
+        # Allocated here rather than at the top of the function: this branch is
+        # the only one that writes into it (PERF-03).
+        result = np.zeros((3, height, width), dtype=np.float32)
+
         for start_dm in range(0, height, chunk_size):
             end_dm = min(start_dm + chunk_size, height)
             current_height = end_dm - start_dm
@@ -470,7 +481,20 @@ def _d_dm_time_torch_gpu(
         out1[start:end] = mid_vals
         out2[start:end] = block0 - mid_vals
 
-    result = torch.stack([out0, out1, out2], dim=0).detach().cpu().numpy().astype(np.float32)
+    # PERF-03. ``copy=False``, not a bare ``astype``: numpy's default is
+    # copy=True, so this allocated and memcpy'd a second full cube on the host
+    # even though the tensor is already float32 and ``.numpy()`` hands back a
+    # float32 array. With copy=False the conversion is a no-op when the dtype
+    # already matches and still converts if it ever stops matching, so the
+    # float32 guarantee this line exists for is unchanged.
+    #
+    # NOT EXECUTED HERE: this is the torch-GPU route and this machine has no
+    # CUDA device (torch.cuda.is_available() is False), so the claim rests on
+    # numpy's documented astype semantics, which are asserted directly in
+    # tests/test_perf_array_copies.py, and not on having run this function.
+    result = torch.stack([out0, out1, out2], dim=0).detach().cpu().numpy().astype(
+        np.float32, copy=False
+    )
 
     del data_t, freq_ds, dm_values, out0, out1, out2, base
     torch.cuda.empty_cache()

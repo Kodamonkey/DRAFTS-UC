@@ -34,7 +34,11 @@ LOWER_LAYERS = ["preprocessing", "input", "output", "analysis", "domain", "confi
 PERMITTED_LEAF_UTILITIES = {"src.core.retry", "src.core.hardware_profile"}
 
 #: Directories that are not pipeline library code.
-NOT_LIBRARY = {SRC / "scripts", SRC / "tests", SRC / "training"}
+#: ``src/scripts`` and ``src/tests`` used to be here too. They are gone: the
+#: standalone tools moved to the top-level ``tools/`` (audit item 42), so
+#: everything left under ``src/`` is pipeline library except the training
+#: entry points.
+NOT_LIBRARY = {SRC / "training"}
 
 
 def _is_library(path: Path) -> bool:

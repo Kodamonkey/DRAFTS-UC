@@ -4,11 +4,12 @@ Análisis: ¿Por qué el sistema NO reduce el chunk temporal cuando el cubo es m
 Este script muestra la lógica REAL del código y explica por qué no se reduce el chunk.
 """
 
-import sys
-from pathlib import Path
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# No sys.path fiddling, and no pathlib: this script imports nothing from the
+# project and never built a Path. The old header inserted ``src/`` -- what
+# ``__file__.parent.parent`` gave from ``src/tests/`` -- which bought nothing
+# then and would point at ``tools/`` now (audit item 42).
 
 print("="*100)
 print("ANÁLISIS: ¿Por qué NO se reduce el chunk temporal cuando el cubo es muy grande?")

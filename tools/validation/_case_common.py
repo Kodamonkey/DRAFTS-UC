@@ -28,15 +28,20 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # ``import logging`` ARRIBA, antes de tocar sys.path: src/ contiene paquetes con
 # nombres propios del proyecto y en el pasado uno de ellos (src/logging/, hoy
-# src/log_utils/) ensombreció la biblioteca estándar. Además se usa
-# sys.path.append con ruta ABSOLUTA derivada de __file__ — y no
-# sys.path.insert(0, ...) como hacían los cuatro scripts — para que src/ quede
-# al final de sys.path y no pueda ganarle a un módulo del stdlib.
+# src/log_utils/) ensombreció la biblioteca estándar. Se usa sys.path.append con
+# ruta ABSOLUTA derivada de __file__ —y no sys.path.insert(0, ...) como hacían
+# los cuatro scripts— para que quede al final de sys.path y no pueda ganarle a
+# un módulo del stdlib.
+#
+# Lo añadido es la RAÍZ del repositorio, no ``src/``. Antes era ``src/``, que es
+# lo que ``__file__.parent.parent`` daba desde ``src/scripts/``; desde
+# ``tools/validation/`` eso mismo daría ``tools/``, que no contiene nada
+# importable. La raíz es lo que hace funcionar ``import src.<paquete>``, que es
+# como importa el resto del proyecto (ítem 42 de la auditoría).
 _SCRIPT_DIR = Path(__file__).resolve().parent
-_SRC_DIR = _SCRIPT_DIR.parent
-PROJECT_ROOT = _SRC_DIR.parent
-if str(_SRC_DIR) not in sys.path:
-    sys.path.append(str(_SRC_DIR))
+PROJECT_ROOT = _SCRIPT_DIR.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
 
 logging.basicConfig(
     level=logging.INFO,

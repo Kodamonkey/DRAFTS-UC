@@ -38,8 +38,13 @@ jobs:
       # selecting it is a hard error rather than a no-op, which is how this
       # job failed the first time it ran. Nothing is lost -- ruff always
       # reports syntax errors now, whatever is selected.
+      # `tools` is in the list because the standalone scripts moved there from
+      # `src/scripts` and `src/tests` (audit item 42). Leaving it out would have
+      # quietly dropped 22 files from the only gate that covers them -- they are
+      # not imported by anything, so a NameError in one is found by a person
+      # running it, or not at all.
       - name: Ruff (errors only)
-        run: ruff check --select F821,F811,F601 src tests main.py
+        run: ruff check --select F821,F811,F601 src tools tests main.py
 
   test:
     name: Tests

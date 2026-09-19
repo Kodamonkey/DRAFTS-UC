@@ -12,7 +12,7 @@ Por eso el documento vive en el repositorio y no fuera de él.
 ## Resumen
 
 **41 de los 43 ítems del plan de la sección 37 están cerrados**, y REF-10
-(ítem 33) está empezado. La suite pasó de 205 a 430 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
+(ítem 33) está empezado. La suite pasó de 205 a 438 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
 Ningún cierre se dio por bueno sin verificación: cada corrección se comprobó
 revirtiéndola en aislamiento y confirmando que un test falla, y los refactors
 grandes se verificaron con arneses diferenciales contra el código anterior.
@@ -205,10 +205,19 @@ hizo este trabajo no tiene GPU, así que no se pueden verificar aquí.
     ramas, incluida la ruta de emergencia que la versión textual no podía
     alcanzar. Comprobado que la deduplicación queda desbloqueada, no sólo
     afirmado.
-  - Grupo B, los dos drivers: **sigue abierto**. Son *cinco*, no cuatro
-    (`test_p0_regressions.py:363-377` y `:379-396`; `test_p2_reliability.py:245-255`,
-    `:257-260` y `:293-301`), y fijan los bloques de checkpoint, resume y
-    rotación. Necesitan un test de recuperación extremo a extremo por driver.
+  - Grupo B, los dos drivers: **cerrado** (`d9e6550`). Eran *seis*, no cuatro
+    ni cinco: dos recorrían el AST de `_process_file_chunked`, uno comparaba dos
+    `str.index`, y tres casaban subcadenas —uno de ellos exigiendo
+    `if resume_after < 0:` a menos de 300 caracteres de
+    `rotate_previous_candidates(csv_file)` en **ambos** drivers, que es
+    exactamente lo que impedía compartir el preámbulo. Sustituidos por
+    `tests/test_driver_recovery.py`: **los dos drivers pasan por el mismo juego
+    de tests parametrizado**, así que ya no se pueden afirmar cosas distintas de
+    cada uno en ficheros distintos. Ocho mutaciones, todas cazadas. La
+    deduplicación queda desbloqueada y se comprobó: mover el preámbulo a un
+    único helper de `file_driver` deja `if resume_after < 0:` en cero
+    ocurrencias —lo que el test borrado prohibía— y con esa edición pasan 55
+    tests.
 - **Cuatro defectos del pipeline HF** destapados por REF-01. Tres **cerrados**
   (`ae6d678`, `af1d7ad`); el cuarto **resuelto como decisión: se deja como
   está**, fijado por tests (`2c36426`).

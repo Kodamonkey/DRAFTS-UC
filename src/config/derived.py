@@ -51,15 +51,33 @@ def calculate_dm_height() -> int:
     return int(calculate_dm_values().size)
 
 
-def calculate_dm_values(dm_min: float | None = None, dm_max: float | None = None) -> np.ndarray:
-    """Return DM trials for the configured search mode."""
+def calculate_dm_values(
+    dm_min: float | None = None,
+    dm_max: float | None = None,
+    *,
+    cfg=None,
+) -> np.ndarray:
+    """Return DM trials for the configured search mode.
 
-    dm_max = float(getattr(config, "DM_max", 0)) if dm_max is None else float(dm_max)
-    dm_min = float(getattr(config, "DM_min", 0)) if dm_min is None else float(dm_min)
+    ``cfg`` is where the settings are read from; it defaults to the process
+    global ``config``. Passing one lets a caller build a grid from an immutable
+    snapshot instead of from whatever the global happens to hold at the time
+    (audit REF-10) -- which is what ``DMGrid.from_config`` needs in order to
+    honour the config object it is handed.
+
+    It is keyword-only on purpose. Two callers already pass ``dm_min``/``dm_max``
+    positionally, and a third positional parameter is exactly the shape of hazard
+    that REF-12's removal left behind: a stale positional call that keeps binding
+    cleanly while meaning something else.
+    """
+    source = config if cfg is None else cfg
+
+    dm_max = float(getattr(source, "DM_max", 0)) if dm_max is None else float(dm_max)
+    dm_min = float(getattr(source, "DM_min", 0)) if dm_min is None else float(dm_min)
     if dm_max < dm_min:
         return np.asarray([], dtype=np.float32)
 
-    mode = str(getattr(config, "DM_GRID_MODE", "legacy_uniform")).lower()
+    mode = str(getattr(source, "DM_GRID_MODE", "legacy_uniform")).lower()
     if mode == "legacy_uniform":
         n = int(round(dm_max - dm_min)) + 1
         return np.linspace(dm_min, dm_max, max(1, n), dtype=np.float32)
@@ -69,12 +87,12 @@ def calculate_dm_values(dm_min: float | None = None, dm_max: float | None = None
         mode = "smear_limited"
 
     if mode == "smear_limited":
-        freq = getattr(config, "FREQ", None)
+        freq = getattr(source, "FREQ", None)
         if freq is None or len(freq) < 2:
             step = 1.0
         else:
-            dt_ms = float(getattr(config, "TIME_RESO", 0.0)) * max(1, int(getattr(config, "DOWN_TIME_RATE", 1))) * 1000.0
-            smear_cfg = getattr(config, "MAX_DM_SMEARING_MS", "auto")
+            dt_ms = float(getattr(source, "TIME_RESO", 0.0)) * max(1, int(getattr(source, "DOWN_TIME_RATE", 1))) * 1000.0
+            smear_cfg = getattr(source, "MAX_DM_SMEARING_MS", "auto")
             if isinstance(smear_cfg, str) and smear_cfg.lower() == "auto":
                 max_smear_ms = max(dt_ms, 0.001)
             else:

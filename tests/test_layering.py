@@ -168,3 +168,100 @@ class TestTheDerivedParametersLiveBelowCore:
         assert "src.core." not in loaded, (
             f"importing the lower layers pulled in core modules: {result.stdout.strip()}"
         )
+
+
+# --------------------------------------------------------------------------- #
+# REF-10: who is allowed to write to the mutable global ``config``
+# --------------------------------------------------------------------------- #
+
+#: The only packages that may assign to ``config.<ATTR>``. The readers do it
+#: once per file, from the header, before streaming starts;
+#: ``slice_len_calculator`` writes the one derived slice length. Everything else
+#: reads.
+CONFIG_WRITERS = {SRC / "input", SRC / "preprocessing" / "slice_len_calculator.py"}
+
+
+def _config_writes(path: Path) -> set[str]:
+    """Attribute names this module assigns on the ``config`` module."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except SyntaxError:
+        return set()
+
+    written: set[str] = set()
+    for node in ast.walk(tree):
+        targets: list = []
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+            targets = [node.target]
+        for target in targets:
+            if (isinstance(target, ast.Attribute)
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id == "config"):
+                written.add(target.attr)
+        # setattr(config, "NAME", value) -- how user_config injects YAML keys.
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "setattr" and node.args
+                and isinstance(node.args[0], ast.Name) and node.args[0].id == "config"):
+            written.add("<setattr>")
+    return written
+
+
+class TestOnlyTheReadersMutateConfig:
+    """The precondition that makes the REF-10 migration safe.
+
+    REF-10 replaces ``config.X`` reads in the hot path with reads of an
+    immutable snapshot taken once at the top of the function. That substitution
+    is behaviour-preserving only if nothing writes to ``config`` in between --
+    otherwise the snapshot goes stale and the two differ.
+
+    It holds today, and not by accident: every write lives in the file readers,
+    which set the observation's parameters once from the header before streaming
+    begins. ``src/core`` contains none at all, so a snapshot taken anywhere in
+    the pipeline stays valid for the rest of that call.
+
+    This test exists so that a future write added to ``core`` -- which would
+    silently invalidate every snapshot substitution already made, and every one
+    made after it -- fails here rather than in a candidate catalogue.
+    """
+
+    def _offenders(self) -> dict[str, set[str]]:
+        found: dict[str, set[str]] = {}
+        for path in sorted(SRC.rglob("*.py")):
+            if not _is_library(path):
+                continue
+            if any(_within(path, d) or path == d for d in CONFIG_WRITERS):
+                continue
+            written = _config_writes(path)
+            if written:
+                found[str(path.relative_to(PROJECT_ROOT))] = written
+        return found
+
+    def test_core_never_writes_to_config(self):
+        offenders = {f: w for f, w in self._offenders().items()
+                     if f.startswith("src/core/")}
+        assert not offenders, (
+            "src/core writes to the mutable global config:\n  "
+            + "\n  ".join(f"{f}: {sorted(w)}" for f, w in offenders.items())
+            + "\n\nEvery REF-10 snapshot substitution assumes this does not "
+              "happen. If the write is genuinely needed, the substitutions have "
+              "to be revisited, not this test."
+        )
+
+    def test_no_layer_outside_the_readers_writes_to_config(self):
+        offenders = self._offenders()
+        assert not offenders, (
+            "a module outside the file readers writes to config:\n  "
+            + "\n  ".join(f"{f}: {sorted(w)}" for f, w in offenders.items())
+        )
+
+    def test_the_writers_really_are_writers(self):
+        """Guard the guard: if the allow-list stopped matching any write, the
+        two tests above would pass vacuously."""
+        total = 0
+        for path in sorted(SRC.rglob("*.py")):
+            if _is_library(path) and any(_within(path, d) or path == d
+                                         for d in CONFIG_WRITERS):
+                total += len(_config_writes(path))
+        assert total > 0, "the allow-list no longer covers any config write"

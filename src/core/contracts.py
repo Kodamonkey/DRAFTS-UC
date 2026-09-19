@@ -10,11 +10,16 @@ Contracts:
     PipelineConfigSnapshot— immutable snapshot of search configuration
     ChunkPlan             — boundaries/overlap of a streamed chunk
     DMGrid                — DM trial values + image-row <-> DM mapping
-    CandidateRecord       — minimal candidate description
+
+``CandidateRecord`` used to be listed here too. It was deleted (audit REF-10):
+nothing outside its own definition and one test ever referenced it, and
+``output.candidate_manager.Candidate`` is the candidate type this project
+actually writes rows from. Two competing candidate representations, one of them
+never adopted, is worse than one.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import numpy as np
@@ -163,22 +168,18 @@ class DMGrid:
 
     @classmethod
     def from_config(cls, config) -> "DMGrid":
-        from .pipeline_parameters import calculate_dm_values
-        return cls(values=np.asarray(calculate_dm_values(), dtype=np.float64))
+        """Build the grid from *config*.
 
+        It used to take this argument and ignore it, calling
+        ``calculate_dm_values()`` with no arguments and so reading the process
+        global instead (audit REF-10). At the one production call site the two
+        are the same object, which is why nothing caught it -- and why the
+        migration REF-10 describes could not start: "build the contract once and
+        pass it down" needs the contract to be built from what it is given.
 
-@dataclass
-class CandidateRecord:
-    """Minimal, serialisable candidate description."""
-
-    file_name: str
-    dm: float
-    time_sec: float
-    snr: float
-    chunk_idx: int = 0
-    slice_idx: int = 0
-    band_idx: int = 0
-    is_burst: bool = False
-    box: Tuple[int, int, int, int] = (0, 0, 0, 0)
-    dm_status: str = "measured"
-    extra: dict = field(default_factory=dict)
+        Imported from ``config.derived`` rather than ``core.pipeline_parameters``,
+        which only re-exports it; the re-export pulls in
+        ``preprocessing.slice_len_calculator`` for nothing.
+        """
+        from ..config.derived import calculate_dm_values
+        return cls(values=np.asarray(calculate_dm_values(cfg=config), dtype=np.float64))

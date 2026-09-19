@@ -210,11 +210,26 @@ def _process_block(
     # PRESTO-style: Build DM-time cube with memory validation
     # For very large chunks, we could use DoubleBufferDedispersion, but for now
     # build_dm_time_cube with immediate trimming provides good memory control
+    # REF-10, first load-bearing use of a contract in this function. ``pipe_snap``
+    # is built at the top of _process_block and, until now, was never read -- the
+    # whole point of snapshotting the search configuration is that the hot path
+    # below reads the snapshot rather than the mutable global. These two sites
+    # are the ones the snapshot already covers exactly; the remaining config
+    # reads in this function (TIME_RESO, DOWN_TIME_RATE, get_band_configs) are
+    # not on it yet.
+    #
+    # Behaviour is unchanged by construction: nothing between the snapshot and
+    # here writes to config -- every writer lives in src/input and in
+    # preprocessing/slice_len_calculator -- so the snapshot and the global hold
+    # the same values at this point. The golden CSV is the byte-for-byte proof.
     logger.info(
         f"Chunk %03d: Starting dedispersion (DM range: %.1f-%.1f pc cm⁻³, height=%d, width=%d)",
-        chunk_idx, config.DM_min, config.DM_max, height, block.shape[0]
+        chunk_idx, pipe_snap.dm_min, pipe_snap.dm_max, height, block.shape[0]
     )
-    dm_time_full = build_dm_time_cube(block, height=height, dm_min=config.DM_min, dm_max=config.DM_max, collector=collector)
+    dm_time_full = build_dm_time_cube(
+        block, height=height, dm_min=pipe_snap.dm_min, dm_max=pipe_snap.dm_max,
+        collector=collector,
+    )
     logger.info(f"Chunk %03d: Dedispersion complete, cube shape: {dm_time_full.shape}", chunk_idx)
     block, dm_time, valid_start_ds, valid_end_ds = trim_valid_window(
         block, dm_time_full, overlap_left_ds, overlap_right_ds

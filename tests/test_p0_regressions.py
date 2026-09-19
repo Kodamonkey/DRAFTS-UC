@@ -347,62 +347,16 @@ class TestResumeSkipsExactlyCompletedChunks:
 # P0-4
 # --------------------------------------------------------------------------- #
 
-class TestCheckpointOnlyAfterSuccessfulChunk:
-    """A chunk that raised must stay un-checkpointed so a resume retries it.
+# ``TestCheckpointOnlyAfterSuccessfulChunk`` used to live here: two tests that
+# walked the AST of ``_process_file_chunked`` to assert every ``save_checkpoint``
+# sat under ``if chunk_succeeded:`` and that ``chunk_succeeded = True`` was the
+# final statement of the try, plus one that compared two ``str.index`` offsets
+# to put the flush before the checkpoint.
+#
+# They are now behavioural, over BOTH drivers, in
+# ``tests/test_driver_recovery.py``: a failed chunk is never checkpointed, and
+# every checkpoint is backed by rows already on disk. The shape assertions
+# forbade sharing the ~30 duplicated checkpoint/resume/rotate lines between the
+# two drivers, which is the deduplication REF-01 had to leave undone.
 
-    The guard lives inside a 200-line streaming loop that cannot be
-    instantiated without real models and a real file, so its structure is
-    asserted against the AST -- the same approach ``test_dedispersion_parity``
-    already uses for the CUDA kernel.
-    """
 
-    @staticmethod
-    def _loop_body() -> ast.FunctionDef:
-        return _function_ast(PROJECT_ROOT / "src/core/pipeline.py", "_process_file_chunked")
-
-    def test_save_checkpoint_is_guarded_by_chunk_success(self):
-        func = self._loop_body()
-        calls = _calls_named(func, "save_checkpoint")
-        assert calls, "save_checkpoint disappeared from the chunk loop"
-
-        guarded = []
-        for node in ast.walk(func):
-            if isinstance(node, ast.If) and ast.unparse(node.test) == "chunk_succeeded":
-                guarded.extend(_calls_named(ast.Module(body=node.body, type_ignores=[]),
-                                            "save_checkpoint"))
-        assert len(guarded) == len(calls), (
-            "every save_checkpoint in the chunk loop must sit under "
-            "`if chunk_succeeded:`; a failed chunk that gets checkpointed is "
-            "skipped for good on resume"
-        )
-
-    def test_success_flag_is_set_only_after_the_work_completed(self):
-        """``chunk_succeeded = True`` must be the last statement of the try body,
-        so any raise inside leaves it False."""
-        func = self._loop_body()
-        for node in ast.walk(func):
-            if not isinstance(node, ast.Try):
-                continue
-            assigns = [
-                s for s in node.body
-                if isinstance(s, ast.Assign)
-                and any(getattr(t, "id", None) == "chunk_succeeded" for t in s.targets)
-            ]
-            if assigns:
-                assert assigns[-1] is node.body[-1], (
-                    "chunk_succeeded must be set as the final statement of the try"
-                )
-                return
-        pytest.fail("no try block sets chunk_succeeded")
-
-    def test_rows_are_flushed_before_the_checkpoint_lands(self):
-        """The checkpoint claims the chunk's rows are durable, so they must be
-        written before it is recorded."""
-        source = (PROJECT_ROOT / "src/core/pipeline.py").read_text(encoding="utf-8")
-        flush_at = source.index("CandidateWriter.flush_buffers()")
-        # Match the call, not its argument list, so adding arguments does not
-        # break this.
-        save_at = source.index("save_checkpoint(", flush_at - 400)
-        assert flush_at < save_at, (
-            "candidate rows must be flushed before save_checkpoint records progress"
-        )

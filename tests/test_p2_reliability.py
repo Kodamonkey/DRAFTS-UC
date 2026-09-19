@@ -242,28 +242,6 @@ class TestCheckpointValidation:
         write_filterbank(data, nsamples=100)
         assert self._fingerprint(data) == self._fingerprint(data)
 
-    def test_high_freq_pipeline_checkpoints(self):
-        """The HF pipeline had no checkpoint at all, so an interrupted run
-        restarted from zero and duplicated every candidate already written."""
-        src = (PROJECT_ROOT / "src/core/high_freq_pipeline.py").read_text(encoding="utf-8")
-        for expected in (
-            "load_checkpoint(save_dir, fits_path.stem, run_fingerprint)",
-            "should_skip_chunk(chunk_seq, resume_after)",
-            "save_checkpoint(",
-            "clear_checkpoint(save_dir, fits_path.stem)",
-        ):
-            assert expected in src, f"HF pipeline is missing: {expected}"
-
-    def test_high_freq_only_checkpoints_successful_chunks(self):
-        src = (PROJECT_ROOT / "src/core/high_freq_pipeline.py").read_text(encoding="utf-8")
-        assert "chunk_succeeded = False" in src and "chunk_succeeded = True" in src
-        assert "if chunk_succeeded:" in src
-
-
-# --------------------------------------------------------------------------- #
-# P1-13
-# --------------------------------------------------------------------------- #
-
 class TestRerunDoesNotAppendToThePreviousRun:
     def test_previous_candidates_are_rotated_aside(self, tmp_path):
         csv_file = tmp_path / "obs.candidates.csv"
@@ -289,21 +267,6 @@ class TestRerunDoesNotAppendToThePreviousRun:
 
     def test_missing_file_is_left_alone(self, tmp_path):
         assert rotate_previous_candidates(tmp_path / "nope.csv") is None
-
-    def test_pipelines_rotate_only_when_not_resuming(self):
-        """Resuming must keep appending; only a fresh run starts a new CSV."""
-        for name in ("pipeline.py", "high_freq_pipeline.py"):
-            src = (PROJECT_ROOT / "src/core" / name).read_text(encoding="utf-8")
-            index = src.index("rotate_previous_candidates(csv_file)")
-            preceding = src[max(0, index - 300):index]
-            assert "if resume_after < 0:" in preceding, (
-                f"{name} rotates the CSV without checking for a resume"
-            )
-
-
-# --------------------------------------------------------------------------- #
-# P1-14
-# --------------------------------------------------------------------------- #
 
 class TestCollidingFileStemsAreRefused:
     def test_two_inputs_with_the_same_basename_stop_the_run(self, tmp_path, monkeypatch):

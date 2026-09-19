@@ -87,14 +87,20 @@ def _stub_slices(monkeypatch, counter: dict) -> None:
     from src.core import high_freq_pipeline as hfp
     from src.output.candidate_manager import append_candidate
 
+    t_sample = CANDIDATE_HEADER.index("t_sample")
+
     def _fake_slice(**kwargs):
-        for _ in range(ROWS_PER_SLICE):
+        for i in range(ROWS_PER_SLICE):
             row = [""] * len(CANDIDATE_HEADER)
             row[0] = str(kwargs["fits_path"].name)
             row[1] = kwargs["chunk_idx"]
             row[2] = kwargs["j"]
             row[3] = 0
             row[4] = 0.9
+            # Distinct per row. Without it every row of a slice has the same
+            # (chunk, slice, band) key, and any test that looks for duplicate
+            # candidates finds this stub's rather than the pipeline's.
+            row[t_sample] = kwargs["chunk_idx"] * 100_000 + kwargs["j"] * 100 + i
             append_candidate(kwargs["csv_file"], row)
             counter["rows"] += 1
         return ROWS_PER_SLICE, ROWS_PER_SLICE, 0, 0.9

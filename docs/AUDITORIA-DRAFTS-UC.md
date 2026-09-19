@@ -11,8 +11,8 @@ Por eso el documento vive en el repositorio y no fuera de él.
 
 ## Resumen
 
-**40 de los 43 ítems del plan de la sección 37 están cerrados.** La suite pasó de
-205 a 410 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
+**40 de los 43 ítems del plan de la sección 37 están cerrados**, y REF-10
+(ítem 33) está empezado. La suite pasó de 205 a 421 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
 Ningún cierre se dio por bueno sin verificación: cada corrección se comprobó
 revirtiéndola en aislamiento y confirmando que un test falla, y los refactors
 grandes se verificaron con arneses diferenciales contra el código anterior.
@@ -64,7 +64,7 @@ grandes se verificaron con arneses diferenciales contra el código anterior.
 | 30 | REF-02 subir el dispatch LF/HF | cerrado | `dd41c43` |
 | 31 | REF-09 romper los ciclos | cerrado | `8256bb5` |
 | 32 | REF-05 función de 884 líneas del HF | cerrado | `dd41c43` |
-| 33 | REF-10 adoptar los contratos | **pendiente** | — |
+| 33 | REF-10 adoptar los contratos | **parcial** | `0cdbcfa`, `4c6475d` |
 | 34 | REF-03 separar los lectores de `stream_fits` | cerrado | `f8ef15a` |
 | 35 | P1-23 `force_plots` | cerrado | `9eb891a` |
 | 36 | PERF-04 GC, batching, `cudnn.benchmark` | **parcial** | `9eb891a` |
@@ -242,8 +242,32 @@ hizo este trabajo no tiene GPU, así que no se pueden verificar aquí.
 ### Pendiente de plan
 
 REF-10 (ítem 33) es el cambio arquitectónicamente más valioso y el más caro; la
-auditoría pide hacerlo incremental y con tests de paridad. El ítem 42,
-reorganizar `src/scripts/` y `src/tests/`, sigue abierto.
+auditoría pide hacerlo incremental y con tests de paridad, y así se está
+haciendo. Dos incrementos hechos (`0cdbcfa`, `4c6475d`):
+
+- `DMGrid.from_config` **aceptaba un config y lo ignoraba**, leyendo el global.
+  Eso no era sólo feo: bloqueaba la migración entera, porque la prueba de
+  paridad que la hace segura —"el camino viejo lee el global, el nuevo toma el
+  snapshot, comprueba que son iguales"— no se puede escribir si el snapshot se
+  descarta. Corregido, con tests que pasan un config *distinto*; el test que ya
+  existía pasaba el módulo real y por eso no lo veía.
+- `_process_block` ya lee sus contratos en vez del global para los siete valores
+  que éstos cubren. `CandidateRecord` borrado (muerto); `effective_time_reso`
+  **conservado** pese a estar igual de sin usar, porque calcula lo que el código
+  escribe a mano 72 veces, y ahora lo usa.
+- Añadido `TestOnlyTheReadersMutateConfig`: las 48 escrituras a `config.<ATTR>`
+  están todas en `src/input` (47) y `slice_len_calculator` (1); `src/core` no
+  tiene ninguna. Ésa es la precondición de la que depende cada sustitución por
+  snapshot, y ahora falla ahí si alguien la rompe.
+
+Un hallazgo colateral que vale más que el propio paso: **ningún test extremo a
+extremo usaba `DOWN_TIME_RATE > 1`**, y los que quedaban usaban un solo chunk
+(donde `start_sample` es 0). Con ambas cosas, confundir el intervalo de muestreo
+con el efectivo tras la decimación —que desplaza todo tiempo de llegada por el
+factor de decimación— pasaba la suite entera, golden CSV incluido. Cerrado con
+`TestTemporalDownsamplingEndToEnd`.
+
+El ítem 42, reorganizar `src/scripts/` y `src/tests/`, sigue abierto.
 
 ## Entorno
 

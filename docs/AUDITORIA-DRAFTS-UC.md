@@ -210,7 +210,8 @@ hizo este trabajo no tiene GPU, así que no se pueden verificar aquí.
     `:257-260` y `:293-301`), y fijan los bloques de checkpoint, resume y
     rotación. Necesitan un test de recuperación extremo a extremo por driver.
 - **Cuatro defectos del pipeline HF** destapados por REF-01. Tres **cerrados**
-  (`ae6d678`, `af1d7ad`); el cuarto, fijado y pendiente de decisión (`2c36426`).
+  (`ae6d678`, `af1d7ad`); el cuarto **resuelto como decisión: se deja como
+  está**, fijado por tests (`2c36426`).
   - El más serio (cerrado): HF relanzaba en vez de devolver un resultado, así
     que sus contadores —variables locales— morían con el marco y el llamador
     reconstruía el resultado con unas `DetectionStats` **vacías**. Una corrida
@@ -233,7 +234,7 @@ hizo este trabajo no tiene GPU, así que no se pueden verificar aquí.
     `NameError` escapa del bucle mientras se maneja el error real y la corrida
     se detiene en el chunk malo en vez de continuar. Un chunk malo mataba el
     fichero entero.
-  - **Fijado, pendiente de decisión** (`2c36426`): `MAX_CHUNK_SAMPLES`. Medirlo
+  - **Decidido: se deja la divergencia** (`2c36426`). `MAX_CHUNK_SAMPLES`. Medirlo
     lo redujo bastante respecto a como lo resume esta auditoría. El tope se
     aplica de verdad en `slice_len_calculator`, por donde pasan **los dos**
     drivers; dentro de `plan_chunking` sólo se consulta cuando el fichero es
@@ -241,8 +242,12 @@ hizo este trabajo no tiene GPU, así que no se pueden verificar aquí.
     —toda observación grande, que es para lo que existe el tope— toma la misma
     rama en ambos. Difieren en exactamente una forma de entrada: fichero más
     corto que el chunk pedido pero más largo que el tope (LF lo parte en dos,
-    HF lo procesa entero). Cerrarlo mueve fronteras de chunk en datos reales sin
-    línea base dorada para HF, así que queda como decisión del proyecto.
+    HF lo procesa entero). Cerrarlo movería fronteras de chunk en datos reales
+    sin línea base dorada para HF que detectara una regresión, y el tope ya
+    actúa sobre HF por la otra vía, así que **el proyecto decidió dejarlo**
+    (2026-09-19). Queda fijado por cuatro tests para que no se mueva solo; si
+    algún día se cierra, esos tests fallan y el commit tendrá que decir qué
+    cambió.
 - **REF-12**: **cerrado** (`ebae01d`). `off_regions` eliminado de los 11
   módulos. No se cableó porque no existía productor alguno: todas las ligaduras
   eran `None` literal o el reenvío `off_regions=off_regions`, y `config.py`

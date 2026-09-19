@@ -16,12 +16,13 @@ geometry can be checked in a unit test without writing a PSRFITS first.
 
 Still NOT here, though nothing forbids it any more: the first-chunk clamp
 (``if emitted - out_buf.shape[0] <= 0 and valid_start > 0``) and the metadata
-dict of the two buffered astropy readers. ``tests/test_p1_regressions.py``
-used to assert on the literal source text of those expressions inside
+dict of the buffered astropy reader. ``tests/test_p1_regressions.py`` used to
+assert on the literal source text of those expressions inside
 ``src/input/fits_handler.py`` and require exactly two copies of each, so moving
 them here failed a test that refactor was not allowed to edit. That test asserts
-on the readers' output now, so the move is unblocked -- it just has not been
-made.
+on the reader's output now, and the two copies it was counting have since been
+merged into one function -- so the move is unblocked and merely not made. There
+is one copy to move rather than two, which is the smaller half of the job done.
 """
 from __future__ import annotations
 

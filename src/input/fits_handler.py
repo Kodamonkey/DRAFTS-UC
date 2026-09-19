@@ -900,7 +900,7 @@ def _emit_your_blocks(
     """Seek-and-read: the only reader whose valid windows tile the file exactly.
 
     Divergences preserved deliberately (audit REF-03):
-      D1  this tiles; the two buffered astropy readers do not.
+      D1  this tiles; the buffered astropy reader does not.
       D3  no ``ZERO_OFF`` subtraction -- ``your`` never reads that card and this
           branch applies no calibration of its own.
       D4  ``NSUBOFFS`` is ignored, so a continuation file streams as written.
@@ -1268,30 +1268,52 @@ def _open_subint_fallback(
         raise
 
 
-def _emit_subint_primary_blocks(
-    source: _SubintSource, chunk_samples: int, overlap_samples: int
+def _emit_subint_blocks(
+    source: _SubintSource,
+    chunk_samples: int,
+    overlap_samples: int,
+    *,
+    place_by_offs_sub: bool,
 ) -> Generator[Tuple[np.ndarray, Dict], None, None]:
-    """The buffered astropy reader taken when ``your`` is not installed.
+    """The buffered astropy SUBINT reader. One copy, two callers.
 
-    Divergences preserved deliberately (audit REF-03):
+    This was two near-identical functions, ``_emit_subint_primary_blocks`` (used
+    when ``your`` is absent) and ``_emit_subint_fallback_blocks`` (reached only
+    through ``except Exception``). Audit REF-03 wanted them merged and could
+    not: ``tests/test_p1_regressions.py::TestFitsChunkGeometry`` counted the
+    literal source text of four expressions below and required exactly TWO
+    copies of each, so merging failed by construction. Those tests assert on
+    what the reader emits now, so the copies could go.
+
+    ``place_by_offs_sub`` is the ONE difference that changed what either copy
+    produced, divergence D4:
+
+      True   (primary) subints are placed by ``OFFS_SUB`` read as an absolute
+             offset, so a continuation file is zero-padded at the front and more
+             samples are emitted than the file holds.
+      False  (fallback) subints are placed at ``i * NSBLK``; ``OFFS_SUB`` and
+             ``NSUBOFFS`` are ignored.
+
+    Established by measurement, not by reading: both copies were run over six
+    synthetic files x six chunk/overlap geometries x with and without the
+    emergency buffer path, 72 comparable cases. Sixty were byte-identical. All
+    twelve that differed were the file with ``NSUBOFFS`` set -- D4 and nothing
+    else. Everything the two spelled differently besides that (log wording and
+    thresholds, a concat timing warning, how the buffer tail is re-checked after
+    an advance) produced identical output in every case, and this keeps the
+    primary's version of all of it.
+
+    Divergences still preserved deliberately (audit REF-03):
       D1  the first-chunk clamp below pulls ``valid_start`` back to 0 at the
           start of the file without pulling back how far the buffer then
           advances, so with an overlap the valid windows come out
           ``[0,128) [144,272) [272,400) [384,512)``: samples 128..143 are in no
           window and 384..399 are in two. A live defect of the P1-04/05/06
           family, pinned by ``TestValidWindowsTile``.
+      D2  the epoch: decided by the opener, not here -- see
+          :func:`_open_subint_fallback`.
       D3  ``ZERO_OFF`` IS subtracted here, via ``_apply_calibration``.
-      D4  subints are placed by ``OFFS_SUB`` read as an absolute offset, so a
-          continuation file is zero-padded at the front and more samples are
-          emitted than the file holds.
-
-    Near-identical to :func:`_emit_subint_fallback_blocks`, and still not
-    merged -- but no longer because a test forbids it.
-    ``tests/test_p1_regressions.py::TestFitsChunkGeometry`` used to count the
-    literal source text of four expressions below and require exactly two copies
-    of each, which made merging these two functions fail by construction. It
-    asserts on the readers' output now, so the merge is unblocked and is simply
-    not done yet; the geometry it pins covers both copies.
+      D4  the parameter above.
     """
     subint, tbl = source.subint, source.tbl
     nsubint, nchan, npol, nsblk = source.nsubint, source.nchan, source.npol, source.nsblk
@@ -1325,9 +1347,16 @@ def _emit_subint_primary_blocks(
                 except Exception:
                     offs_sub_val = None
 
-            expected_start = expected_start_sample(
-                offs_sub_val, isub, tsub=tsub, tbin=tbin, nsuboffs=nsuboffs, nsblk=nsblk,
-            )
+            # D4. The fallback copy ignored OFFS_SUB/NSUBOFFS entirely and
+            # placed each subint at i * NSBLK; the primary honours them as an
+            # absolute offset. This is the only difference that changed what
+            # either copy emitted.
+            if place_by_offs_sub:
+                expected_start = expected_start_sample(
+                    offs_sub_val, isub, tsub=tsub, tbin=tbin, nsuboffs=nsuboffs, nsblk=nsblk,
+                )
+            else:
+                expected_start = isub * nsblk
 
             if emitted < expected_start:
                 buffer.pad(expected_start - emitted)
@@ -1448,11 +1477,12 @@ def _emit_subint_primary_blocks(
 
                 block_out = out_buf[start_with_overlap:end_with_overlap].copy()
 
-                # This path performed no reversal at all, while the
-                # duplicated copy of it below (reached only through
-                # `except Exception`) did. Any install without the
-                # `your` library streamed descending PSRFITS with the
-                # channel axis untouched (audit P1-02, third instance).
+                # This path performed no reversal at all, while the copy of it
+                # that used to sit below (reached only through
+                # `except Exception`) did. Any install without the `your`
+                # library streamed descending PSRFITS with the channel axis
+                # untouched (audit P1-02, third instance). Both copies are this
+                # one function now, so the two cannot diverge here again.
                 if config.DATA_NEEDS_REVERSAL:
                     block_out = block_out[:, :, ::-1]
 
@@ -1552,273 +1582,6 @@ def _emit_subint_primary_blocks(
                 str(block_out.dtype),
                 emitted - out_buf.shape[0] + valid_start,
                 emitted - out_buf.shape[0] + valid_end,
-                valid_start,
-                valid_end,
-                valid_end - valid_start,
-            )
-            span = ChunkSpan(
-                start_sample=emitted - out_buf.shape[0],
-                end_sample=emitted,
-                block_start_sample=emitted - out_buf.shape[0],
-                block_end_sample=emitted,
-            )
-            metadata = chunk_metadata(
-                span,
-                chunk_samples=chunk_samples,
-                total_samples=total_samples,
-                nchans=nchan,
-                nifs=1,
-                block=block_out,
-                tbin_sec=tbin,
-                extra={
-                    "tstart_mjd": tstart_mjd,
-                    "tstart_mjd_corr": source.tstart_mjd_corr,
-                    "tsubint_sec": tsub,
-                },
-            )
-            yield block_out, metadata
-
-        log_stream_fits_summary(chunk_counter)
-    finally:
-        source.close()
-
-
-def _emit_subint_fallback_blocks(
-    source: _SubintSource, chunk_samples: int, overlap_samples: int
-) -> Generator[Tuple[np.ndarray, Dict], None, None]:
-    """The buffered astropy reader taken when the primary one could not start.
-
-    A near-copy of :func:`_emit_subint_primary_blocks`; the chunk arithmetic is
-    identical and the two differ only in where the epoch comes from (D2, decided
-    in :func:`_open_subint_fallback`) and in placing subints at ``i * NSBLK``
-    instead of by ``OFFS_SUB`` (D4). Still not merged, but no longer because a
-    test forbids it: ``tests/test_p1_regressions.py::TestFitsChunkGeometry``
-    used to require exactly two textual copies of four expressions below and now
-    asserts on what both copies emit, so the merge is unblocked and simply not
-    done yet.
-    """
-    subint, tbl = source.subint, source.tbl
-    nsubint, nchan, npol, nsblk = source.nsubint, source.nchan, source.npol, source.nsblk
-    nbits, zero_off, tbin, tsub = source.nbits, source.zero_off, source.tbin, source.tsub
-    pol_type, tstart_mjd = source.pol_type, source.tstart_mjd
-    total_samples = source.total_samples
-    limits = source.limits
-    max_buffer_samples = limits.max_buffer_samples
-    max_buffer_blocks = limits.max_buffer_blocks
-    bytes_per_sample = limits.bytes_per_sample
-
-    buffer = SubintBuffer(nchan)
-    emitted = 0
-    chunk_counter = 0
-
-    # Progress tracking
-    last_progress_log = time.time()
-    progress_interval = 5.0  # Log progress every 5 seconds
-    last_progress_row = 0
-    buffer_check_interval_astropy = 10
-
-    try:
-        for i, row in enumerate(tbl):
-
-            expected_start = i * nsblk
-
-
-            if expected_start > emitted:
-                buffer.pad(expected_start - emitted)
-                emitted = expected_start
-
-
-            block = _row_to_block(row["DATA"], row, subint, nbits, nsblk, npol, nchan, zero_off, pol_type)
-            buffer.append(block)
-            emitted += block.shape[0]
-
-            # OPTIMIZATION: Only check time every N subints (reduces overhead)
-            # Progress logging every 5 seconds
-            if i % buffer_check_interval_astropy == 0:
-                current_time = time.time()
-                if current_time - last_progress_log >= progress_interval:
-                    progress_pct = (i + 1) / nsubint * 100
-                    rows_processed = i + 1 - last_progress_row
-                    rate = rows_processed / (current_time - last_progress_log)
-                    remaining = (nsubint - i - 1) / max(rate, 0.001)
-
-                    logger.info(
-                        f"Streaming progress: {i+1:,}/{nsubint:,} subints ({progress_pct:.1f}%) | "
-                        f"Buffer: {buffer.n_blocks:,} blocks, {buffer.total_samples:,} samples | "
-                        f"Rate: {rate:.1f} subints/s | ETA: {remaining:.1f}s"
-                    )
-
-                    last_progress_log = current_time
-                    last_progress_row = i + 1
-
-            # CRITICAL: Check buffer more aggressively for large chunks
-            check_frequency_astropy = 1 if chunk_samples > 1_000_000 else buffer_check_interval_astropy
-
-            if i % check_frequency_astropy == 0 or i == nsubint - 1:
-                needs_chunk_emission = (
-                    buffer.total_samples >= (chunk_samples + overlap_samples * 2) or
-                    buffer.total_samples > max_buffer_samples or
-                    buffer.n_blocks > max_buffer_blocks
-                )
-                if buffer.total_samples > max_buffer_samples * 0.8:
-                    logger.warning(
-                        f"Buffer approaching limit: {buffer.total_samples:,}/{max_buffer_samples:,} samples "
-                        f"({buffer.n_blocks:,} blocks). Will emit chunk soon to prevent OOM."
-                    )
-            else:
-                needs_chunk_emission = False
-
-            # Only concatenate when we actually need to emit a chunk
-            if needs_chunk_emission:
-                if buffer.n_blocks > 50:
-                    logger.debug(
-                        f"Preparing chunk emission at row {i+1:,}/{nsubint:,}: "
-                        f"{buffer.n_blocks:,} blocks, {buffer.total_samples:,} samples"
-                    )
-                out_buf = buffer.concatenate()
-                buffer_too_large = out_buf.shape[0] > max_buffer_samples
-                has_complete_chunk = out_buf.shape[0] >= (chunk_samples + overlap_samples * 2)
-
-                if buffer_too_large:
-                    logger.warning(
-                        f"Buffer exceeded limit at row {i+1:,}/{nsubint:,}: "
-                        f"{out_buf.shape[0]:,} samples > {max_buffer_samples:,}. "
-                        f"Emitting emergency chunk to prevent OOM."
-                    )
-            else:
-                # Don't concatenate yet - continue accumulating
-                buffer_too_large = False
-                has_complete_chunk = False
-                out_buf = None  # Not computed yet
-
-            # Emit chunk if we have a complete chunk OR if buffer is too large
-            while needs_chunk_emission and (has_complete_chunk or (buffer_too_large and out_buf is not None and out_buf.shape[0] >= chunk_samples)):
-                chunk_counter += 1
-
-                if out_buf is None:
-                    out_buf = buffer.concatenate()
-
-                window = plan_buffered_window(
-                    out_buf.shape[0], chunk_samples, overlap_samples,
-                    buffer_too_large=buffer_too_large, large_chunk=limits.large_chunk,
-                )
-                start_with_overlap = window.start_with_overlap
-                end_with_overlap = window.end_with_overlap
-                valid_start = window.valid_start
-                valid_end = window.valid_end
-                actual_chunk_size = window.actual_chunk_size
-
-                if window.emergency:
-                    if actual_chunk_size < chunk_samples:
-                        logger.warning(
-                            f"Buffer too large ({out_buf.shape[0]:,} samples, {out_buf.shape[0] * bytes_per_sample / (1024**3):.2f} GB). "
-                            f"Emitting partial chunk of {actual_chunk_size:,} samples "
-                            f"(requested: {chunk_samples:,}) to prevent system freeze. "
-                            f"Buffer limit: {max_buffer_samples:,} samples."
-                        )
-                    else:
-                        logger.warning(
-                            f"Buffer too large ({out_buf.shape[0]:,} samples), "
-                            f"emitting emergency chunk of {actual_chunk_size:,} samples "
-                            f"(buffer limit: {max_buffer_samples:,})"
-                        )
-
-                # At the very beginning of the file there is no
-                # preceding data, so nothing can be left overlap:
-                # keeping valid_start > 0 here discards the first
-                # overlap_samples of every FITS file.
-                if emitted - out_buf.shape[0] <= 0 and valid_start > 0:
-                    valid_start = 0
-                    valid_end = valid_start + actual_chunk_size
-
-                block_out = out_buf[start_with_overlap:end_with_overlap].copy()
-
-                if config.DATA_NEEDS_REVERSAL:
-                    block_out = block_out[:, :, ::-1]
-
-                start_sample_idx = emitted - out_buf.shape[0] + valid_start
-                end_sample_idx = start_sample_idx + actual_chunk_size
-
-
-                log_stream_fits_block_generation(
-                    chunk_counter,
-                    block_out.shape,
-                    str(block_out.dtype),
-                    start_sample_idx,
-                    end_sample_idx,
-                    start_with_overlap,
-                    end_with_overlap,
-                    actual_chunk_size,
-                )
-                metadata = {
-                    "chunk_idx": start_sample_idx // chunk_samples,
-                    "start_sample": start_sample_idx,
-                    "end_sample": end_sample_idx,
-                    "actual_chunk_size": actual_chunk_size,
-                    "block_start_sample": emitted - out_buf.shape[0],
-                    "block_end_sample": emitted - out_buf.shape[0] + end_with_overlap,
-                    # Derived from the real geometry, not assumed:
-                    # the first chunk of a file has no left overlap
-                    # and the last one has no right overlap. Hardcoding
-                    # overlap_samples made _process_block trim data
-                    # that was never overlap.
-                    "overlap_left": valid_start - start_with_overlap,
-                    "overlap_right": max(0, end_with_overlap - valid_end),
-                    "total_samples": total_samples,
-                    "nchans": nchan,
-                    "nifs": 1,
-                    "dtype": str(block_out.dtype),
-                    "shape": block_out.shape,
-                    "file_type": "fits",
-
-                    "tbin_sec": tbin,
-                    "t_rel_start_sec": start_sample_idx * tbin,
-                    "t_rel_end_sec": end_sample_idx * tbin,
-
-                    "tstart_mjd": tstart_mjd,
-                    "tstart_mjd_corr": source.tstart_mjd_corr,
-                    "tsubint_sec": tsub,
-                }
-                yield block_out, metadata
-
-                # Remove emitted chunk from buffer (keep overlap for next chunk).
-                # Always advance by exactly the valid span. Dropping
-                # end_with_overlap (= actual + 2*overlap) in the
-                # emergency path left a 2*overlap hole between
-                # consecutive chunks that was never searched.
-                samples_to_remove = actual_chunk_size
-                buffer.advance(out_buf, samples_to_remove)
-
-                out_buf = buffer.concatenate() if buffer else np.zeros((0, 1, nchan), dtype=np.float32)
-
-                # Update buffer size check for next iteration
-                buffer_too_large = out_buf.shape[0] > max_buffer_samples
-                has_complete_chunk = out_buf.shape[0] >= (chunk_samples + overlap_samples * 2)
-                needs_chunk_emission = has_complete_chunk or buffer_too_large
-
-
-        # Handle remaining buffer at end of file. See the same comment in the
-        # primary reader: this used to dereference a None out_buf on an exactly
-        # divisible file, and the resulting AttributeError made the whole file
-        # stream twice.
-        out_buf = buffer.concatenate() if buffer else None
-        if out_buf is not None and out_buf.shape[0] > 0:
-            chunk_counter += 1
-
-            valid_start = 0
-            valid_end = out_buf.shape[0]
-            block_out = out_buf.copy()
-
-
-            if config.DATA_NEEDS_REVERSAL:
-                block_out = block_out[:, :, ::-1]
-
-            log_stream_fits_block_generation(
-                chunk_counter,
-                block_out.shape,
-                str(block_out.dtype),
-                emitted - out_buf.shape[0],
-                emitted,
                 valid_start,
                 valid_end,
                 valid_end - valid_start,
@@ -1972,7 +1735,9 @@ def _open_primary_reader(file_name: str, chunk_samples: int, overlap_samples: in
     # No `your`: read the SUBINT table with astropy ourselves.
     subint_source = _open_subint_primary(file_name, chunk_samples, overlap_samples)
     if subint_source is not None:
-        return _commit_to(_emit_subint_primary_blocks(subint_source, chunk_samples, overlap_samples))
+        return _commit_to(_emit_subint_blocks(
+            subint_source, chunk_samples, overlap_samples, place_by_offs_sub=True
+        ))
 
     # No SUBINT table either: a plain FITS file, loaded whole.
     non_subint = _open_non_subint_source(file_name, chunk_samples, overlap_samples)
@@ -1986,7 +1751,9 @@ def _open_fallback_reader(file_name: str, chunk_samples: int, overlap_samples: i
         raise ValueError(
             f"FITS file does not have a valid SUBINT structure: {file_name}"
         )
-    return _commit_to(_emit_subint_fallback_blocks(source, chunk_samples, overlap_samples))
+    return _commit_to(_emit_subint_blocks(
+        source, chunk_samples, overlap_samples, place_by_offs_sub=False
+    ))
 
 
 def _open_fits_reader(file_name: str, chunk_samples: int, overlap_samples: int):

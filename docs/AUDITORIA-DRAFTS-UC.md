@@ -11,11 +11,17 @@ Por eso el documento vive en el repositorio y no fuera de él.
 
 ## Resumen
 
-**38 de los 43 ítems del plan de la sección 37 están cerrados.** La suite pasó de
-205 a 374 tests. Ningún cierre se dio por bueno sin verificación: cada corrección
-se comprobó revirtiéndola en aislamiento y confirmando que un test falla, y los
-tres refactors grandes se verificaron con arneses diferenciales contra el código
-anterior.
+**40 de los 43 ítems del plan de la sección 37 están cerrados.** La suite pasó de
+205 a 410 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
+Ningún cierre se dio por bueno sin verificación: cada corrección se comprobó
+revirtiéndola en aislamiento y confirmando que un test falla, y los refactors
+grandes se verificaron con arneses diferenciales contra el código anterior.
+
+> Dos mensajes de commit citan un recuento de tests desfasado en una ejecución:
+> `3431292` dice 404 (eran 407) y `ebae01d` dice 407 (eran 410). La suite estaba
+> en verde en ambos casos —eso es lo que se afirmaba y se sostiene—; el número
+> es el que está mal. Se deja constancia aquí en vez de reescribir historia ya
+> publicada.
 
 | Fase | Ítems | Estado |
 |---|---|---|
@@ -62,13 +68,73 @@ anterior.
 | 34 | REF-03 separar los lectores de `stream_fits` | cerrado | `f8ef15a` |
 | 35 | P1-23 `force_plots` | cerrado | `9eb891a` |
 | 36 | PERF-04 GC, batching, `cudnn.benchmark` | **parcial** | `9eb891a` |
-| 37 | PERF-03, PERF-05 copias de arrays | **pendiente** | — |
+| 37 | PERF-03, PERF-05 copias de arrays | cerrado | `3431292` |
 | 38 | PERF-02 dedispersión torch vectorizada | **pendiente** | — |
 | 39 | REF-11, REF-13, REF-16 duplicación | cerrado | `a76ca85`, `4e54d8b` |
 | 40 | REF-04 `create_composite_plot` | cerrado | `d1c3856` |
 | 41 | REF-14, REF-15, REF-18 scripts | cerrado | `6f38a95` |
 | 42 | Reorganizar `src/scripts/` y `src/tests/` | **pendiente** | — |
 | 43 | CHANGELOG, README y las 2 SPECs falsas | cerrado | `8256bb5` |
+
+## 3. La suite en Linux: la pata de CI que nunca se había verificado
+
+**Añadido el 2026-09-19.** Todo el trabajo anterior se hizo en Windows con
+Python 3.12. La matriz de CI declara `ubuntu-latest` y nadie había ejecutado el
+código en Linux, así que las líneas base doradas —generadas en Windows— eran una
+incógnita documentada. Ya no lo son.
+
+Primera ejecución en Linux, sin tocar nada: **374 tests recogidos, los mismos que
+en Windows; 361 pasan y 13 fallan.** Los 13 tienen una única causa, y **no es una
+diferencia de plataforma**.
+
+`EarthLocation.of_site("Effelsberg")` es una llamada de red. Astropy dejó de
+empaquetar el registro de sitios —`astropy/coordinates/data/` sólo contiene
+ficheros de constelaciones— así que un *nombre* de sitio se resuelve descargando
+`sites.json`, y sólo se sirve desde `~/.astropy` una vez que esa descarga ha
+tenido éxito en esa máquina. La máquina Windows la tenía en caché. Las dos suites
+doradas afirman, junto a `EPHEMERIS = "builtin"`, que quieren «sin descarga, sin
+red, la misma respuesta en todas partes»: era cierto de las efemérides y nunca lo
+fue del sitio.
+
+Lo que la comparación celda a celda dice, una vez aislada esa variable:
+
+- **La geometría de chunks NO se movió.** `chunk_id`, `slice_id`, `band_id`,
+  `t_sample` y `dm_pc_cm-3`: idénticos. El test ya fija `CHUNK_SAMPLES`, así que
+  `psutil.virtual_memory()` no llega a la línea base.
+- **Ninguna columna float se movió**, ni un dígito. Todas las de
+  `FLOAT_TOLERANT` son **idénticas byte a byte** entre Windows y Linux; las
+  tolerancias no absorbieron nada. No hay evidencia de que la lista esté
+  incompleta, pero tampoco esta corrida les dio nada que cazar.
+- **La capa de píxeles resultó portable.** `candidate_free` es idéntico píxel a
+  píxel contra su línea base de Windows. Los otros cinco difieren en el 1,1% de
+  los píxeles, confinados a `filas 12-67, columnas 88-251`: el recuadro de
+  anotación, porque el texto perdió su línea `MJD_bary_inf`. FreeType 2.6.1 y
+  matplotlib 3.10.8 coinciden exactamente con `environment.json` —matplotlib
+  empaqueta su propio FreeType— así que el sello de entorno no saltó y la
+  comparación se hizo de verdad. **No hacen falta líneas base por plataforma.**
+
+Corregido en `18eb72c` fijando la posición del observatorio
+(`tests/observatory.py`) en vez de resolver el nombre. Se verificó antes de
+escribirlo: la posición fijada reproduce las cuatro columnas baricéntricas de
+`tests/golden/lf_candidates.csv` **exactamente, a los 12 decimales almacenados,
+en las 8 filas**. No se regeneró ninguna línea base ni hizo falta.
+
+Eso destapó un defecto de producción: `get_barycentric_mjd` resolvía el sitio
+**una vez por candidato**, y cuando la búsqueda falla astropy reintenta sus dos
+mirrors y agota ambos timeouts cada vez. Una corrida de 500 candidatos sin red
+hacía 1000 peticiones HTTP fallidas para llegar al mismo error. Ahora se resuelve
+una vez por proceso, cacheando también el fallo.
+
+Los otros tres puntos de CI que quedaban por comprobar, ejecutados con las
+versiones exactas que el workflow fija:
+
+- `pip install --require-hashes -r requirements.lock.txt`: **instala limpio**, 89
+  paquetes.
+- **`pytest` NO está en el lock** —confirmado directamente—, pero el workflow ya
+  lo instala aparte después del lock, así que el job no se cae.
+- `cosmic-ray init` con los cuatro ficheros de configuración: **exit 0** y bases
+  de datos no vacías en los cuatro. El `init` antes del `exec` y los ficheros de
+  configuración están correctos.
 
 ## Dos correcciones a la auditoría
 
@@ -129,20 +195,49 @@ hizo este trabajo no tiene GPU, así que no se pueden verificar aquí.
 
 ### Deuda técnica generada por la propia remediación
 
-- **Cuatro tests de la fase 0 afirman sobre el texto fuente** de los drivers
-  (`src.count("samples_to_remove = actual_chunk_size") == 2`, un `try` cuya última
-  sentencia sea `chunk_succeeded = True`, …). Se escribieron así porque entonces
-  nada podía ejercitar esas rutas, y han bloqueado las últimas líneas de
-  duplicación tanto en REF-01 como en REF-03. Hay que reescribirlos contra
-  comportamiento; los tests que lo permiten ya existen.
-- **Cuatro defectos del pipeline HF** destapados por REF-01, documentados en el
-  código y sin corregir. El más serio: HF relanza en vez de devolver un
-  resultado, y su único llamador está dentro del `try` de LF, que lo convierte en
-  `_error_result` usando las `DetectionStats` **vacías de LF**. Una corrida que
-  escribe 500 candidatos y luego falla reporta `n_candidates: 0` con las filas ya
-  en disco — justo el fallo que `_error_result` dice prevenir.
-- **REF-12**: `off_regions`, parámetro documentado como no usado, con 49
-  referencias todavía.
+- **Tests que afirman sobre el texto fuente**, en dos grupos distintos. Esta
+  nota los daba como un solo cuarteto citando un ejemplo de cada uno; son dos.
+  - Grupo A, el lector FITS: los cuatro de
+    `test_p1_regressions.py::TestFitsChunkGeometry`, que exigían exactamente dos
+    copias textuales de cuatro expresiones de `fits_handler.py` y por
+    construcción impedían deduplicar los dos lectores astropy. **Cerrado**
+    (`fde1de4`): ahora afirman sobre lo que emiten los lectores, sobre las dos
+    ramas, incluida la ruta de emergencia que la versión textual no podía
+    alcanzar. Comprobado que la deduplicación queda desbloqueada, no sólo
+    afirmado.
+  - Grupo B, los dos drivers: **sigue abierto**. Son *cinco*, no cuatro
+    (`test_p0_regressions.py:363-377` y `:379-396`; `test_p2_reliability.py:245-255`,
+    `:257-260` y `:293-301`), y fijan los bloques de checkpoint, resume y
+    rotación. Necesitan un test de recuperación extremo a extremo por driver.
+- **Cuatro defectos del pipeline HF** destapados por REF-01. Los dos primeros,
+  **cerrados** (`ae6d678`); los otros dos siguen abiertos.
+  - El más serio (cerrado): HF relanzaba en vez de devolver un resultado, así
+    que sus contadores —variables locales— morían con el marco y el llamador
+    reconstruía el resultado con unas `DetectionStats` **vacías**. Una corrida
+    que escribía 500 candidatos y luego fallaba reportaba `n_candidates: 0` con
+    las filas ya en disco. Matiz sobre la redacción anterior: desde REF-02
+    (`dd41c43`) el llamador ya *no* está dentro del `try` de LF —el dispatch se
+    subió por encima— pero el defecto y su consecuencia eran idénticos. La causa
+    era de imports: `pipeline` importa `high_freq_pipeline`, así que el driver
+    no podía alcanzar `_error_result` sin un ciclo. Ahora vive en `file_driver`.
+  - Cerrado de paso: HF sólo vaciaba el buffer de candidatos en su camino de
+    éxito.
+  - **Abierto**: un chunk fallido se salta `del block_ds, dm_time, block_raw_ds`
+    y `optimize_memory`, porque están dentro del `try` por chunk. La corrección
+    obvia —moverlos detrás del handler, como en LF— **no es válida**: en LF
+    `block` se liga en el `for` antes del `try`, y en HF todos esos nombres se
+    ligan dentro, así que el movimiento provoca `NameError` justo en el camino
+    de fallo que pretende arreglar.
+  - **Abierto**: `MAX_CHUNK_SAMPLES` lo aplica LF y no HF. Es una diferencia
+    deliberada y documentada; cambiarla mueve la geometría de chunks de la ruta
+    que procesa las observaciones reales.
+- **REF-12**: **cerrado** (`ebae01d`). `off_regions` eliminado de los 11
+  módulos. No se cableó porque no existía productor alguno: todas las ligaduras
+  eran `None` literal o el reenvío `off_regions=off_regions`, y `config.py`
+  filtra las claves YAML contra `_KNOWN_CONFIG_KEYS`, así que ni siquiera se
+  podía añadir una. Las cuentas de esta auditoría eran inconsistentes entre sí
+  (49 en esta línea, 53 en `:2192`); lo medido son 63 líneas en 12 ficheros, 57
+  de ellas en `src/`.
 
 ### Pendiente de plan
 

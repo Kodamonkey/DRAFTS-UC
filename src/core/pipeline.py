@@ -42,6 +42,8 @@ from .data_flow_manager import (
 from .contracts import ChunkPlan, DMGrid, ObservationMetadata, PipelineConfigSnapshot
 from .file_driver import (
     ChunkLoopState,
+    DetectionStats,
+    FILE_ERROR_STATUS as _FILE_ERROR_STATUS,
     begin_chunk,
     check_file_length,
     compute_overlap_raw,
@@ -55,6 +57,8 @@ from .file_driver import (
     record_oom,
     select_pipeline_path,
     start_arrival_clock,
+    error_result as _error_result,
+    status_for_error as _status_for_error,
 )
 from .pipeline_parameters import calculate_absolute_slice_time, calculate_dm_values, calculate_frequency_downsampled
 from ..input.parameter_extractor import extract_parameters_auto
@@ -72,73 +76,6 @@ from ..output.phase_metrics import PhaseMetricsTracker
 
               
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class DetectionStats:
-    """Accumulate detection metrics for a chunk or file."""
-
-    n_candidates: int = 0
-    n_bursts: int = 0
-    n_no_bursts: int = 0
-    max_prob: float = 0.0
-    snr_values: list[float] = field(default_factory=list)
-
-    def update(self, candidates: int, bursts: int, no_bursts: int, prob_max: float) -> None:
-        """Update counters with the result of a slice or chunk."""
-
-        self.n_candidates += candidates
-        self.n_bursts += bursts
-        self.n_no_bursts += no_bursts
-        self.max_prob = max(self.max_prob, float(prob_max))
-
-    def merge(self, other: "DetectionStats") -> None:
-        """Merge metrics coming from another :class:`DetectionStats` instance."""
-
-        self.update(other.n_candidates, other.n_bursts, other.n_no_bursts, other.max_prob)
-        if other.snr_values:
-            self.snr_values.extend(other.snr_values)
-
-    def mean_snr(self) -> float:
-        return float(np.mean(self.snr_values)) if self.snr_values else 0.0
-
-    def effective_counts(self, save_only_burst: bool) -> tuple[int, int, int]:
-        """Return counts respecting the SAVE_ONLY_BURST flag."""
-
-        if save_only_burst:
-            return self.n_bursts, self.n_bursts, 0
-        return self.n_candidates, self.n_bursts, self.n_no_bursts
-
-def _error_result(
-    status: str,
-    error: Exception,
-    t_start: float,
-    stats: "DetectionStats",
-    chunks_processed: int = 0,
-    failed_chunks: int = 0,
-) -> dict:
-    """Per-file result for a run that ended in an error.
-
-    The counts are what the run actually produced and wrote before failing, not
-    zeros. Reporting zero while the CSV already held those rows led straight to
-    the wrong conclusion -- that the file had no detections -- and to real
-    candidates being discarded with it.
-    """
-    effective_candidates, effective_bursts, effective_no_bursts = stats.effective_counts(
-        bool(getattr(config, "SAVE_ONLY_BURST", False))
-    )
-    return {
-        "n_candidates": effective_candidates,
-        "n_bursts": effective_bursts,
-        "n_no_bursts": effective_no_bursts,
-        "runtime_s": time.time() - t_start,
-        "max_prob": stats.max_prob,
-        "mean_snr": stats.mean_snr(),
-        "status": status,
-        "error_details": str(error),
-        "chunks_processed": chunks_processed,
-        "failed_chunks": failed_chunks,
-    }
 
 
 def _trace_info(message: str, *args) -> None:
@@ -518,19 +455,6 @@ def _process_block(
     return chunk_stats
 
 
-#: Per-file error status by exception type, in the order ``_process_file_chunked``
-#: tests them in its handler chain. ``_run_high_freq_file`` reports failures under
-#: the same names, because the high-frequency driver used to be called from inside
-#: that chain and its failures surfaced through it.
-_FILE_ERROR_STATUS: tuple[tuple[type[BaseException], str, str], ...] = (
-    (MemoryError, "ERROR_MEMORY", "Memory error while processing %s: %s"),
-    (FileNotFoundError, "ERROR_FILE_NOT_FOUND", "File not found: %s - %s"),
-    (PermissionError, "ERROR_PERMISSION", "Permission error processing %s: %s"),
-    (ValueError, "ERROR_CORRUPTED_FILE", "Invalid/corrupted file %s: %s"),
-    (Exception, "ERROR_CHUNKED", "Unhandled error processing %s: %s"),
-)
-
-
 def _run_high_freq_file(
     cls_model: torch.nn.Module,
     fits_path: Path,
@@ -548,15 +472,20 @@ def _run_high_freq_file(
     itself. REF-02 moved the decision above that setup; this function keeps the
     two things the early return was still providing.
 
-    The first is the error mapping: the high-frequency driver re-raises rather
-    than returning a result, so its failures were converted to a per-file status
-    by the low-frequency handler chain. They still are, by the same table.
+    The first is the error mapping, and it is now a backstop rather than the
+    mechanism. The high-frequency driver used to re-raise instead of returning
+    a result, so its failures were converted to a per-file status here -- from
+    an empty ``DetectionStats``, because the counts it kept were function
+    locals that the raise destroyed. A run that wrote rows and then failed
+    reported ``n_candidates: 0`` with those rows already on disk. The driver
+    builds its own result now, by the same table, moved to ``file_driver`` so
+    both drivers can reach it. Reaching the handler below means something
+    escaped the driver entirely, and zero is then the honest number.
 
-    The second is ``CandidateWriter.flush_all()`` on every exit. The
-    high-frequency driver flushes on its success path only, so without this a
-    failed run would drop up to a buffer's worth of rows that were already
-    counted. Both are stop-gaps for a driver that should return its own result;
-    that remains open and deliberately untouched here.
+    The second is ``CandidateWriter.flush_all()`` on every exit. The driver
+    flushes on both its paths now, so this is a belt-and-braces guarantee for
+    the caller rather than the only thing standing between a failed run and a
+    buffer's worth of lost rows.
 
     ``chunk_samples`` is the size this file asked for, not a planned one. It used
     to be ``effective_chunk_samples`` -- the output of the low-frequency chunk
@@ -580,14 +509,13 @@ def _run_high_freq_file(
             chunk_samples=chunk_samples,
         )
     except Exception as error:
-        for error_type, status, message in _FILE_ERROR_STATUS:
-            if isinstance(error, error_type):
-                logger.error(message, fits_path.name, error)
-                # The counts are zero because the high-frequency driver keeps its
-                # own and loses them when it raises; that is the open defect, not
-                # a claim that nothing was written.
-                return _error_result(status, error, t_start, DetectionStats())
-        raise
+        # The driver builds its own error result now, with the counts it
+        # actually reached, so reaching this handler means something escaped it
+        # -- raised before its own try opened, or by the return path itself.
+        # There are no counts to report in that case and zero is the truth.
+        status, message = _status_for_error(error)
+        logger.error(message, fits_path.name, error)
+        return _error_result(status, error, t_start, DetectionStats())
     finally:
         CandidateWriter.flush_all()
 

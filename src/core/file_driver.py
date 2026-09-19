@@ -57,6 +57,107 @@ logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
+# what a driver reports about a file
+# --------------------------------------------------------------------------- #
+# These three lived in ``pipeline.py``. They are here because BOTH drivers need
+# them and ``pipeline`` imports ``high_freq_pipeline`` at module level, so the
+# high-frequency driver could not reach them without a cycle -- which is the
+# mechanical reason it re-raised instead of returning a result, and the reason
+# its caller rebuilt that result from an empty ``DetectionStats`` and reported
+# zero candidates for a run that had already written rows to disk.
+#
+# ``pipeline`` re-imports all three under their old private names, so
+# ``from src.core.pipeline import DetectionStats, _error_result`` still works.
+
+
+@dataclass
+class DetectionStats:
+    """Accumulate detection metrics for a chunk or file."""
+
+    n_candidates: int = 0
+    n_bursts: int = 0
+    n_no_bursts: int = 0
+    max_prob: float = 0.0
+    snr_values: list[float] = field(default_factory=list)
+
+    def update(self, candidates: int, bursts: int, no_bursts: int, prob_max: float) -> None:
+        """Update counters with the result of a slice or chunk."""
+
+        self.n_candidates += candidates
+        self.n_bursts += bursts
+        self.n_no_bursts += no_bursts
+        self.max_prob = max(self.max_prob, float(prob_max))
+
+    def merge(self, other: "DetectionStats") -> None:
+        """Merge metrics coming from another :class:`DetectionStats` instance."""
+
+        self.update(other.n_candidates, other.n_bursts, other.n_no_bursts, other.max_prob)
+        if other.snr_values:
+            self.snr_values.extend(other.snr_values)
+
+    def mean_snr(self) -> float:
+        return float(np.mean(self.snr_values)) if self.snr_values else 0.0
+
+    def effective_counts(self, save_only_burst: bool) -> tuple[int, int, int]:
+        """Return counts respecting the SAVE_ONLY_BURST flag."""
+
+        if save_only_burst:
+            return self.n_bursts, self.n_bursts, 0
+        return self.n_candidates, self.n_bursts, self.n_no_bursts
+
+
+def error_result(
+    status: str,
+    error: Exception,
+    t_start: float,
+    stats: "DetectionStats",
+    chunks_processed: int = 0,
+    failed_chunks: int = 0,
+) -> dict:
+    """Per-file result for a run that ended in an error.
+
+    The counts are what the run actually produced and wrote before failing, not
+    zeros. Reporting zero while the CSV already held those rows led straight to
+    the wrong conclusion -- that the file had no detections -- and to real
+    candidates being discarded with it.
+    """
+    effective_candidates, effective_bursts, effective_no_bursts = stats.effective_counts(
+        bool(getattr(config, "SAVE_ONLY_BURST", False))
+    )
+    return {
+        "n_candidates": effective_candidates,
+        "n_bursts": effective_bursts,
+        "n_no_bursts": effective_no_bursts,
+        "runtime_s": time.time() - t_start,
+        "max_prob": stats.max_prob,
+        "mean_snr": stats.mean_snr(),
+        "status": status,
+        "error_details": str(error),
+        "chunks_processed": chunks_processed,
+        "failed_chunks": failed_chunks,
+    }
+
+
+#: Per-file error status by exception type, in the order the drivers test them
+#: in their handler chains. Both drivers report failures under the same names.
+FILE_ERROR_STATUS: tuple[tuple[type[BaseException], str, str], ...] = (
+    (MemoryError, "ERROR_MEMORY", "Memory error while processing %s: %s"),
+    (FileNotFoundError, "ERROR_FILE_NOT_FOUND", "File not found: %s - %s"),
+    (PermissionError, "ERROR_PERMISSION", "Permission error processing %s: %s"),
+    (ValueError, "ERROR_CORRUPTED_FILE", "Invalid/corrupted file %s: %s"),
+    (Exception, "ERROR_CHUNKED", "Unhandled error processing %s: %s"),
+)
+
+
+def status_for_error(error: BaseException) -> tuple[str, str]:
+    """``(status, log message)`` for *error*, by the table above."""
+    for error_type, status, message in FILE_ERROR_STATUS:
+        if isinstance(error, error_type):
+            return status, message
+    return "ERROR_CHUNKED", "Unhandled error processing %s: %s"
+
+
+# --------------------------------------------------------------------------- #
 # which driver runs this file
 # --------------------------------------------------------------------------- #
 

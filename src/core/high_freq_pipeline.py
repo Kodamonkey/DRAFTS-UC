@@ -30,9 +30,11 @@ from .candidate_finalization import finalize_patch as _finalize_patch
 from .contracts import DMGrid
 from .file_driver import (
     ChunkLoopState,
+    DetectionStats,
     begin_chunk,
     check_file_length,
     compute_overlap_raw,
+    error_result,
     export_validation_metrics,
     finalize_file_status,
     finish_chunk,
@@ -42,6 +44,7 @@ from .file_driver import (
     record_chunk_failure,
     record_oom,
     start_arrival_clock,
+    status_for_error,
 )
 from .mjd_utils import calculate_candidate_mjd
 
@@ -1920,8 +1923,35 @@ def _process_file_chunked_high_freq(
         runtime = time.time() - t_start
     except Exception as e:
         logger.exception(f"Error in high-frequency pipeline: {e}")
-        raise
-    
+        # Return a result instead of re-raising. The counters above are
+        # function locals, so a raise destroyed them with the frame and the
+        # caller -- which cannot see them -- rebuilt the result from an empty
+        # DetectionStats. A run that wrote rows to disk and then failed reported
+        # n_candidates: 0, which reads as "this file had no detections".
+        #
+        # The flush comes first, for the same reason it does on the success
+        # path: the numbers reported here have to match what is readable. The
+        # caller also flushes in a finally, but that is its stop-gap, not this
+        # driver's correctness.
+        CandidateWriter.flush_all()
+        # The checkpoint is deliberately NOT cleared here: a file that failed
+        # part-way has to stay resumable, and clear_checkpoint is what says
+        # "this file is finished".
+        stats = DetectionStats(
+            n_candidates=cand_counter_total,
+            n_bursts=n_bursts_total,
+            n_no_bursts=n_no_bursts_total,
+            max_prob=prob_max_total,
+            snr_values=list(snr_list_total),
+        )
+        status, message = status_for_error(e)
+        logger.error(message, fits_path.name, e)
+        return error_result(
+            status, e, t_start, stats,
+            chunks_processed=state.actual_chunk_count,
+            failed_chunks=state.failed_chunk_count,
+        )
+
     if config.SAVE_ONLY_BURST:
         effective_cand_counter_total = n_bursts_total
         effective_n_bursts_total = n_bursts_total

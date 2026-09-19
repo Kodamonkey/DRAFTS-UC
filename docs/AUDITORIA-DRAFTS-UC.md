@@ -214,10 +214,14 @@ hizo este trabajo no tiene GPU, así que no se pueden verificar aquí.
     `tests/test_driver_recovery.py`: **los dos drivers pasan por el mismo juego
     de tests parametrizado**, así que ya no se pueden afirmar cosas distintas de
     cada uno en ficheros distintos. Ocho mutaciones, todas cazadas. La
-    deduplicación queda desbloqueada y se comprobó: mover el preámbulo a un
-    único helper de `file_driver` deja `if resume_after < 0:` en cero
-    ocurrencias —lo que el test borrado prohibía— y con esa edición pasan 55
-    tests.
+    deduplicación queda desbloqueada, y **hecha** (`1987e67`): el fingerprint,
+    el punto de reanudación, la rotación del CSV y el flush-antes-de-checkpoint
+    viven ahora una sola vez, en `file_driver.begin_resumable_run` y
+    `file_driver.checkpoint_completed_chunk`. Los dos drivers quedan con **cero**
+    ocurrencias de `if resume_after < 0:`, `compute_run_fingerprint(` y
+    `CandidateWriter.flush_buffers()`; antes cada una aparecía una vez por
+    driver. Verificado con arnés diferencial: los dos drivers producen CSV
+    **idénticos byte a byte** antes y después (LF 2.471 B, HF 21.541 B).
 - **Cuatro defectos del pipeline HF** destapados por REF-01. Tres **cerrados**
   (`ae6d678`, `af1d7ad`); el cuarto **resuelto como decisión: se deja como
   está**, fijado por tests (`2c36426`).

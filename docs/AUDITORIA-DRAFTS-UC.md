@@ -12,7 +12,7 @@ Por eso el documento vive en el repositorio y no fuera de él.
 ## Resumen
 
 **41 de los 43 ítems del plan de la sección 37 están cerrados**, y REF-10
-(ítem 33) está empezado. La suite pasó de 205 a 438 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
+(ítem 33) está muy avanzado. La suite pasó de 205 a 447 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
 Ningún cierre se dio por bueno sin verificación: cada corrección se comprobó
 revirtiéndola en aislamiento y confirmando que un test falla, y los refactors
 grandes se verificaron con arneses diferenciales contra el código anterior.
@@ -64,7 +64,7 @@ grandes se verificaron con arneses diferenciales contra el código anterior.
 | 30 | REF-02 subir el dispatch LF/HF | cerrado | `dd41c43` |
 | 31 | REF-09 romper los ciclos | cerrado | `8256bb5` |
 | 32 | REF-05 función de 884 líneas del HF | cerrado | `dd41c43` |
-| 33 | REF-10 adoptar los contratos | **parcial** | `0cdbcfa`, `4c6475d` |
+| 33 | REF-10 adoptar los contratos | **parcial** | `0cdbcfa`, `4c6475d`, `ec8757c`, `4554d73` |
 | 34 | REF-03 separar los lectores de `stream_fits` | cerrado | `f8ef15a` |
 | 35 | P1-23 `force_plots` | cerrado | `9eb891a` |
 | 36 | PERF-04 GC, batching, `cudnn.benchmark` | **parcial** | `9eb891a` |
@@ -289,6 +289,33 @@ haciendo. Dos incrementos hechos (`0cdbcfa`, `4c6475d`):
   están todas en `src/input` (47) y `slice_len_calculator` (1); `src/core` no
   tiene ninguna. Ésa es la precondición de la que depende cada sustitución por
   snapshot, y ahora falla ahí si alguien la rompe.
+- El driver HF, que no tenía contrato alguno, ya usa los mismos
+  (`ec8757c`), y la función más pesada de esa ruta —
+  `snr_detect_and_classify_candidates_in_band`, 21 lecturas del global en 10
+  claves— recibe el snapshot (`4554d73`). `PipelineConfigSnapshot` creció los
+  cinco campos de HF, con los mismos *fallbacks* que las lecturas en línea
+  deletreaban (dos de ellos caen a su equivalente de intensidad, no a un
+  literal). Recuento en las rutas calientes:
+
+  | función | antes | ahora |
+  |---|---|---|
+  | `_process_block` | 12 | 2 (`get_band_configs`, `FORCE_PLOTS`) |
+  | `_process_file_chunked_high_freq` | 17 | 1 (`get_band_configs`) |
+  | `snr_detect_and_classify_candidates_in_band` | 21 | 0 |
+
+  Todo verificado con arnés diferencial contra una línea base tomada **antes**
+  de cualquier refactor de esta sesión: los CSV de ambos drivers siguen siendo
+  idénticos byte a byte.
+
+**Lo que NO está cubierto por ejecución, y conviene saberlo.** El cuerpo de
+`snr_detect_and_classify_candidates_in_band` está *stubbeado* en todos los tests
+extremo a extremo, así que sus sustituciones se apoyan en tests de paridad del
+contrato y no en haberla ejecutado: mutar dos de sus líneas sigue pasando la
+suite. Tampoco hay ningún test HF con `DOWN_TIME_RATE > 1`, así que el sitio del
+*smearing* está en la misma situación (el equivalente LF sí se cerró, con
+`TestTemporalDownsamplingEndToEnd`). Construir un arnés que ejecute esa función
+—necesita unos diecisiete argumentos, incluido un clasificador— es el siguiente
+paso natural de REF-10.
 
 Un hallazgo colateral que vale más que el propio paso: **ningún test extremo a
 extremo usaba `DOWN_TIME_RATE > 1`**, y los que quedaban usaban un solo chunk

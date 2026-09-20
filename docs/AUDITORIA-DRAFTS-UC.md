@@ -11,8 +11,15 @@ Por eso el documento vive en el repositorio y no fuera de él.
 
 ## Resumen
 
-**39 de los 43 ítems del plan de la sección 37 están cerrados**; los otros cuatro son tres parciales (27, 33, 36) y uno pendiente (38), y REF-10
-(ítem 33) está muy avanzado. La suite pasó de 205 a 575 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
+**Los 43 ítems del plan de la sección 37 están cerrados.** La suite pasó de
+205 a 642 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
+
+> Un cierre lleva asterisco y conviene leerlo antes que el recuento: el **ítem
+> 23** está cerrado como código y su `docker build` sigue **sin ejecutarse**,
+> porque la política de red de este entorno deniega la descarga de la imagen
+> base. Se intentó con el comando exacto de CI; lo que sí quedó cubierto es el
+> subconjunto de fallos de build visible sin construir. Los detalles están en
+> «Qué queda» más abajo.
 Ningún cierre se dio por bueno sin verificación: cada corrección se comprobó
 revirtiéndola en aislamiento y confirmando que un test falla, y los refactors
 grandes se verificaron con arneses diferenciales contra el código anterior.
@@ -177,40 +184,22 @@ emitido no se puede retirar.
 
 ## Lo que queda, y por qué
 
-### Necesita hardware que aquí no hay
+### Lo que no se pudo verificar, y por qué
 
-PERF-02 y la parte restante de PERF-04 —batching de inferencia, AMP,
-`cudnn.benchmark`, `channels_last`— tocan la ruta torch-GPU. La máquina donde se
-hizo este trabajo no tiene GPU, así que no se pueden verificar aquí.
+El plan está cerrado, pero tres cosas se entregaron sin la verificación que
+idealmente llevarían. Están aquí y no enterradas en un mensaje de commit.
 
-### Qué queda, a fecha de hoy
-
-**El plan NO está terminado: 39 de 43 ítems cerrados.** Los cinco abiertos se
-reparten en tres grupos que no son intercambiables.
-
-*Bloqueados por falta de hardware (no se pueden ni intentar aquí):*
-
-| # | ítem | por qué |
+| qué | qué se verificó | qué NO |
 |---|---|---|
-| 38 | PERF-02 dedispersión torch vectorizada | `torch.cuda.is_available()` es `False` y no hay `nvidia-smi` en este entorno. Escribir la ruta GPU sin poder ejecutarla es exactamente lo que produjo los dos fallos de CI del 2026-09-17 |
-| 36 | PERF-04, la mitad que falta (batching, AMP, `cudnn.benchmark`) | lo mismo; el GC y las copias de arrays de ese ítem sí están hechos |
+| **PERF-02**, dedispersión torch vectorizada (ítem 38) | que el kernel nuevo y el viejo, forzados los dos a CPU, dan resultados **idénticos bit a bit** sobre cuatro geometrías; que coincide con el kernel numba a ~1e-6; y que el número de lanzamientos sigue al número de *batches* y no al de canales. En CPU es ~2× más rápido | **que sea más rápido en GPU.** `torch.cuda.is_available()` es `False` aquí. Los lanzamientos que elimina son un coste que la CPU no paga, así que la cifra de CPU es una cota inferior, no una estimación |
+| **PERF-04**, inferencia por lotes y AMP (ítem 36) | que ocho parches con `batch_size=4` son dos *forwards* y no ocho; que la fila *i* de la salida es el parche *i*; que un lote irregular cae a uno por uno en vez de apilarse; que los resultados no se mueven; y que la función de banda lo adopta de verdad | lo mismo: que reduzca el tiempo. El lote de uno y la sincronización por candidato son costes de GPU |
+| **Ítem 23**, la imagen de contenedor | que cada `COPY` lee algo que existe, que `.dockerignore` no excluye nada necesario, y que los *pins* del Dockerfile y las versiones que CI afirma dentro del contenedor coinciden con el lockfile | **el `docker build` en sí.** Se intentó con el comando exacto de CI contra un demonio arrancado a propósito: el demonio levantó y el contexto cargó, pero la política de red deniega con 403 `production.cloudfront.docker.com`, la CDN a la que el registro redirige los blobs. Ni `docker build --check` pasa. Es un bloqueo de red, no de código |
 
-*Bloqueados por una decisión del responsable:*
-
-| # | ítem | la decisión |
-|---|---|---|
-| 27 | P2-29/REF-07 `advanced-config/` | `models.yaml` son 177 líneas que `user_config.py` carga y nadie lee. `logging.yaml`, `visualization.yaml` y `performance.yaml` ya están cableados. **Cablear o borrar**: son las dos únicas respuestas honestas, y ninguna es del auditor |
-
-*Trabajo real que sí se puede hacer sin GPU ni decisiones:*
-
-| # | ítem | lo que queda, medido |
-|---|---|---|
-| 33 | REF-10 adoptar los contratos | los bucles calientes están hechos. Lo que queda es `run_pipeline`: **50 lecturas del global sobre 31 claves distintas**, sin tocar. Y el procesador de *slices* LF (`detection_engine.process_slice_with_multiple_bands`, 6 sobre 4). Además `ChunkPlan` se construye y sólo alimenta *logging* |
-| 23 | Dockerfile y CI | el build se **intentó** con el comando exacto de CI contra un demonio arrancado a propósito. El demonio levantó y el contexto cargó; la imagen base no se pudo descargar: la política de red responde 403 a `production.cloudfront.docker.com`, la CDN a la que el registro redirige los blobs. Ni siquiera `docker build --check` pasa, porque también necesita esos metadatos. Queda sin verificar por red, no por código |
-
-Dicho de otro modo: de los cinco abiertos, **uno solo** es trabajo que se puede
-hacer aquí y ahora (el ítem 33), y de ese uno la pieza grande y bien delimitada
-es `run_pipeline`.
+`torch.compile` se dejó **deliberadamente sin poner**, y la razón está en el
+código: cambia un arranque de varios segundos por velocidad por llamada, su
+modo de fallo es una rotura de grafo que cae a *eager* en silencio, y
+justificarlo exige una medición en GPU. Añadirlo a ciegas es como un cambio de
+«rendimiento» acaba convertido en una ralentización que nadie atribuye.
 
 ### Necesita una decisión del responsable del proyecto
 
@@ -223,16 +212,9 @@ es `run_pipeline`.
   pesos) y se borraron las 172 líneas restantes, que describían intenciones y
   no comportamientos. `test_models_yaml.py::test_every_key_in_the_file_is_read`
   impide que el archivo vuelva a crecer claves sin consumidor.
-- **Arrancar Docker** para verificar el build del ítem 23. Intentado
-  (`HEAD`): el demonio arranca aquí, pero la descarga de la imagen base la
-  bloquea la política de red con un 403. El README del proxy dice
-  explícitamente que eso se reporta y no se sortea, así que no se sorteó. Lo
-  que sí se cerró es el subconjunto de fallos de build que no necesita uno:
-  `TestTheBuildWouldFindItsInputs` comprueba que cada `COPY` lee algo que
-  existe, que `.dockerignore` no excluye nada que la imagen necesite, y que los
-  *pins* de torch/torchvision del Dockerfile y las versiones que CI afirma
-  dentro del contenedor coinciden con el lockfile contra el que corren los
-  tests — que es exactamente la deriva que describe el ítem.
+- **Ejecutar el `docker build` en una máquina con acceso al registro.** Aquí
+  lo bloquea la política de red (ver la tabla de arriba). Es lo único del plan
+  que queda literalmente sin correr, y correrlo es un comando.
 
 ### Deuda técnica generada por la propia remediación
 

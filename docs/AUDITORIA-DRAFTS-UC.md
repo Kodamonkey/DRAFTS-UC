@@ -12,7 +12,7 @@ Por eso el documento vive en el repositorio y no fuera de él.
 ## Resumen
 
 **41 de los 43 ítems del plan de la sección 37 están cerrados**, y REF-10
-(ítem 33) está muy avanzado. La suite pasó de 205 a 447 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
+(ítem 33) está muy avanzado. La suite pasó de 205 a 505 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
 Ningún cierre se dio por bueno sin verificación: cada corrección se comprobó
 revirtiéndola en aislamiento y confirmando que un test falla, y los refactors
 grandes se verificaron con arneses diferenciales contra el código anterior.
@@ -307,15 +307,56 @@ haciendo. Dos incrementos hechos (`0cdbcfa`, `4c6475d`):
   de cualquier refactor de esta sesión: los CSV de ambos drivers siguen siendo
   idénticos byte a byte.
 
-**Lo que NO está cubierto por ejecución, y conviene saberlo.** El cuerpo de
-`snr_detect_and_classify_candidates_in_band` está *stubbeado* en todos los tests
-extremo a extremo, así que sus sustituciones se apoyan en tests de paridad del
-contrato y no en haberla ejecutado: mutar dos de sus líneas sigue pasando la
-suite. Tampoco hay ningún test HF con `DOWN_TIME_RATE > 1`, así que el sitio del
-*smearing* está en la misma situación (el equivalente LF sí se cerró, con
-`TestTemporalDownsamplingEndToEnd`). Construir un arnés que ejecute esa función
-—necesita unos diecisiete argumentos, incluido un clasificador— es el siguiente
-paso natural de REF-10.
+**El arnés de la función de banda** (`tests/test_hf_band_function.py`, 58
+tests). Hasta este commit el cuerpo de
+`snr_detect_and_classify_candidates_in_band` no se ejecutaba en ningún test:
+está *stubbeado* en todos los extremo a extremo, así que sus sustituciones se
+apoyaban en tests de paridad del contrato y no en haberla corrido. Ahora se la
+llama directamente, con los argumentos y las formas que le pasa su único
+llamador de producción.
+
+Dos cosas hicieron el arnés barato, y ninguna era evidente:
+
+- **No hace falta un clasificador.** `classify_patch` cae a una sigmoide
+  determinista del SNR cuando el modelo es `None`, así que las fases 3a y 3b se
+  pueden *encender* con `cls_model=None` y aun así producen veredictos, filas y
+  una decisión reales. Ése es el único motivo por el que el camino de escritura
+  del CSV es alcanzable aquí.
+- **El parámetro `snapshot` que añadió `4554d73` es la inyección.** Sin él
+  habría que mover el global por test; con él cada test declara su
+  configuración y el global queda libre para demostrar que ya no se lee.
+
+Lo que el arnés fija y antes no fijaba nadie: la reordenación que pone el pico
+global primero; que el DM sale de la columna del propio candidato (dos ráfagas,
+dos filas de cresta distintas, dos DM distintos); el contrato P1-10 completo
+—con las dos fases apagadas hay candidatos contados, ninguna fila y ningún
+veredicto, y las listas de probabilidad son NaN y no 0.0—; las cuatro ramas de
+la tabla de decisión con verdicts opuestos en la misma llamada; que
+`SAVE_ONLY_BURST` filtra filas sin tocar contadores; los dos umbrales de
+clasificación como ajustes separados; Phase 2 rechazando por los datos y no sólo
+por un umbral absurdo; y que las columnas baricéntricas se rellenan o se
+declaran ausentes, nunca se inventan.
+
+Medida, no supuesta: catorce mutaciones dentro de la función —el umbral desde
+`config` en vez del snapshot, el DM en la columna equivocada, `None` contado
+como NO-BURST, el `if should_save` siempre cierto, NaN convertido en 0.0, los
+umbrales lineales colapsados en los de intensidad, `cls_model` no reenviado a la
+fase 3b, el desplazamiento absoluto del tiempo eliminado— y **las catorce
+mueren**. La última en caer fue `effective_len=slice_len`, que sobrevivió al
+primer intento porque el llamador de producción pasa `slice_len` y
+`slice_samples` iguales: se añadió un test que los pasa distintos, que es la
+única forma de ver si ese parámetro se usa.
+
+Queda sin cerrar: no hay ningún test HF con `DOWN_TIME_RATE > 1`, así que el
+sitio del *smearing* sigue sin cobertura de ejecución (el equivalente LF sí se
+cerró, con `TestTemporalDownsamplingEndToEnd`).
+
+Un hallazgo del arnés, registrado y no corregido: `_dm_from_image_at_time`
+construye su rejilla con `config.DM_min`/`config.DM_max` —el global— mientras la
+rama de cubo plano que tiene al lado usa los del snapshot. En producción son el
+mismo objeto, así que nada lo distingue; el test
+`test_the_measured_dm_still_comes_from_the_global_dm_range` lo deja escrito para
+que falle el día que esa lectura se mueva.
 
 Un hallazgo colateral que vale más que el propio paso: **ningún test extremo a
 extremo usaba `DOWN_TIME_RATE > 1`**, y los que quedaban usaban un solo chunk

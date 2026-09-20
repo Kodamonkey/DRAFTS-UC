@@ -390,18 +390,89 @@ def _d_dm_time_torch_gpu(
     freq_ds_np: np.ndarray,
     dm_values_np: np.ndarray | None = None,
 ) -> np.ndarray:
-    """GPU dedispersion using PyTorch with vectorized channel batching.
+    """GPU dedispersion. Thin wrapper; the kernel below is device-agnostic."""
 
-    Instead of iterating per-channel (for j in range(C)), processes channels
-    in batches of ``chan_batch`` to maximise GPU parallelism while controlling
-    VRAM usage.
+    result = _d_dm_time_torch(
+        data_np, height, width, dm_min, dm_max, freq_ds_np,
+        dm_values_np, device=torch.device("cuda"),
+    )
+    torch.cuda.empty_cache()
+    return result
+
+
+def _torch_dm_chunk_size(
+    *, channels_in_batch: int, width: int, device, height: int
+) -> int:
+    """How many DM rows to hold live at once.
+
+    ``bytes_per_dm`` counts what is actually resident inside the inner loop for
+    one DM row: the gather index (int64), the validity mask (bool) and the
+    gathered values (float32), over ``channels_in_batch`` channels -- not over
+    every channel in the file. Counting all of them, which is what this did,
+    overestimates by the ratio C / chan_batch. At 1024 channels and a batch of
+    32 that is a factor of 32, so the computed chunk collapsed to the hard
+    floor of 16 and the heuristic never actually decided anything (audit
+    PERF-02).
     """
-    device = torch.device('cuda')
+
+    bytes_per_dm = int(channels_in_batch) * int(width) * (8 + 1 + 4)
+    if device.type != "cuda":
+        # No VRAM to budget against. Bound the working set by element count
+        # instead, at roughly the same scale the GPU branch aims for.
+        return max(16, min(256, (64 << 20) // max(1, bytes_per_dm)))
+    free_bytes = torch.cuda.mem_get_info(device.index or 0)[0]
+    return max(16, min(256, int(free_bytes * 0.3 / max(1, bytes_per_dm))))
+
+
+def _d_dm_time_torch(
+    data_np: np.ndarray,
+    height: int,
+    width: int,
+    dm_min: float,
+    dm_max: float,
+    freq_ds_np: np.ndarray,
+    dm_values_np: np.ndarray | None = None,
+    *,
+    device=None,
+) -> np.ndarray:
+    """Dedispersion in torch, vectorised over channels with a single gather.
+
+    PERF-02. The previous shape was a vectorised outer loop wrapped around a
+    *Python* inner loop::
+
+        for bi in range(B):
+            vals[:, bi, :] = ch_data[:, bi][safe_idx[:, bi, :]]
+
+    which is one kernel launch per channel per DM chunk -- O(H/D * C) of them --
+    and it built three full ``(D, B, W)`` tensors to feed it: ``idx`` and
+    ``safe_idx`` (int64, eight bytes each) plus a ``zeros_like`` for the
+    ``torch.where``. Three changes, all in this function:
+
+      * the channel loop is one ``torch.gather`` over a broadcast view. The
+        expanded source costs nothing -- ``expand`` does not copy -- so B
+        launches become one.
+      * ``idx`` is clamped **in place** into the gather index rather than kept
+        alongside a separate ``safe_idx``, and the masking is an in-place
+        multiply by the boolean rather than a ``where`` against a freshly
+        allocated tensor of zeros. Two full tensors per batch stop existing.
+      * the VRAM heuristic counts the channels that are resident, not all of
+        them (see ``_torch_dm_chunk_size``).
+
+    ``device`` is a parameter, which is the other half of the change: the
+    kernel can then be run on CPU and compared against
+    ``_d_dm_time_cpu`` element for element. Without that this function could
+    only be checked by reading it, and it is the one that produces the science.
+    """
+
+    device = torch.device("cuda") if device is None else torch.device(device)
     data_t = torch.from_numpy(data_np).to(device=device, dtype=torch.float32)
     T, C = data_t.shape
     freq_ds = torch.from_numpy(freq_ds_np.astype(np.float32)).to(device)
     if dm_values_np is None:
-        dm_values = torch.linspace(float(dm_min), float(dm_max), steps=height, device=device, dtype=torch.float32)
+        dm_values = torch.linspace(
+            float(dm_min), float(dm_max), steps=height, device=device,
+            dtype=torch.float32,
+        )
     else:
         dm_values = torch.from_numpy(dm_values_np.astype(np.float32)).to(device)
     time_reso = float(config.TIME_RESO * config.DOWN_TIME_RATE)
@@ -413,22 +484,28 @@ def _d_dm_time_torch_gpu(
     mid_channel = C // 2
     base = torch.arange(width, device=device, dtype=torch.int64)
 
-    # Adaptive DM chunk size based on available VRAM
-    vram_free = torch.cuda.mem_get_info(0)[0]
-    # Each DM-chunk of size D×C×W needs ~D*C*W*4 bytes for index/val tensors
-    bytes_per_dm = C * width * 4 * 3  # idx + vals + valid masks
-    dm_chunk = max(16, min(256, int(vram_free * 0.3 / max(1, bytes_per_dm))))
-
-    # Channel batch size: process multiple channels at once
     chan_batch = min(C, 32)
+    dm_chunk = _torch_dm_chunk_size(
+        channels_in_batch=chan_batch, width=width, device=device, height=height,
+    )
+
+    # (B, T) once, outside the loops: gather reads along the last dimension.
+    data_bt = data_t.transpose(0, 1).contiguous()
 
     for start in range(0, height, dm_chunk):
         end = min(start + dm_chunk, height)
         D = end - start
         dms = dm_values[start:end]
 
-        # Compute all delays: (D, C)
-        delays = (K_DM_MS * dms[:, None] * (freq_ds[None, :] ** -2 - freq_ds.max() ** -2) / time_reso)
+        # (D, C). float64 for the rounding, to match the CPU kernel, which
+        # computes its delay in float64 before np.rint.
+        delays = (
+            K_DM_MS
+            * dms[:, None].to(torch.float64)
+            * (freq_ds[None, :].to(torch.float64) ** -2
+               - freq_ds.max().to(torch.float64) ** -2)
+            / time_reso
+        )
         delays = torch.round(delays).to(dtype=torch.int64)
 
         acc = torch.zeros((D, width), device=device, dtype=torch.float32)
@@ -439,40 +516,24 @@ def _d_dm_time_torch_gpu(
             j1 = min(j0 + chan_batch, C)
             B = j1 - j0
 
-            # idx shape: (D, B, width) — gather indices for this channel batch
-            ch_delays = delays[:, j0:j1]  # (D, B)
+            ch_delays = delays[:, j0:j1]                      # (D, B)
             idx = ch_delays[:, :, None] + base[None, None, :]  # (D, B, W)
-            valid = (idx >= 0) & (idx < T)  # (D, B, W)
-            safe_idx = idx.clamp(0, max(T - 1, 0))
+            valid = (idx >= 0) & (idx < T)
+            idx.clamp_(0, max(T - 1, 0))                       # in place
 
-            # Gather channel data for the batch: data_t[:, j0:j1] is (T, B)
-            ch_data = data_t[:, j0:j1]  # (T, B)
-            # Flatten and gather: safe_idx -> (D*B*W,)
-            flat_idx = safe_idx.reshape(-1)
-            # For each channel in the batch, gather independently
-            # ch_data.T is (B, T), we need vals (D, B, W)
-            vals = ch_data.T[:, None, :].expand(B, D, T)  # not memory-efficient
-            # Better approach: use advanced indexing
-            # vals[d, b, w] = ch_data[safe_idx[d, b, w], b]
-            # Reshape for gather: index into T dimension
-            vals = torch.zeros((D, B, width), device=device, dtype=torch.float32)
-            for bi in range(B):
-                ch_ts = ch_data[:, bi]  # (T,)
-                bi_idx = safe_idx[:, bi, :]  # (D, W)
-                vals[:, bi, :] = ch_ts[bi_idx]
+            # expand() is a view: the (D, B, T) source materialises nothing.
+            vals = torch.gather(
+                data_bt[j0:j1].unsqueeze(0).expand(D, B, T), 2, idx
+            )
+            vals.mul_(valid)
 
-            vals = torch.where(valid, vals, torch.zeros_like(vals))
+            acc += vals.sum(dim=1)
+            cnt += valid.sum(dim=1, dtype=torch.int32)
 
-            # Sum over the batch dimension (channels)
-            acc += vals.sum(dim=1)  # (D, W)
-            cnt += valid.to(torch.int32).sum(dim=1)  # (D, W)
-
-            # Check if mid_channel is in this batch
             if j0 <= mid_channel < j1:
-                bi = mid_channel - j0
-                mid_vals = vals[:, bi, :]
+                mid_vals = vals[:, mid_channel - j0, :].clone()
 
-            del idx, valid, safe_idx, vals, ch_data
+            del idx, valid, vals
 
         cnt_f = cnt.to(torch.float32)
         cnt_f = torch.where(cnt_f <= 0, torch.ones_like(cnt_f), cnt_f)
@@ -487,17 +548,11 @@ def _d_dm_time_torch_gpu(
     # float32 array. With copy=False the conversion is a no-op when the dtype
     # already matches and still converts if it ever stops matching, so the
     # float32 guarantee this line exists for is unchanged.
-    #
-    # NOT EXECUTED HERE: this is the torch-GPU route and this machine has no
-    # CUDA device (torch.cuda.is_available() is False), so the claim rests on
-    # numpy's documented astype semantics, which are asserted directly in
-    # tests/test_perf_array_copies.py, and not on having run this function.
     result = torch.stack([out0, out1, out2], dim=0).detach().cpu().numpy().astype(
         np.float32, copy=False
     )
 
-    del data_t, freq_ds, dm_values, out0, out1, out2, base
-    torch.cuda.empty_cache()
+    del data_t, data_bt, freq_ds, dm_values, out0, out1, out2, base
 
     return result
 

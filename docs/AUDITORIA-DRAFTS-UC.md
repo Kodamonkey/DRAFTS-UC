@@ -69,7 +69,7 @@ grandes se verificaron con arneses diferenciales contra el código anterior.
 | 35 | P1-23 `force_plots` | cerrado | `9eb891a` |
 | 36 | PERF-04 GC, batching, `cudnn.benchmark` | **parcial** | `9eb891a` |
 | 37 | PERF-03, PERF-05 copias de arrays | cerrado | `3431292` |
-| 38 | PERF-02 dedispersión torch vectorizada | **pendiente** | — |
+| 38 | PERF-02 dedispersión torch vectorizada | cerrado | `HEAD` |
 | 39 | REF-11, REF-13, REF-16 duplicación | cerrado | `a76ca85`, `4e54d8b` |
 | 40 | REF-04 `create_composite_plot` | cerrado | `d1c3856` |
 | 41 | REF-14, REF-15, REF-18 scripts | cerrado | `6f38a95` |

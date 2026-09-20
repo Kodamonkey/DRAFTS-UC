@@ -146,6 +146,35 @@ def decide_candidate(
     return False, None, "ERROR: No classification available"
 
 
+def dm_for_dedispersion(dm_val: float | None) -> float:
+    """The DM to dedisperse at, given what the band was able to measure.
+
+    A DM the band could not resolve is ``NaN`` (``resolve_candidate_dm`` under
+    the default policy, which is the normal outcome at these frequencies: the
+    sweep is under one sample and SPEC-HF-002 skips the cube entirely). ``NaN``
+    is not a dispersion measure and must not be handed to a dedisperser:
+    ``dedisperse_block`` and ``dedisperse_patch`` both build their per-channel
+    delays with ``(K_DM_MS * dm * ...).round().astype(np.int64)``, and
+    ``NaN.round().astype(np.int64)`` is undefined -- it is where the
+    ``invalid value encountered in cast`` warning in every high-frequency run
+    comes from, and the delays it produces index the block arbitrarily.
+
+    Zero is the honest substitute: no measured dispersion, so no correction
+    applied. The waterfall is shown as it was recorded rather than shifted by a
+    number nobody measured.
+
+    This exists as a function because the per-candidate patch and the
+    whole-block plot each used to decide it for themselves, and only one of them
+    checked. They then dedispersed the same candidate at different DMs -- the
+    patch at 0.0, the figure beside it at NaN.
+    """
+
+    if dm_val is None:
+        return 0.0
+    value = float(dm_val)
+    return value if np.isfinite(value) else 0.0
+
+
 def _dm_from_image_at_time(dm_time_band_img: np.ndarray, time_idx: int) -> float:
     """
     Map a time index to the DM row with the highest intensity.
@@ -1016,7 +1045,7 @@ def snr_detect_and_classify_candidates_in_band(
         conf = float(min(0.99, max(0.05, snr_peak / 10.0)))
 
         global_sample = int(slice_start_idx) + int(peak_idx)
-        dm_for_dedisp = 0.0 if not np.isfinite(float(dm_val)) else float(dm_val)
+        dm_for_dedisp = dm_for_dedispersion(dm_val)
         
         # =====================================================================
         # PHASE 3a: ResNet Classification on INTENSITY (conditional)
@@ -1539,8 +1568,13 @@ def process_slice_with_multiple_bands_high_freq(
             should_generate_plots = (n_bursts > 0) or config.FORCE_PLOTS
 
         if should_generate_plots:
-            dm_to_use = result["first_dm"] if result["first_dm"] is not None else 0.0
-            
+            # ``first_dm`` is NaN whenever the band could not resolve a DM,
+            # which at these frequencies is every candidate. Guarding only
+            # against None let that NaN through to all three dedispersions
+            # below; the same rule the per-candidate patch uses is applied here
+            # so the figure and the patch show the same candidate.
+            dm_to_use = dm_for_dedispersion(result["first_dm"])
+
             # Dedisperse ALL three polarizations if available
             dedisp_block_intensity = dedisperse_block(block, freq_down, dm_to_use, start_idx, end_idx - start_idx)
             dedisp_block_linear = None

@@ -311,6 +311,26 @@ def _spy_on_chunks(monkeypatch) -> list[dict]:
     return chunks
 
 
+def _spy_on_dedispersed_blocks(monkeypatch) -> list[float]:
+    """Record every DM the slice processor dedisperses a whole block at.
+
+    Patched on ``high_freq_pipeline``, which imports the name at module level,
+    so this is the binding the plotting branch resolves. The per-candidate
+    patches go through ``dedisperse_patch`` instead and are not touched.
+    """
+    from src.core import high_freq_pipeline as hfp
+
+    real = hfp.dedisperse_block
+    seen: list[float] = []
+
+    def _recording(data, freq_down, dm, start, length, *args, **kwargs):
+        seen.append(float(dm))
+        return real(data, freq_down, dm, start, length, *args, **kwargs)
+
+    monkeypatch.setattr(hfp, "dedisperse_block", _recording)
+    return seen
+
+
 def _read_rows(save_dir: Path, stem: str) -> list[dict]:
     from src.output.candidate_manager import CandidateWriter
 
@@ -352,6 +372,7 @@ def _run_at(rate: int, tmp_root: Path) -> dict:
 
         slices = _spy_on_slices(monkeypatch)
         chunks = _spy_on_chunks(monkeypatch)
+        dedispersion_dms = _spy_on_dedispersed_blocks(monkeypatch)
 
         use_hf, reason = select_pipeline_path()
         result = _process_file_chunked(None, None, fits_path, save_dir, CHUNK_SAMPLES)
@@ -367,6 +388,7 @@ def _run_at(rate: int, tmp_root: Path) -> dict:
         "rows": rows,
         "slices": slices,
         "chunks": chunks,
+        "dedispersion_dms": dedispersion_dms,
     }
 
 
@@ -632,6 +654,50 @@ class TestTheBurstKeepsItsAbsoluteTime:
 # --------------------------------------------------------------------------- #
 # the multi-polarisation decimator, which only this driver has
 # --------------------------------------------------------------------------- #
+class TestTheDMHandedToTheDedisperser:
+    """At high frequency SPEC-HF-002 skips the DM-time cube, so
+    ``resolve_candidate_dm`` reports the DM as NaN and ``first_dm`` carries that
+    NaN out of the band function. The plotting branch then dedisperses the whole
+    block at it.
+
+    ``dedisperse_block`` turns a DM into per-channel delays with
+    ``(... * dm ...).round().astype(np.int64)``, and ``NaN.round().astype(int64)``
+    is undefined -- it is where the ``invalid value encountered in cast`` and
+    ``overflow encountered in scalar subtract`` warnings in every
+    high-frequency run come from. The block that reached the figure was built
+    from those delays.
+    """
+
+    @pytest.mark.parametrize("rate", RATES)
+    def test_no_non_finite_dm_reaches_the_dedisperser(self, runs, rate):
+        import math
+
+        dms = runs[rate]["dedispersion_dms"]
+        assert dms, (
+            f"rate {rate}: no block was dedispersed, so this proves nothing. "
+            "The plotting branch is where it happens; check save_all_plots is "
+            "still reached"
+        )
+        bad = [dm for dm in dms if not math.isfinite(dm)]
+        assert not bad, (
+            f"rate {rate}: {len(bad)} of {len(dms)} block dedispersions were "
+            "asked for a non-finite DM"
+        )
+
+    @pytest.mark.parametrize("rate", RATES)
+    def test_an_unresolved_dm_dedisperses_at_zero(self, runs, rate):
+        """Zero is the honest answer, and it is the one the per-candidate patch
+        already used: ``dm_for_dedisp = 0.0 if not isfinite(dm_val)``. The two
+        sites disagreeing is how the plot and the patch ended up showing
+        different things for the same candidate."""
+        run = runs[rate]
+        assert all(row["dm_status"] == "unresolved_high_freq" for row in run["rows"]), (
+            "this band is supposed to leave every DM unresolved; if it no "
+            "longer does, the assertion below is testing something else"
+        )
+        assert set(run["dedispersion_dms"]) == {0.0}
+
+
 class TestMultiPolarisationDecimation:
     """``_process_file_chunked_high_freq`` decimates the RAW (time, npol, chan)
     array with its own hand-written reshape instead of calling the shared

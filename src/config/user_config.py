@@ -170,8 +170,22 @@ DM_CHUNKING_THRESHOLD_GB_USER = float(_performance_config.get('dm_chunking_thres
 _memory_config = _performance_advanced.get('memory', {})
 MEMORY_OVERHEAD_FACTOR_USER = float(_memory_config.get('overhead_factor', 1.3))
 
-# Settings kept for Phase 2/3 implementation
 _gpu_config = _performance_advanced.get('gpu', {})
+
+# These two were the ones audit PERF-04 names: declared here, loaded into a
+# dictionary, and read by nothing. An operator who set enable_mixed_precision
+# or raised batch_size was changing a comment. They drive
+# ``detection.model_interface`` now.
+INFERENCE_BATCH_SIZE = max(1, int(_gpu_config.get('batch_size', 4)))
+ENABLE_MIXED_PRECISION = bool(_gpu_config.get('enable_mixed_precision', False))
+GPU_MEMORY_MANAGEMENT = bool(_gpu_config.get('enable_memory_management', True))
+# cudnn.benchmark picks the fastest convolution algorithm for a given input
+# shape by trying them once and caching the winner. It is a clear win when the
+# shapes repeat, which they do here -- every patch is the same size -- and a
+# loss when they vary, because every new shape pays the search. Defaulted on
+# for that reason, and overridable because "the shapes repeat" is a property of
+# the data, not a law.
+CUDNN_BENCHMARK = bool(_gpu_config.get('cudnn_benchmark', True))
 
 _io_config = _performance_advanced.get('io', {})
 

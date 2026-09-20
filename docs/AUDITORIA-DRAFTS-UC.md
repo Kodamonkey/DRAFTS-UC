@@ -30,7 +30,7 @@ grandes se verificaron con arneses diferenciales contra el código anterior.
 | 2 — Fiabilidad | 15-21 | completa |
 | 3 — Infraestructura | 22-28 | completa |
 | 4 — Arquitectura | 29-34 | completa |
-| 5 — Performance | 35-38 | 2 de 4 (36 parcial, 38 pendiente) |
+| 5 — Performance | 35-38 | completa |
 | 6 — Mantenibilidad | 39-43 | completa |
 
 ## Ítem por ítem
@@ -67,7 +67,7 @@ grandes se verificaron con arneses diferenciales contra el código anterior.
 | 33 | REF-10 adoptar los contratos | cerrado | `0cdbcfa`, `4c6475d`, `ec8757c`, `4554d73`, `HEAD` |
 | 34 | REF-03 separar los lectores de `stream_fits` | cerrado | `f8ef15a` |
 | 35 | P1-23 `force_plots` | cerrado | `9eb891a` |
-| 36 | PERF-04 GC, batching, `cudnn.benchmark` | **parcial** | `9eb891a` |
+| 36 | PERF-04 GC, batching, `cudnn.benchmark` | cerrado | `9eb891a`, `HEAD` |
 | 37 | PERF-03, PERF-05 copias de arrays | cerrado | `3431292` |
 | 38 | PERF-02 dedispersión torch vectorizada | cerrado | `HEAD` |
 | 39 | REF-11, REF-13, REF-16 duplicación | cerrado | `a76ca85`, `4e54d8b` |

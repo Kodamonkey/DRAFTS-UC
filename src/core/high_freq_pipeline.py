@@ -26,7 +26,10 @@ from ..output.candidate_manager import (
 from ..output.phase_metrics import PhaseMetricsTracker
 from ..preprocessing.dedispersion import dedisperse_block, dedisperse_patch
 from ..visualization.visualization_unified import preprocess_img, postprocess_img
-from .candidate_finalization import finalize_patch as _finalize_patch
+from .candidate_finalization import (
+    finalize_patch as _finalize_patch,
+    finalize_patches as _finalize_patches,
+)
 from .contracts import DMGrid, ObservationMetadata, PipelineConfigSnapshot
 from .file_driver import (
     ChunkLoopState,
@@ -463,6 +466,57 @@ def classify_intensity_patch(
         snr_val=snr_from_patch if snr_from_patch > 0.0 else float(snr_peak),
         width_ms=width_ms,
     )
+
+
+def classify_intensity_patches(
+    *,
+    enabled: bool,
+    cls_model,
+    data_block: np.ndarray,
+    freq_down: np.ndarray,
+    candidates,
+    time_reso_ds: float,
+    class_prob_threshold: float,
+) -> list[IntensityVerdict]:
+    """Phase 3a for every candidate in a slice, with ONE batched inference.
+
+    *candidates* is an iterable of ``(dm_for_dedisp, global_sample, snr_peak)``.
+    Returns one verdict per candidate, in order, each identical to what
+    ``classify_intensity_patch`` would have returned for it.
+
+    Audit PERF-04: the per-candidate call classified a batch of one and read
+    its probability back with ``.item()``, a device synchronisation, once per
+    candidate. A slice with twenty peaks therefore stalled the device twenty
+    times. Here the whole slice goes through ``finalize_patches``, which
+    dedisperses per candidate -- there is nothing to batch in that -- and then
+    classifies the lot in groups of ``config.INFERENCE_BATCH_SIZE``.
+    """
+
+    candidates = list(candidates)
+    if not enabled:
+        return [
+            IntensityVerdict(proc_patch=None, class_prob=None, is_burst=None,
+                             snr_val=float(snr_peak), width_ms=None)
+            for _, _, snr_peak in candidates
+        ]
+
+    finalized = _finalize_patches(
+        [(data_block, freq_down, dm, sample) for dm, sample, _ in candidates],
+        cls_model,
+        time_reso_ds,
+    )
+    verdicts = []
+    for (_, _, snr_peak), (proc_patch, class_prob, snr_from_patch, _idx, width_ms, _start) in zip(
+        candidates, finalized
+    ):
+        verdicts.append(IntensityVerdict(
+            proc_patch=proc_patch,
+            class_prob=class_prob,
+            is_burst=class_prob >= float(class_prob_threshold),
+            snr_val=snr_from_patch if snr_from_patch > 0.0 else float(snr_peak),
+            width_ms=width_ms,
+        ))
+    return verdicts
 
 
 def classify_linear_patch(
@@ -998,6 +1052,12 @@ def snr_detect_and_classify_candidates_in_band(
             logger.debug(f"Could not calculate Linear waterfall SNR: {e}")
             snr_waterfall_linear = None
     
+    # PERF-04, first pass: locate every peak and measure its DM. None of this
+    # depends on the classifier, and doing it for the whole slice first is what
+    # lets Phase 3a run as ONE batch instead of one inference per candidate.
+    # The cost is that the [DM_CALC] log lines for a slice now appear together
+    # rather than interleaved with the per-candidate lines that follow.
+    prepared_candidates = []
     for peak_idx in peaks:
         # Create a box centred on the temporal peak (detected by boxcar matching).
         # The box spans the FULL DM range (DM_min to DM_max) so the DM measured
@@ -1046,24 +1106,52 @@ def snr_detect_and_classify_candidates_in_band(
 
         global_sample = int(slice_start_idx) + int(peak_idx)
         dm_for_dedisp = dm_for_dedispersion(dm_val)
-        
-        # =====================================================================
-        # PHASE 3a: ResNet Classification on INTENSITY (conditional)
-        # =====================================================================
-        # None means "Phase 3a produced no verdict for this candidate", which is
-        # what the CSV and the decision table must both see (audit P1-10); see
-        # classify_intensity_patch.
-        intensity = classify_intensity_patch(
-            enabled=enable_intensity_class,
-            cls_model=cls_model,
-            data_block=data_block,
-            freq_down=freq_down,
-            dm_for_dedisp=dm_for_dedisp,
-            global_sample=global_sample,
-            time_reso_ds=time_reso_ds,
-            snr_peak=snr_peak,
-            class_prob_threshold=snap.class_prob,
-        )
+
+        prepared_candidates.append({
+            "peak_idx": peak_idx, "cx": cx, "box": box,
+            "t_sample_real": t_sample_real, "t_sec_real": t_sec_real,
+            "dm_val": dm_val, "dm_status": dm_status,
+            "dm_uncertainty": dm_uncertainty, "snr_peak": snr_peak,
+            "conf": conf, "global_sample": global_sample,
+            "dm_for_dedisp": dm_for_dedisp,
+        })
+
+    # =========================================================================
+    # PHASE 3a: ResNet Classification on INTENSITY (conditional)
+    # =========================================================================
+    # One batched inference for the whole slice. ``None`` means "Phase 3a
+    # produced no verdict for this candidate", which is what the CSV and the
+    # decision table must both see (audit P1-10); see classify_intensity_patch.
+    intensity_verdicts = classify_intensity_patches(
+        enabled=enable_intensity_class,
+        cls_model=cls_model,
+        data_block=data_block,
+        freq_down=freq_down,
+        candidates=[
+            (c["dm_for_dedisp"], c["global_sample"], c["snr_peak"])
+            for c in prepared_candidates
+        ],
+        time_reso_ds=time_reso_ds,
+        class_prob_threshold=snap.class_prob,
+    )
+
+    # PERF-04, second pass: the verdicts are in hand, so this loop decides,
+    # counts and writes. It is the loop that was here before, reading its
+    # geometry from the first pass instead of computing it inline.
+    for prepared, intensity in zip(prepared_candidates, intensity_verdicts):
+        peak_idx = prepared["peak_idx"]
+        cx = prepared["cx"]
+        box = prepared["box"]
+        t_sample_real = prepared["t_sample_real"]
+        t_sec_real = prepared["t_sec_real"]
+        dm_val = prepared["dm_val"]
+        dm_status = prepared["dm_status"]
+        dm_uncertainty = prepared["dm_uncertainty"]
+        snr_peak = prepared["snr_peak"]
+        conf = prepared["conf"]
+        global_sample = prepared["global_sample"]
+        dm_for_dedisp = prepared["dm_for_dedisp"]
+
         class_prob_intensity = intensity.class_prob
         is_burst_intensity = intensity.is_burst
         snr_val_intensity = intensity.snr_val

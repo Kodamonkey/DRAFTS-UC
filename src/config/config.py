@@ -93,6 +93,10 @@ try:
         MAX_DM_CUBE_SIZE_GB,
         DM_CHUNKING_THRESHOLD_GB_USER,
         MEMORY_OVERHEAD_FACTOR_USER,
+        INFERENCE_BATCH_SIZE,
+        ENABLE_MIXED_PRECISION,
+        GPU_MEMORY_MANAGEMENT,
+        CUDNN_BENCHMARK,
     )
 except ImportError:
     try:
@@ -160,6 +164,10 @@ except ImportError:
             MAX_DM_CUBE_SIZE_GB,
             DM_CHUNKING_THRESHOLD_GB_USER,
             MEMORY_OVERHEAD_FACTOR_USER,
+            INFERENCE_BATCH_SIZE,
+            ENABLE_MIXED_PRECISION,
+            GPU_MEMORY_MANAGEMENT,
+            CUDNN_BENCHMARK,
         )
     except ImportError as e:
         raise ImportError(

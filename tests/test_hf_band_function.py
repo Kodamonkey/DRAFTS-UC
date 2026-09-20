@@ -201,17 +201,31 @@ class _ScriptedModel:
 
 
 def _install_scripted(monkeypatch, model: _ScriptedModel) -> None:
+    def _proc(patch):
+        return (np.zeros((4, 4), dtype=np.float32) if patch is None
+                else np.asarray(patch, dtype=np.float32))
+
     def _fake_classify(passed_model, patch):
         assert passed_model is model, "cls_model did not reach classify_patch"
-        proc = np.zeros((4, 4), dtype=np.float32) if patch is None else np.asarray(
-            patch, dtype=np.float32
-        )
-        return model.next_prob(), proc
+        return model.next_prob(), _proc(patch)
 
-    # Phase 3a reaches classify_patch through candidate_finalization; Phase 3b
-    # calls the name high_freq_pipeline imported. Both are seams of the same
-    # function and both must be replaced or the two phases disagree.
+    def _fake_classify_batch(passed_model, patches):
+        assert passed_model is model, "cls_model did not reach classify_patches"
+        return [(model.next_prob(), _proc(p)) for p in patches]
+
+    # Three seams, because the two phases reach the classifier by different
+    # routes. Phase 3a goes through candidate_finalization, which since the
+    # PERF-04 batching calls ``classify_patches`` for a whole slice at once;
+    # ``classify_patch`` is still patched there because the single-patch entry
+    # point remains and other callers use it. Phase 3b calls the name
+    # high_freq_pipeline imported, one patch at a time.
+    #
+    # Call ORDER changed with the batching and the scripts here depend on it:
+    # Phase 3a now runs for every candidate before Phase 3b runs for any, where
+    # it used to alternate 3a/3b per candidate. The scripts below are written
+    # for the current order.
     monkeypatch.setattr(candidate_finalization, "classify_patch", _fake_classify)
+    monkeypatch.setattr(candidate_finalization, "classify_patches", _fake_classify_batch)
     monkeypatch.setattr(hfp, "classify_patch", _fake_classify)
 
 
@@ -488,7 +502,8 @@ class TestDecisionTable:
         assert [row["is_burst"] for row in rows] == ["burst"]
 
     def test_permissive_keeps_a_candidate_either_phase_calls_a_burst(self, band, monkeypatch):
-        # Order is 3a, 3b per candidate: candidate 0 is I-burst/L-no,
+        # Order is every candidate's 3a, then every candidate's 3b (the
+        # PERF-04 batching): I0, I1, L0, L1. So candidate 0 is I-burst/L-no and
         # candidate 1 is I-no/L-burst. Neither agrees with itself.
         model = _ScriptedModel([0.9, 0.1, 0.1, 0.9])
         _install_scripted(monkeypatch, model)
@@ -513,7 +528,9 @@ class TestDecisionTable:
         assert rows == []
 
     def test_strict_keeps_the_candidate_both_phases_agree_on(self, band, monkeypatch):
-        model = _ScriptedModel([0.9, 0.9, 0.1, 0.1])
+        # I0, I1, L0, L1: candidate 0 is a burst in both phases, candidate 1 in
+        # neither. Written [0.9, 0.9, 0.1, 0.1] for the old alternating order.
+        model = _ScriptedModel([0.9, 0.1, 0.9, 0.1])
         _install_scripted(monkeypatch, model)
         result, rows = band(cls_model=model,
                             snapshot=_snapshot(ENABLE_INTENSITY_CLASSIFICATION=True,

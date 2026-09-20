@@ -943,6 +943,17 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
     save_dir = config.RESULTS_DIR
     save_dir.mkdir(parents=True, exist_ok=True)
 
+    # PERF-04. Applied once, before the models load, so cudnn.benchmark is set
+    # before the first convolution runs its algorithm search.
+    from ..detection.model_interface import configure_inference_backend
+
+    backend = configure_inference_backend()
+    logger.logger.info(
+        "Inference backend • device=%s • batch_size=%d • mixed_precision=%s • cudnn.benchmark=%s",
+        backend["device"], backend["batch_size"],
+        backend["mixed_precision"], backend["cudnn_benchmark"],
+    )
+
     logger.logger.info("Loading models...")
     det_model = _load_detection_model()
     cls_model = _load_class_model()

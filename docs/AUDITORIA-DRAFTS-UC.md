@@ -12,7 +12,7 @@ Por eso el documento vive en el repositorio y no fuera de él.
 ## Resumen
 
 **41 de los 43 ítems del plan de la sección 37 están cerrados**, y REF-10
-(ítem 33) está muy avanzado. La suite pasó de 205 a 505 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
+(ítem 33) está muy avanzado. La suite pasó de 205 a 569 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
 Ningún cierre se dio por bueno sin verificación: cada corrección se comprobó
 revirtiéndola en aislamiento y confirmando que un test falla, y los refactors
 grandes se verificaron con arneses diferenciales contra el código anterior.
@@ -347,9 +347,76 @@ primer intento porque el llamador de producción pasa `slice_len` y
 `slice_samples` iguales: se añadió un test que los pasa distintos, que es la
 única forma de ver si ese parámetro se usa.
 
-Queda sin cerrar: no hay ningún test HF con `DOWN_TIME_RATE > 1`, así que el
-sitio del *smearing* sigue sin cobertura de ejecución (el equivalente LF sí se
-cerró, con `TestTemporalDownsamplingEndToEnd`).
+**El test HF con `DOWN_TIME_RATE > 1`** (`tests/test_hf_downsampling_e2e.py`,
+64 tests). Era el último hueco de esta lista. El driver HF tiene aritmética que
+el LF no tiene, y es justo la que a tasa 1 no se puede observar:
+
+    chunk_start_time_sec = metadata["start_sample"] * obs_meta.time_reso
+    absolute_start_time  = chunk_start_time_sec + start_idx * dt_ds
+
+`start_sample` cuenta muestras **crudas** (lo construye `chunk_metadata` desde
+el *span*, sin tocar la diezmación), así que el primer término necesita la
+resolución cruda; `start_idx` indexa el bloque **diezmado**, así que el segundo
+necesita la efectiva. Dos resoluciones distintas en la misma suma, y a tasa 1
+son el mismo número.
+
+El módulo corre el driver real de punta a punta a tasas 1, 2 y 4 sobre un
+PSRFITS de 350 GHz con una ráfaga en t = 6,0 s, con el procesador de *slices*
+real (nada *stubbeado* salvo `save_all_plots`), e instrumenta el driver con un
+espía que **delega en la función real**, de modo que se puede afirmar sobre
+`time_reso_ds` y `absolute_start_time` directamente y no sólo a través del CSV.
+
+Medido, no supuesto: dieciséis mutaciones en los sitios sensibles a la tasa
+—las dos resoluciones intercambiadas, `dt_ds` sin el factor, el solape
+convertido con `floor` en vez de `ceil`, el planificador de *slices* con la
+resolución cruda, el decimador multipolarización promediando donde suma, el
+bloque crudo sin recortar, el mínimo de chunk sin escalar, el umbral de
+despacho sin el factor, SPEC-HF-002 midiendo contra la resolución cruda— y
+**las dieciséis mueren**.
+
+Tres cosas que el trabajo destapó:
+
+- **Dos longitudes de *slice* conviven.** `calculate_slice_len_from_duration`
+  devuelve 612 (el suelo del parche de 512 + 100 de margen) a las tres tasas, y
+  ese número baja hasta `process_slice_with_multiple_bands_high_freq`... donde
+  `plan_slices` lo **descarta**, porque `USE_PLANNED_CHUNKING` está activo por
+  defecto y el planificador corta por `SLICE_DURATION_MS` (512, 256 y 128
+  muestras diezmadas). El número que se calcula nunca es el que decide. Queda
+  fijado en un test que falla el día que se reconcilien.
+- **Una fuga de configuración entre módulos de test**, que es lo que hizo fallar
+  la suite completa mientras el módulo pasaba aislado. `MAX_CHUNK_SAMPLES` y
+  `SLICE_DURATION_MS` los asignan directamente los módulos extremo a extremo y
+  `conftest` no los restauraba; `calculate_memory_safe_chunk_size` recorta el
+  chunk a bloques enteros de `SLICE_LEN * DOWN_TIME_RATE` de ese límite, así que
+  un 4000 olvidado convertía un chunk pedido de 4096 en `(4000 // 612) * 612 =
+  3672` y re-teselaba el archivo entero. Añadidas ambas claves a
+  `_CONFIG_SNAPSHOT_KEYS`. Comprobado por aislamiento: sin ese cambio y sin el
+  anclaje propio del módulo, 13 fallos; con el cambio de `conftest` solo, 72
+  pasan.
+- **Las ventanas de "HF con cubo" son disjuntas por tasa.** El despacho manda a
+  HF cuando el barrido es < 2 muestras efectivas y SPEC-HF-002 construye el cubo
+  cuando es ≥ 1, así que la ventana es `[1, 2)` medida *a la tasa del run*: un
+  archivo que construye el cubo a tasa 1 nunca lo construye a tasa 2. Eso no es
+  un defecto, pero sí un cambio de rama que la diezmación provoca sola, y ahora
+  está fijado con una banda de 10 GHz donde ocurre (1,35 muestras a tasa 1 y
+  0,67 a tasa 2).
+
+Dos hallazgos **registrados y no corregidos**, porque son de otro tema:
+
+- `process_slice_with_multiple_bands_high_freq` hace
+  `dm_to_use = result["first_dm"] if result["first_dm"] is not None else 0.0`,
+  que no protege contra NaN — y a alta frecuencia el DM es NaN *siempre*, por
+  SPEC-HF-002. `dedisperse_block` recibe entonces NaN y calcula sus retardos con
+  `NaN.round().astype(np.int64)`, lo que produce los avisos
+  `invalid value encountered in cast` y `overflow encountered in scalar
+  subtract` que se ven en cualquier run HF. El bloque dedispersado que va al
+  gráfico es basura. Una línea de guarda lo arregla; no es este commit.
+- Los dos decimadores (el compartido `downsample_data` y el *reshape* propio del
+  driver HF) coinciden exactamente en el modo por defecto `sum`, y **divergen**
+  bajo `TEMPORAL_DOWNSAMPLING_MODE` en `phase_preserving`/`snr_preserving`: el
+  bloque de intensidad toma un máximo sobre desfases de sub-bin que el bloque
+  crudo no toma. A tasa 1 coinciden igualmente, así que nada lo ve. El test fija
+  la coincidencia en el modo por defecto y deja dicho de qué depende.
 
 Un hallazgo del arnés, registrado y no corregido: `_dm_from_image_at_time`
 construye su rejilla con `config.DM_min`/`config.DM_max` —el global— mientras la

@@ -20,6 +20,13 @@ _CONFIG_SNAPSHOT_KEYS = [
     "PREWHITEN_BEFORE_DM", "TEMPORAL_DOWNSAMPLING_MODE", "DETECTION_WIDTHS_MS",
     "BOWTIE_COLLAPSE_RATIO", "AUTO_HIGH_FREQ_PIPELINE", "DATA_NEEDS_REVERSAL",
     "DM_CHUNKING_THRESHOLD_GB", "MAX_DM_CUBE_SIZE_GB", "SLICE_LEN",
+    # Both decide chunk geometry, both are assigned directly by end-to-end
+    # modules, and neither was restored: `calculate_memory_safe_chunk_size`
+    # clamps the chunk to `(MAX_CHUNK_SAMPLES // (SLICE_LEN * DOWN_TIME_RATE))`
+    # blocks, so a value left behind by an earlier module silently retiles a
+    # later one's file -- 4096-sample chunks arriving as 3672, every
+    # `start_sample` moved and every absolute time with it.
+    "MAX_CHUNK_SAMPLES", "SLICE_DURATION_MS",
     "TSTART_MJD", "TSTART_MJD_CORR",
     "SOURCE_RA", "SOURCE_DEC", "REF_FREQ_MHZ", "OBSERVATORY", "EPHEMERIS",
     # Created by get_obparams from a PSRFITS header; absent until it runs.

@@ -28,7 +28,7 @@ grandes se verificaron con arneses diferenciales contra el código anterior.
 | 0 — P0 bloqueantes | 1-5 | completa |
 | 1 — Correctness | 6-14 | completa |
 | 2 — Fiabilidad | 15-21 | completa |
-| 3 — Infraestructura | 22-28 | 6 de 7 (27 parcial) |
+| 3 — Infraestructura | 22-28 | completa |
 | 4 — Arquitectura | 29-34 | completa |
 | 5 — Performance | 35-38 | 2 de 4 (36 parcial, 38 pendiente) |
 | 6 — Mantenibilidad | 39-43 | completa |
@@ -58,7 +58,7 @@ grandes se verificaron con arneses diferenciales contra el código anterior.
 | 24 | P2-32, P2-33 rotación y persistencia de logs | cerrado | `14c721d` |
 | 25 | P2-34…P2-36 CI | cerrado | `14c721d` |
 | 26 | REF-19, REF-20 código muerto y `src/logging` | cerrado | `780c492` |
-| 27 | P2-29, REF-07 `advanced-config/` | **parcial** | `9eb891a` |
+| 27 | P2-29, REF-07 `advanced-config/` | cerrado | `9eb891a`, `HEAD` |
 | 28 | P2-28 coherencia de `config.yaml` | cerrado | `14c721d` |
 | 29 | REF-01 driver de archivo unificado | cerrado | `4e54d8b` |
 | 30 | REF-02 subir el dispatch LF/HF | cerrado | `dd41c43` |
@@ -217,9 +217,12 @@ es `run_pipeline`.
 - **Reprocesar los catálogos existentes.** P0-1 invalidó todos los DM y tiempos
   de llegada del pipeline LF; P1-02 los de PSRFITS. Esta es la consecuencia
   práctica de toda la auditoría.
-- **`advanced-config/models.yaml`**: 177 líneas que se cargan y nadie lee
-  (ítem 27). `visualization.yaml` y `logging.yaml` ya están cableados. Cablear o
-  borrar.
+- ~~**`advanced-config/models.yaml`**~~: **resuelto** (ítem 27 cerrado). La
+  decisión se tomó clave por clave en vez de en bloque: se cablearon las cinco
+  que un run puede honrar (los dos nombres de backbone y las tres rutas de
+  pesos) y se borraron las 172 líneas restantes, que describían intenciones y
+  no comportamientos. `test_models_yaml.py::test_every_key_in_the_file_is_read`
+  impide que el archivo vuelva a crecer claves sin consumidor.
 - **Arrancar Docker** para verificar el build del ítem 23.
 
 ### Deuda técnica generada por la propia remediación

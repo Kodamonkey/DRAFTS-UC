@@ -58,6 +58,11 @@ try:
         DET_PROB,
         CLASS_PROB,
         CLASS_PROB_LINEAR,
+        MODEL_NAME,
+        MODEL_PATH,
+        MODEL_DIR,
+        CLASS_MODEL_NAME,
+        CLASS_MODEL_PATH,
         FORCE_PLOTS,
         FRB_TARGETS,
         RESULTS_DIR,
@@ -120,6 +125,11 @@ except ImportError:
             DET_PROB,
             CLASS_PROB,
             CLASS_PROB_LINEAR,
+            MODEL_NAME,
+            MODEL_PATH,
+            MODEL_DIR,
+            CLASS_MODEL_NAME,
+            CLASS_MODEL_PATH,
             FORCE_PLOTS,
             FRB_TARGETS,
             RESULTS_DIR,
@@ -162,11 +172,11 @@ except ImportError:
 # MODEL CONFIGURATION
 # ==============================================================================
               
-MODEL_NAME = "resnet18"                                                           
-MODEL_PATH = Path(__file__).parent.parent / "models" / f"cent_{MODEL_NAME}.pth"                            
-                                
-CLASS_MODEL_NAME = "resnet18"                                                         
-CLASS_MODEL_PATH = Path(__file__).parent.parent / "models" / f"class_{CLASS_MODEL_NAME}.pth"                  
+# The four names below now come from advanced-config/models.yaml via
+# user_config (audit P2-29, REF-07). They used to be literals here while the
+# YAML describing them was loaded and ignored, so an operator who pointed the
+# file at different weights was pointing at nothing. Imported rather than
+# redefined -- see the import block at the top of this module.
                    
 # Device configuration (GPU/CPU/MPS)
 if torch is not None:

@@ -225,3 +225,58 @@ LOG_FILE = str(_logging_general.get('log_file')) if _enable_file_logging and _lo
 LOG_MAX_BYTES = int(float(_logging_general.get('max_file_size_mb', 50)) * 1024 * 1024)
 LOG_BACKUP_COUNT = int(_logging_general.get('backup_count', 5))
 
+# =============================================================================
+# MODELS (from advanced-config/models.yaml)
+# =============================================================================
+# The file was loaded and never read: 177 lines of architecture, inference and
+# validation settings that nothing consumed (audit P2-29, REF-07). It has been
+# cut down to the keys a run can actually honour -- which weights to load and
+# under what backbone name -- and those keys are read here.
+#
+# The defaults are the literals config.py carried, so an installation without
+# the file, or with the keys removed, behaves exactly as before.
+def resolve_model_settings(models_advanced: dict, src_dir: Path) -> dict:
+    """Turn the ``models.yaml`` mapping into the five values config.py exports.
+
+    A function rather than inline statements so it can be tested with a
+    configuration other than the installed one -- which is the only way to show
+    that the file is read at all. The literals config.py used to carry are the
+    defaults, so an installation without the file behaves exactly as before.
+
+    *src_dir* is the ``src/`` package directory, which is what ``model_dir`` is
+    relative to.
+    """
+    models_advanced = models_advanced or {}
+    arch = models_advanced.get('architecture') or {}
+    paths = models_advanced.get('paths') or {}
+
+    detection_name = str((arch.get('detection') or {}).get('name') or 'resnet18')
+    classification_name = str(
+        (arch.get('classification') or {}).get('name') or 'resnet18'
+    )
+    model_dir = (Path(src_dir) / str(paths.get('model_dir') or 'models')).resolve()
+
+    # An absent or empty file name falls back to the conventional one, which is
+    # what config.py built unconditionally.
+    detection_file = paths.get('detection_model') or f"cent_{detection_name}.pth"
+    classification_file = (
+        paths.get('classification_model') or f"class_{classification_name}.pth"
+    )
+    return {
+        'MODEL_NAME': detection_name,
+        'CLASS_MODEL_NAME': classification_name,
+        'MODEL_DIR': model_dir,
+        'MODEL_PATH': model_dir / str(detection_file),
+        'CLASS_MODEL_PATH': model_dir / str(classification_file),
+    }
+
+
+_model_settings = resolve_model_settings(
+    _config.get('models_advanced', {}), Path(__file__).parent.parent
+)
+MODEL_NAME = _model_settings['MODEL_NAME']
+CLASS_MODEL_NAME = _model_settings['CLASS_MODEL_NAME']
+MODEL_DIR = _model_settings['MODEL_DIR']
+MODEL_PATH = _model_settings['MODEL_PATH']
+CLASS_MODEL_PATH = _model_settings['CLASS_MODEL_PATH']
+

@@ -287,7 +287,7 @@ class TestSnrPreDedispersionComesFromTheWaterfall:
         )
         CandidateWriter.flush_all()
 
-        with csv_file.open(newline="") as fh:
+        with csv_file.open(newline="", encoding="utf-8") as fh:
             rows = list(csv.DictReader(fh))
         assert len(rows) == 1
         snr_pre = float(rows[0]["snr_pre_dedisp"])

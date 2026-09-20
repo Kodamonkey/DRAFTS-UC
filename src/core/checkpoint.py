@@ -82,7 +82,7 @@ def save_checkpoint(
         fd, tmp = tempfile.mkstemp(
             dir=str(cp_path.parent), suffix=".tmp", prefix=".ckpt_"
         )
-        with open(fd, "w") as f:
+        with open(fd, "w", encoding="utf-8") as f:
             json.dump(payload, f)
         Path(tmp).replace(cp_path)
 
@@ -125,7 +125,7 @@ def load_checkpoint(
     if not cp_path.exists():
         return -1
     try:
-        with cp_path.open() as f:
+        with cp_path.open(encoding="utf-8") as f:
             data = json.load(f)
 
         version = int(data.get("schema_version", 1))

@@ -27,6 +27,25 @@ from src.core.contracts import PipelineConfigSnapshot
 
 TSAMP = 1.0e-3
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _source(relative: str) -> str:
+    """Read a source file the way every platform must read it.
+
+    ``Path.read_text()`` with no encoding uses the *locale* encoding, which is
+    cp1252 on a Windows runner. ``src/core/pipeline.py`` contains ``pc cm⁻³``
+    in a log line, and cp1252 cannot decode those bytes: the CI job for Windows
+    failed with ``UnicodeDecodeError: 'charmap' codec can't decode byte 0x81``.
+    The project is developed on Windows and the sources are UTF-8, so every
+    read of one has to say so.
+
+    The path is resolved against the repository rather than the working
+    directory for the same class of reason: a relative path makes the test
+    depend on where pytest was invoked from.
+    """
+    return (PROJECT_ROOT / relative).read_text(encoding="utf-8")
+
 
 # --------------------------------------------------------------------------- #
 # the per-file contracts
@@ -210,7 +229,7 @@ class TestTheSliceProcessorReadsItsSnapshot:
         reads over four keys to none."""
         import ast
 
-        tree = ast.parse(Path("src/core/detection_engine.py").read_text())
+        tree = ast.parse(_source("src/core/detection_engine.py"))
         node = next(
             n for n in ast.walk(tree)
             if isinstance(n, ast.FunctionDef)
@@ -248,7 +267,7 @@ class TestWhatRunPipelineStillReads:
     def _keys(self) -> set[str]:
         import ast
 
-        tree = ast.parse(Path("src/core/pipeline.py").read_text())
+        tree = ast.parse(_source("src/core/pipeline.py"))
         node = next(
             n for n in ast.walk(tree)
             if isinstance(n, ast.FunctionDef) and n.name == "run_pipeline"

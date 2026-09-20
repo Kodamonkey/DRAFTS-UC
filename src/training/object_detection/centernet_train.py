@@ -148,7 +148,7 @@ if __name__ == '__main__':
                 'reg_val': running_reg_val.item() / len(val_loader),
             }
             logs.append(log_epoch)
-            with open(log_dir + 'logs_{}.json'.format(backbone), 'w') as f:
+            with open(log_dir + 'logs_{}.json'.format(backbone), 'w', encoding='utf-8') as f:
                 json.dump(logs, f)
             scheduler.step(epoch + 1)
 

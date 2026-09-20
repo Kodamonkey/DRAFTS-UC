@@ -100,7 +100,7 @@ def _install_peak_detector(monkeypatch):
 def _read_candidates(results_dir: Path) -> list[dict]:
     rows: list[dict] = []
     for path in results_dir.rglob("*.candidates.csv"):
-        with path.open(newline="") as fh:
+        with path.open(newline="", encoding="utf-8") as fh:
             rows.extend(csv.DictReader(fh))
     return rows
 

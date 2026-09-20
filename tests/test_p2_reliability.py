@@ -254,9 +254,9 @@ class TestRerunDoesNotAppendToThePreviousRun:
         moved = rotate_previous_candidates(csv_file)
 
         assert moved is not None and moved.exists()
-        with moved.open(newline="") as fh:
+        with moved.open(newline="", encoding="utf-8") as fh:
             assert len(list(csv.reader(fh))) == 3  # header + 2 rows preserved
-        with csv_file.open(newline="") as fh:
+        with csv_file.open(newline="", encoding="utf-8") as fh:
             assert len(list(csv.reader(fh))) == 1  # fresh file, header only
 
     def test_header_only_file_is_left_alone(self, tmp_path):
@@ -403,6 +403,6 @@ class TestTransientFailuresAreRetried:
         monkeypatch.setattr("src.core.retry.time.sleep", lambda s: None)
         writer.flush()
 
-        with csv_file.open(newline="") as fh:
+        with csv_file.open(newline="", encoding="utf-8") as fh:
             assert len(list(csv.reader(fh))) == 2, "the row was lost to a transient error"
         CandidateWriter.flush_all()

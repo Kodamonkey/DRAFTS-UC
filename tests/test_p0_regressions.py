@@ -152,7 +152,7 @@ class TestCenterNetBoxFrame:
         )
         CandidateWriter.flush_all()
 
-        with csv_file.open(newline="") as fh:
+        with csv_file.open(newline="", encoding="utf-8") as fh:
             rows = list(csv.DictReader(fh))
         return rows, captured
 
@@ -219,12 +219,12 @@ class TestCandidateWriterDurability:
         for _ in range(3):  # fewer than flush_interval (50)
             writer.write(self._row())
 
-        with csv_file.open(newline="") as fh:
+        with csv_file.open(newline="", encoding="utf-8") as fh:
             assert len(list(csv.reader(fh))) == 1, "rows should still be buffered"
 
         CandidateWriter.flush_all()
 
-        with csv_file.open(newline="") as fh:
+        with csv_file.open(newline="", encoding="utf-8") as fh:
             assert len(list(csv.reader(fh))) == 1 + 3
 
     def test_flush_buffers_persists_without_closing_the_writer(self, tmp_path):
@@ -236,7 +236,7 @@ class TestCandidateWriterDurability:
 
         CandidateWriter.flush_buffers()
 
-        with csv_file.open(newline="") as fh:
+        with csv_file.open(newline="", encoding="utf-8") as fh:
             assert len(list(csv.reader(fh))) == 2
         assert csv_file.resolve() in CandidateWriter._instances
         CandidateWriter.flush_all()
@@ -266,7 +266,7 @@ class TestCandidateWriterDurability:
         )
         assert result.returncode == 0, result.stderr
 
-        with csv_file.open(newline="") as fh:
+        with csv_file.open(newline="", encoding="utf-8") as fh:
             assert len(list(csv.reader(fh))) == 1 + 3, (
                 "rows buffered at interpreter exit were lost"
             )

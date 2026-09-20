@@ -289,6 +289,103 @@ class TestContinuousIntegration:
         )
 
 
+class TestTextIsReadAsUTF8:
+    """Every text read states its encoding, because the default is not UTF-8.
+
+    ``Path.read_text()`` and ``open()`` with no ``encoding`` use the *locale*
+    encoding. On Linux that is UTF-8 and the omission is invisible; on a
+    Windows runner it is cp1252, which cannot decode the sources of this
+    project -- ``src/core/pipeline.py`` alone contains ``pc cm⁻³`` in a log
+    line. The Windows CI leg failed exactly that way:
+
+        UnicodeDecodeError: 'charmap' codec can't decode byte 0x81
+
+    and it failed on a test that had passed on Linux, in review, and in a full
+    local run. That is the whole hazard: this defect is undetectable on the
+    machine most of the work happens on. The check is cheap, so it is
+    mechanical rather than a matter of remembering.
+
+    Binary modes are exempt -- they have no encoding -- and so is the CSV
+    writer, which is checked separately because its encoding has to match what
+    reads the file back, not merely be stated.
+    """
+
+    _TEXT_METHODS = {"read_text", "write_text"}
+
+    @staticmethod
+    def _opens_text(node) -> bool:
+        """Whether this ``open`` call opens a file in TEXT mode.
+
+        Only two shapes count, and both are certain rather than guessed:
+
+          * a string-constant mode with no ``b`` in it -- ``open(fd, "w")``,
+            ``path.open("a", newline="")``;
+          * no positional argument at all, which for ``Path.open()`` is the
+            default ``"r"`` in text mode.
+
+        Everything else is left alone, which is what keeps
+        ``fits.open(name, memmap=True)`` and ``open(path, "rb")`` out of the
+        result. A mode computed at runtime is not flagged either; that is a
+        deliberate false negative, because guessing there would produce false
+        positives and a check nobody trusts gets deleted.
+        """
+        import ast
+
+        is_builtin = isinstance(node.func, ast.Name)
+        mode_index = 1 if is_builtin else 0
+        if len(node.args) <= mode_index:
+            # Path.open() with no mode is text; open() with only a path is too.
+            return not is_builtin or len(node.args) == 1
+        mode = node.args[mode_index]
+        if not (isinstance(mode, ast.Constant) and isinstance(mode.value, str)):
+            return False
+        return "b" not in mode.value
+
+    def _offenders(self, root: Path) -> list[str]:
+        """Call sites found with the AST, not with a regex over lines.
+
+        A line-based check gets this wrong in both directions: it flags the
+        prose in a docstring that merely mentions ``read_text()``, and it
+        misses a real call whose ``encoding=`` sits on the next line. Both
+        happened while writing this.
+        """
+        import ast
+
+        found: list[str] = []
+        for path in sorted(root.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if any(kw.arg == "encoding" for kw in node.keywords):
+                    continue
+                func = node.func
+                name = func.attr if isinstance(func, ast.Attribute) else (
+                    func.id if isinstance(func, ast.Name) else None
+                )
+                if name in self._TEXT_METHODS:
+                    found.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+                elif name == "open" and self._opens_text(node):
+                    found.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+        return found
+
+    def test_the_tests_name_their_encoding(self):
+        offenders = self._offenders(PROJECT_ROOT / "tests")
+        assert not offenders, (
+            "these read or write text without an encoding, which is cp1252 on "
+            f"Windows and will fail there: {offenders}"
+        )
+
+    def test_the_sources_name_their_encoding(self):
+        offenders = self._offenders(PROJECT_ROOT / "src")
+        assert not offenders, (
+            "these read or write text without an encoding, which is cp1252 on "
+            f"Windows and will fail there: {offenders}"
+        )
+
+
 class TestConfigurationIsInternallyConsistent:
     def test_current_markers_point_at_the_current_values(self):
         """The file used to mark 0.15 as [CURRENT] while the value was 0.10, and

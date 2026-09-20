@@ -66,21 +66,21 @@ def ensure_csv_header(csv_path: Path) -> None:
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     if csv_path.exists():
         try:
-            with csv_path.open("r", newline="") as f_csv:
+            with csv_path.open("r", newline="", encoding="utf-8") as f_csv:
                 rows = list(csv.reader(f_csv))
             if rows and rows[0] != CANDIDATE_HEADER:
                 width = len(CANDIDATE_HEADER)
                 padded = [CANDIDATE_HEADER]
                 for row in rows[1:]:
                     padded.append((row + [""] * width)[:width])
-                with csv_path.open("w", newline="") as f_csv:
+                with csv_path.open("w", newline="", encoding="utf-8") as f_csv:
                     writer = csv.writer(f_csv)
                     writer.writerows(padded)
         except Exception as e:
             logger.warning("Could not validate/update CSV header for %s: %s", csv_path, e)
         return
     try:
-        with csv_path.open("w", newline="") as f_csv:
+        with csv_path.open("w", newline="", encoding="utf-8") as f_csv:
             writer = csv.writer(f_csv)
             writer.writerow(CANDIDATE_HEADER)
     except PermissionError as e:
@@ -180,7 +180,7 @@ class CandidateWriter:
 
     def _ensure_open(self):
         if self._fh is None or self._fh.closed:
-            self._fh = self._path.open("a", newline="")
+            self._fh = self._path.open("a", newline="", encoding="utf-8")
             self._writer = csv.writer(self._fh)
 
     def write(self, row: list) -> None:

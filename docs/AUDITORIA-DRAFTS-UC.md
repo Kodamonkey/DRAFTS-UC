@@ -29,7 +29,7 @@ grandes se verificaron con arneses diferenciales contra el código anterior.
 | 1 — Correctness | 6-14 | completa |
 | 2 — Fiabilidad | 15-21 | completa |
 | 3 — Infraestructura | 22-28 | 6 de 7 (27 parcial) |
-| 4 — Arquitectura | 29-34 | 5 de 6 (33 parcial) |
+| 4 — Arquitectura | 29-34 | completa |
 | 5 — Performance | 35-38 | 2 de 4 (36 parcial, 38 pendiente) |
 | 6 — Mantenibilidad | 39-43 | completa |
 
@@ -64,7 +64,7 @@ grandes se verificaron con arneses diferenciales contra el código anterior.
 | 30 | REF-02 subir el dispatch LF/HF | cerrado | `dd41c43` |
 | 31 | REF-09 romper los ciclos | cerrado | `8256bb5` |
 | 32 | REF-05 función de 884 líneas del HF | cerrado | `dd41c43` |
-| 33 | REF-10 adoptar los contratos | **parcial** | `0cdbcfa`, `4c6475d`, `ec8757c`, `4554d73` |
+| 33 | REF-10 adoptar los contratos | cerrado | `0cdbcfa`, `4c6475d`, `ec8757c`, `4554d73`, `HEAD` |
 | 34 | REF-03 separar los lectores de `stream_fits` | cerrado | `f8ef15a` |
 | 35 | P1-23 `force_plots` | cerrado | `9eb891a` |
 | 36 | PERF-04 GC, batching, `cudnn.benchmark` | **parcial** | `9eb891a` |

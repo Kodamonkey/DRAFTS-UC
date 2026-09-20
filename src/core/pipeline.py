@@ -209,10 +209,15 @@ def _process_block(
 
     logger.debug(
         "Overlap raw→ds • left=%d→%d (rate=%d) • right=%d→%d",
-        int(metadata.get("overlap_left", 0)),
+        # From the contract rather than from the dict a third time. ChunkPlan
+        # was built at the top of this function and, until now, only fed a TRACE
+        # line -- built and not used is the state audit REF-10 calls an
+        # incomplete migration. It also validates what the dict does not:
+        # __post_init__ rejects a negative overlap and an end before the start.
+        chunk_plan.overlap_left,
         overlap_left_ds,
         obs_meta.down_time_rate,
-        int(metadata.get("overlap_right", 0)),
+        chunk_plan.overlap_right,
         overlap_right_ds,
     )
 
@@ -390,6 +395,7 @@ def _process_block(
             slice_start_idx=start_idx,
             slice_end_idx=end_idx,
             dm_values=dm_grid.values,
+            snapshot=pipe_snap,  # REF-10: built once by _process_block, per chunk
         )
 
         # Update stats immediately (PRESTO-style: process → write → update stats)
@@ -864,21 +870,38 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
     for issue in issues:
         logger.logger.warning("System check: %s", issue)
 
+    # REF-10. The search configuration is taken once, here, and every line
+    # below that needs it reads the snapshot instead of the global. This is the
+    # run-scoped half: it is built BEFORE any file is opened, which is correct
+    # for a startup banner -- these are the values from config.yaml, not the
+    # ones a header will overwrite. The per-file half is built inside the loop
+    # below, after the header has been read, and the two must not be confused:
+    # building one snapshot here and reusing it per file would freeze every
+    # observation parameter at its pre-header value.
+    #
+    # Only the search configuration moves. Paths, targets, the device, the log
+    # level, the thread count and the decimation rates stay as global reads,
+    # because they are process settings rather than search settings and putting
+    # them on PipelineConfigSnapshot would be miscategorising them to make a
+    # count go down.
+    run_snap = PipelineConfigSnapshot.from_config(config)
+    run_grid = DMGrid.from_config(config)
+
     pipeline_config = {
         'data_dir': str(config.DATA_DIR),
         'results_dir': str(config.RESULTS_DIR),
         'targets': config.FRB_TARGETS,
         'chunk_samples': chunk_samples,
-        'dm_min': config.DM_min,
-        'dm_max': config.DM_max,
-        'dm_trials': int(calculate_dm_values().size),
-        'dm_grid_mode': getattr(config, 'DM_GRID_MODE', 'legacy_uniform'),
+        'dm_min': run_snap.dm_min,
+        'dm_max': run_snap.dm_max,
+        'dm_trials': run_grid.size,
+        'dm_grid_mode': run_snap.dm_grid_mode,
         'trial_correction': getattr(config, 'TRIAL_CORRECTION', 'gaussian_extreme'),
         'slice_duration_ms': getattr(config, 'SLICE_DURATION_MS', 0.0),
         'down_time_rate': getattr(config, 'DOWN_TIME_RATE', 1),
         'down_freq_rate': getattr(config, 'DOWN_FREQ_RATE', 1),
         'polarization_mode': getattr(config, 'POLARIZATION_MODE', 'intensity'),
-        'save_only_burst': getattr(config, 'SAVE_ONLY_BURST', False),
+        'save_only_burst': run_snap.save_only_burst,
         'device': str(getattr(config, 'DEVICE', 'cpu')),
         'multi_band': getattr(config, 'USE_MULTI_BAND', False),
         'auto_high_freq': getattr(config, 'AUTO_HIGH_FREQ_PIPELINE', True),
@@ -887,27 +910,32 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
 
     logger.pipeline_start(pipeline_config)
 
-    # Log High-Frequency Pipeline Configuration
-    enable_phase2_snr = getattr(config, 'ENABLE_LINEAR_VALIDATION', False)
-    enable_intensity_class = getattr(config, 'ENABLE_INTENSITY_CLASSIFICATION', True)
-    enable_linear_class = getattr(config, 'ENABLE_LINEAR_CLASSIFICATION', True)
-    
+    # Log High-Frequency Pipeline Configuration.
+    # The two "_linear" thresholds used to be written here as
+    # `getattr(config, 'SNR_THRESH_LINEAR', config.SNR_THRESH)` -- the THIRD
+    # copy of that fallback in the code base, after the two the band function
+    # carried. The snapshot resolves it once, so a banner that disagrees with
+    # what the band function will actually use is no longer possible.
+    enable_phase2_snr = run_snap.enable_linear_validation
+    enable_intensity_class = run_snap.enable_intensity_classification
+    enable_linear_class = run_snap.enable_linear_classification
+
     logger.logger.info("=" * 80)
-    logger.logger.info("HF PIPELINE CONTROL (collapse_ratio=%.1f):", getattr(config, 'BOWTIE_COLLAPSE_RATIO', 2.0))
-    logger.logger.info("  Phase 1 (SNR Detection - I): ALWAYS ENABLED (threshold=%.1f)", config.SNR_THRESH)
-    logger.logger.info("  Phase 2 (SNR Validation - L): %s%s", 
+    logger.logger.info("HF PIPELINE CONTROL (collapse_ratio=%.1f):", run_snap.bowtie_collapse_ratio)
+    logger.logger.info("  Phase 1 (SNR Detection - I): ALWAYS ENABLED (threshold=%.1f)", run_snap.snr_thresh)
+    logger.logger.info("  Phase 2 (SNR Validation - L): %s%s",
                       "ENABLED" if enable_phase2_snr else "DISABLED",
-                      f" (threshold={getattr(config, 'SNR_THRESH_LINEAR', config.SNR_THRESH):.1f})" if enable_phase2_snr else "")
+                      f" (threshold={run_snap.snr_thresh_linear:.1f})" if enable_phase2_snr else "")
     logger.logger.info("  Phase 3a (Classification - I): %s%s",
                       "ENABLED" if enable_intensity_class else "DISABLED",
-                      f" (threshold={config.CLASS_PROB:.2f})" if enable_intensity_class else "")
+                      f" (threshold={run_snap.class_prob:.2f})" if enable_intensity_class else "")
     logger.logger.info("  Phase 3b (Classification - L): %s%s",
                       "ENABLED" if enable_linear_class else "DISABLED",
-                      f" (threshold={getattr(config, 'CLASS_PROB_LINEAR', config.CLASS_PROB):.2f})" if enable_linear_class else "")
+                      f" (threshold={run_snap.class_prob_linear:.2f})" if enable_linear_class else "")
     logger.logger.info("=" * 80)
-    
+
     # Log output mode
-    if config.SAVE_ONLY_BURST:
+    if run_snap.save_only_burst:
         logger.logger.info("Output mode: STRICT - Save only if ALL enabled phases classify as BURST")
     else:
         logger.logger.info("Output mode: PERMISSIVE - Save if ANY enabled phase classifies as BURST")
@@ -984,30 +1012,44 @@ def run_pipeline(chunk_samples: int = 0, config_dict: dict | None = None) -> Non
                 if manual_chunk_override and manual_chunk_override > 0:
                     logger.logger.info("Using manual chunk_samples override: %s", f"{file_chunk_samples:,}")
 
+                # REF-10, the per-file half. Built HERE, after
+                # `_prepare_file_parameters` has rewritten config from this
+                # file's header -- which is the whole reason the run-scoped
+                # snapshot above cannot be reused. SPEC-IO-001 requires these
+                # to be per file; a contract taken once per run would report
+                # the first file's geometry for every file after it.
+                obs_meta = ObservationMetadata.from_config(config)
+                file_snap = PipelineConfigSnapshot.from_config(config)
+                file_grid = DMGrid.from_config(config)
+
                 try:
                     freq_ds = calculate_frequency_downsampled()
                     freq_min_mhz = float(freq_ds.min())
                     freq_max_mhz = float(freq_ds.max())
                 except Exception:
-                    freq_min_mhz = float(np.min(config.FREQ)) if getattr(config, "FREQ", None) is not None else 0.0
-                    freq_max_mhz = float(np.max(config.FREQ)) if getattr(config, "FREQ", None) is not None else 0.0
+                    # The fallback is the un-decimated axis, which is exactly
+                    # what ObservationMetadata carries; the primary path is the
+                    # DECIMATED one and differs whenever DOWN_FREQ_RATE > 1, so
+                    # the two are not interchangeable.
+                    freq_min_mhz = obs_meta.freq_low
+                    freq_max_mhz = obs_meta.freq_high
                 file_info = {
-                    'samples': config.FILE_LENG,
-                    'duration_min': (config.FILE_LENG * config.TIME_RESO) / 60,
-                    'channels': config.FREQ_RESO,
+                    'samples': obs_meta.file_leng,
+                    'duration_min': obs_meta.duration_s / 60,
+                    'channels': obs_meta.freq_reso,
                     'freq_min_mhz': freq_min_mhz,
                     'freq_max_mhz': freq_max_mhz,
                     'bandwidth_mhz': max(0.0, freq_max_mhz - freq_min_mhz),
-                    'time_reso_ms': float(config.TIME_RESO) * 1000.0,
-                    'time_reso_ds_ms': float(config.TIME_RESO) * max(1, int(config.DOWN_TIME_RATE)) * 1000.0,
-                    'dm_min': float(config.DM_min),
-                    'dm_max': float(config.DM_max),
-                    'dm_trials': int(calculate_dm_values().size),
-                    'dm_grid_mode': getattr(config, 'DM_GRID_MODE', 'legacy_uniform'),
+                    'time_reso_ms': obs_meta.time_reso * 1000.0,
+                    'time_reso_ds_ms': obs_meta.effective_time_reso * 1000.0,
+                    'dm_min': file_snap.dm_min,
+                    'dm_max': file_snap.dm_max,
+                    'dm_trials': file_grid.size,
+                    'dm_grid_mode': file_snap.dm_grid_mode,
                 }
-                logger.file_processing_start(fits_path.name, file_info) 
-                
-                log_pipeline_file_processing(fits_path.name, fits_path.suffix.lower(), config.FILE_LENG, file_chunk_samples) 
+                logger.file_processing_start(fits_path.name, file_info)
+
+                log_pipeline_file_processing(fits_path.name, fits_path.suffix.lower(), obs_meta.file_leng, file_chunk_samples)
                 
                 results = _process_file_chunked(det_model, cls_model, fits_path, save_dir, file_chunk_samples)                               
                 summary[fits_path.name] = results

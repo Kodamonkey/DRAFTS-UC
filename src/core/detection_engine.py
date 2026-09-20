@@ -430,8 +430,24 @@ def process_slice_with_multiple_bands(
     slice_start_idx: int | None = None,
     slice_end_idx: int | None = None,
     dm_values=None,
+    snapshot=None,
 ):
-    """Process a slice across all configured frequency bands and persist outputs."""
+    """Process a slice across all configured frequency bands and persist outputs.
+
+    ``snapshot`` is a ``PipelineConfigSnapshot`` (audit REF-10). It is optional
+    so the one production caller passes the one it already built and a test can
+    inject its own; without it the behaviour is exactly what it was, because
+    ``from_config`` resolves the same values the reads below used to take from
+    the global.
+
+    Note the ``config`` parameter above: this function has always *accepted* a
+    configuration object, and the caller has always passed it the mutable global
+    module. Accepting it and being handed the global is not the same as being
+    given a snapshot, which is the distinction REF-10 is about.
+    """
+    from .contracts import PipelineConfigSnapshot
+
+    snap = PipelineConfigSnapshot.from_config(config) if snapshot is None else snapshot
 
     try:
         global_logger = get_global_logger()
@@ -481,7 +497,10 @@ def process_slice_with_multiple_bands(
                                                              
     if absolute_start_time is None:
                                                  
-        absolute_start_time = start_idx * config.TIME_RESO * config.DOWN_TIME_RATE
+        # The caller already computed this interval and passed it in as
+        # `time_reso_ds`; recomputing it from the global was a second source
+        # of truth for the same number, and nothing kept the two in step.
+        absolute_start_time = start_idx * time_reso_ds
     
                                                     
     if global_logger:
@@ -552,7 +571,7 @@ def process_slice_with_multiple_bands(
 
                                                                                                           
         should_generate_plots = False
-        if config.SAVE_ONLY_BURST:
+        if snap.save_only_burst:
                                                                                        
             should_generate_plots = (n_bursts > 0) or force_plots
         else:
@@ -591,7 +610,7 @@ def process_slice_with_multiple_bands(
                 fits_stem,
                 end_idx - start_idx,
                 normalize=True,
-                thresh_snr=config.SNR_THRESH,
+                thresh_snr=snap.snr_thresh,
                 band_idx=band_idx,
                 absolute_start_time=absolute_start_time,
                 chunk_idx=chunk_idx, 
@@ -600,13 +619,13 @@ def process_slice_with_multiple_bands(
             )
         else:
             if global_logger:
-                if config.SAVE_ONLY_BURST and n_no_bursts > 0:
+                if snap.save_only_burst and n_no_bursts > 0:
                     global_logger.logger.debug(f"{Colors.OKCYAN} Slice {j}: Only non-burst candidates detected (SAVE_ONLY_BURST=True, no plots){Colors.ENDC}")
                 else:
                     global_logger.logger.debug(f"{Colors.OKCYAN} Slice {j}: No candidates detected{Colors.ENDC}")
     
                                                                                                   
-    if config.SAVE_ONLY_BURST:
+    if snap.save_only_burst:
                                                                           
         effective_cand_counter = n_bursts
         effective_n_bursts = n_bursts

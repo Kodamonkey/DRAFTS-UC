@@ -11,8 +11,8 @@ Por eso el documento vive en el repositorio y no fuera de él.
 
 ## Resumen
 
-**41 de los 43 ítems del plan de la sección 37 están cerrados**, y REF-10
-(ítem 33) está muy avanzado. La suite pasó de 205 a 569 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
+**39 de los 43 ítems del plan de la sección 37 están cerrados**; los otros cuatro son tres parciales (27, 33, 36) y uno pendiente (38), y REF-10
+(ítem 33) está muy avanzado. La suite pasó de 205 a 575 tests, y desde el 2026-09-19 se ejecuta también en Linux (sección 3).
 Ningún cierre se dio por bueno sin verificación: cada corrección se comprobó
 revirtiéndola en aislamiento y confirmando que un test falla, y los refactors
 grandes se verificaron con arneses diferenciales contra el código anterior.
@@ -28,10 +28,10 @@ grandes se verificaron con arneses diferenciales contra el código anterior.
 | 0 — P0 bloqueantes | 1-5 | completa |
 | 1 — Correctness | 6-14 | completa |
 | 2 — Fiabilidad | 15-21 | completa |
-| 3 — Infraestructura | 22-28 | 6,5 de 7 |
-| 4 — Arquitectura | 29-34 | 5 de 6 |
-| 5 — Performance | 35-38 | 1,5 de 4 |
-| 6 — Mantenibilidad | 39-43 | 4 de 5 |
+| 3 — Infraestructura | 22-28 | 6 de 7 (27 parcial) |
+| 4 — Arquitectura | 29-34 | 5 de 6 (33 parcial) |
+| 5 — Performance | 35-38 | 2 de 4 (36 parcial, 38 pendiente) |
+| 6 — Mantenibilidad | 39-43 | completa |
 
 ## Ítem por ítem
 
@@ -183,6 +183,35 @@ PERF-02 y la parte restante de PERF-04 —batching de inferencia, AMP,
 `cudnn.benchmark`, `channels_last`— tocan la ruta torch-GPU. La máquina donde se
 hizo este trabajo no tiene GPU, así que no se pueden verificar aquí.
 
+### Qué queda, a fecha de hoy
+
+**El plan NO está terminado: 39 de 43 ítems cerrados.** Los cinco abiertos se
+reparten en tres grupos que no son intercambiables.
+
+*Bloqueados por falta de hardware (no se pueden ni intentar aquí):*
+
+| # | ítem | por qué |
+|---|---|---|
+| 38 | PERF-02 dedispersión torch vectorizada | `torch.cuda.is_available()` es `False` y no hay `nvidia-smi` en este entorno. Escribir la ruta GPU sin poder ejecutarla es exactamente lo que produjo los dos fallos de CI del 2026-09-17 |
+| 36 | PERF-04, la mitad que falta (batching, AMP, `cudnn.benchmark`) | lo mismo; el GC y las copias de arrays de ese ítem sí están hechos |
+
+*Bloqueados por una decisión del responsable:*
+
+| # | ítem | la decisión |
+|---|---|---|
+| 27 | P2-29/REF-07 `advanced-config/` | `models.yaml` son 177 líneas que `user_config.py` carga y nadie lee. `logging.yaml`, `visualization.yaml` y `performance.yaml` ya están cableados. **Cablear o borrar**: son las dos únicas respuestas honestas, y ninguna es del auditor |
+
+*Trabajo real que sí se puede hacer sin GPU ni decisiones:*
+
+| # | ítem | lo que queda, medido |
+|---|---|---|
+| 33 | REF-10 adoptar los contratos | los bucles calientes están hechos. Lo que queda es `run_pipeline`: **50 lecturas del global sobre 31 claves distintas**, sin tocar. Y el procesador de *slices* LF (`detection_engine.process_slice_with_multiple_bands`, 6 sobre 4). Además `ChunkPlan` se construye y sólo alimenta *logging* |
+| 23 | Dockerfile y CI | el ítem está cerrado como código, pero **el build nunca se ha ejecutado**. Requiere arrancar Docker, que este entorno no tiene |
+
+Dicho de otro modo: de los cinco abiertos, **uno solo** es trabajo que se puede
+hacer aquí y ahora (el ítem 33), y de ese uno la pieza grande y bien delimitada
+es `run_pipeline`.
+
 ### Necesita una decisión del responsable del proyecto
 
 - **Reprocesar los catálogos existentes.** P0-1 invalidó todos los DM y tiempos
@@ -297,11 +326,23 @@ haciendo. Dos incrementos hechos (`0cdbcfa`, `4c6475d`):
   deletreaban (dos de ellos caen a su equivalente de intensidad, no a un
   literal). Recuento en las rutas calientes:
 
+  Recuento en las rutas calientes, contando cada `config.<ATTR>` y cada
+  `getattr(config, ...)` con el AST, no a ojo:
+
   | función | antes | ahora |
   |---|---|---|
   | `_process_block` | 12 | 2 (`get_band_configs`, `FORCE_PLOTS`) |
   | `_process_file_chunked_high_freq` | 17 | 1 (`get_band_configs`) |
-  | `snr_detect_and_classify_candidates_in_band` | 21 | 0 |
+  | `snr_detect_and_classify_candidates_in_band` | 26 | 2 (`HIGH_FREQ_DM_POLICY`, `TRIAL_CORRECTION`) |
+
+  > Corrección: esta tabla decía «21 → 0» para la función de banda. Ninguno de
+  > los dos números sobrevive a la medición. Los 21 eran sólo las lecturas que
+  > el *snapshot* cubre; el total real era 26 sobre 14 claves, porque además
+  > había dos de `TIME_RESO`/`DOWN_TIME_RATE` (que pasaron a ser el argumento
+  > `time_reso_ds`) y dos de política que el snapshot no lleva. Y «0» era falso:
+  > quedan esas dos, `HIGH_FREQ_DM_POLICY` y `TRIAL_CORRECTION`. No son
+  > configuración de búsqueda, que es lo que el contrato modela, pero son
+  > lecturas del global igualmente.
 
   Todo verificado con arnés diferencial contra una línea base tomada **antes**
   de cualquier refactor de esta sesión: los CSV de ambos drivers siguen siendo
@@ -401,16 +442,36 @@ Tres cosas que el trabajo destapó:
   está fijado con una banda de 10 GHz donde ocurre (1,35 muestras a tasa 1 y
   0,67 a tasa 2).
 
-Dos hallazgos **registrados y no corregidos**, porque son de otro tema:
+**El NaN que llegaba al dedispersor** — hallado por lo anterior, **cerrado**
+(`3342f68`). `process_slice_with_multiple_bands_high_freq` protegía `first_dm`
+contra `None` pero no contra NaN, y a alta frecuencia el DM es NaN *siempre*
+(SPEC-HF-002 salta el cubo y `resolve_candidate_dm` responde NaN, que es lo
+correcto: es la diferencia entre «no medido» y «medido como cero», que es de lo
+que trata P1-10). Las tres dedispersiones del gráfico —Intensidad, Lineal,
+Circular— pedían entonces un DM de NaN, y `dedisperse_block` construye sus
+retardos con `(... * dm * ...).round().astype(np.int64)`: `NaN.round()` a int64
+es indefinido, y con esos índices se recorta el bloque. De ahí los avisos
+`invalid value encountered in cast` y `overflow encountered in scalar subtract`
+de todo run HF.
 
-- `process_slice_with_multiple_bands_high_freq` hace
-  `dm_to_use = result["first_dm"] if result["first_dm"] is not None else 0.0`,
-  que no protege contra NaN — y a alta frecuencia el DM es NaN *siempre*, por
-  SPEC-HF-002. `dedisperse_block` recibe entonces NaN y calcula sus retardos con
-  `NaN.round().astype(np.int64)`, lo que produce los avisos
-  `invalid value encountered in cast` y `overflow encountered in scalar
-  subtract` que se ven en cualquier run HF. El bloque dedispersado que va al
-  gráfico es basura. Una línea de guarda lo arregla; no es este commit.
+El parche por candidato, unos cientos de líneas más arriba, ya lo hacía bien, así
+que el **mismo candidato** se dedispersaba a 0.0 para su parche y a NaN para la
+figura de al lado. La regla es ahora una función, `dm_for_dedispersion()`, usada
+por los dos sitios. Verificado revirtiendo en aislamiento: el test falla con el
+código viejo (3 de 3 dedispersiones de bloque con DM no finito en cada tasa) y
+pasa con el nuevo; los dos avisos pasan de presentes a **cero** en toda la
+suite.
+
+No tocado, y por qué: `detection_engine.py:566` tiene el mismo guardia
+incompleto, pero en la ruta LF `first_dm` viene de `extract_candidate_dm`, que
+devuelve un valor de la rejilla — no se pudo construir un NaN ahí, así que
+añadir la guarda sería un cambio no verificable en la ruta que protege el golden
+CSV. Y `visualization_unified.py:134` sigue pasando el NaN como **etiqueta** de
+gráfico; eso es una pregunta de presentación (qué debe decir una figura cuando
+la banda no pudo resolver el DM), no de comportamiento indefinido.
+
+Un hallazgo **registrado y no corregido**:
+
 - Los dos decimadores (el compartido `downsample_data` y el *reshape* propio del
   driver HF) coinciden exactamente en el modo por defecto `sum`, y **divergen**
   bajo `TEMPORAL_DOWNSAMPLING_MODE` en `phase_preserving`/`snr_preserving`: el

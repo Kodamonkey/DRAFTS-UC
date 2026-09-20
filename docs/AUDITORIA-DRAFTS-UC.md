@@ -54,7 +54,7 @@ grandes se verificaron con arneses diferenciales contra el código anterior.
 | 15-20 | P1-13…P1-19, P2-01, P2-02 | cerrado | `a76ca85` |
 | 21 | Tests de los caminos críticos | cerrado | `69a38ac`, `c0c75c9` |
 | 22 | `docker-compose.yml` | cerrado | `14c721d` |
-| 23 | P1-21, P1-22 Dockerfile y CI | cerrado, **build sin ejecutar** | `14c721d` |
+| 23 | P1-21, P1-22 Dockerfile y CI | cerrado, **build bloqueado por red** | `14c721d`, `HEAD` |
 | 24 | P2-32, P2-33 rotación y persistencia de logs | cerrado | `14c721d` |
 | 25 | P2-34…P2-36 CI | cerrado | `14c721d` |
 | 26 | REF-19, REF-20 código muerto y `src/logging` | cerrado | `780c492` |
@@ -206,7 +206,7 @@ reparten en tres grupos que no son intercambiables.
 | # | ítem | lo que queda, medido |
 |---|---|---|
 | 33 | REF-10 adoptar los contratos | los bucles calientes están hechos. Lo que queda es `run_pipeline`: **50 lecturas del global sobre 31 claves distintas**, sin tocar. Y el procesador de *slices* LF (`detection_engine.process_slice_with_multiple_bands`, 6 sobre 4). Además `ChunkPlan` se construye y sólo alimenta *logging* |
-| 23 | Dockerfile y CI | el ítem está cerrado como código, pero **el build nunca se ha ejecutado**. Requiere arrancar Docker, que este entorno no tiene |
+| 23 | Dockerfile y CI | el build se **intentó** con el comando exacto de CI contra un demonio arrancado a propósito. El demonio levantó y el contexto cargó; la imagen base no se pudo descargar: la política de red responde 403 a `production.cloudfront.docker.com`, la CDN a la que el registro redirige los blobs. Ni siquiera `docker build --check` pasa, porque también necesita esos metadatos. Queda sin verificar por red, no por código |
 
 Dicho de otro modo: de los cinco abiertos, **uno solo** es trabajo que se puede
 hacer aquí y ahora (el ítem 33), y de ese uno la pieza grande y bien delimitada
@@ -223,7 +223,16 @@ es `run_pipeline`.
   pesos) y se borraron las 172 líneas restantes, que describían intenciones y
   no comportamientos. `test_models_yaml.py::test_every_key_in_the_file_is_read`
   impide que el archivo vuelva a crecer claves sin consumidor.
-- **Arrancar Docker** para verificar el build del ítem 23.
+- **Arrancar Docker** para verificar el build del ítem 23. Intentado
+  (`HEAD`): el demonio arranca aquí, pero la descarga de la imagen base la
+  bloquea la política de red con un 403. El README del proxy dice
+  explícitamente que eso se reporta y no se sortea, así que no se sorteó. Lo
+  que sí se cerró es el subconjunto de fallos de build que no necesita uno:
+  `TestTheBuildWouldFindItsInputs` comprueba que cada `COPY` lee algo que
+  existe, que `.dockerignore` no excluye nada que la imagen necesite, y que los
+  *pins* de torch/torchvision del Dockerfile y las versiones que CI afirma
+  dentro del contenedor coinciden con el lockfile contra el que corren los
+  tests — que es exactamente la deriva que describe el ítem.
 
 ### Deuda técnica generada por la propia remediación
 

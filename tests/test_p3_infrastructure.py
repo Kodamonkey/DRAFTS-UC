@@ -107,6 +107,107 @@ class TestContainerMatchesTheProject:
         assert 'ENTRYPOINT ["python", "main.py"]' in dockerfile
 
 
+class TestTheBuildWouldFindItsInputs:
+    """What a ``docker build`` would catch, checked without running one.
+
+    Item 23 is committed as code and its build has still never been executed
+    anywhere this project can reach. It was attempted here, with the exact
+    command CI runs -- ``docker build --target cpu-final -t drafts-uc:ci .``
+    -- against a daemon started for the purpose. The daemon came up, the build
+    context loaded, and the base image could not be fetched: the network policy
+    answers 403 to ``production.cloudfront.docker.com``, which is the CDN the
+    Docker registry redirects blobs to. Even ``docker build --check``, which
+    only lints, needs that metadata.
+
+    So the build stays unverified, and these tests cover the subset of build
+    failures that do not need one: a COPY whose source is not in the
+    repository, and a pinned version that has drifted from the lockfile the
+    tests actually run against. That second one is the failure mode the audit
+    describes -- the image "drifted to a different Python and a different torch
+    from the one the tests run against" -- and it is entirely visible from the
+    files.
+    """
+
+    def _copy_sources(self) -> list[str]:
+        """Every path a COPY reads from the build context."""
+        sources: list[str] = []
+        for line in DOCKERFILE.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped.upper().startswith("COPY "):
+                continue
+            parts = stripped.split()[1:]
+            # Skip flags (--from=, --chown=); the last token is the destination.
+            operands = [p for p in parts if not p.startswith("--")]
+            if len(operands) < 2:
+                continue
+            if any(p.startswith("--from=") for p in parts):
+                continue  # from another stage, not from the context
+            sources.extend(operands[:-1])
+        return sources
+
+    def test_every_copy_reads_something_that_exists(self):
+        """A COPY of a path that is not in the repository fails the build at
+        that layer, after everything before it has been paid for."""
+        missing = [
+            source for source in self._copy_sources()
+            if not (PROJECT_ROOT / source.rstrip("/")).exists()
+        ]
+        assert not missing, (
+            f"the Dockerfile copies {missing}, which are not in the repository"
+        )
+
+    def test_the_copies_cover_what_the_entrypoint_needs(self):
+        """``ENTRYPOINT ["python", "main.py"]`` cannot run without these."""
+        sources = {s.rstrip("/") for s in self._copy_sources()}
+        for needed in ("src", "main.py", "config.yaml", "advanced-config"):
+            assert needed in sources, f"{needed} never reaches the image"
+
+    def test_nothing_the_image_needs_is_excluded_by_dockerignore(self):
+        """A path can be present in the repository and still absent from the
+        build context, which fails the same way and is harder to see."""
+        ignore = PROJECT_ROOT / ".dockerignore"
+        if not ignore.exists():
+            pytest.skip("no .dockerignore")
+        patterns = {
+            line.strip() for line in ignore.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.strip().startswith("#")
+            and not line.strip().startswith("!")
+        }
+        for needed in ("src", "main.py", "config.yaml", "advanced-config"):
+            assert needed not in patterns, (
+                f".dockerignore excludes {needed}, which the Dockerfile copies"
+            )
+
+    def test_the_cpu_stage_pins_the_torch_the_lockfile_pins(self):
+        """The CPU stage installs torch from the CPU index by an inline pin
+        rather than from the lockfile, so nothing but a test keeps the two in
+        step -- and the version the tests run against is the lockfile's."""
+        text = DOCKERFILE.read_text(encoding="utf-8")
+        for package in ("torch", "torchvision"):
+            pinned = set(re.findall(rf"{package}==([\d.]+)", text))
+            assert pinned == {_lock_version(package)}, (
+                f"Dockerfile pins {package} {pinned}, lockfile has "
+                f"{_lock_version(package)}"
+            )
+
+    def test_the_versions_ci_asserts_are_the_versions_that_get_installed(self):
+        """The CI job runs python inside the image and asserts a numpy major
+        and a torch minor. Those literals and the lockfile are two statements
+        of one fact, and only this keeps them from disagreeing."""
+        ci_text = CI.read_text(encoding="utf-8")
+        for package, pattern in (
+            ("numpy", r'numpy\.__version__\.startswith\("([\d.]+)"\)'),
+            ("torch", r'torch\.__version__\.startswith\("([\d.]+)"\)'),
+        ):
+            asserted = re.search(pattern, ci_text)
+            assert asserted, f"CI no longer asserts a {package} version"
+            prefix = asserted.group(1)
+            assert _lock_version(package).startswith(prefix), (
+                f"CI asserts {package} {prefix}*, lockfile has "
+                f"{_lock_version(package)}"
+            )
+
+
 class TestComposeRunsAfterAClone:
     def test_no_developer_paths_remain(self):
         compose = COMPOSE.read_text(encoding="utf-8")
